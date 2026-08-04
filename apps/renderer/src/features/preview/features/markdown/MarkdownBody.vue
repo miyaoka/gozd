@@ -10,10 +10,9 @@ Markdown 文字列を marked で HTML 変換し DOMPurify でサニタイズし�
 - padding / 文字サイズは consumer ごとに異なるため持たせず、class フォールスルーで外から渡す
   (preview は `p-6`、session log dialog は `px-3 py-2` 等)
 - 相対リンク解決 / 履歴ナビゲーションが必要な consumer は `linkClick` を購読して処理する
-  (MarkdownPreview 参照)。購読しない場合はブラウザ既定挙動 + main の will-frame-navigate 防壁
-  に委ねられる。ただし host を contenteditable にする consumer では Chromium がリンククリックを
-  キャレット配置として扱い navigation 自体が起きないため、委譲は成立しない (MarkdownPreview は
-  自前で外部送りする)
+  (MarkdownPreview 参照)。購読しない場合はブラウザ既定挙動 + main の navigation 防壁に委ねられる。
+  host を contenteditable にする consumer では既定挙動が発生せず委譲が成立しない (理由は
+  `resolveMarkdownLink` の docstring)
 </doc>
 
 <script setup lang="ts">

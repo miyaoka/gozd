@@ -3,10 +3,8 @@ marked で Markdown → HTML 変換し、DOMPurify でサニタイズして表�
 
 - YAML frontmatter はコードブロックとして描画
 - 相対パスリンクのクリックは worktree 相対パスとして解決し、プレビュー対象を切り替える
-- http(s) / mailto: の絶対 URL は `openExternal` RPC で OS のデフォルトブラウザに渡す。
-  本文は Cmd+A のスコープを閉じるため contenteditable host であり、Chromium は editing host 内の
-  リンククリックで navigation を起こさない（キャレット配置に倒れる）。ブラウザ既定挙動と
-  main の will-navigate 防壁には委譲できないため、ここで明示的に外部送りする
+- http(s) / mailto: の絶対 URL は `openExternal` RPC で OS のデフォルトブラウザに渡す
+  （分類と「委譲できない理由」の SSOT は `resolveMarkdownLink`）
 - 行番号フラグメント (`./foo.ts#L42`) は lineNumber として `selectPath` に渡す
 - 解決ロジックは `resolveMarkdownLink` に分離 (純粋関数 + ユニットテスト)
 - 内部リンクの遷移は `useMarkdownHistoryStore.navigate()` 経由で行い、back / forward 履歴に積む。
@@ -36,14 +34,12 @@ const notification = useNotificationStore();
  * クリック経路は VS Code (`markdown-language-features/preview-src/index.ts`) に揃える。
  * - 左クリックの `@click` のみ。middle click (`auxclick`) は WebView の既定挙動に任せる
  *   (VS Code でも未対応 / 内部リンクとして扱わない)
- * - `#fragment` 単独だけを preventDefault せず素通しし、ブラウザ既定スクロールに委ねる
- * - http(s) / mailto: は `openExternal` RPC で明示的に OS へ渡す。VS Code の preview-src も
- *   この scheme は素通しするが、受け手はブラウザ既定の navigation ではなく webview host
- *   (`webview/browser/pre/index.html` の handleInnerClick) で、そこが全リンククリックを
- *   preventDefault して host へ転送している。gozd に対応する層は無く、しかも本文は
- *   contenteditable host なので Chromium はリンククリックをキャレット配置として扱い
- *   navigation 自体を起こさない。素通しでは main の will-frame-navigate 防壁にも到達せず
- *   リンクが死ぬため、preview 自身が明示的に外部送りする
+ * - 分岐は `resolveMarkdownLink` の分類に従うだけ。passthrough (`#fragment` 単独) だけ
+ *   preventDefault せず素通しし、external は openExternal RPC で撃つ
+ *
+ * VS Code の preview-src も http(s) は素通しするが、受け手はブラウザ既定の navigation ではなく
+ * webview host (`webview/browser/pre/index.html` の handleInnerClick) で、そこが全リンククリックを
+ * preventDefault して host へ転送している。gozd にこの層は無い。
  *
  * notification は **固定 message + 詳細を `cause` に分離** する。
  * `useNotificationStore` は同一 message を重複抑制するため、href 違いのリンクを連続
@@ -56,7 +52,13 @@ const LINK_EXTERNAL_FAILED_MESSAGE = "Could not open link in the browser";
 
 async function openExternal(url: string) {
   const opened = await tryCatch(rpcOpenExternal({ url }));
-  if (!opened.ok) notification.error(LINK_EXTERNAL_FAILED_MESSAGE, { url, error: opened.error });
+  if (opened.ok) return;
+  // url は外側 Error の message に載せ、元 error は cause に包む。plain object に Error を
+  // 入れると message / stack が non-enumerable のため詳細パネルで潰れる (formatCause 参照)
+  notification.error(
+    LINK_EXTERNAL_FAILED_MESSAGE,
+    new Error(`url=${url}`, { cause: opened.error }),
+  );
 }
 
 function onLinkClick(e: MouseEvent) {

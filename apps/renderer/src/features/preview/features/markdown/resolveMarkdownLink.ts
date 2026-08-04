@@ -8,13 +8,15 @@ import type { PathTarget } from "../../../worktree";
  * リポジトリ内ファイル由来のテキストを描画するため、旧内部 scheme
  * (`gozd-file://` / `gozd-rpc://` / `gozd-app://`) / `file:` / `data:` / `javascript:` 等の
  * 内部 or 危険 scheme は明示的に invalid に倒す (廃止済み scheme も defense in depth で残す)。
- * external は http(s) / mailto: のみで、main の `openExternal` allowlist と同一集合。
+ * external は http(s) / mailto: のみで、`/open/external` route の scheme allowlist
+ * (`OPEN_EXTERNAL_ALLOWED_SCHEMES`) と同一集合。navigation 防壁側の判定 (http(s) のみ) とは別物。
  *
  * passthrough は `#fragment` 単独 (同一文書内アンカー) だけに限る。外部 URL を passthrough に
- * 含めて「ブラウザ既定の遷移 + main の will-navigate 防壁」に委ねる形は採らない。プレビュー本体は
+ * 含めて「ブラウザ既定の遷移 + main の navigation 防壁」に委ねる形は採らない。プレビュー本体は
  * Cmd+A のスコープを閉じるため contenteditable host であり、Chromium は editing host 内の
- * リンククリックでキャレット配置に倒して navigation を起こさない。委譲先の既定挙動が存在せず
- * リンクが不活性になるため、外部送りは呼び出し側が明示的に実行する。
+ * リンククリックをキャレット配置として扱って navigation 自体を起こさない。委譲先の既定挙動が
+ * 存在せずリンクが不活性になるため、外部送りは呼び出し側が明示的に実行する
+ * (この制約の SSOT は本ファイル。呼び出し側は分類に従うだけ)。
  *
  * 行番号フラグメント (`#L42`, `#L42,5`, `#42`) は VS Code の `getLocationFragmentFromLinkText`
  * 互換の regex で lineNumber を抽出する。それ以外の anchor (`#section` 等の見出しアンカー) は

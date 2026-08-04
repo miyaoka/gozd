@@ -198,13 +198,6 @@ function buildUndockedDoc(): UndockedPreviewDoc | undefined {
 }
 
 /**
- * HTML preview の配信対象 (絶対パス) と配信を許す root。
- *
- * worktree 相対 selection は worktree root を root にする。worktree 外の絶対パス selection は
- * そのファイルが居る dir を root にして、配信範囲を最小に保つ (VS Code の localResourceRoots が
- * 開いているものだけを列挙するのと同じ絞り方)。
- */
-/**
  * HTML preview の再 load 契機。配信は実ファイルを読むため、内容が変わったら iframe を作り直す。
  *
  * `contentEpoch` は主 watch (選択 / rev / git status の変化) でしか増えず「previewed file の
@@ -217,6 +210,13 @@ watch(displayContent, () => {
   htmlEpoch.value += 1;
 });
 
+/**
+ * HTML preview の配信対象 (絶対パス) と配信を許す root。
+ *
+ * worktree 相対 selection は worktree root を root にする。worktree 外の絶対パス selection は
+ * そのファイルが居る dir を root にして、配信範囲を最小に保つ (VS Code の localResourceRoots が
+ * 開いているものだけを列挙するのと同じ絞り方)。
+ */
 const htmlTarget = computed(() => {
   if (fileType.value !== "html") return undefined;
   // 配信経路は working tree の実ファイルしか読めない。表示中 rev がそれと一致しないときは

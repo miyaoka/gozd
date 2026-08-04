@@ -50,17 +50,18 @@ function rootPrefix(root: string): string {
 /**
  * preview 配信を許す root を登録する。同一 root の重複登録は no-op。
  *
- * root も `realpath` してから登録する。配信時は request path を解決してから範囲判定するので、
- * root 側を解決しないと比較の両辺が食い違う。macOS は `/tmp` → `/private/tmp`、
- * `/var` → `/private/var` が symlink なので、`$TMPDIR` や `/tmp` 配下の repo で全配信が
- * 403 になる。解決に失敗したら登録しない（存在しない root を許可しても配信できない）。
+ * root も `realpath` してから登録する。範囲判定は配信時に解決済み path で行うので、root 側を
+ * 解決しないと比較の両辺が食い違う。macOS は `/tmp` → `/private/tmp`、`/var` → `/private/var`
+ * が symlink なので、`$TMPDIR` や `/tmp` 配下の repo で全配信が 403 になる。
+ *
+ * 解決に失敗したら throw する。登録できないまま URL を返すと、iframe が load して 403 になり
+ * 「空面 + stderr 1 行」で終わる。呼び出し側 (RPC handler) がエラーに変換すれば renderer の
+ * トーストまで届く。
  */
 export async function addPreviewRoot(root: string): Promise<void> {
-  if (root === "") return;
   const real = await tryCatch(realpath(root));
   if (!real.ok) {
-    console.error(`[previewProtocol] failed to resolve root: ${root}: ${real.error}`);
-    return;
+    throw new Error(`failed to resolve preview root: ${root}: ${String(real.error)}`);
   }
   validRoots.add(rootPrefix(real.value));
 }
@@ -116,19 +117,16 @@ export function installPreviewProtocol(): void {
       console.error(`[previewProtocol] rejected malformed url: ${request.url}`);
       return new Response(null, { status: 400 });
     }
-    if (!isUnderValidRoot(path)) {
-      console.error(`[previewProtocol] rejected out-of-root path: ${path}`);
-      return new Response(null, { status: 403 });
-    }
-    // symlink は解決してから範囲判定し直す。root 配下に root 外を指す symlink があると、
-    // 判定だけ通って実体は範囲外のファイルを配信してしまう
+    // 範囲判定は解決済み path で 1 回だけ行う。登録 root も解決済みなので両辺が揃う。
+    // 解決前の path でも判定すると、symlink を含むパス (macOS の /tmp・$TMPDIR) で
+    // 両辺が食い違って正常なファイルまで弾く
     const real = await tryCatch(realpath(path));
     if (!real.ok) {
       console.error(`[previewProtocol] realpath failed: ${path}: ${real.error}`);
       return new Response(null, { status: 404 });
     }
     if (!isUnderValidRoot(real.value)) {
-      console.error(`[previewProtocol] rejected symlink out of root: ${path} -> ${real.value}`);
+      console.error(`[previewProtocol] rejected out-of-root path: ${path} -> ${real.value}`);
       return new Response(null, { status: 403 });
     }
     const read = await tryCatch(readFile(real.value));

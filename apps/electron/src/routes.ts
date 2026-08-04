@@ -952,6 +952,11 @@ async function handlePreviewHtmlUrl(body: unknown): Promise<unknown> {
   // root="/" はファイルシステム全体を配信可能にし、root を絞る仕組みそのものを無効化する。
   // 登録は取り消せないので、fallback せずここで弾く
   if (req.root === "/") throw new Error("root must not be the filesystem root");
+  // 登録範囲と要求対象が食い違ったまま URL を返すと、iframe が 403 を踏んで空面になり
+  // renderer には何も伝わらない。入口で弾いて RPC のエラーに乗せる
+  if (!req.absPath.startsWith(req.root.endsWith("/") ? req.root : `${req.root}/`)) {
+    throw new Error(`absPath must be under root: ${req.absPath} (root=${req.root})`);
+  }
   await addPreviewRoot(req.root);
   return { url: pathToPreviewUrl(req.absPath) } satisfies PreviewHtmlUrlResponse;
 }

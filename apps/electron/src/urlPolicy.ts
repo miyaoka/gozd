@@ -2,9 +2,30 @@
 // 純関数に切り出してバイパス文字列の回帰テストを可能にする (urlPolicy.test.ts)。
 import { tryCatch } from "@gozd/shared";
 
-/** http(s) スキームか。外部ブラウザへ送る対象の判定。 */
+/** http(s) スキームか。 */
 export function isHttpUrl(url: string): boolean {
   return url.startsWith("http://") || url.startsWith("https://");
+}
+
+/**
+ * OS へ渡してよい URL scheme の allowlist。ブラウザ / メールクライアントで開く想定の
+ * scheme のみを許可する（Swift 版 openExternalAllowedSchemes と同一集合）。
+ *
+ * `/open/external` route（renderer が明示的に撃つ経路）と navigation 防壁（frame が遷移しようと
+ * したのを横取りする経路）の両方がこれを参照する。層ごとに別集合を持つと、防壁だけ mailto を
+ * 落とすといった非対称が生まれ、どの経路を通ったかで挙動が変わる。
+ */
+export const EXTERNAL_ALLOWED_SCHEMES: ReadonlySet<string> = new Set([
+  "http:",
+  "https:",
+  "mailto:",
+]);
+
+/** OS へ渡してよい URL か。scheme は `EXTERNAL_ALLOWED_SCHEMES` に限る。 */
+function isExternalUrl(url: string): boolean {
+  const parsed = tryCatch(() => new URL(url));
+  if (!parsed.ok) return false;
+  return EXTERNAL_ALLOWED_SCHEMES.has(parsed.value.protocol);
 }
 
 /**
@@ -39,32 +60,43 @@ export type FrameNavigationVerdict = "allow" | "external" | "block";
  *
  * 例外は 2 つだけ。
  *
- * - 外部 http(s) は OS ブラウザへ逃がす (`external`)。frame を置換させない点は block と同じ
- * - dev の Vite origin への **main frame** 遷移は通す (`allow`)。Vite の full reload は
+ * - OS へ渡してよい scheme は外部アプリへ逃がす (`external`)。frame を置換させない点は block と
+ *   同じで、遷移の代わりに `shell.openExternal` が走る。ただし subframe は http(s) に絞る。
+ *   Chromium / Electron 自身が sandboxed frame からの external protocol 起動を塞いでおり、
+ *   防壁が肩代わりするとその保護を迂回するため
+ * - dev の Vite origin への **main frame の再読み込み** は通す (`allow`)。Vite の full reload は
  *   `location.reload()` で、これは `will-frame-navigate` を発火するため止めると HMR が壊れる。
- *   packaged は `loadFile` で読み込み、リロードも webContents API 経由でこの判定に到達しないため、
- *   例外は dev だけに閉じる
+ *   例外を「同一 URL への遷移」に絞るのは、同 origin の別 path を通すと rendered content
+ *   （session log の assistant markdown 等）の root-relative リンクが dev で Vite origin に解決され、
+ *   UI 面が SPA fallback に置換されるため。packaged は `loadFile` で読み込み、リロードも
+ *   webContents API 経由でこの判定に到達しないので、例外は dev だけに閉じる
  *
  * subframe は HTML preview の `<iframe srcdoc sandbox="">` だけで、初期 srcdoc から動かないのが
  * 契約なので例外を持たない。内部 origin であっても遷移すればプレビュー面を奪う (dev では
  * previewed HTML の相対リンクが Vite origin に解決され SPA fallback の index.html が返る。
  * sandbox でスクリプトが動かないので白面になる)。
  *
- * subframe を一律 block しても HTML preview が死なないのは、`srcdoc` の初期ロードが URLLoader を
- * 経由せず `will-frame-navigate` に到達しないため。`about:srcdoc` がこの判定に届くようになると
- * プレビューは全面が空になり、手がかりは block の stderr 1 行だけになる。
+ * 一律 block が HTML preview / undock child window を殺さないのは、`about:srcdoc` や
+ * `about:blank` のように URLLoader を経由しない commit がこの判定に到達しないため。到達する
+ * ようになるとプレビューは全面が空になり、child window は投影前の文書を失う。手がかりは block の
+ * stderr 1 行だけになる。
  */
 export function decideFrameNavigation({
   url,
   isMainFrame,
+  currentUrl,
   rendererOrigin,
 }: {
   url: string;
   isMainFrame: boolean;
+  /** 遷移元の frame が現在読んでいる URL。full reload の判定に使う */
+  currentUrl: string;
   rendererOrigin: string | undefined;
 }): FrameNavigationVerdict {
-  // 内部 origin は外部送りの対象ではない。main frame の full reload だけ通し、subframe は止める
-  if (isRendererOrigin(url, rendererOrigin)) return isMainFrame ? "allow" : "block";
-  if (isHttpUrl(url)) return "external";
+  // 内部 origin は外部送りの対象ではない。main frame の full reload だけ通し、それ以外は止める
+  if (isRendererOrigin(url, rendererOrigin)) {
+    return isMainFrame && url === currentUrl ? "allow" : "block";
+  }
+  if (isMainFrame ? isExternalUrl(url) : isHttpUrl(url)) return "external";
   return "block";
 }

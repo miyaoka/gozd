@@ -112,6 +112,7 @@ function installExternalLinkPolicy(contents: WebContents): void {
     const verdict = decideFrameNavigation({
       url: details.url,
       isMainFrame: details.isMainFrame,
+      currentUrl: contents.getURL(),
       rendererOrigin,
     });
     if (verdict === "allow") return;
@@ -120,7 +121,10 @@ function installExternalLinkPolicy(contents: WebContents): void {
       openExternal(details.url);
       return;
     }
-    console.error(`[ExternalLink] blocked subframe navigation: ${details.url}`);
+    // block は UI 上何も起きないため、このログが唯一の診断材料。どの frame が止められたかで
+    // 調べに行く先（UI 本体か HTML preview か）が変わるので frame 役割を載せる
+    const frame = details.isMainFrame ? "main frame" : "subframe";
+    console.error(`[ExternalLink] blocked ${frame} navigation: ${details.url}`);
   });
 }
 

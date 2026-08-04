@@ -34,16 +34,25 @@ describe("isRendererOrigin", () => {
 });
 
 describe("decideFrameNavigation", () => {
+  const CURRENT_URL = `${RENDERER_ORIGIN}/index.html`;
   const decide = (url: string, isMainFrame: boolean, rendererOrigin = RENDERER_ORIGIN) =>
-    decideFrameNavigation({ url, isMainFrame, rendererOrigin });
+    decideFrameNavigation({ url, isMainFrame, currentUrl: CURRENT_URL, rendererOrigin });
 
   describe("main frame", () => {
-    test("dev の Vite origin は allow (location.reload によるフルリロードを止めない)", () => {
-      expect(decide("http://localhost:5173/src/main.ts", true)).toBe("allow");
+    test("dev の Vite origin への同一 URL 遷移は allow (location.reload を止めない)", () => {
+      expect(decide(CURRENT_URL, true)).toBe("allow");
+    });
+
+    test("dev の Vite origin でも別 path は block (rendered content からの UI 面置換)", () => {
+      expect(decide(`${RENDERER_ORIGIN}/src/main.ts`, true)).toBe("block");
     });
 
     test("外部 http(s) は external", () => {
       expect(decide("https://example.com/", true)).toBe("external");
+    });
+
+    test("mailto: は external (OS のメールクライアントへ渡す)", () => {
+      expect(decide("mailto:user@example.com", true)).toBe("external");
     });
 
     test("packaged の file: は block (renderer は loadFile 経由でこの判定に到達しない)", () => {
@@ -61,10 +70,6 @@ describe("decideFrameNavigation", () => {
       expect(decide("data:text/html,<h1>x</h1>", true)).toBe("block");
       expect(decide("blob:http://localhost:5173/abcd", true)).toBe("block");
     });
-
-    test("mailto: 等の非 http scheme も block (外部送りは openExternal RPC の責務)", () => {
-      expect(decide("mailto:user@example.com", true)).toBe("block");
-    });
   });
 
   describe("subframe (HTML preview の sandboxed iframe)", () => {
@@ -72,8 +77,13 @@ describe("decideFrameNavigation", () => {
       expect(decide("https://example.com/", false)).toBe("external");
     });
 
-    test("dev の Vite origin も block (SPA fallback がプレビュー面を奪う)", () => {
-      expect(decide("http://localhost:5173/page2.html", false)).toBe("block");
+    test("dev の Vite origin は同一 URL でも block (プレビュー面を動かさない)", () => {
+      expect(decide(CURRENT_URL, false)).toBe("block");
+      expect(decide(`${RENDERER_ORIGIN}/page2.html`, false)).toBe("block");
+    });
+
+    test("mailto: は block (Chromium が塞ぐ external protocol 起動を防壁が肩代わりしない)", () => {
+      expect(decide("mailto:user@example.com", false)).toBe("block");
     });
 
     test("file: は block (プレビュー面でローカルファイルを描画させない)", () => {

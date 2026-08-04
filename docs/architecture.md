@@ -184,15 +184,22 @@ undock child window）に一律。判定はセキュリティ境界のため純�
   それ以外は deny し、http(s) のみ `shell.openExternal` で OS ブラウザへ
 - `will-frame-navigate`: scheme の allowlist を持たず**原則すべて block** し、例外だけを開ける
   （判定の SSOT は純関数 `decideFrameNavigation`）
-  - 外部 http(s): preventDefault + OS ブラウザへ
-  - dev の Vite origin への **main frame** 遷移: 許可。Vite の full reload は `location.reload()`
-    で `will-frame-navigate` を発火するため、止めると HMR が壊れる
-  - それ以外（`file:` / `data:` / `blob:` / mailto: 等、および subframe の全遷移）: block
+  - OS へ渡してよい scheme（`EXTERNAL_ALLOWED_SCHEMES` = http / https / mailto）: preventDefault +
+    `shell.openExternal`。ただし subframe は http(s) に絞る（Chromium / Electron 自身が sandboxed
+    frame からの external protocol 起動を塞いでおり、防壁が肩代わりすると保護を迂回するため）
+  - dev の Vite origin への **main frame の同一 URL 遷移**: 許可。Vite の full reload は
+    `location.reload()` で `will-frame-navigate` を発火するため、止めると HMR が壊れる
+  - それ以外（`file:` / `data:` / `blob:` 等、Vite origin の別 path、subframe の全内部遷移）: block
 
 原則 block は VS Code（`app.on("web-contents-created")` の will-navigate ハンドラが URL も見ずに
 preventDefault する）と同じ構造。allowlist 方式だと「外部送りではないが通してもいない」scheme が
 素通りする。packaged は renderer を `loadFile` で読み込み、リロードも webContents API 経由なので
-この判定に到達せず、例外は dev だけに閉じる。
+この判定に到達せず、例外は dev だけに閉じる。例外を同一 URL に絞るのは、同 origin の別 path を
+通すと rendered content（session log の assistant markdown 等）の root-relative リンクが dev で
+Vite origin に解決され、UI 面が SPA fallback に置換されるため。
+
+外部送りの scheme 集合は `/open/external` route（renderer が明示的に撃つ経路）と共有する。層ごとに
+別集合を持つと、どの経路を通ったかで mailto の可否が変わる非対称が生まれる。
 
 `will-navigate` を使わないのは main frame でしか発火せず subframe を素通しするため。sandbox は
 origin を opaque にするだけで frame 自身の遷移は禁止しないので、subframe を見ないと previewed

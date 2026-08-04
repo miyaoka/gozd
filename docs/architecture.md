@@ -213,12 +213,11 @@ renderer からクリックを傍受する経路が無いので、この frame �
 
 block は stderr に残す（silent drop 禁止）。launch 失敗も同様。
 
-`will-navigate` を使わないのは main frame でしか発火せず subframe を素通しするため。sandbox は
-origin を opaque にするだけで frame 自身の遷移は禁止しないので、subframe を見ないと previewed
-HTML のリンクが HTML preview 面を置換する。
+`will-navigate` を使わないのは main frame でしか発火せず subframe を素通しするため。subframe を
+見ないと previewed HTML のリンクが HTML preview 面を置換する。
 
-一律 block が HTML preview / undock child window を殺さないのは、`about:srcdoc` / `about:blank` の
-ように URLLoader を経由しない commit がこの判定に到達しないため。
+HTML preview が生きているのは `gozd-preview://` を明示的に allow しているから。undock child window
+が生きているのは、`about:blank` のように URLLoader を経由しない commit がこの判定に到達しないため。
 
 ### renderer: OS に渡してよい URL を決める
 

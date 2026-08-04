@@ -29,7 +29,7 @@ leaf コンポーネントの内訳 (`PreviewContent` 配下):
 - 差分 → DiffPreview（`git diff --no-index` で取得した hunk 配列を描画）
 - 画像 / SVG → ImagePreview（取得済み content から Blob → ObjectURL）
 - Markdown → MarkdownPreview（marked + DOMPurify）
-- HTML → HtmlPreview（sandboxed `<iframe srcdoc>` でネイティブ描画）
+- HTML → HtmlPreview（`gozd-preview://` の実 URL を `<iframe>` に load してネイティブ描画）
 </doc>
 
 <script setup lang="ts">

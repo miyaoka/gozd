@@ -87,8 +87,14 @@ describe("decideFrameNavigation", () => {
       expect(decide(`${RENDERER_ORIGIN}/page2.html`, false)).toBe("block");
     });
 
-    test("mailto: は block (sandboxed frame からの external protocol は Chromium が塞ぐ)", () => {
-      expect(decide("mailto:user@example.com", false)).toBe("block");
+    test("mailto: は external (この frame はクリックを傍受できず、ここが唯一の受け取り口)", () => {
+      expect(decide("mailto:user@example.com", false)).toBe("external");
+    });
+
+    test("外部送りの scheme 集合は renderer 側 allowlist と同一 (それ以外は block)", () => {
+      expect(decide("ftp://example.com/", false)).toBe("block");
+      expect(decide("tel:+81000000000", false)).toBe("block");
+      expect(decide("javascript:alert(1)", false)).toBe("block");
     });
 
     test("file: は block (プレビュー面でローカルファイルを描画させない)", () => {

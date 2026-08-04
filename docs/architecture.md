@@ -208,8 +208,9 @@ renderer からクリックを傍受する経路が無いので、この frame �
     SPA fallback に置換されるため。packaged は renderer を `loadFile` で読み込み、リロードも
     webContents API 経由なのでこの判定に到達せず、例外は dev だけに閉じる
   - **subframe の遷移**: `gozd-preview://` 内（previewed HTML の相対リンク）は許可。配信範囲は
-    protocol handler が登録 root に絞り、root 外は 403 になる。外部 http(s) は preventDefault +
-    OS ブラウザへ（上表のとおりこの frame のクリックを受け取れる層が他に無い）。それ以外は block
+    protocol handler が登録 root に絞り、root 外は 403 になる。OS へ渡してよい scheme
+    （http / https / mailto。renderer 側 allowlist と同一集合）は preventDefault + OS へ
+    （上表のとおりこの frame のクリックを受け取れる層が他に無い）。それ以外は block
 
 block は stderr に残す（silent drop 禁止）。launch 失敗も同様。
 

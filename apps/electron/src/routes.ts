@@ -102,6 +102,8 @@ import type {
   OpenFileResponse,
   PreviewHtmlUrlRequest,
   PreviewHtmlUrlResponse,
+  PreviewReleaseHtmlRequest,
+  PreviewReleaseHtmlResponse,
   PickAndOpenResponse,
   ProjectConfigEnsureFileRequest,
   ProjectConfigEnsureFileResponse,
@@ -152,7 +154,12 @@ import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
 import { isChildWindow } from "./childWindows";
-import { addPreviewRoot, isWithinRoot, pathToPreviewUrl } from "./previewProtocol";
+import {
+  addPreviewRoot,
+  isWithinRoot,
+  pathToPreviewUrl,
+  releasePreviewRoots,
+} from "./previewProtocol";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import {
@@ -939,7 +946,8 @@ async function handleOpenExternal(body: unknown): Promise<unknown> {
   const req = body as OpenExternalRequest;
   const parsed = tryCatch(() => new URL(req.url));
   if (!parsed.ok) throw new Error(`invalid url: ${req.url}`);
-  await shell.openExternal(req.url);
+  const opened = await tryCatch(shell.openExternal(req.url));
+  if (!opened.ok) throw new Error(`failed to open externally: ${req.url}: ${String(opened.error)}`);
   return {} satisfies OpenExternalResponse;
 }
 
@@ -957,8 +965,15 @@ async function handlePreviewHtmlUrl(body: unknown): Promise<unknown> {
   if (!isWithinRoot(req.absPath, req.root)) {
     throw new Error(`absPath must be under root: ${req.absPath} (root=${req.root})`);
   }
-  await addPreviewRoot(req.root);
+  await addPreviewRoot(req.root, req.previewId);
   return { url: pathToPreviewUrl(req.absPath) } satisfies PreviewHtmlUrlResponse;
+}
+
+// preview が閉じた / 対象を変えたときに配信許可を手放す
+async function handlePreviewReleaseHtml(body: unknown): Promise<unknown> {
+  const req = body as PreviewReleaseHtmlRequest;
+  releasePreviewRoots(req.previewId);
+  return {} satisfies PreviewReleaseHtmlResponse;
 }
 
 async function handleOpenFile(body: unknown): Promise<unknown> {
@@ -1253,6 +1268,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/open/external", handleOpenExternal],
   ["/open/file", handleOpenFile],
   ["/preview/htmlUrl", handlePreviewHtmlUrl],
+  ["/preview/releaseHtml", handlePreviewReleaseHtml],
   ["/open/pickAndOpen", handlePickAndOpen],
   ["/window/close", handleWindowClose],
   ["/window/setTitleContext", handleWindowSetTitleContext],

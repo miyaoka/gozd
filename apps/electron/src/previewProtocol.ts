@@ -38,8 +38,14 @@ const PREVIEW_CSP = [
   "base-uri 'self'",
 ].join("; ");
 
-/** 配信を許す root（絶対パス）。renderer が preview を開くたびに登録する */
-const validRoots = new Set<string>();
+/**
+ * 配信を許す root（解決済み prefix）→ それを要求している preview の id 集合。
+ *
+ * root の寿命を preview の生存期間に紐づける。登録しっぱなしにすると、閉じた preview の root が
+ * 残り、別の preview がその root 配下の asset を読めてしまう（VS Code の `addValidFileRoot` が
+ * disposable を返して寿命を呼び出し側に持たせているのと同じ理由）。
+ */
+const rootOwners = new Map<string, Set<string>>();
 
 /** trailing separator を持つ正規化 root。prefix 比較で sibling dir を巻き込まないため */
 function rootPrefix(root: string): string {
@@ -58,12 +64,28 @@ function rootPrefix(root: string): string {
  * 「空面 + stderr 1 行」で終わる。呼び出し側 (RPC handler) がエラーに変換すれば renderer の
  * トーストまで届く。
  */
-export async function addPreviewRoot(root: string): Promise<void> {
+export async function addPreviewRoot(root: string, previewId: string): Promise<void> {
   const real = await tryCatch(realpath(root));
   if (!real.ok) {
     throw new Error(`failed to resolve preview root: ${root}: ${String(real.error)}`);
   }
-  validRoots.add(rootPrefix(real.value));
+  const prefix = rootPrefix(real.value);
+  // 同じ preview が別 root へ移ったときに前の root を残さない
+  releasePreviewRoots(previewId);
+  const owners = rootOwners.get(prefix) ?? new Set<string>();
+  owners.add(previewId);
+  rootOwners.set(prefix, owners);
+}
+
+/**
+ * preview が閉じた / 対象を変えたときに、その preview が要求していた root を手放す。
+ * 他の preview がまだ同じ root を要求していれば prefix は残る。
+ */
+export function releasePreviewRoots(previewId: string): void {
+  for (const [prefix, owners] of rootOwners) {
+    if (!owners.delete(previewId)) continue;
+    if (owners.size === 0) rootOwners.delete(prefix);
+  }
 }
 
 /**
@@ -81,7 +103,7 @@ export function isWithinRoot(absPath: string, root: string): boolean {
 /** 絶対パスが登録 root のいずれかの配下かを判定する（配信時の権威的な判定） */
 function isUnderValidRoot(absPath: string): boolean {
   const normalized = normalize(absPath);
-  for (const prefix of validRoots) {
+  for (const prefix of rootOwners.keys()) {
     if (normalized.startsWith(prefix)) return true;
   }
   return false;

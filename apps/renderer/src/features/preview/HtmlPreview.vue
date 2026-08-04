@@ -19,7 +19,9 @@ previewed HTML はリポジトリ内の任意ファイルで untrusted。実 ori
 script / frame / form は無効で、参照できるのは同 origin の asset と data: URI だけ。
 
 配信範囲は `/preview/htmlUrl` に渡した root 配下に限られる。main は登録の無い path を
-配信しない (VS Code の `localResourceRoots` と同型)。
+配信しない (VS Code の `localResourceRoots` と同型)。許可はこの instance の id に紐づき、
+unmount で `/preview/releaseHtml` して手放す。残すと閉じた preview の root 配下を別の preview が
+読めてしまう。
 
 origin が renderer と異なるため、iframe 内 JS から親の `__gozdElectronRpc` には到達できない
 (そもそも script を CSP で止めている)。
@@ -50,9 +52,9 @@ PR diff / 実体なし）では consumer が target を渡さず source 表示�
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
-import { ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { rpcPreviewHtmlUrl } from "./rpc";
+import { rpcPreviewHtmlUrl, rpcPreviewReleaseHtml } from "./rpc";
 
 const props = defineProps<{
   /** レンダリング対象 HTML の絶対パス */
@@ -69,12 +71,28 @@ const src = ref<string>();
 /** 固定 message + 詳細を cause に分離し、対象違いでトーストが累積しないようにする */
 const URL_FAILED_MESSAGE = "Could not open HTML preview";
 
+/**
+ * 非同期レース防止のバージョンカウンター (usePreviewContent と同じ規律)。
+ * 対象が短時間に変わると RPC が並行し、古い応答が後に完了すると選択中と違う HTML を描いてしまう。
+ */
+let requestSeq = 0;
+
+/**
+ * この preview instance の識別子。main が配信許可 (root) をこの id に紐づけて保持し、
+ * unmount で解放する。解放しないと閉じた preview の root が残り、別の preview がその配下を
+ * 読めてしまう。
+ */
+const previewId = crypto.randomUUID();
+
 watch(
   () => [props.absPath, props.root, props.epoch] as const,
   async ([absPath, root, epoch]) => {
-    const result = await tryCatch(rpcPreviewHtmlUrl({ absPath, root }));
+    const mySeq = ++requestSeq;
+    // 新しい要求を始めた時点で前の面を消す。解決までの間、古い対象を映し続けない
+    src.value = undefined;
+    const result = await tryCatch(rpcPreviewHtmlUrl({ absPath, root, previewId }));
+    if (mySeq !== requestSeq) return;
     if (!result.ok) {
-      src.value = undefined;
       notify.error(URL_FAILED_MESSAGE, new Error(`path=${absPath}`, { cause: result.error }));
       return;
     }
@@ -84,6 +102,15 @@ watch(
   },
   { immediate: true },
 );
+
+onBeforeUnmount(() => {
+  // 解放できなくても UI 上は何も起きないが、配信許可が残り続けるので観察ログは残す
+  void tryCatch(rpcPreviewReleaseHtml({ previewId })).then((released) => {
+    if (!released.ok) {
+      console.error(`[HtmlPreview] failed to release preview root: ${String(released.error)}`);
+    }
+  });
+});
 </script>
 
 <template>

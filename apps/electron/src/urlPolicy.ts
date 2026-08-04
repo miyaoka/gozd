@@ -12,9 +12,24 @@
 import { tryCatch } from "@gozd/shared";
 import { PREVIEW_SCHEME } from "./previewScheme";
 
-/** http(s) スキームか。origin 判定と外部送り判定が同じ述語を共有する */
+/** http(s) スキームか。dev の Vite origin 判定に使う（Vite の URL は必ず http(s)） */
 function isHttpUrl(url: string): boolean {
   return url.startsWith("http://") || url.startsWith("https://");
+}
+
+/**
+ * OS へ渡してよい scheme。renderer 側 (`shared/rpc` の openExternal) の allowlist と同一集合。
+ *
+ * 通常このリストは renderer だけが持つが、HTML preview の subframe はクリックを傍受できず
+ * この層が唯一の受け取り口になるため、同じ集合をここでも判定する必要がある。
+ */
+const EXTERNAL_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"]);
+
+/** OS へ渡してよい URL か。parse 不能な文字列は渡さない */
+function isExternalUrl(url: string): boolean {
+  const parsed = tryCatch(() => new URL(url));
+  if (!parsed.ok) return false;
+  return EXTERNAL_SCHEMES.has(parsed.value.protocol);
 }
 
 /**
@@ -53,8 +68,9 @@ export type FrameNavigationVerdict = "allow" | "external" | "block";
  *
  * subframe は HTML preview の iframe だけ。`gozd-preview://` 内の遷移は previewed HTML の
  * 相対リンクなので許可する (配信範囲は previewProtocol の登録 root に絞られており、root 外は
- * 配信自体が 403 になる)。外部 http(s) は `external` で OS に逃がす — この frame のリンク
- * クリックを受け取れる層が他に無いため (ファイル冒頭の注記)。それ以外は block。
+ * 配信自体が 403 になる)。OS へ渡してよい scheme (http / https / mailto) は `external` で
+ * 逃がす — この frame のリンククリックを受け取れる層が他に無いため (ファイル冒頭の注記)。
+ * それ以外は block。
  *
  * 一律 block が undock child window を殺さないのは、`about:blank` のように URLLoader を
  * 経由しない commit がこの判定に到達しないため。到達するようになると child window は投影前の
@@ -82,7 +98,7 @@ export function decideFrameNavigation({
     // 内部 origin は「外部」ではない。dev では previewed HTML の絶対リンクがここに解決され得るため、
     // 外部送りすると意図しないブラウザ起動になる
     if (isRendererOrigin(url, rendererOrigin)) return "block";
-    return isHttpUrl(url) ? "external" : "block";
+    return isExternalUrl(url) ? "external" : "block";
   }
   return url === currentUrl && isRendererOrigin(url, rendererOrigin) ? "allow" : "block";
 }

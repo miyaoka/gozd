@@ -57,6 +57,9 @@ const LINK_OPEN_FAILED_MESSAGE = "Could not open link in the browser";
  */
 function onLinkActivate(event: MouseEvent) {
   if (event.button !== 0 && event.button !== 1) return;
+  // macOS の WebKit は control+click を button 0 の click として dispatch する。
+  // 意図はコンテキストメニューなので、リンク起動として扱わず既定挙動に渡す
+  if (event.ctrlKey) return;
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const anchor = target.closest("a");

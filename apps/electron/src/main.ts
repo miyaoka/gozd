@@ -69,9 +69,8 @@ const TRAFFIC_LIGHT_X = 16;
 /** renderer 内リンクの外部送り防壁。Swift 版 ExternalLinkNavigationDecider の対応物。
  * デフォルトでは `<a target="_blank">` が新しい Electron window を開き、http(s) 遷移は
  * 遷移先の frame（main frame なら UI 全体、subframe なら HTML preview 面）を置換して
- * しまうため構造的に必要な防壁。判定軸は Swift 版と同じ scheme 3 分岐: 内部 origin
- * （dev の Vite URL / packaged の file:）は許可、それ以外の http(s) は OS のデフォルト
- * ブラウザへ、その他 scheme は許可。全 frame に同一の軸を当てる。
+ * しまうため構造的に必要な防壁。遷移の判定軸は frame の役割で分かれ、SSOT は純関数
+ * `decideFrameNavigation`（urlPolicy.ts）。
  *
  * 唯一の例外が `window.open("about:blank")` で、undock 用 child window として許可する
  * （VS Code の auxiliary window と同じ判定軸）。same-origin の about:blank は opener と
@@ -87,8 +86,6 @@ function installExternalLinkPolicy(contents: WebContents): void {
       }
     });
   };
-  // 判定はセキュリティ境界のため純関数 (urlPolicy.ts) に切り出し、バイパス文字列の
-  // 回帰テストで固定している
 
   // window.open / target="_blank" は about:blank（undock child window）以外は新 window を
   // 作らせない。http(s) のみ外部ブラウザに送り、それ以外は黙って deny。

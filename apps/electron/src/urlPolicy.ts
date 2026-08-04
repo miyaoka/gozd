@@ -35,6 +35,10 @@ export type FrameNavigationVerdict = "allow" | "external" | "block";
  * 契約。内部 origin であっても遷移すればプレビュー面を奪うため (dev では previewed HTML の相対
  * リンクが Vite origin に解決され SPA fallback の index.html が返る。sandbox でスクリプトが
  * 動かないので白面になる)、外部送り以外は一律 block する。
+ *
+ * subframe を一律 block しても HTML preview が死なないのは、`srcdoc` の初期ロードが URLLoader を
+ * 経由せず `will-frame-navigate` に到達しないため。`about:srcdoc` がこの判定に届くようになると
+ * プレビューは全面が空になり、手がかりは block の stderr 1 行だけになる。
  */
 export function decideFrameNavigation({
   url,

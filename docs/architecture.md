@@ -191,9 +191,7 @@ undock child window）に一律。判定はセキュリティ境界のため純�
 
 `will-navigate` を使わないのは main frame でしか発火せず subframe を素通しするため。sandbox は
 origin を opaque にするだけで frame 自身の遷移は禁止しないので、subframe を見ないと previewed
-HTML のリンクがプレビュー面を置換する。内部 origin も block するのは、dev では相対リンクが
-Vite origin に解決されて SPA fallback の index.html が返り、`sandbox` でスクリプトも動かないため
-白面になるから。block は stderr に残す（silent drop 禁止）。launch 失敗も同様。
+HTML のリンクがプレビュー面を置換する。block は stderr に残す（silent drop 禁止）。launch 失敗も同様。
 
 markdown preview（`MarkdownPreview.vue`）は防壁に委ねず `openExternal` RPC で自前で外部送りする
 （理由は `resolveMarkdownLink` の docstring が SSOT）。

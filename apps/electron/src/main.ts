@@ -89,7 +89,6 @@ function installExternalLinkPolicy(contents: WebContents): void {
   };
   // 判定はセキュリティ境界のため純関数 (urlPolicy.ts) に切り出し、バイパス文字列の
   // 回帰テストで固定している
-  const isHttp = isHttpUrl;
 
   // window.open / target="_blank" は about:blank（undock child window）以外は新 window を
   // 作らせない。http(s) のみ外部ブラウザに送り、それ以外は黙って deny。
@@ -105,7 +104,7 @@ function installExternalLinkPolicy(contents: WebContents): void {
         overrideBrowserWindowOptions: { backgroundColor: WINDOW_BACKGROUND_COLOR },
       };
     }
-    if (isHttp(url)) openExternal(url);
+    if (isHttpUrl(url)) openExternal(url);
     return { action: "deny" };
   });
 

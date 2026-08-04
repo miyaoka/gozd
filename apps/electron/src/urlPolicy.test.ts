@@ -1,5 +1,5 @@
-// 外部送り境界の回帰テスト。isInternalUrl が origin 完全一致であることを、既知の
-// バイパス文字列で固定する (prefix 比較へ差し戻すと fail する)。
+// 外部送り境界の回帰テスト。origin 判定 (isInternalUrl が完全一致であることを既知のバイパス
+// 文字列で固定する。prefix 比較へ差し戻すと fail する) と、frame 役割ごとの遷移判定を守る。
 import { describe, expect, test } from "bun:test";
 import { decideFrameNavigation, isInternalUrl } from "./urlPolicy";
 

@@ -182,12 +182,17 @@ undock child window）に一律。判定はセキュリティ境界のため純�
   auxiliary window と同じ判定軸。same-origin の about:blank は opener と同一 renderer
   プロセスに作られ、中身は opener が DOM 投影で構築する — renderer の ChildWindow.vue）。
   それ以外は deny し、http(s) のみ `shell.openExternal` で OS ブラウザへ
-- `will-frame-navigate`: 外部 http(s) は preventDefault + OS ブラウザへ。残りは frame の役割で
-  分かれる（判定の SSOT は純関数 `decideFrameNavigation`）
-  - main frame（UI 本体）: 内部 origin（dev の Vite URL / packaged の file:）と http(s) 以外の
-    scheme は許可
-  - subframe（HTML preview の `<iframe srcdoc sandbox="">`）: 初期 srcdoc から動かないのが契約
-    なので、外部送り以外は一律 block
+- `will-frame-navigate`: scheme の allowlist を持たず**原則すべて block** し、例外だけを開ける
+  （判定の SSOT は純関数 `decideFrameNavigation`）
+  - 外部 http(s): preventDefault + OS ブラウザへ
+  - dev の Vite origin への **main frame** 遷移: 許可。Vite の full reload は `location.reload()`
+    で `will-frame-navigate` を発火するため、止めると HMR が壊れる
+  - それ以外（`file:` / `data:` / `blob:` / mailto: 等、および subframe の全遷移）: block
+
+原則 block は VS Code（`app.on("web-contents-created")` の will-navigate ハンドラが URL も見ずに
+preventDefault する）と同じ構造。allowlist 方式だと「外部送りではないが通してもいない」scheme が
+素通りする。packaged は renderer を `loadFile` で読み込み、リロードも webContents API 経由なので
+この判定に到達せず、例外は dev だけに閉じる。
 
 `will-navigate` を使わないのは main frame でしか発火せず subframe を素通しするため。sandbox は
 origin を opaque にするだけで frame 自身の遷移は禁止しないので、subframe を見ないと previewed

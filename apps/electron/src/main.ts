@@ -107,8 +107,7 @@ function installExternalLinkPolicy(contents: WebContents): void {
 
   // frame の遷移。`will-navigate` を使わないのは main frame でしか発火せず、subframe
   // （HTML preview の `<iframe srcdoc sandbox="">`）の遷移を素通しするため。sandbox は origin を
-  // opaque にするだけで frame 自身の遷移は禁止しない。判定は frame の役割ごとに分かれるため
-  // 純関数 (urlPolicy.ts) が SSOT。
+  // opaque にするだけで frame 自身の遷移は禁止しない。
   contents.on("will-frame-navigate", (details) => {
     const verdict = decideFrameNavigation({
       url: details.url,

@@ -222,10 +222,13 @@ HTML preview が生きているのは `gozd-preview://` を明示的に allow �
 
 ### renderer: OS に渡してよい URL を決める
 
-`shared/rpc` の `openExternal` が唯一の経路で、scheme allowlist（http / https / mailto）も
-ここだけが持つ。リンククリックを受け取る層（markdown 本文 / terminal の OSC 8 / filer の
-submodule リンク）はすべてこれを通す。allowlist 外は開かずに reject し、呼び出し側が通知に倒す。
-subframe だけは renderer が受け取れないため防壁側が担う（上記）。
+`shared/rpc` の `openExternal` が唯一の経路。リンククリックを受け取る層（markdown 本文 /
+terminal の OSC 8 / filer の submodule リンク）はすべてこれを通す。allowlist 外は開かずに
+reject し、呼び出し側が通知に倒す。subframe だけは renderer が受け取れないため防壁側が担う（上記）。
+
+scheme allowlist（http / https / mailto）は `@gozd/shared` の `isExternalUrl` が SSOT で、
+renderer の `openExternal` と main の防壁が同じ述語を見る。層ごとに別集合を持つと「同じリンクでも
+通った経路で開く / 開かないが変わる」非対称が生まれる。
 
 markdown 本文は `MarkdownBody` が `#fragment` 単独を除く全リンククリックを `preventDefault` し、
 外部 URL は自分で `openExternal` に流す。残りの href を `linkClick` で consumer に委ねる

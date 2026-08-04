@@ -1,7 +1,8 @@
-// OS へ渡してよい URL の唯一の判定点。untrusted 入力（terminal の OSC 8、markdown の href）が
-// 直接届くため、既知のバイパス文字列を回帰テストで固定する。
+// OS へ渡してよい URL の唯一の判定点。untrusted 入力（terminal の OSC 8、markdown の href、
+// previewed HTML のリンク）が直接届くため、既知のバイパス文字列を回帰テストで固定する。
+// renderer の openExternal と main の navigation 防壁が共にこの述語を使う。
 import { describe, expect, test } from "bun:test";
-import { isExternalUrl } from "./openExternal";
+import { isExternalUrl } from "./externalUrl";
 
 describe("isExternalUrl", () => {
   test("http / https / mailto は許可", () => {

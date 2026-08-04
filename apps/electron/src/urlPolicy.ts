@@ -9,27 +9,12 @@
 // 例外が HTML preview の iframe。previewed HTML は `gozd-preview://` の実 origin で配信され
 // (previewProtocol.ts)、その中の script は CSP で止めてある。renderer からクリックを傍受する
 // 経路が無いため、外部送りはこの層が担う。
-import { tryCatch } from "@gozd/shared";
+import { isExternalUrl, tryCatch } from "@gozd/shared";
 import { PREVIEW_SCHEME } from "./previewScheme";
 
 /** http(s) スキームか。dev の Vite origin 判定に使う（Vite の URL は必ず http(s)） */
 function isHttpUrl(url: string): boolean {
   return url.startsWith("http://") || url.startsWith("https://");
-}
-
-/**
- * OS へ渡してよい scheme。renderer 側 (`shared/rpc` の openExternal) の allowlist と同一集合。
- *
- * 通常このリストは renderer だけが持つが、HTML preview の subframe はクリックを傍受できず
- * この層が唯一の受け取り口になるため、同じ集合をここでも判定する必要がある。
- */
-const EXTERNAL_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"]);
-
-/** OS へ渡してよい URL か。parse 不能な文字列は渡さない */
-function isExternalUrl(url: string): boolean {
-  const parsed = tryCatch(() => new URL(url));
-  if (!parsed.ok) return false;
-  return EXTERNAL_SCHEMES.has(parsed.value.protocol);
 }
 
 /**

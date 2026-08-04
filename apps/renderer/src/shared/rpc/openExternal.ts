@@ -1,29 +1,20 @@
-// URL を OS のデフォルトアプリで開く唯一の経路と、その scheme allowlist。
+// URL を OS のデフォルトアプリで開く経路。
 //
 // renderer 内で「リンクを OS に渡す」意思決定をする層（markdown 本文 / terminal の OSC 8 /
-// filer の submodule リンク）はすべてここを通す。main は navigation 防壁も `/open/external`
-// route も scheme を見ない。判定点を分散させると「同じリンクでも通った経路で開く / 開かないが
-// 変わる」非対称が生まれる。
+// filer の submodule リンク）はすべてここを通す。main の `/open/external` route は scheme を
+// 見ない。
 //
-// VS Code が allowlist を `mainThreadWebviews.isSupportedLink`（リンククリックを受け取る層）に
-// だけ置き、main プロセスの `openExternal` / `setWindowOpenHandler` / `will-navigate` は
-// いずれも scheme を見ないのと同じ構造。
+// 唯一の例外が HTML preview の subframe で、そこは renderer からクリックを傍受できないため
+// main の navigation 防壁が判定する。両者が同じ集合を見るよう、allowlist は `@gozd/shared` の
+// `isExternalUrl` が SSOT（層ごとに別集合を持つと経路で挙動が変わる）。
+//
+// VS Code も allowlist を `mainThreadWebviews.isSupportedLink`（リンククリックを受け取る層）に
+// 置いている。
 import type { OpenExternalRequest, OpenExternalResponse } from "@gozd/rpc";
-import { tryCatch } from "@gozd/shared";
+import { isExternalUrl } from "@gozd/shared";
 import { rpc } from "./client";
 
-/**
- * OS のデフォルトアプリで開いてよい URL scheme。
- * `vscode:` に相当する gozd 独自 scheme は存在しないため http(s) / mailto の 3 つに閉じる。
- */
-const ALLOWED_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"]);
-
-/** OS へ渡してよい URL か。parse 不能な文字列は渡さない。 */
-export function isExternalUrl(url: string): boolean {
-  const parsed = tryCatch(() => new URL(url));
-  if (!parsed.ok) return false;
-  return ALLOWED_SCHEMES.has(parsed.value.protocol);
-}
+export { isExternalUrl };
 
 /**
  * URL を OS のデフォルトアプリで開く。allowlist 外の scheme は開かずに reject する

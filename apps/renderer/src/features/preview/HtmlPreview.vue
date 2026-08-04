@@ -72,6 +72,15 @@ const src = ref<string>();
 const URL_FAILED_MESSAGE = "Could not open HTML preview";
 
 /**
+ * URL 取得要求の直列化。前回の要求が終わってから次を始める。
+ *
+ * main は「最後に完了した要求」の root を配信許可として保持するため、並行させると repo をまたぐ
+ * 素早い切替で完了順が逆転し、許可が前の root に残ったまま新しい URL を読みに行って 403 になる
+ * （renderer 側の版数ガードは src の取り違えしか防げない）。発射順 = 処理順にすれば起きない。
+ */
+let pending: Promise<unknown> = Promise.resolve();
+
+/**
  * 非同期レース防止のバージョンカウンター (usePreviewContent と同じ規律)。
  * 対象が短時間に変わると RPC が並行し、古い応答が後に完了すると選択中と違う HTML を描いてしまう。
  */
@@ -86,13 +95,23 @@ const previewId = crypto.randomUUID();
 
 watch(
   () => [props.absPath, props.root, props.epoch] as const,
-  async ([absPath, root, epoch]) => {
+  async ([absPath, root, epoch], prev) => {
     const mySeq = ++requestSeq;
-    // 新しい要求を始めた時点で前の面を消す。解決までの間、古い対象を映し続けない
-    src.value = undefined;
-    const result = await tryCatch(rpcPreviewHtmlUrl({ absPath, root, previewId }));
+    // 対象が変わったときだけ前の面を消す。解決までの間、別ファイルの中身を映し続けないため。
+    // epoch だけの変化（保存による再 load）で消すと iframe が unmount され、往復のたびに空白が挟まる
+    if (prev !== undefined && (prev[0] !== absPath || prev[1] !== root)) {
+      src.value = undefined;
+    }
+    const run = pending.then(() => tryCatch(rpcPreviewHtmlUrl({ absPath, root, previewId })));
+    // 失敗しても次の要求を止めないよう、chain 自体は解決済みに保つ
+    pending = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    const result = await run;
     if (mySeq !== requestSeq) return;
     if (!result.ok) {
+      src.value = undefined;
       notify.error(URL_FAILED_MESSAGE, new Error(`path=${absPath}`, { cause: result.error }));
       return;
     }

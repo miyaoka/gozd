@@ -372,8 +372,10 @@ main の配信 scheme `gozd-preview://`（`previewProtocol.ts`）経由で**実 
 
 - **なぜ srcdoc ではないか**: `srcdoc` に文字列を流し込むと document の base URL が親（renderer）の URL になるため、previewed HTML の相対リンク・画像・CSS が原理的に解決しない。origin も opaque になり、リンククリックを傍受する経路も無くなる。実 URL なら普通の HTTP と同じ理屈で全部成立する
 - **信頼境界**: previewed HTML はリポジトリ内の任意ファイルで untrusted。実 origin を与える代わりに、能力は main が配信時に付ける CSP で落とす（`script-src 'none'` / `frame-src 'none'` / `form-action 'none'`、参照先は同 origin の asset と `data:` のみ）。origin が renderer と異なるため、仮に script が動いても親の `__gozdElectronRpc` には到達しない
+- **`sandbox="allow-same-origin"`**: popup を封じるために付ける。`allow-popups` の無い sandbox では中クリック / `target="_blank"` の new-window 要求を Chromium がブロックするため、リンククリックを傍受できないこの frame から `window.open` 経路が生えない（VS Code の webview も `allow-popups` を付けずに同じ状態を作る）。`allow-same-origin` 自体は sandbox による opaque 化を打ち消すだけで、origin は `gozd-preview://` のまま
+- **リンク遷移**: 左クリックは navigation として防壁が処理する。中クリックは上記のとおりブロックされ何も起きない（VS Code の webview も中クリックでリンクを開けない）
 - **配信範囲**: `/preview/htmlUrl` に渡された root 配下だけ。登録の無い path は protocol handler が 403 を返す（VS Code の `localResourceRoots` と同型）。root の導出は純関数 `htmlPreviewTarget`（テスト付き）が SSOT で、worktree 内のファイルは worktree root、worktree 外の絶対パスはそのファイルが居る dir に絞る
-- **リンク遷移**: 同 origin への遷移は main の navigation 防壁が許可するため、相対リンクで前後のページに移動できる。外部 http(s) は防壁が `shell.openExternal` に送る（この frame のクリックを受け取れる層が防壁しか無いため。[architecture.md](architecture.md) 参照）
+- **遷移先の扱い**: 同 origin への遷移は防壁が許可するため相対リンクで前後のページに移動でき、外部 http(s) は `shell.openExternal` に送られる（この frame のクリックを受け取れる層が防壁しか無いため。[architecture.md](architecture.md) 参照）
 - background は web platform の default canvas（白）に固定する。iframe 内は gozd の themed UI ではなく白背景前提で書かれた外部 HTML 文書を描画するため、semantic token ではなくリテラル白が意味的に正しい
 
 ## Preview チェックボックス

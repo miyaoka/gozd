@@ -24,11 +24,21 @@ script / frame / form は無効で、参照できるのは同 origin の asset �
 origin が renderer と異なるため、iframe 内 JS から親の `__gozdElectronRpc` には到達できない
 (そもそも script を CSP で止めている)。
 
+`sandbox="allow-same-origin"` は **popup を封じるため**に付ける。`allow-popups` が無い sandbox
+では中クリックや `target="_blank"` の new-window 要求を Chromium がブロックするので、
+リンククリックを傍受できないこの frame から `window.open` 経路が生えない
+(VS Code の webview も `allow-popups` を付けずに同じ状態を作っている)。`allow-same-origin` 自体は
+sandbox による opaque 化を打ち消すだけで、origin は `gozd-preview://` のまま = renderer とは
+別 origin。
+
 ## リンクの遷移
 
-同 origin (= 配信 root 配下) への遷移は main の navigation 防壁が許可するため、相対リンクで
-前後のページに移動できる。外部 http(s) は防壁が `shell.openExternal` に送る
-(`installExternalLinkPolicy`)。
+左クリックは navigation になるため main の防壁が処理する。同 origin (= 配信 root 配下) への
+遷移は許可されるので相対リンクで前後のページに移動でき、外部 http(s) は `shell.openExternal` に
+送られる (`installExternalLinkPolicy`)。
+
+中クリックは popup 要求なので上記のとおりブロックされ、何も起きない (VS Code の webview も
+中クリックでリンクを開けない)。
 </doc>
 
 <script setup lang="ts">
@@ -74,6 +84,7 @@ watch(
   <iframe
     v-if="src !== undefined"
     :src="src"
+    sandbox="allow-same-origin"
     title="HTML preview"
     class="size-full border-0"
     style="background: #ffffff"

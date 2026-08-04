@@ -380,7 +380,8 @@ main の配信 scheme `gozd-preview://`（`previewProtocol.ts`）経由で**実 
 - **表示できる rev**: 配信は working tree の実ファイルを読むため、**表示中の rev がディスクの実体と一致するときだけ** native preview を出す。`original` / commit 選択 / PR diff / 実体なし（deleted 等）では source 表示に倒す（判定は純関数 `canRenderHtmlNatively`）。markdown は内容を渡して描画するのでこの制限を受けず、同じ commit を選んでも preview が効く点が観測可能な差になる
 - **更新の反映**: 内容が変わったら iframe を再 load する（URL の query に epoch を載せる）。契機は `displayContent` の変化で、選択や git status の更新では再 load しない。並列エージェントが常時ファイルを書き換える前提のため、無関係な変更で preview 内の遷移先やスクロール位置が入口に戻らないようにする
 - **配信範囲**: `/preview/htmlUrl` に渡された root 配下だけ。登録の無い path は protocol handler が 403 を返す（VS Code の `localResourceRoots` と同型）。root の導出は純関数 `htmlPreviewTarget`（テスト付き）が SSOT で、worktree 内のファイルは worktree root、worktree 外の絶対パスはそのファイルが居る dir に絞る
-- **配信許可の寿命**: 許可は要求元 preview の id に紐づき、unmount 時に `/preview/releaseHtml` で手放す。同じ id が別 root を要求したら前の root は外れる。登録しっぱなしにすると閉じた preview の root が残り、別の preview がその配下の asset を読める（VS Code の `addValidFileRoot` が disposable を返して寿命を呼び出し側に持たせているのと同じ理由）
+- **preview ごとの隔離**: URL の host 部は preview instance の id（`gozd-preview://<previewId>/<絶対パス>`）で、**origin が preview ごとに分かれる**。配信 root もその id に紐づき、判定はその preview の root だけで行う。host を固定値にすると全 preview が同一 origin になり、CSP の `'self'` が壁にならず、preview A の HTML から `<img src="gozd-preview://…/repo B のパス">` で B 側のファイルを描画できてしまう（複数 repo の同居は gozd の機能要件なので常態）。VS Code の webview が `vscode-webview://<hash>` で origin を webview ごとに分け、リソース解決もその webview の `localResourceRoots` だけで行っているのと同じ形
+- **配信許可の寿命**: 許可は preview の id に紐づき、unmount 時に `/preview/releaseHtml` で手放す。同じ id が別 root を要求したら前の root は置き換わる。URL 取得と解放は同じキューで直列化し、in-flight の要求が解放の後に完了して許可を再登録しないようにする
 - **遷移先の扱い**: 同 origin への遷移は防壁が許可するため相対リンクで前後のページに移動でき、外部 URL（http / https / mailto）は `shell.openExternal` に送られる（この frame のクリックを受け取れる層が防壁しか無いため。[architecture.md](architecture.md) 参照）
 - background は web platform の default canvas（白）に固定する。iframe 内は gozd の themed UI ではなく白背景前提で書かれた外部 HTML 文書を描画するため、semantic token ではなくリテラル白が意味的に正しい
 

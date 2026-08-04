@@ -16,8 +16,21 @@ import { normalize, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PREVIEW_SCHEME } from "./previewScheme";
 
-/** URL の host 部。path だけを意味的な識別子にするため固定値を置く */
-const PREVIEW_HOST = "file";
+/**
+ * URL の host 部は preview instance の id。**origin を preview ごとに分けるため**に使う。
+ *
+ * host を固定値にすると全 preview が同一 origin になり、CSP の `'self'` が preview 間の壁に
+ * ならない。同時に複数 repo を開くのが gozd の機能要件なので、preview A の HTML から
+ * `<img src="gozd-preview://file/<repo B のパス>">` と書けば B 側のファイルが描画できてしまう。
+ * origin を分けると、その参照は A から見て cross-origin になり `img-src 'self'` が弾く。
+ *
+ * VS Code の webview が `vscode-webview://<parentOriginHash(parentOrigin, webview.origin)>` で
+ * origin を webview ごとに分け、リソース解決もその webview の `localResourceRoots` だけで
+ * 行っているのと同じ形（`webviewElement.ts` の `loadLocalResource` 呼び出し）。
+ */
+function previewHost(previewId: string): string {
+  return previewId;
+}
 
 /**
  * previewed HTML に許す能力。script / frame / form は無効、参照できるのは同 origin
@@ -39,13 +52,14 @@ const PREVIEW_CSP = [
 ].join("; ");
 
 /**
- * 配信を許す root（解決済み prefix）→ それを要求している preview の id 集合。
+ * preview instance の id → その preview に配信を許す root（解決済み prefix）。
  *
- * root の寿命を preview の生存期間に紐づける。登録しっぱなしにすると、閉じた preview の root が
- * 残り、別の preview がその root 配下の asset を読めてしまう（VS Code の `addValidFileRoot` が
- * disposable を返して寿命を呼び出し側に持たせているのと同じ理由）。
+ * root は preview ごとに持つ。共有の集合にすると「登録されている全 root のいずれかの配下か」
+ * でしか判定できず、別 preview の root 配下まで読めてしまう。寿命も preview に紐づき、
+ * unmount で解放する（VS Code が webview ごとに `localResourceRoots` を持ち、リソース解決を
+ * その webview の roots だけで行っているのと同じ）。
  */
-const rootOwners = new Map<string, Set<string>>();
+const previewRoots = new Map<string, string>();
 
 /** trailing separator を持つ正規化 root。prefix 比較で sibling dir を巻き込まないため */
 function rootPrefix(root: string): string {
@@ -69,64 +83,56 @@ export async function addPreviewRoot(root: string, previewId: string): Promise<v
   if (!real.ok) {
     throw new Error(`failed to resolve preview root: ${root}: ${String(real.error)}`);
   }
-  const prefix = rootPrefix(real.value);
-  // 同じ preview が別 root へ移ったときに前の root を残さない
-  releasePreviewRoots(previewId);
-  const owners = rootOwners.get(prefix) ?? new Set<string>();
-  owners.add(previewId);
-  rootOwners.set(prefix, owners);
+  // 同じ preview が別 root へ移ったら前の root は置き換わる（1 preview = 1 root）
+  previewRoots.set(previewId, rootPrefix(real.value));
 }
 
-/**
- * preview が閉じた / 対象を変えたときに、その preview が要求していた root を手放す。
- * 他の preview がまだ同じ root を要求していれば prefix は残る。
- */
+/** preview が閉じたときに、その preview の配信許可を手放す。 */
 export function releasePreviewRoots(previewId: string): void {
-  for (const [prefix, owners] of rootOwners) {
-    if (!owners.delete(previewId)) continue;
-    if (owners.size === 0) rootOwners.delete(prefix);
-  }
+  previewRoots.delete(previewId);
 }
 
 /**
  * 絶対パスが指定 root の配下か（root 自身は配信対象にしない）。RPC 入口の fail-loud ガードが使う。
  *
- * 配信時の権威的な判定 `isUnderValidRoot` は登録済み prefix 集合と突き合わせる別関数だが、
- * prefix の作り方（`rootPrefix`）は共有する。入口と配信で prefix 規則がずれると「入口は通るが
- * 配信は 403」になるため、規則側を 1 つに保つ。realpath の有無は両者で異なる（入口は未解決
- * パス同士の整合チェック、配信は解決済みパスでの権威的判定）。
+ * 配信時の権威的な判定 `isUnderPreviewRoot` は解決済み path と登録済み prefix を突き合わせる
+ * 別関数だが、prefix の作り方（`rootPrefix`）は共有する。入口と配信で prefix 規則がずれると
+ * 「入口は通るが配信は 403」になるため、規則側を 1 つに保つ。realpath の有無は両者で異なる
+ * （入口は未解決パス同士の整合チェック、配信は解決済みパスでの権威的判定）。
  */
 export function isWithinRoot(absPath: string, root: string): boolean {
   return normalize(absPath).startsWith(rootPrefix(root));
 }
 
-/** 絶対パスが登録 root のいずれかの配下かを判定する（配信時の権威的な判定） */
-function isUnderValidRoot(absPath: string): boolean {
-  const normalized = normalize(absPath);
-  for (const prefix of rootOwners.keys()) {
-    if (normalized.startsWith(prefix)) return true;
-  }
-  return false;
+/**
+ * 絶対パスが **その preview に許可された** root の配下かを判定する（配信時の権威的な判定）。
+ * 他 preview の root は見ない。
+ */
+function isUnderPreviewRoot(previewId: string, absPath: string): boolean {
+  const prefix = previewRoots.get(previewId);
+  if (prefix === undefined) return false;
+  return normalize(absPath).startsWith(prefix);
 }
 
-/** preview URL から配信対象の絶対パスを取り出す。host 不一致・非絶対は undefined */
-function previewUrlToPath(url: string): string | undefined {
+/** preview URL を要求元 preview の id と配信対象の絶対パスに分解する。非絶対は undefined */
+function parsePreviewUrl(url: string): { previewId: string; path: string } | undefined {
   const parsed = tryCatch(() => new URL(url));
   if (!parsed.ok) return undefined;
   if (parsed.value.protocol !== `${PREVIEW_SCHEME}:`) return undefined;
-  if (parsed.value.hostname !== PREVIEW_HOST) return undefined;
+  if (parsed.value.hostname === "") return undefined;
   const decoded = tryCatch(() => decodeURIComponent(parsed.value.pathname));
   if (!decoded.ok) return undefined;
   // pathname は必ず `/` 始まり。POSIX 絶対パスとしてそのまま使う
-  return decoded.value.startsWith("/") ? normalize(decoded.value) : undefined;
+  if (!decoded.value.startsWith("/")) return undefined;
+  return { previewId: parsed.value.hostname, path: normalize(decoded.value) };
 }
 
 /** 絶対パスから preview URL を組み立てる（renderer が iframe src に使う形） */
-export function pathToPreviewUrl(absPath: string): string {
+export function pathToPreviewUrl(absPath: string, previewId: string): string {
   // path segment ごとに encode する。`#` や `?` を含むファイル名が fragment / query に
   // 化けるのを防ぐ（`/` は区切りとして残す）
   const encoded = absPath.split("/").map(encodeURIComponent).join("/");
-  return `${PREVIEW_SCHEME}://${PREVIEW_HOST}${encoded}`;
+  return `${PREVIEW_SCHEME}://${previewHost(previewId)}${encoded}`;
 }
 
 /**
@@ -146,11 +152,12 @@ export function registerPreviewSchemePrivileges(): void {
 /** protocol handler を登録する。`app.whenReady()` 後に呼ぶ */
 export function installPreviewProtocol(): void {
   protocol.handle(PREVIEW_SCHEME, async (request) => {
-    const path = previewUrlToPath(request.url);
-    if (path === undefined) {
+    const target = parsePreviewUrl(request.url);
+    if (target === undefined) {
       console.error(`[previewProtocol] rejected malformed url: ${request.url}`);
       return new Response(null, { status: 400 });
     }
+    const { previewId, path } = target;
     // 範囲判定は解決済み path で 1 回だけ行う。登録 root も解決済みなので両辺が揃う。
     // 解決前の path でも判定すると、symlink を含むパス (macOS の /tmp・$TMPDIR) で
     // 両辺が食い違って正常なファイルまで弾く
@@ -159,8 +166,10 @@ export function installPreviewProtocol(): void {
       console.error(`[previewProtocol] realpath failed: ${path}: ${real.error}`);
       return new Response(null, { status: 404 });
     }
-    if (!isUnderValidRoot(real.value)) {
-      console.error(`[previewProtocol] rejected out-of-root path: ${path} -> ${real.value}`);
+    if (!isUnderPreviewRoot(previewId, real.value)) {
+      console.error(
+        `[previewProtocol] rejected out-of-root path: ${path} -> ${real.value} (preview=${previewId})`,
+      );
       return new Response(null, { status: 403 });
     }
     const read = await tryCatch(readFile(real.value));

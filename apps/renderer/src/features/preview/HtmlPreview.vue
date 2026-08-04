@@ -19,9 +19,11 @@ previewed HTML はリポジトリ内の任意ファイルで untrusted。実 ori
 script / frame / form は無効で、参照できるのは同 origin の asset と data: URI だけ。
 
 配信範囲は `/preview/htmlUrl` に渡した root 配下に限られる。main は登録の無い path を
-配信しない (VS Code の `localResourceRoots` と同型)。許可はこの instance の id に紐づき、
-unmount で `/preview/releaseHtml` して手放す。残すと閉じた preview の root 配下を別の preview が
-読めてしまう。
+配信しない (VS Code の `localResourceRoots` と同型)。
+
+URL の host 部はこの instance の id で、**origin が preview ごとに分かれる**。同一 origin だと
+CSP の `'self'` が preview 間の壁にならず、別 preview の root 配下を参照できてしまう。許可も
+id に紐づき、unmount で `/preview/releaseHtml` して手放す。
 
 origin が renderer と異なるため、iframe 内 JS から親の `__gozdElectronRpc` には到達できない
 (そもそも script を CSP で止めている)。

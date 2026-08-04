@@ -74,7 +74,10 @@ describe("decideFrameNavigation", () => {
 
   describe("subframe (HTML preview の iframe)", () => {
     test("gozd-preview:// 内の遷移は allow (previewed HTML の相対リンク)", () => {
-      expect(decide("gozd-preview://file/Users/x/repo/docs/20260803.html", false)).toBe("allow");
+      // host 部は preview instance の id。origin を preview ごとに分けるため固定値ではない
+      expect(
+        decide("gozd-preview://0b7b1e2c-1111-4222-8333-444455556666/Users/x/repo/a.html", false),
+      ).toBe("allow");
     });
 
     test("外部 http(s) は external (この frame のクリックを受け取れる層が他に無い)", () => {

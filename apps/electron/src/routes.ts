@@ -966,7 +966,7 @@ async function handlePreviewHtmlUrl(body: unknown): Promise<unknown> {
     throw new Error(`absPath must be under root: ${req.absPath} (root=${req.root})`);
   }
   await addPreviewRoot(req.root, req.previewId);
-  return { url: pathToPreviewUrl(req.absPath) } satisfies PreviewHtmlUrlResponse;
+  return { url: pathToPreviewUrl(req.absPath, req.previewId) } satisfies PreviewHtmlUrlResponse;
 }
 
 // preview が閉じた / 対象を変えたときに配信許可を手放す

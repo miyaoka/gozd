@@ -12,6 +12,11 @@
 import { tryCatch } from "@gozd/shared";
 import { PREVIEW_SCHEME } from "./previewScheme";
 
+/** http(s) スキームか。origin 判定と外部送り判定が同じ述語を共有する */
+function isHttpUrl(url: string): boolean {
+  return url.startsWith("http://") || url.startsWith("https://");
+}
+
 /**
  * dev の Vite origin か。origin は完全一致で比較する。prefix 比較
  * (`url.startsWith(rendererUrl)`) だと `http://localhost:5173.evil.example` や
@@ -24,11 +29,6 @@ import { PREVIEW_SCHEME } from "./previewScheme";
  * blob の inner origin (`http://host`) を返すため、origin 比較だけだと `blob:` が内部扱いになる。
  * Vite dev server の URL は必ず http(s) なので、scheme を固定しても取りこぼしはない。
  */
-/** http(s) スキームか。origin 判定と外部送り判定が同じ述語を共有する */
-function isHttpUrl(url: string): boolean {
-  return url.startsWith("http://") || url.startsWith("https://");
-}
-
 export function isRendererOrigin(url: string, rendererOrigin: string | undefined): boolean {
   if (rendererOrigin === undefined) return false;
   if (!isHttpUrl(url)) return false;

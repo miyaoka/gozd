@@ -31,6 +31,13 @@ origin が renderer と異なるため、iframe 内 JS から親の `__gozdElect
 sandbox による opaque 化を打ち消すだけで、origin は `gozd-preview://` のまま = renderer とは
 別 origin。
 
+## 更新の反映
+
+配信は working tree の実ファイルを読むため、iframe を再 load しない限り編集が反映されない。
+`epoch`（`usePreviewContent` の `contentEpoch`）を URL の query に載せ、content 更新のたびに
+URL を変えて再 load させる。表示中 rev がディスクの実体と一致しない状態（original / commit /
+PR diff / 実体なし）では consumer が target を渡さず source 表示に倒す（`canRenderHtmlNatively`）。
+
 ## リンクの遷移
 
 左クリックは navigation になるため main の防壁が処理する。同 origin (= 配信 root 配下) への
@@ -52,6 +59,8 @@ const props = defineProps<{
   absPath: string;
   /** 配信を許す root の絶対パス（対象ファイルが属する worktree root） */
   root: string;
+  /** content 更新のカウンタ。増えたら iframe を再 load する */
+  epoch: number;
 }>();
 
 const notify = useNotificationStore();
@@ -61,15 +70,17 @@ const src = ref<string>();
 const URL_FAILED_MESSAGE = "Could not open HTML preview";
 
 watch(
-  () => [props.absPath, props.root] as const,
-  async ([absPath, root]) => {
+  () => [props.absPath, props.root, props.epoch] as const,
+  async ([absPath, root, epoch]) => {
     const result = await tryCatch(rpcPreviewHtmlUrl({ absPath, root }));
     if (!result.ok) {
       src.value = undefined;
       notify.error(URL_FAILED_MESSAGE, new Error(`path=${absPath}`, { cause: result.error }));
       return;
     }
-    src.value = result.value.url;
+    // epoch を query に載せて URL を変え、ファイル更新で iframe を再 load させる。
+    // 配信側は pathname しか見ないため query は無害（previewProtocol の previewUrlToPath）
+    src.value = `${result.value.url}?e=${epoch}`;
   },
   { immediate: true },
 );

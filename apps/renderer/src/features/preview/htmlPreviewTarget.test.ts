@@ -17,7 +17,9 @@ describe("htmlPreviewTarget", () => {
     });
   });
 
-  test("root 直下のファイルは / を root にする", () => {
-    expect(htmlPreviewTarget("/a.html", undefined)).toEqual({ absPath: "/a.html", root: "/" });
+  test("root が / に退化する場合は native preview を諦める", () => {
+    // ファイルシステム全体が配信可能になるのを防ぐ。登録は取り消せないため未然に切る
+    expect(htmlPreviewTarget("/a.html", undefined)).toBeUndefined();
+    expect(htmlPreviewTarget("/repo/docs/a.html", "/")).toBeUndefined();
   });
 });

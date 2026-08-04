@@ -236,8 +236,7 @@ markdown 本文は `MarkdownBody` が `#fragment` 単独を除く全リンクク
 bind すると既定の new-window 要求に落ち、この層の allowlist を迂回して OS に URL が渡る
 （VS Code の `markdownRenderer` も同じコールバックを両イベントに登録している）。
 
-child window は URL を load しないため、「renderer 内に URL 越しにファイルを読む口が存在しない」
-というバイナリ配信セクションのセキュリティ境界は変わらない。
+child window は URL を load しないため、バイナリ配信セクションのセキュリティ境界は変わらない。
 
 ## 通信経路
 
@@ -263,10 +262,13 @@ onMessage 購読の貼り直しで構造的に回復する（Swift 期から続�
 直配信 scheme）は、structured clone ワイヤへの移行で「JSON string はバイナリを保持できない」
 という前提ごと廃止した。
 
-セキュリティ: renderer 内に URL 越しにファイルを読む口が存在しないため、rendered HTML
-（markdown 等）に `<img src>` を書いてもローカルファイルには到達できない。ファイル読みへの
-到達経路は first-party の renderer コードだけが呼べる RPC のみ（DOMPurify が script を除去する
-ため、描画されたコンテンツから RPC bridge は呼べない）。
+セキュリティ: ファイル読みへの到達経路は first-party の renderer コードだけが呼べる RPC と、
+HTML preview 専用の配信 scheme `gozd-preview://`（[preview.md](preview.md)）の 2 つ。後者は
+URL 越しに読める口だが、配信は renderer が登録した root 配下に限られ、応答の CSP で script と
+外部通信を落としてある。rendered HTML（markdown 等）に `<img src="gozd-preview://…">` と書いても
+到達しないのは、DOMPurify の URI allowlist が未知 scheme を落とすため（この依存があるので、
+sanitizer 設定を緩めるときはこの境界を再確認する）。描画されたコンテンツから RPC bridge を
+呼べないのは、DOMPurify が script を除去するため。
 
 ### SSOT push の dir filter 規律
 

@@ -42,7 +42,7 @@ import { usePrDiffToggleStore } from "../git-graph";
 import { joinAbsRel, UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import { ChangesSummaryView } from "./features/changes-summary";
 import { useBlamePopover, useFileHistoryPopover } from "./features/commit-history";
-import { htmlPreviewTarget } from "./htmlPreviewTarget";
+import { canRenderHtmlNatively, htmlPreviewTarget } from "./htmlPreviewTarget";
 import PreviewContent from "./PreviewContent.vue";
 import PreviewHeader from "./PreviewHeader.vue";
 import PreviewToolbar from "./PreviewToolbar.vue";
@@ -206,6 +206,17 @@ function buildUndockedDoc(): UndockedPreviewDoc | undefined {
  */
 const htmlTarget = computed(() => {
   if (fileType.value !== "html") return undefined;
+  // 配信経路は working tree の実ファイルしか読めない。表示中 rev がそれと一致しないときは
+  // native preview を出さず source 表示に倒す
+  if (
+    !canRenderHtmlNatively({
+      activeMode: activeMode.value,
+      isSnapshot: isCommitMode.value || prDiffToggle.isOn,
+      isNotFound: isNotFound.value,
+    })
+  ) {
+    return undefined;
+  }
   const sel = worktreeStore.selection;
   if (sel === undefined) return undefined;
   if (sel.kind === "absolute") return htmlPreviewTarget(sel.absPath, undefined);
@@ -496,6 +507,7 @@ function onCodeScrolled() {
             :display-content="displayContent"
             :html-abs-path="htmlTarget?.absPath"
             :html-root="htmlTarget?.root"
+            :html-epoch="contentEpoch"
             :image-source="imageSource"
             :display-is-binary="displayIsBinary"
             :loading="loading"

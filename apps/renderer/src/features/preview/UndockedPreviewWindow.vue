@@ -70,7 +70,7 @@ import type { FsChangeAbsolutePayload } from "../filer";
 import { UndockedWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
 import { joinAbsRel, useWorktreeStore } from "../worktree";
-import { htmlPreviewTarget } from "./htmlPreviewTarget";
+import { canRenderHtmlNatively, htmlPreviewTarget } from "./htmlPreviewTarget";
 import PreviewContent from "./PreviewContent.vue";
 import { detectFileType } from "./previewFileType";
 import type { PreviewMode } from "./previewMode";
@@ -117,10 +117,19 @@ const source = props.preview.source;
 const sourceAbsPath =
   source.kind === "absolute" ? source.absPath : joinAbsRel(source.dir, source.relPath);
 const fileType = detectFileType(doc.filePath);
-/** HTML preview の配信対象。worktree 起点なら worktree root を配信範囲にする */
-const htmlTarget = htmlPreviewTarget(
+/**
+ * HTML preview の配信対象。worktree 起点なら worktree root を配信範囲にする。
+ * 配信は working tree の実ファイルを読むため、original を表示中は native preview を出さない
+ * （本体 PreviewPane と同じ gate）。undock は commit / PR 選択を焼き込まないので snapshot 判定は不要
+ */
+const htmlPath = htmlPreviewTarget(
   sourceAbsPath,
   source.kind === "worktree" ? source.dir : undefined,
+);
+const htmlTarget = computed(() =>
+  canRenderHtmlNatively({ activeMode: activeMode.value, isSnapshot: false, isNotFound: false })
+    ? htmlPath
+    : undefined,
 );
 const isImageFile = fileType === "image" || fileType === "svg";
 
@@ -128,6 +137,11 @@ const isImageFile = fileType === "image" || fileType === "svg";
 const current = ref<string | WireBytes | undefined>(doc.current);
 /** current / original のテキスト面。バイナリ (bytes) は undefined (本体の currentText / originalText 相当) */
 const currentText = computed(() => (typeof current.value === "string" ? current.value : undefined));
+/** 本体の contentEpoch 相当。実ファイル追従で内容が変わったら HTML preview を再 load させる */
+const htmlEpoch = ref(0);
+watch(current, () => {
+  htmlEpoch.value += 1;
+});
 const originalText = typeof doc.original === "string" ? doc.original : undefined;
 
 /** activeMode 解決済みの表示対象 (union のまま。本体の displayRaw 相当)。 */
@@ -446,8 +460,9 @@ function dockToPreview() {
         :diff-current="diffCurrent"
         :code-content="codeContent"
         :display-content="displayContent"
-        :html-abs-path="htmlTarget.absPath"
-        :html-root="htmlTarget.root"
+        :html-abs-path="htmlTarget?.absPath"
+        :html-root="htmlTarget?.root"
+        :html-epoch="htmlEpoch"
         :image-source="imageSource"
         :display-is-binary="displayIsBinary"
         :error="contentError"

@@ -11,7 +11,9 @@
 import { tryCatch } from "@gozd/shared";
 import { net, protocol } from "electron";
 import { readFile } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { normalize, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { PREVIEW_SCHEME } from "./previewScheme";
 
 /** URL の host 部。path だけを意味的な識別子にするため固定値を置く */
@@ -22,16 +24,18 @@ const PREVIEW_HOST = "file";
  * （= 登録 root 配下）の asset と data: URI だけに閉じる。previewed HTML はリポジトリ内の
  * 任意ファイルで untrusted なので、実 origin を与える代わりに CSP で能力を落とす。
  */
+// リンク遷移の可否は CSP ではなく navigation 防壁 (decideFrameNavigation) が決める
 const PREVIEW_CSP = [
   "default-src 'none'",
   "img-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self' data:",
   "media-src 'self' data:",
-  // 同 origin の別ページへのリンク遷移は許す（相対リンクで前後のページに移動する用途）
   "form-action 'none'",
   "frame-src 'none'",
   "script-src 'none'",
+  // `<base href>` で subresource の解決先をすり替えられないようにする
+  "base-uri 'self'",
 ].join("; ");
 
 /** 配信を許す root（絶対パス）。renderer が preview を開くたびに登録する */
@@ -87,7 +91,7 @@ export function registerPreviewSchemePrivileges(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: PREVIEW_SCHEME,
-      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false },
+      privileges: { standard: true, secure: true, corsEnabled: false },
     },
   ]);
 }
@@ -104,19 +108,37 @@ export function installPreviewProtocol(): void {
       console.error(`[previewProtocol] rejected out-of-root path: ${path}`);
       return new Response(null, { status: 403 });
     }
-    const read = await tryCatch(readFile(path));
-    if (!read.ok) {
-      console.error(`[previewProtocol] read failed: ${path}: ${read.error}`);
+    // symlink は解決してから範囲判定し直す。root 配下に root 外を指す symlink があると、
+    // 判定だけ通って実体は範囲外のファイルを配信してしまう
+    const real = await tryCatch(realpath(path));
+    if (!real.ok) {
+      console.error(`[previewProtocol] realpath failed: ${path}: ${real.error}`);
       return new Response(null, { status: 404 });
     }
-    // MIME は拡張子から Electron に判定させる（net.fetch の file: 経路と同じ推定を使う）
-    const type = await tryCatch(net.fetch(`file://${path}`, { method: "HEAD" }));
+    if (!isUnderValidRoot(real.value)) {
+      console.error(`[previewProtocol] rejected symlink out of root: ${path} -> ${real.value}`);
+      return new Response(null, { status: 403 });
+    }
+    const read = await tryCatch(readFile(real.value));
+    if (!read.ok) {
+      console.error(`[previewProtocol] read failed: ${real.value}: ${read.error}`);
+      return new Response(null, { status: 404 });
+    }
+    // MIME は Electron の file: 経路に判定させる。path の URL 化は pathToFileURL が SSOT
+    // （`#` や `?` を含むファイル名を素の文字列連結で組むと別パスを指す）
+    const type = await tryCatch(net.fetch(pathToFileURL(real.value).href, { method: "HEAD" }));
+    if (!type.ok) {
+      console.error(`[previewProtocol] content-type probe failed: ${real.value}: ${type.error}`);
+    }
     const contentType = type.ok ? (type.value.headers.get("content-type") ?? "") : "";
     return new Response(new Uint8Array(read.value), {
       status: 200,
       headers: {
         "content-type": contentType === "" ? "application/octet-stream" : contentType,
         "content-security-policy": PREVIEW_CSP,
+        // 相対参照の CSS / 画像が stale のまま残らないようにする（更新は epoch 付き URL で
+        // 再 load するが、subresource は URL が変わらない）
+        "cache-control": "no-store",
       },
     });
   });

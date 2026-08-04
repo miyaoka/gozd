@@ -949,6 +949,9 @@ async function handlePreviewHtmlUrl(body: unknown): Promise<unknown> {
   const req = body as PreviewHtmlUrlRequest;
   if (!req.absPath.startsWith("/")) throw new Error(`absPath must be absolute: ${req.absPath}`);
   if (!req.root.startsWith("/")) throw new Error(`root must be absolute: ${req.root}`);
+  // root="/" はファイルシステム全体を配信可能にし、root を絞る仕組みそのものを無効化する。
+  // 登録は取り消せないので、fallback せずここで弾く
+  if (req.root === "/") throw new Error("root must not be the filesystem root");
   addPreviewRoot(req.root);
   return { url: pathToPreviewUrl(req.absPath) } satisfies PreviewHtmlUrlResponse;
 }

@@ -35,6 +35,8 @@ withDefaults(
     htmlAbsPath?: string;
     /** HTML preview の配信を許す root（対象が属する worktree root）。html 以外では undefined */
     htmlRoot?: string;
+    /** content 更新のカウンタ。増えると HTML preview が iframe を再 load する */
+    htmlEpoch?: number;
     fileType: FileType;
     activeMode: PreviewMode;
     previewEnabled: boolean;
@@ -144,6 +146,7 @@ const emit = defineEmits<{
       "
       :abs-path="htmlAbsPath"
       :root="htmlRoot"
+      :epoch="htmlEpoch ?? 0"
     />
 
     <!-- コード表示・編集 -->

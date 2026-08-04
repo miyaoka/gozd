@@ -14,23 +14,7 @@ import { readFile } from "node:fs/promises";
 import { realpath } from "node:fs/promises";
 import { normalize, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { PREVIEW_SCHEME } from "./previewScheme";
-
-/**
- * URL の host 部は preview instance の id。**origin を preview ごとに分けるため**に使う。
- *
- * host を固定値にすると全 preview が同一 origin になり、CSP の `'self'` が preview 間の壁に
- * ならない。同時に複数 repo を開くのが gozd の機能要件なので、preview A の HTML から
- * `<img src="gozd-preview://file/<repo B のパス>">` と書けば B 側のファイルが描画できてしまう。
- * origin を分けると、その参照は A から見て cross-origin になり `img-src 'self'` が弾く。
- *
- * VS Code の webview が `vscode-webview://<parentOriginHash(parentOrigin, webview.origin)>` で
- * origin を webview ごとに分け、リソース解決もその webview の `localResourceRoots` だけで
- * 行っているのと同じ形（`webviewElement.ts` の `loadLocalResource` 呼び出し）。
- */
-function previewHost(previewId: string): string {
-  return previewId;
-}
+import { parsePreviewUrl, PREVIEW_SCHEME } from "./previewUrl";
 
 /**
  * previewed HTML に許す能力。script / frame / form は無効、参照できるのは同 origin
@@ -112,27 +96,6 @@ function isUnderPreviewRoot(previewId: string, absPath: string): boolean {
   const prefix = previewRoots.get(previewId);
   if (prefix === undefined) return false;
   return normalize(absPath).startsWith(prefix);
-}
-
-/** preview URL を要求元 preview の id と配信対象の絶対パスに分解する。非絶対は undefined */
-function parsePreviewUrl(url: string): { previewId: string; path: string } | undefined {
-  const parsed = tryCatch(() => new URL(url));
-  if (!parsed.ok) return undefined;
-  if (parsed.value.protocol !== `${PREVIEW_SCHEME}:`) return undefined;
-  if (parsed.value.hostname === "") return undefined;
-  const decoded = tryCatch(() => decodeURIComponent(parsed.value.pathname));
-  if (!decoded.ok) return undefined;
-  // pathname は必ず `/` 始まり。POSIX 絶対パスとしてそのまま使う
-  if (!decoded.value.startsWith("/")) return undefined;
-  return { previewId: parsed.value.hostname, path: normalize(decoded.value) };
-}
-
-/** 絶対パスから preview URL を組み立てる（renderer が iframe src に使う形） */
-export function pathToPreviewUrl(absPath: string, previewId: string): string {
-  // path segment ごとに encode する。`#` や `?` を含むファイル名が fragment / query に
-  // 化けるのを防ぐ（`/` は区切りとして残す）
-  const encoded = absPath.split("/").map(encodeURIComponent).join("/");
-  return `${PREVIEW_SCHEME}://${previewHost(previewId)}${encoded}`;
 }
 
 /**

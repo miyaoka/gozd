@@ -15,9 +15,12 @@ export interface PreviewHtmlUrlRequest {
   /** 配信を許す root の絶対パス。通常は対象ファイルが属する worktree root */
   root: string;
   /**
-   * 要求元 preview の識別子。main は root の配信許可をこの id に紐づけて保持し、
-   * `/preview/releaseHtml` で解放する。登録しっぱなしにすると閉じた preview の root が残り、
-   * 別の preview がその配下を読めてしまう。
+   * 要求元 preview の識別子。配信 URL の **host 部**に載り、origin を preview ごとに分ける
+   * （同一 origin だと CSP の `'self'` が preview 間の壁にならない）。main は配信許可をこの id に
+   * 紐づけて保持し、`/preview/releaseHtml` で解放する。
+   *
+   * host は URL パーサが正規化するため、**小文字英数とハイフンだけ**で構成すること。大文字等が
+   * 混じると登録キー（生の id）と host（正規化後）が食い違い、配信だけ 403 になる。
    */
   previewId: string;
 }

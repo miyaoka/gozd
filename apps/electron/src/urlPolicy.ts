@@ -10,7 +10,7 @@
 // (previewProtocol.ts)、その中の script は CSP で止めてある。renderer からクリックを傍受する
 // 経路が無いため、外部送りはこの層が担う。
 import { isExternalUrl, tryCatch } from "@gozd/shared";
-import { PREVIEW_SCHEME } from "./previewScheme";
+import { PREVIEW_SCHEME } from "./previewUrl";
 
 /** http(s) スキームか。dev の Vite origin 判定に使う（Vite の URL は必ず http(s)） */
 function isHttpUrl(url: string): boolean {

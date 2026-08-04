@@ -154,12 +154,8 @@ import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
 import { isChildWindow } from "./childWindows";
-import {
-  addPreviewRoot,
-  isWithinRoot,
-  pathToPreviewUrl,
-  releasePreviewRoots,
-} from "./previewProtocol";
+import { addPreviewRoot, isWithinRoot, releasePreviewRoots } from "./previewProtocol";
+import { isValidPreviewId, pathToPreviewUrl } from "./previewUrl";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import {
@@ -955,6 +951,10 @@ async function handleOpenExternal(body: unknown): Promise<unknown> {
 // 登録しない限り previewProtocol は何も配信しない（VS Code の localResourceRoots と同型）
 async function handlePreviewHtmlUrl(body: unknown): Promise<unknown> {
   const req = body as PreviewHtmlUrlRequest;
+  // host に載る契約（小文字英数とハイフン）。破ると登録キーと host が食い違い配信だけ 403 になる
+  if (!isValidPreviewId(req.previewId)) {
+    throw new Error(`previewId must be lowercase alphanumeric or hyphen: ${req.previewId}`);
+  }
   if (!req.absPath.startsWith("/")) throw new Error(`absPath must be absolute: ${req.absPath}`);
   if (!req.root.startsWith("/")) throw new Error(`root must be absolute: ${req.root}`);
   // root="/" はファイルシステム全体を配信可能にし、root を絞る仕組みそのものを無効化する。

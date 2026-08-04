@@ -24,12 +24,12 @@ navigation に委ねる経路を残さないのは、consumer によって委ね
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
+import { isExternalUrl, tryCatch } from "@gozd/shared";
 import DOMPurify from "dompurify";
 import { marked, type MarkedExtension } from "marked";
 import { nextTick, ref, watch } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
-import { isExternalUrl, openExternal } from "../../../../shared/rpc";
+import { openExternal } from "../../../../shared/rpc";
 
 const props = defineProps<{
   content: string;

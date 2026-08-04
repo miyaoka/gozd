@@ -123,12 +123,16 @@ watch(
 );
 
 onBeforeUnmount(() => {
-  // 解放できなくても UI 上は何も起きないが、配信許可が残り続けるので観察ログは残す
-  void tryCatch(rpcPreviewReleaseHtml({ previewId })).then((released) => {
-    if (!released.ok) {
-      console.error(`[HtmlPreview] failed to release preview root: ${String(released.error)}`);
-    }
-  });
+  // 解放も同じキューに載せる。直列化しないと、in-flight の htmlUrl が解放の後に完了して
+  // grant を再登録し、閉じた preview の配信許可がプロセスの生存期間ずっと残る。
+  // 解放できなくても UI 上は何も起きないので観察ログを残す
+  pending = pending.then(() =>
+    tryCatch(rpcPreviewReleaseHtml({ previewId })).then((released) => {
+      if (!released.ok) {
+        console.error(`[HtmlPreview] failed to release preview root: ${String(released.error)}`);
+      }
+    }),
+  );
 });
 </script>
 

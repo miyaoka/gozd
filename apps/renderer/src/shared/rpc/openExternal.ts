@@ -14,8 +14,6 @@ import type { OpenExternalRequest, OpenExternalResponse } from "@gozd/rpc";
 import { isExternalUrl } from "@gozd/shared";
 import { rpc } from "./client";
 
-export { isExternalUrl };
-
 /**
  * URL を OS のデフォルトアプリで開く。allowlist 外の scheme は開かずに reject する
  * （呼び出し側が通知に倒せるよう、silent drop ではなくエラーにする）。

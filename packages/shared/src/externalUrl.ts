@@ -8,6 +8,8 @@
 // 受け取り口になる。そこでも同じ集合で判定する必要があるので、集合をパッケージ間で共有する。
 // 層ごとに別集合を持つと「同じリンクでも通った経路で開く / 開かないが変わる」非対称が生まれる。
 
+import { tryCatch } from "./result";
+
 /**
  * OS のデフォルトアプリで開いてよい URL scheme。
  * `vscode:` に相当する gozd 独自 scheme は存在しないため http(s) / mailto の 3 つに閉じる。
@@ -16,9 +18,7 @@ const ALLOWED_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:", "mailto
 
 /** OS へ渡してよい URL か。parse 不能な文字列は渡さない。 */
 export function isExternalUrl(url: string): boolean {
-  try {
-    return ALLOWED_SCHEMES.has(new URL(url).protocol);
-  } catch {
-    return false;
-  }
+  const parsed = tryCatch(() => new URL(url));
+  if (!parsed.ok) return false;
+  return ALLOWED_SCHEMES.has(parsed.value.protocol);
 }

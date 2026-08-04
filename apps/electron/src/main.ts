@@ -120,6 +120,10 @@ function installExternalLinkPolicy(contents: WebContents): void {
     });
     if (verdict === "allow") return;
     details.preventDefault();
+    if (verdict === "external") {
+      openExternal(details.url);
+      return;
+    }
     // block は UI 上何も起きないため、このログが唯一の診断材料。どの frame が止められたかで
     // 調べに行く先（UI 本体か HTML preview か）が変わるので frame 役割を載せる
     const frame = details.isMainFrame ? "main frame" : "subframe";

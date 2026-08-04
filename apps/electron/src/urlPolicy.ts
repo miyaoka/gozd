@@ -1,10 +1,16 @@
 // installExternalLinkPolicy (main.ts) の URL 判定。セキュリティ境界のため純関数に切り出して
 // バイパス文字列の回帰テストを可能にする (urlPolicy.test.ts)。
 //
-// この層は scheme の allowlist を持たない。「この URL を OS に渡してよいか」を決めるのは
-// リンククリックを受け取る renderer 側 (`shared/rpc` の openExternal) の責務で、main は
-// 「frame を動かさせない」ことだけを担う。VS Code の will-navigate ハンドラが URL を見ずに
-// preventDefault するのと同じ切り方。
+// 「この URL を OS に渡してよいか」は、原則としてリンククリックを**受け取れる層**が決める。
+// main frame では renderer のコードが動くのでそちら (`shared/rpc` の openExternal) が担い、
+// この層は「frame を動かさせない」ことだけをする (VS Code の will-navigate ハンドラが URL を
+// 見ずに preventDefault するのと同じ切り方)。
+//
+// 例外が HTML preview の `<iframe srcdoc sandbox="">`。opaque origin かつスクリプト不可なので
+// 親からクリックを傍受できず、受け取れる層がこの防壁しか無い。VS Code の webview iframe は
+// sandbox に `allow-same-origin` を持つため host からハンドラを注入できるが、gozd は sandbox
+// 契約 (親 origin を継承させない = RPC bridge に到達させない) と両立しないためその手が使えない。
+// よって subframe に限り、この層が外部送りまで担う。
 import { tryCatch } from "@gozd/shared";
 
 /**
@@ -28,8 +34,8 @@ export function isRendererOrigin(url: string, rendererOrigin: string | undefined
   return parsed.value.origin === rendererOrigin;
 }
 
-/** frame 遷移の扱い。 */
-export type FrameNavigationVerdict = "allow" | "block";
+/** frame 遷移の扱い。`external` は遷移を止めた上で OS に渡す。 */
+export type FrameNavigationVerdict = "allow" | "external" | "block";
 
 /**
  * frame 遷移の判定。**原則すべて block** し、例外だけを開ける。
@@ -42,9 +48,12 @@ export type FrameNavigationVerdict = "allow" | "block";
  * webContents API 経由でこの判定に到達しないので、例外は dev だけに閉じる。
  *
  * subframe は HTML preview の `<iframe srcdoc sandbox="">` だけで、初期 srcdoc から動かないのが
- * 契約なので例外を持たない。内部 origin であっても遷移すればプレビュー面を奪う (dev では
- * previewed HTML の相対リンクが Vite origin に解決され SPA fallback の index.html が返る。
- * sandbox でスクリプトが動かないので白面になる)。
+ * 契約。内部 origin であっても遷移すればプレビュー面を奪う (dev では previewed HTML の相対
+ * リンクが Vite origin に解決され SPA fallback の index.html が返る。sandbox でスクリプトが
+ * 動かないので白面になる)。ただし外部 http(s) だけは `external` で OS に逃がす —
+ * この frame のリンククリックを受け取れる層が他に無いため (ファイル冒頭の注記)。
+ * mailto 等の external protocol は Chromium / Electron 自身が sandboxed frame から塞いでおり、
+ * 防壁が肩代わりするとその保護を迂回するので http(s) に絞る。
  *
  * 一律 block が HTML preview / undock child window を殺さないのは、`about:srcdoc` や
  * `about:blank` のように URLLoader を経由しない commit がこの判定に到達しないため。到達する
@@ -67,6 +76,11 @@ export function decideFrameNavigation({
   currentUrl: string;
   rendererOrigin: string | undefined;
 }): FrameNavigationVerdict {
-  if (isMainFrame && url === currentUrl && isRendererOrigin(url, rendererOrigin)) return "allow";
-  return "block";
+  if (!isMainFrame) {
+    // 内部 origin は「外部」ではない。dev では previewed HTML の相対リンクがここに解決されるため、
+    // 外部送りすると意図しないブラウザ起動になる
+    if (isRendererOrigin(url, rendererOrigin)) return "block";
+    return url.startsWith("http://") || url.startsWith("https://") ? "external" : "block";
+  }
+  return url === currentUrl && isRendererOrigin(url, rendererOrigin) ? "allow" : "block";
 }

@@ -171,12 +171,23 @@ CLI は socket ファイル名から channel を逆導出する（`cliOps.ts`）
 
 ## 外部リンクの navigation 防壁
 
-判定を 2 層に分ける。**「frame を動かさせない」のが main、「この URL を OS に渡してよいか」を
-決めるのが renderer** で、scheme の allowlist は renderer 側にしか存在しない。VS Code が
-allowlist を `mainThreadWebviews.isSupportedLink`（リンククリックを受け取る層）にだけ置き、
-main プロセスの `will-navigate` / `setWindowOpenHandler` / `openExternal` はいずれも URL の
-中身を見ないのと同じ切り方。層ごとに判定を持つと「同じリンクでも通った経路で開く / 開かないが
-変わる」非対称が生まれる。
+「この URL を OS に渡してよいか」は、リンククリックを**受け取れる層**が決める。層ごとに判定を
+持つと「同じリンクでも通った経路で開く / 開かないが変わる」非対称が生まれるため、判定点は
+受け取れる層に 1 つだけ置く（VS Code が allowlist を `mainThreadWebviews.isSupportedLink` に
+だけ置き、main プロセスの `will-navigate` / `setWindowOpenHandler` / `openExternal` はいずれも
+URL の中身を見ないのと同じ切り方）。
+
+gozd では受け取れる層が frame によって違う。
+
+| frame                                        | クリックを受け取れる層 | 外部送りの担当                |
+| -------------------------------------------- | ---------------------- | ----------------------------- |
+| main frame（UI 本体）                        | renderer のコード      | renderer の `openExternal`    |
+| subframe（HTML preview の sandboxed iframe） | main の防壁のみ        | 防壁（`will-frame-navigate`） |
+
+subframe が例外なのは `sandbox=""` が opaque origin かつスクリプト不可で、親から
+`contentWindow` に触れずクリックを傍受できないため。VS Code の webview iframe は sandbox に
+`allow-same-origin` を持つので host からハンドラを注入できるが、gozd はその緩和が sandbox 契約
+（親 origin を継承させない = RPC bridge に到達させない）と両立しない。
 
 ### main: frame を動かさせない
 
@@ -188,11 +199,17 @@ main プロセスの `will-navigate` / `setWindowOpenHandler` / `openExternal` �
   opener が DOM 投影で構築する — renderer の ChildWindow.vue）。それ以外は新 window を作らせず、
   要求された URL は `shell.openExternal` で OS に委ねる
 - `will-frame-navigate`: **原則すべて block**（判定の SSOT は純関数 `decideFrameNavigation`）。
-  例外は dev の Vite origin への **main frame の同一 URL 遷移** だけで、これは Vite の full reload
-  （`location.reload()`）が `will-frame-navigate` を発火するため。例外を同一 URL に絞るのは、
-  同 origin の別 path を通すと rendered content の root-relative リンクが Vite origin に解決され、
-  UI 面が SPA fallback に置換されるため。packaged は renderer を `loadFile` で読み込み、リロードも
-  webContents API 経由なのでこの判定に到達せず、例外は dev だけに閉じる
+  例外は 2 つ
+  - dev の Vite origin への **main frame の同一 URL 遷移**: 許可。Vite の full reload
+    （`location.reload()`）が `will-frame-navigate` を発火するため。同一 URL に絞るのは、同 origin
+    の別 path を通すと rendered content の root-relative リンクが Vite origin に解決され、UI 面が
+    SPA fallback に置換されるため。packaged は renderer を `loadFile` で読み込み、リロードも
+    webContents API 経由なのでこの判定に到達せず、例外は dev だけに閉じる
+  - **subframe の外部 http(s)**: preventDefault + OS ブラウザへ。上表のとおりこの frame の
+    クリックを受け取れる層が他に無い。内部 origin は「外部」ではないので block（dev では
+    previewed HTML の相対リンクがそこに解決される）。mailto 等の external protocol も block —
+    sandboxed frame からの起動は Chromium / Electron 自身が塞いでおり、防壁が肩代わりすると
+    その保護を迂回する
 
 block は stderr に残す（silent drop 禁止）。launch 失敗も同様。
 
@@ -208,6 +225,7 @@ HTML のリンクが HTML preview 面を置換する。
 `shared/rpc` の `openExternal` が唯一の経路で、scheme allowlist（http / https / mailto）も
 ここだけが持つ。リンククリックを受け取る層（markdown 本文 / terminal の OSC 8 / filer の
 submodule リンク）はすべてこれを通す。allowlist 外は開かずに reject し、呼び出し側が通知に倒す。
+subframe だけは renderer が受け取れないため防壁側が担う（上記）。
 
 markdown 本文は `MarkdownBody` が `#fragment` 単独を除く全リンククリックを `preventDefault` し、
 外部 URL は自分で `openExternal` に流す。残りの href を `linkClick` で consumer に委ねる

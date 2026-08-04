@@ -73,8 +73,9 @@ describe("decideFrameNavigation", () => {
   });
 
   describe("subframe (HTML preview の sandboxed iframe)", () => {
-    test("外部 http(s) は block", () => {
-      expect(decide("https://example.com/", false)).toBe("block");
+    test("外部 http(s) は external (この frame のクリックを受け取れる層が他に無い)", () => {
+      expect(decide("https://example.com/", false)).toBe("external");
+      expect(decide("http://example.com/", false)).toBe("external");
     });
 
     test("dev の Vite origin は同一 URL でも block (プレビュー面を動かさない)", () => {
@@ -82,7 +83,7 @@ describe("decideFrameNavigation", () => {
       expect(decide(`${RENDERER_ORIGIN}/page2.html`, false)).toBe("block");
     });
 
-    test("mailto: も block", () => {
+    test("mailto: は block (sandboxed frame からの external protocol は Chromium が塞ぐ)", () => {
       expect(decide("mailto:user@example.com", false)).toBe("block");
     });
 

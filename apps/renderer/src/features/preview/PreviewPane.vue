@@ -39,9 +39,10 @@ import { useRepoStore } from "../../shared/repo";
 import { useChangesSummaryStore } from "../changes";
 import type { UndockDragHandoff } from "../floating-window";
 import { usePrDiffToggleStore } from "../git-graph";
-import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
+import { joinAbsRel, UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import { ChangesSummaryView } from "./features/changes-summary";
 import { useBlamePopover, useFileHistoryPopover } from "./features/commit-history";
+import { htmlPreviewTarget } from "./htmlPreviewTarget";
 import PreviewContent from "./PreviewContent.vue";
 import PreviewHeader from "./PreviewHeader.vue";
 import PreviewToolbar from "./PreviewToolbar.vue";
@@ -195,6 +196,23 @@ function buildUndockedDoc(): UndockedPreviewDoc | undefined {
   }
   return { filePath: path, current, original };
 }
+
+/**
+ * HTML preview の配信対象 (絶対パス) と配信を許す root。
+ *
+ * worktree 相対 selection は worktree root を root にする。worktree 外の絶対パス selection は
+ * そのファイルが居る dir を root にして、配信範囲を最小に保つ (VS Code の localResourceRoots が
+ * 開いているものだけを列挙するのと同じ絞り方)。
+ */
+const htmlTarget = computed(() => {
+  if (fileType.value !== "html") return undefined;
+  const sel = worktreeStore.selection;
+  if (sel === undefined) return undefined;
+  if (sel.kind === "absolute") return htmlPreviewTarget(sel.absPath, undefined);
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return undefined;
+  return htmlPreviewTarget(joinAbsRel(dir, sel.relPath), dir);
+});
 
 /**
  * 「本体 preview として開き直す」ボタンの対象 (undock 元の選択の焼き込み)。未選択 /
@@ -476,6 +494,8 @@ function onCodeScrolled() {
             :diff-current="diffCurrent"
             :code-content="codeContent"
             :display-content="displayContent"
+            :html-abs-path="htmlTarget?.absPath"
+            :html-root="htmlTarget?.root"
             :image-source="imageSource"
             :display-is-binary="displayIsBinary"
             :loading="loading"

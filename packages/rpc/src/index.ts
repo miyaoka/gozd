@@ -151,6 +151,7 @@ export type {
   PickAndOpenRequest,
   PickAndOpenResponse,
 } from "./open";
+export type { PreviewHtmlUrlRequest, PreviewHtmlUrlResponse } from "./preview";
 export type {
   ProjectConfig,
   ProjectConfigEnsureFileRequest,

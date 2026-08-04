@@ -72,7 +72,11 @@ describe("decideFrameNavigation", () => {
     });
   });
 
-  describe("subframe (HTML preview の sandboxed iframe)", () => {
+  describe("subframe (HTML preview の iframe)", () => {
+    test("gozd-preview:// 内の遷移は allow (previewed HTML の相対リンク)", () => {
+      expect(decide("gozd-preview://file/Users/x/repo/docs/20260803.html", false)).toBe("allow");
+    });
+
     test("外部 http(s) は external (この frame のクリックを受け取れる層が他に無い)", () => {
       expect(decide("https://example.com/", false)).toBe("external");
       expect(decide("http://example.com/", false)).toBe("external");

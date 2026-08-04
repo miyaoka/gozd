@@ -9,6 +9,7 @@
 // だけ置き、main プロセスの `openExternal` / `setWindowOpenHandler` / `will-navigate` は
 // いずれも scheme を見ないのと同じ構造。
 import type { OpenExternalRequest, OpenExternalResponse } from "@gozd/rpc";
+import { tryCatch } from "@gozd/shared";
 import { rpc } from "./client";
 
 /**
@@ -19,11 +20,9 @@ const ALLOWED_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:", "mailto
 
 /** OS へ渡してよい URL か。parse 不能な文字列は渡さない。 */
 export function isExternalUrl(url: string): boolean {
-  try {
-    return ALLOWED_SCHEMES.has(new URL(url).protocol);
-  } catch {
-    return false;
-  }
+  const parsed = tryCatch(() => new URL(url));
+  if (!parsed.ok) return false;
+  return ALLOWED_SCHEMES.has(parsed.value.protocol);
 }
 
 /**

@@ -184,10 +184,9 @@ gozd では受け取れる層が frame によって違う。
 | main frame（UI 本体）                        | renderer のコード      | renderer の `openExternal`    |
 | subframe（HTML preview の sandboxed iframe） | main の防壁のみ        | 防壁（`will-frame-navigate`） |
 
-subframe が例外なのは `sandbox=""` が opaque origin かつスクリプト不可で、親から
-`contentWindow` に触れずクリックを傍受できないため。VS Code の webview iframe は sandbox に
-`allow-same-origin` を持つので host からハンドラを注入できるが、gozd はその緩和が sandbox 契約
-（親 origin を継承させない = RPC bridge に到達させない）と両立しない。
+subframe が例外なのは、previewed HTML が `gozd-preview://` の実 origin で配信され
+（[preview.md](preview.md) の HtmlPreview）、その中の script は配信時の CSP で止めてあるため。
+renderer からクリックを傍受する経路が無いので、この frame の外部送りは防壁が担う。
 
 ### main: frame を動かさせない
 
@@ -197,7 +196,10 @@ subframe が例外なのは `sandbox=""` が opaque origin かつスクリプト
 - `setWindowOpenHandler`: `about:blank` + 所定の frame 名 prefix のみ allow（undock 用
   child window。same-origin の about:blank は opener と同一 renderer プロセスに作られ、中身は
   opener が DOM 投影で構築する — renderer の ChildWindow.vue）。それ以外は新 window を作らせず、
-  要求された URL は `shell.openExternal` で OS に委ねる
+  **URL も OS に渡さない**。gozd に外部 URL を `window.open` する first-party コードは無いため、
+  ここに来る要求は rendered content 由来か、リンククリックを受け取る層が取りこぼしたものだけで、
+  渡すとその層の allowlist を迂回する（VS Code はここで `openExternal` に渡すが、あちらは
+  untrusted content が popup を出せない構造が前提）
 - `will-frame-navigate`: **原則すべて block**（判定の SSOT は純関数 `decideFrameNavigation`）。
   例外は 2 つ
   - dev の Vite origin への **main frame の同一 URL 遷移**: 許可。Vite の full reload
@@ -205,11 +207,9 @@ subframe が例外なのは `sandbox=""` が opaque origin かつスクリプト
     の別 path を通すと rendered content の root-relative リンクが Vite origin に解決され、UI 面が
     SPA fallback に置換されるため。packaged は renderer を `loadFile` で読み込み、リロードも
     webContents API 経由なのでこの判定に到達せず、例外は dev だけに閉じる
-  - **subframe の外部 http(s)**: preventDefault + OS ブラウザへ。上表のとおりこの frame の
-    クリックを受け取れる層が他に無い。内部 origin は「外部」ではないので block（dev では
-    previewed HTML の相対リンクがそこに解決される）。mailto 等の external protocol も block —
-    sandboxed frame からの起動は Chromium / Electron 自身が塞いでおり、防壁が肩代わりすると
-    その保護を迂回する
+  - **subframe の遷移**: `gozd-preview://` 内（previewed HTML の相対リンク）は許可。配信範囲は
+    protocol handler が登録 root に絞り、root 外は 403 になる。外部 http(s) は preventDefault +
+    OS ブラウザへ（上表のとおりこの frame のクリックを受け取れる層が他に無い）。それ以外は block
 
 block は stderr に残す（silent drop 禁止）。launch 失敗も同様。
 
@@ -231,6 +231,10 @@ markdown 本文は `MarkdownBody` が `#fragment` 単独を除く全リンクク
 外部 URL は自分で `openExternal` に流す。残りの href を `linkClick` で consumer に委ねる
 （VS Code の webview host が全リンククリックを preventDefault して host へ転送するのと同じ位置）。
 外部送りを consumer 任せにすると、購読しない consumer でリンクが黙って死ぬ。
+
+`click` と `auxclick` の両方を同じ経路に通す。中クリックは `click` を発火しないため、片方だけ
+bind すると既定の new-window 要求に落ち、この層の allowlist を迂回して OS に URL が渡る
+（VS Code の `markdownRenderer` も同じコールバックを両イベントに登録している）。
 
 child window は URL を load しないため、「renderer 内に URL 越しにファイルを読む口が存在しない」
 というバイナリ配信セクションのセキュリティ境界は変わらない。

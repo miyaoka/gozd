@@ -1,0 +1,123 @@
+// HTML preview に実 origin と実 URL 空間を与える配信 scheme。
+//
+// srcdoc に文字列を流し込む形では、document の base URL が親 (renderer) の URL になるため
+// previewed HTML の相対リンク・画像・CSS が原理的に解決しない。origin も opaque になるので
+// 親からクリックを傍受することもできない。VS Code の webview が `vscode-file://` を
+// `registerFileProtocol` でローカル配信し、iframe に実 URL を load させているのと同じ形にする
+// （`platform/protocol/electron-main/protocolMainService.ts`）。
+//
+// 配信範囲は renderer が明示的に登録した root 配下だけに絞る（VS Code の `addValidFileRoot` /
+// `localResourceRoots` と同型）。登録が無い間は何も配信しない。
+import { tryCatch } from "@gozd/shared";
+import { net, protocol } from "electron";
+import { readFile } from "node:fs/promises";
+import { normalize, resolve, sep } from "node:path";
+import { PREVIEW_SCHEME } from "./previewScheme";
+
+/** URL の host 部。path だけを意味的な識別子にするため固定値を置く */
+const PREVIEW_HOST = "file";
+
+/**
+ * previewed HTML に許す能力。script / frame / form は無効、参照できるのは同 origin
+ * （= 登録 root 配下）の asset と data: URI だけに閉じる。previewed HTML はリポジトリ内の
+ * 任意ファイルで untrusted なので、実 origin を与える代わりに CSP で能力を落とす。
+ */
+const PREVIEW_CSP = [
+  "default-src 'none'",
+  "img-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:",
+  "media-src 'self' data:",
+  // 同 origin の別ページへのリンク遷移は許す（相対リンクで前後のページに移動する用途）
+  "form-action 'none'",
+  "frame-src 'none'",
+  "script-src 'none'",
+].join("; ");
+
+/** 配信を許す root（絶対パス）。renderer が preview を開くたびに登録する */
+const validRoots = new Set<string>();
+
+/** trailing separator を持つ正規化 root。prefix 比較で sibling dir を巻き込まないため */
+function rootPrefix(root: string): string {
+  const normalized = normalize(resolve(root));
+  return normalized.endsWith(sep) ? normalized : `${normalized}${sep}`;
+}
+
+/** preview 配信を許す root を登録する。同一 root の重複登録は no-op */
+export function addPreviewRoot(root: string): void {
+  if (root === "") return;
+  validRoots.add(rootPrefix(root));
+}
+
+/** 絶対パスが登録 root 配下かを判定する（root 自身は配信対象にしない） */
+function isUnderValidRoot(absPath: string): boolean {
+  const normalized = normalize(absPath);
+  for (const prefix of validRoots) {
+    if (normalized.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+/** preview URL から配信対象の絶対パスを取り出す。host 不一致・非絶対は undefined */
+function previewUrlToPath(url: string): string | undefined {
+  const parsed = tryCatch(() => new URL(url));
+  if (!parsed.ok) return undefined;
+  if (parsed.value.protocol !== `${PREVIEW_SCHEME}:`) return undefined;
+  if (parsed.value.hostname !== PREVIEW_HOST) return undefined;
+  const decoded = tryCatch(() => decodeURIComponent(parsed.value.pathname));
+  if (!decoded.ok) return undefined;
+  // pathname は必ず `/` 始まり。POSIX 絶対パスとしてそのまま使う
+  return decoded.value.startsWith("/") ? normalize(decoded.value) : undefined;
+}
+
+/** 絶対パスから preview URL を組み立てる（renderer が iframe src に使う形） */
+export function pathToPreviewUrl(absPath: string): string {
+  // path segment ごとに encode する。`#` や `?` を含むファイル名が fragment / query に
+  // 化けるのを防ぐ（`/` は区切りとして残す）
+  const encoded = absPath.split("/").map(encodeURIComponent).join("/");
+  return `${PREVIEW_SCHEME}://${PREVIEW_HOST}${encoded}`;
+}
+
+/**
+ * scheme を standard + secure として宣言する。`app.whenReady()` より前に呼ぶ必要がある
+ * （Electron の制約）。standard にしないと origin が opaque になり、相対 URL の解決と
+ * 同 origin 判定が成立しない。
+ */
+export function registerPreviewSchemePrivileges(): void {
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: PREVIEW_SCHEME,
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false },
+    },
+  ]);
+}
+
+/** protocol handler を登録する。`app.whenReady()` 後に呼ぶ */
+export function installPreviewProtocol(): void {
+  protocol.handle(PREVIEW_SCHEME, async (request) => {
+    const path = previewUrlToPath(request.url);
+    if (path === undefined) {
+      console.error(`[previewProtocol] rejected malformed url: ${request.url}`);
+      return new Response(null, { status: 400 });
+    }
+    if (!isUnderValidRoot(path)) {
+      console.error(`[previewProtocol] rejected out-of-root path: ${path}`);
+      return new Response(null, { status: 403 });
+    }
+    const read = await tryCatch(readFile(path));
+    if (!read.ok) {
+      console.error(`[previewProtocol] read failed: ${path}: ${read.error}`);
+      return new Response(null, { status: 404 });
+    }
+    // MIME は拡張子から Electron に判定させる（net.fetch の file: 経路と同じ推定を使う）
+    const type = await tryCatch(net.fetch(`file://${path}`, { method: "HEAD" }));
+    const contentType = type.ok ? (type.value.headers.get("content-type") ?? "") : "";
+    return new Response(new Uint8Array(read.value), {
+      status: 200,
+      headers: {
+        "content-type": contentType === "" ? "application/octet-stream" : contentType,
+        "content-security-policy": PREVIEW_CSP,
+      },
+    });
+  });
+}

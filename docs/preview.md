@@ -21,7 +21,7 @@ markdown レンダリング・blame / file history popover・changes summary は
 | image    | png, jpg, jpeg, gif, webp, avif, ico, bmp | `<img>` (ファイルサーバー URL)                                                   |
 | svg      | svg                                       | 画像プレビュー（ファイルサーバー URL） / ソースコード切替                        |
 | markdown | md                                        | marked + DOMPurify                                                               |
-| html     | html, htm                                 | sandboxed `<iframe srcdoc>` でネイティブ描画 / ソース切替                        |
+| html     | html, htm                                 | `<iframe>` にネイティブ描画（main の配信 scheme 経由）/ ソース切替               |
 | code     | その他すべて                              | Monaco Editor + Shiki TextMate ハイライト（編集可否は[編集機能](#編集機能)参照） |
 
 NUL バイトを含むファイルは拡張子ベースの種別判定に依らず、内容ベースの binary 判定（`displayIsBinary`）で「Binary file」メッセージ表示に倒す。
@@ -129,7 +129,7 @@ Copy file / Copy path の意味論は [filer.md](filer.md#ファイルコピーo
 Open in default app は表示中ファイルを OS のデフォルトアプリ（macOS の `open` 相当）で開く。
 
 - 対象は常に **working tree の実ファイル**。commit / PR diff モードで履歴版を表示中でも、開くのはディスク上の実体（git 履歴の内容ではない）。表示用の `selectedDisplayPath` は RPC 入力に使わない契約のため流用しない
-- RPC は専用の `/open/file`（`rpcOpenFile`）。native は `NSWorkspace.shared.open(URL(fileURLWithPath:))`。`openExternal`（`/open/external`）は OSC 8 リンク経由の任意 scheme 流入への防壁として scheme allowlist（http/https/mailto）で `file://` を弾くため、ローカルファイルを開く intent は別 RPC に分離する
+- RPC は専用の `/open/file`（`rpcOpenFile`）。native は `NSWorkspace.shared.open(URL(fileURLWithPath:))`。renderer の `openExternal`（`shared/rpc`）は scheme allowlist（http/https/mailto）で `file://` を弾くため、ローカルファイルを開く intent は別 RPC に分離する
 - 実パスの解決と描画 gate は純関数 `resolveOpenablePath`（テスト付き）が SSOT。working tree に実体があるときだけ selection の kind から実パスを解決し（`worktreeRelative` は `joinAbsRel(dir, relPath)`、`absolute` は `absPath` 直）、実体が無いケース（selection 無し / `isNotFound` / commit・PR diff モードで `deleted` 版を表示中）は undefined を返す。`openableAbsPath` がこれに委譲し、template の `v-if` がそのまま ⋮ ボタン描画を gate するため、押せるが native の存在チェックで必ず失敗する silent dead button を作らない（`blameEnabled` の added file gate と同じ規律）
 - **相対→絶対の解決は基準ディレクトリ（worktree root）を持つ renderer の責務**。`/open/file` には常に解決済みの絶対パスが渡る契約で、native は基準ディレクトリを持たず解決を**再実装しない**（再実装すると契約の SSOT が二重化する）。この契約は `OpenFileRequest.path`（`@gozd/rpc`）のコメントと main handler に明記する
 - ただし native は入口で**非絶対パス（空文字含む）を `invalidArgument` で弾く**。これは解決（基準ディレクトリ依存）ではなく、`URL(fileURLWithPath:)` が空文字・相対パスを CWD 基準で silent に絶対化する Foundation の暗黙 fallback を塞ぐためのガード。特に空文字は `url.path` が CWD になり `fileExists` も true を返すため、`NSWorkspace.open` が Finder で CWD を黙って開く誤動作になる。`fallback せずエラーにする` 規律に従い明示エラーへ倒す
@@ -332,8 +332,9 @@ Markdown 内のリンクは href の形式によって遷移先が決まる。�
 
 - worktree ルートの外を指すリンク (`../` で抜ける等) と不正な URL エンコードは通知のみでファイル切替を行わない
 - 行番号でない anchor (見出しアンカー等) はファイル切替は行うが、見出しスクロールは行わず通知で挙動を明示する（自動スクロールは未対応）
-- 中ボタンクリック (`auxclick`) は bind しないためブラウザ既定挙動に委ねる。修飾子付きクリックは
-  通常クリックと同じ経路（preview にタブ / window のモデルが無く、別挙動を与える意味がない）
+- 中ボタンクリック (`auxclick`) も左クリックと同じ経路に通す。片方だけ bind すると中クリックが
+  既定の new-window 要求に落ち、外部送りの allowlist を迂回して OS に URL が渡る。修飾子付き
+  クリックも通常クリックと同じ経路（preview にタブ / window のモデルが無く、別挙動を与える意味がない）
 - 通知は href ごとに別メッセージを出さず、固定 message と詳細 cause に分けて重複抑制を効かせる
 
 実装の詳細（クリック捕捉経路、解決ロジック、行番号フラグメントの抽出規則、URL デコードの取り扱い）は `MarkdownPreview.vue` の `<doc>` ブロックと `resolveMarkdownLink` を参照。
@@ -367,10 +368,12 @@ Markdown preview 内の内部リンククリックは back / forward 履歴に�
 
 ### HtmlPreview
 
-- ファイル内容を `srcdoc` で `<iframe>` に流し込みブラウザエンジンにネイティブ描画させる
-- `sandbox=""`（全権限なし）を必須とする。`srcdoc` iframe は**デフォルトで親 origin を継承する**ため、sandbox を外すと iframe 内 JS が renderer と同 origin で動き、親 window の `__gozdElectronRpc`（contextBridge）に到達して任意 RPC（ファイル読み等）を叩けてしまう
-  - `sandbox=""` で origin を opaque 化すると `<script>` は実行されず（静的 HTML + CSS のみ描画）、仮に scripts を許可しても opaque origin は親 window に触れず構造的に RPC を叩けない
-- 相対パス参照（`<img src="logo.png">` 等）は file 取得経路を持たないため解決しない。自己完結した（CSS / asset を埋め込んだ）HTML のみ意図通り描画される
+main の配信 scheme `gozd-preview://`（`previewProtocol.ts`）経由で**実 URL** を `<iframe src>` に load する。VS Code の webview が `vscode-file://` を `registerFileProtocol` で配信し、iframe に実 URL を load させているのと同じ形（`platform/protocol/electron-main/protocolMainService.ts`）。
+
+- **なぜ srcdoc ではないか**: `srcdoc` に文字列を流し込むと document の base URL が親（renderer）の URL になるため、previewed HTML の相対リンク・画像・CSS が原理的に解決しない。origin も opaque になり、リンククリックを傍受する経路も無くなる。実 URL なら普通の HTTP と同じ理屈で全部成立する
+- **信頼境界**: previewed HTML はリポジトリ内の任意ファイルで untrusted。実 origin を与える代わりに、能力は main が配信時に付ける CSP で落とす（`script-src 'none'` / `frame-src 'none'` / `form-action 'none'`、参照先は同 origin の asset と `data:` のみ）。origin が renderer と異なるため、仮に script が動いても親の `__gozdElectronRpc` には到達しない
+- **配信範囲**: `/preview/htmlUrl` に渡された root 配下だけ。登録の無い path は protocol handler が 403 を返す（VS Code の `localResourceRoots` と同型）。root の導出は純関数 `htmlPreviewTarget`（テスト付き）が SSOT で、worktree 内のファイルは worktree root、worktree 外の絶対パスはそのファイルが居る dir に絞る
+- **リンク遷移**: 同 origin への遷移は main の navigation 防壁が許可するため、相対リンクで前後のページに移動できる。外部 http(s) は防壁が `shell.openExternal` に送る（この frame のクリックを受け取れる層が防壁しか無いため。[architecture.md](architecture.md) 参照）
 - background は web platform の default canvas（白）に固定する。iframe 内は gozd の themed UI ではなく白背景前提で書かれた外部 HTML 文書を描画するため、semantic token ではなくリテラル白が意味的に正しい
 
 ## Preview チェックボックス

@@ -50,7 +50,13 @@ const notify = useNotificationStore();
 /** 固定 message + 詳細を cause に分離し、URL 違いのリンク連打でトーストが累積しないようにする */
 const LINK_OPEN_FAILED_MESSAGE = "Could not open link in the browser";
 
-function onClick(event: MouseEvent) {
+/**
+ * 左クリックと中クリックを同じ判定に通す。中クリックは `click` を発火せず `auxclick` なので、
+ * 片方だけ bind すると既定の new-window 要求に落ち、この層の allowlist を迂回して OS に
+ * URL が渡る。VS Code の markdownRenderer も同じコールバックを両イベントに登録している。
+ */
+function onLinkActivate(event: MouseEvent) {
+  if (event.button !== 0 && event.button !== 1) return;
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const anchor = target.closest("a");
@@ -168,7 +174,13 @@ watch(
 </script>
 
 <template>
-  <div ref="bodyEl" class="_markdown-body" v-html="renderedHtml" @click="onClick" />
+  <div
+    ref="bodyEl"
+    class="_markdown-body"
+    v-html="renderedHtml"
+    @click="onLinkActivate"
+    @auxclick="onLinkActivate"
+  />
 </template>
 
 <style scoped>

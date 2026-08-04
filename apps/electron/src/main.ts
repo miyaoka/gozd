@@ -24,6 +24,7 @@ import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG } from "./ipc";
 import { consumeLaunchRequest } from "./launchRequest";
 import { installAppMenu } from "./menu";
 import { buildGozdOpenPayload } from "./openTarget";
+import { installPreviewProtocol, registerPreviewSchemePrivileges } from "./previewProtocol";
 import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
 import {
   killAllPtys,
@@ -39,6 +40,10 @@ import { decideFrameNavigation } from "./urlPolicy";
 import { windowStateStore, type WindowBounds } from "./windowState";
 
 const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
+
+// HTML preview の配信 scheme は standard + secure として宣言する必要があり、その宣言は
+// app ready より前でなければ効かない（Electron の制約）。module 実行時に済ませる
+registerPreviewSchemePrivileges();
 
 // Vite dev server の URL 解決。GOZD_DEV_VITE_PORT が port の SSOT
 // （root の dev script が設定。scheme + host は http://localhost 固定契約）。
@@ -91,10 +96,16 @@ function installExternalLinkPolicy(contents: WebContents): void {
   };
 
   // window.open / target="_blank" は about:blank（undock child window）以外は新 window を
-  // 作らせず、要求された URL は OS に委ねる（scheme で選り分けない。VS Code の
-  // setWindowOpenHandler と同じ）。about:blank も frame 名 prefix で first-party の undock 経路に
-  // 限定する — rendered content 由来の window.open("about:blank") 等を allow すると registry に
-  // 乗らない追跡外の空ウィンドウが生まれるため
+  // 作らせず、**URL も OS に渡さない**。gozd に外部 URL を window.open する first-party コードは
+  // 無いので、ここに来る要求は rendered content 由来か、リンククリックを受け取る層
+  // （renderer の openExternal）が取りこぼしたものだけ。渡すとその層の allowlist を迂回する。
+  // VS Code はここで openExternal に渡すが、あちらは untrusted content が popup を出せない
+  // 構造（webview 内 + 受け取り層が click / auxclick 両方を捕まえる）が前提であり、
+  // untrusted markdown を main frame に直接描画する gozd では前提が成り立たない。
+  //
+  // about:blank も frame 名 prefix で first-party の undock 経路に限定する — rendered
+  // content 由来の window.open("about:blank") 等を allow すると registry に乗らない
+  // 追跡外の空ウィンドウが生まれるため
   contents.setWindowOpenHandler(({ url, frameName }) => {
     if (url === "about:blank" && frameName.startsWith(CHILD_WINDOW_FRAME_PREFIX)) {
       // native 背景をアプリ背景色にする (既定は白)。renderer surface の外で見える色
@@ -104,7 +115,7 @@ function installExternalLinkPolicy(contents: WebContents): void {
         overrideBrowserWindowOptions: { backgroundColor: WINDOW_BACKGROUND_COLOR },
       };
     }
-    openExternal(url);
+    console.error(`[ExternalLink] denied window.open: ${url}`);
     return { action: "deny" };
   });
 
@@ -277,6 +288,7 @@ let socketServer: SocketServerHandle | undefined;
 
 void app.whenReady().then(() => {
   installAppMenu();
+  installPreviewProtocol();
 
   // spike 診断: 実 Electron main が使う git / credential helper を stdout に残す。
   // GOZD_SPIKE_FETCH_DIR=<repo> で起動時 background fetch の再現まで行う（spikeDiag.ts 参照）

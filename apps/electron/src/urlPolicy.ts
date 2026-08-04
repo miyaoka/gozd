@@ -6,12 +6,11 @@
 // この層は「frame を動かさせない」ことだけをする (VS Code の will-navigate ハンドラが URL を
 // 見ずに preventDefault するのと同じ切り方)。
 //
-// 例外が HTML preview の `<iframe srcdoc sandbox="">`。opaque origin かつスクリプト不可なので
-// 親からクリックを傍受できず、受け取れる層がこの防壁しか無い。VS Code の webview iframe は
-// sandbox に `allow-same-origin` を持つため host からハンドラを注入できるが、gozd は sandbox
-// 契約 (親 origin を継承させない = RPC bridge に到達させない) と両立しないためその手が使えない。
-// よって subframe に限り、この層が外部送りまで担う。
+// 例外が HTML preview の iframe。previewed HTML は `gozd-preview://` の実 origin で配信され
+// (previewProtocol.ts)、その中の script は CSP で止めてある。renderer からクリックを傍受する
+// 経路が無いため、外部送りはこの層が担う。
 import { tryCatch } from "@gozd/shared";
+import { PREVIEW_SCHEME } from "./previewScheme";
 
 /**
  * dev の Vite origin か。origin は完全一致で比較する。prefix 比較
@@ -25,9 +24,14 @@ import { tryCatch } from "@gozd/shared";
  * blob の inner origin (`http://host`) を返すため、origin 比較だけだと `blob:` が内部扱いになる。
  * Vite dev server の URL は必ず http(s) なので、scheme を固定しても取りこぼしはない。
  */
+/** http(s) スキームか。origin 判定と外部送り判定が同じ述語を共有する */
+function isHttpUrl(url: string): boolean {
+  return url.startsWith("http://") || url.startsWith("https://");
+}
+
 export function isRendererOrigin(url: string, rendererOrigin: string | undefined): boolean {
   if (rendererOrigin === undefined) return false;
-  if (!url.startsWith("http://") && !url.startsWith("https://")) return false;
+  if (!isHttpUrl(url)) return false;
   const parsed = tryCatch(() => new URL(url));
   // parse 不能な文字列は内部と証明できないため外部側に倒す
   if (!parsed.ok) return false;
@@ -47,18 +51,14 @@ export type FrameNavigationVerdict = "allow" | "external" | "block";
  * UI 面が SPA fallback に置換されるため。packaged は `loadFile` で読み込み、リロードも
  * webContents API 経由でこの判定に到達しないので、例外は dev だけに閉じる。
  *
- * subframe は HTML preview の `<iframe srcdoc sandbox="">` だけで、初期 srcdoc から動かないのが
- * 契約。内部 origin であっても遷移すればプレビュー面を奪う (dev では previewed HTML の相対
- * リンクが Vite origin に解決され SPA fallback の index.html が返る。sandbox でスクリプトが
- * 動かないので白面になる)。ただし外部 http(s) だけは `external` で OS に逃がす —
- * この frame のリンククリックを受け取れる層が他に無いため (ファイル冒頭の注記)。
- * mailto 等の external protocol は Chromium / Electron 自身が sandboxed frame から塞いでおり、
- * 防壁が肩代わりするとその保護を迂回するので http(s) に絞る。
+ * subframe は HTML preview の iframe だけ。`gozd-preview://` 内の遷移は previewed HTML の
+ * 相対リンクなので許可する (配信範囲は previewProtocol の登録 root に絞られており、root 外は
+ * 配信自体が 403 になる)。外部 http(s) は `external` で OS に逃がす — この frame のリンク
+ * クリックを受け取れる層が他に無いため (ファイル冒頭の注記)。それ以外は block。
  *
- * 一律 block が HTML preview / undock child window を殺さないのは、`about:srcdoc` や
- * `about:blank` のように URLLoader を経由しない commit がこの判定に到達しないため。到達する
- * ようになるとプレビューは全面が空になり、child window は投影前の文書を失う。手がかりは block の
- * stderr 1 行だけになる。
+ * 一律 block が undock child window を殺さないのは、`about:blank` のように URLLoader を
+ * 経由しない commit がこの判定に到達しないため。到達するようになると child window は投影前の
+ * 文書を失う。手がかりは block の stderr 1 行だけになる。
  */
 export function decideFrameNavigation({
   url,
@@ -77,10 +77,12 @@ export function decideFrameNavigation({
   rendererOrigin: string | undefined;
 }): FrameNavigationVerdict {
   if (!isMainFrame) {
-    // 内部 origin は「外部」ではない。dev では previewed HTML の相対リンクがここに解決されるため、
+    // previewed HTML の相対リンク。配信 root 外は protocol handler が 403 にする
+    if (url.startsWith(`${PREVIEW_SCHEME}://`)) return "allow";
+    // 内部 origin は「外部」ではない。dev では previewed HTML の絶対リンクがここに解決され得るため、
     // 外部送りすると意図しないブラウザ起動になる
     if (isRendererOrigin(url, rendererOrigin)) return "block";
-    return url.startsWith("http://") || url.startsWith("https://") ? "external" : "block";
+    return isHttpUrl(url) ? "external" : "block";
   }
   return url === currentUrl && isRendererOrigin(url, rendererOrigin) ? "allow" : "block";
 }

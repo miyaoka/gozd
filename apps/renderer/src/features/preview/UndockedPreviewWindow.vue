@@ -70,6 +70,7 @@ import type { FsChangeAbsolutePayload } from "../filer";
 import { UndockedWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
 import { joinAbsRel, useWorktreeStore } from "../worktree";
+import { htmlPreviewTarget } from "./htmlPreviewTarget";
 import PreviewContent from "./PreviewContent.vue";
 import { detectFileType } from "./previewFileType";
 import type { PreviewMode } from "./previewMode";
@@ -116,6 +117,11 @@ const source = props.preview.source;
 const sourceAbsPath =
   source.kind === "absolute" ? source.absPath : joinAbsRel(source.dir, source.relPath);
 const fileType = detectFileType(doc.filePath);
+/** HTML preview の配信対象。worktree 起点なら worktree root を配信範囲にする */
+const htmlTarget = htmlPreviewTarget(
+  sourceAbsPath,
+  source.kind === "worktree" ? source.dir : undefined,
+);
 const isImageFile = fileType === "image" || fileType === "svg";
 
 /** current 側の中身。undock 時 snapshot を初期値に、source の実ファイル変更へ追従する */
@@ -440,6 +446,8 @@ function dockToPreview() {
         :diff-current="diffCurrent"
         :code-content="codeContent"
         :display-content="displayContent"
+        :html-abs-path="htmlTarget.absPath"
+        :html-root="htmlTarget.root"
         :image-source="imageSource"
         :display-is-binary="displayIsBinary"
         :error="contentError"

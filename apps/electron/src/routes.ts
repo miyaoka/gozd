@@ -100,6 +100,8 @@ import type {
   OpenExternalResponse,
   OpenFileRequest,
   OpenFileResponse,
+  PreviewHtmlUrlRequest,
+  PreviewHtmlUrlResponse,
   PickAndOpenResponse,
   ProjectConfigEnsureFileRequest,
   ProjectConfigEnsureFileResponse,
@@ -150,6 +152,7 @@ import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
 import { isChildWindow } from "./childWindows";
+import { addPreviewRoot, pathToPreviewUrl } from "./previewProtocol";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import {
@@ -940,6 +943,16 @@ async function handleOpenExternal(body: unknown): Promise<unknown> {
   return {} satisfies OpenExternalResponse;
 }
 
+// HTML preview の iframe に load させる URL を返し、同時に配信可能な root を登録する。
+// 登録しない限り previewProtocol は何も配信しない（VS Code の localResourceRoots と同型）
+async function handlePreviewHtmlUrl(body: unknown): Promise<unknown> {
+  const req = body as PreviewHtmlUrlRequest;
+  if (!req.absPath.startsWith("/")) throw new Error(`absPath must be absolute: ${req.absPath}`);
+  if (!req.root.startsWith("/")) throw new Error(`root must be absolute: ${req.root}`);
+  addPreviewRoot(req.root);
+  return { url: pathToPreviewUrl(req.absPath) } satisfies PreviewHtmlUrlResponse;
+}
+
 async function handleOpenFile(body: unknown): Promise<unknown> {
   const req = body as OpenFileRequest;
   // path は renderer が解決済みの絶対パス契約。非絶対（空文字含む）を CWD 基準で silent に
@@ -1231,6 +1244,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/projectConfig/ensureFile", handleProjectConfigEnsureFile],
   ["/open/external", handleOpenExternal],
   ["/open/file", handleOpenFile],
+  ["/preview/htmlUrl", handlePreviewHtmlUrl],
   ["/open/pickAndOpen", handlePickAndOpen],
   ["/window/close", handleWindowClose],
   ["/window/setTitleContext", handleWindowSetTitleContext],

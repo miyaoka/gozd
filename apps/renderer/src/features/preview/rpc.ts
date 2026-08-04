@@ -13,9 +13,15 @@ import {
   GitShowCommitFileResponse,
   GitShowFileRequest,
   GitShowFileResponse,
+  PreviewHtmlUrlRequest,
+  PreviewHtmlUrlResponse,
 } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
+
+/** HTML preview の iframe に load させる URL を得る（同時に配信 root が main へ登録される） */
+export const rpcPreviewHtmlUrl = (req: PreviewHtmlUrlRequest) =>
+  rpc<PreviewHtmlUrlResponse>("/preview/htmlUrl", req);
 
 export const rpcGitShowFile = (req: GitShowFileRequest) =>
   rpc<GitShowFileResponse>("/git/showFile", req);

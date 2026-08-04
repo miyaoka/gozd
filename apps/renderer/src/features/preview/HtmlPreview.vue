@@ -1,52 +1,79 @@
 <doc lang="md">
-HTML ファイルのレンダリングプレビュー。ファイル内容を `srcdoc` で `<iframe>` に流し込み、
-ブラウザエンジンにネイティブ描画させる。
+HTML ファイルのレンダリングプレビュー。main の配信 scheme (`gozd-preview://`) 経由で
+実 URL を `<iframe src>` に load し、ブラウザエンジンにネイティブ描画させる。
 
-## sandbox 契約
+## なぜ srcdoc ではなく実 URL か
 
-`sandbox=""` (全権限なし) を必須とする。`srcdoc` iframe は **デフォルトで親 origin を継承する**ため、
-sandbox を外すと iframe 内 JS が renderer と同 origin で動き、親 window の
-`__gozdElectronRpc`（contextBridge）に到達して任意 RPC（ファイル読み等）を叩けてしまう。
+`srcdoc` に文字列を流し込むと document の base URL が親 (renderer) の URL になるため、
+previewed HTML の相対リンク・画像・CSS が解決しない。origin も opaque になるので、
+リンククリックを傍受する経路も無くなる。
 
-`sandbox=""` で origin を opaque 化すると:
+実 URL を load すると、これらが普通の HTTP と同じ理屈で成立する。VS Code の webview が
+`vscode-file://` を `registerFileProtocol` で配信し、iframe に実 URL を load させているのと
+同じ形 (`platform/protocol/electron-main/protocolMainService.ts`)。
 
-- `<script>` は実行されない (静的 HTML + CSS のみ描画)
-- 仮に scripts を許可しても opaque origin は親 window に触れず構造的に RPC を叩けない
+## 信頼境界
 
-相対パス参照 (`<img src="logo.png">` 等) は file 取得経路を持たないため解決しない。自己完結した
-(CSS / asset を埋め込んだ) HTML のみ意図通り描画される。
+previewed HTML はリポジトリ内の任意ファイルで untrusted。実 origin を与える代わりに、
+能力は main が配信時に付ける CSP で落とす (`previewProtocol.ts` の `PREVIEW_CSP`)。
+script / frame / form は無効で、参照できるのは同 origin の asset と data: URI だけ。
 
-## リンククリックを frame 内で傍受しない
+配信範囲は `/preview/htmlUrl` に渡した root 配下に限られる。main は登録の無い path を
+配信しない (VS Code の `localResourceRoots` と同型)。
 
-opaque origin は親から `contentWindow` に触れないため、VS Code の webview
-(`webview/browser/pre/index.html`) のように iframe へ click ハンドラを注入して外部送りする手法は
-取れない。それを可能にしている `allow-same-origin` は上記の sandbox 契約と両立しない。
+origin が renderer と異なるため、iframe 内 JS から親の `__gozdElectronRpc` には到達できない
+(そもそも script を CSP で止めている)。
 
-sandbox は origin を opaque にするだけで frame 自身の遷移は禁止しないため、リンククリックは
-プレビュー面を置き換えてしまう。この frame は初期 `srcdoc` から動かないのが契約で、遷移を止めるのは
-main の `will-frame-navigate` 防壁 (`installExternalLinkPolicy`) の責務。外部 http(s) だけが OS
-ブラウザへ渡り、それ以外の遷移は block される。
+## リンクの遷移
 
-`target="_blank"` のリンクは `sandbox` に `allow-popups` が無いため Chromium が renderer 内で
-ブロックし、`setWindowOpenHandler` にも到達しないので無反応になる。
+同 origin (= 配信 root 配下) への遷移は main の navigation 防壁が許可するため、相対リンクで
+前後のページに移動できる。外部 http(s) は防壁が `shell.openExternal` に送る
+(`installExternalLinkPolicy`)。
 </doc>
 
 <script setup lang="ts">
-defineProps<{
-  /** レンダリング対象の HTML ソース文字列 */
-  content: string;
+import { tryCatch } from "@gozd/shared";
+import { ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
+import { rpcPreviewHtmlUrl } from "./rpc";
+
+const props = defineProps<{
+  /** レンダリング対象 HTML の絶対パス */
+  absPath: string;
+  /** 配信を許す root の絶対パス（対象ファイルが属する worktree root） */
+  root: string;
 }>();
+
+const notify = useNotificationStore();
+const src = ref<string>();
+
+/** 固定 message + 詳細を cause に分離し、対象違いでトーストが累積しないようにする */
+const URL_FAILED_MESSAGE = "Could not open HTML preview";
+
+watch(
+  () => [props.absPath, props.root] as const,
+  async ([absPath, root]) => {
+    const result = await tryCatch(rpcPreviewHtmlUrl({ absPath, root }));
+    if (!result.ok) {
+      src.value = undefined;
+      notify.error(URL_FAILED_MESSAGE, new Error(`path=${absPath}`, { cause: result.error }));
+      return;
+    }
+    src.value = result.value.url;
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
   <!--
-    sandbox="" は全権限なし契約 (doc 参照)。空文字でも属性自体は必須なので明示する。
-    background は web platform の default canvas (白) に固定する。iframe 内は gozd の themed UI ではなく
-    白背景前提で書かれた外部 HTML 文書を描画するため、semantic token ではなくリテラル白が意味的に正しい。
+    background は web platform の default canvas (白) に固定する。iframe 内は gozd の themed UI
+    ではなく白背景前提で書かれた外部 HTML 文書を描画するため、semantic token ではなくリテラル白が
+    意味的に正しい。
   -->
   <iframe
-    :srcdoc="content"
-    sandbox=""
+    v-if="src !== undefined"
+    :src="src"
     title="HTML preview"
     class="size-full border-0"
     style="background: #ffffff"

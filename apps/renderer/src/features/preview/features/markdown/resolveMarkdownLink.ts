@@ -8,8 +8,9 @@ import type { PathTarget } from "../../../worktree";
  * リポジトリ内ファイル由来のテキストを描画するため、旧内部 scheme
  * (`gozd-file://` / `gozd-rpc://` / `gozd-app://`) / `file:` / `data:` / `javascript:` 等の
  * 内部 or 危険 scheme は明示的に invalid に倒す (廃止済み scheme も defense in depth で残す)。
- * external は http(s) / mailto: のみで、`/open/external` route の scheme allowlist
- * (`OPEN_EXTERNAL_ALLOWED_SCHEMES`) と同一集合。navigation 防壁側の判定 (http(s) のみ) とは別物。
+ * external は http(s) / mailto: のみで、main 側の `EXTERNAL_ALLOWED_SCHEMES`
+ * (`/open/external` route と navigation 防壁が共有する「OS へ渡してよい scheme」の allowlist)
+ * と同一集合。
  *
  * passthrough は `#fragment` 単独 (同一文書内アンカー) だけに限る。外部 URL を passthrough に
  * 含めて「ブラウザ既定の遷移 + main の navigation 防壁」に委ねる形は採らない。プレビュー本体は

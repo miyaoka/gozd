@@ -89,7 +89,11 @@ export function decideFrameNavigation({
 }: {
   url: string;
   isMainFrame: boolean;
-  /** 遷移元の frame が現在読んでいる URL。full reload の判定に使う */
+  /**
+   * webContents の **main frame** が現在読んでいる URL (`contents.getURL()`)。full reload の
+   * 判定に使う。subframe 遷移のときも main frame の URL が入るため、subframe 分岐で
+   * 「その frame の現在 URL」として読んではいけない。
+   */
   currentUrl: string;
   rendererOrigin: string | undefined;
 }): FrameNavigationVerdict {

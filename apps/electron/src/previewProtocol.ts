@@ -66,7 +66,17 @@ export async function addPreviewRoot(root: string): Promise<void> {
   validRoots.add(rootPrefix(real.value));
 }
 
-/** 絶対パスが登録 root 配下かを判定する（root 自身は配信対象にしない） */
+/**
+ * 絶対パスが指定 root の配下か（root 自身は配信対象にしない）。
+ *
+ * 配信時の権威的な判定（`isUnderValidRoot`）と RPC 入口の fail-loud ガードが同じ述語を使う。
+ * 別実装にすると、片方だけ直したときに「入口は通るが配信は 403」というズレが生まれる。
+ */
+export function isWithinRoot(absPath: string, root: string): boolean {
+  return normalize(absPath).startsWith(rootPrefix(root));
+}
+
+/** 絶対パスが登録 root のいずれかの配下かを判定する（配信時の権威的な判定） */
 function isUnderValidRoot(absPath: string): boolean {
   const normalized = normalize(absPath);
   for (const prefix of validRoots) {

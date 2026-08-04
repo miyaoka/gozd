@@ -152,7 +152,7 @@ import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
 import { isChildWindow } from "./childWindows";
-import { addPreviewRoot, pathToPreviewUrl } from "./previewProtocol";
+import { addPreviewRoot, isWithinRoot, pathToPreviewUrl } from "./previewProtocol";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import {
@@ -953,8 +953,8 @@ async function handlePreviewHtmlUrl(body: unknown): Promise<unknown> {
   // 登録は取り消せないので、fallback せずここで弾く
   if (req.root === "/") throw new Error("root must not be the filesystem root");
   // 登録範囲と要求対象が食い違ったまま URL を返すと、iframe が 403 を踏んで空面になり
-  // renderer には何も伝わらない。入口で弾いて RPC のエラーに乗せる
-  if (!req.absPath.startsWith(req.root.endsWith("/") ? req.root : `${req.root}/`)) {
+  // renderer には何も伝わらない。入口で弾いて RPC のエラーに乗せる（述語は配信時と共有）
+  if (!isWithinRoot(req.absPath, req.root)) {
     throw new Error(`absPath must be under root: ${req.absPath} (root=${req.root})`);
   }
   await addPreviewRoot(req.root);

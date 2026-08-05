@@ -130,9 +130,15 @@ no-drag` の切り抜きも敷く (Electron 公式の drag 帯プラクティス
 
 DOM 構造は三段:
 
-- 外側 popover element (`bg-transparent border-none overflow-visible p-0` + `flex flex-col`)
+- 外側 popover element (`bg-transparent border-none overflow-visible p-0` +
+  `[&:popover-open]:flex flex-col`)
   位置決めと max-height クランプの伝播を担う透明枠。flex-col は中間 box (min-h-0) を
-  クランプ内へ縮めてスクロール面に高さ制約を届けるための指定。padding は持たない
+  クランプ内へ縮めてスクロール面に高さ制約を届けるための指定。display を
+  `:popover-open` で条件づけるのは、素の `flex` が author origin として UA の
+  `[popover]:not(:popover-open) { display: none }` に勝ち、閉じた popover を描画させて
+  しまうため。閉じても描画され続けると、hide が `showPopover` の暗黙 anchor を外した
+  時点で上と同じ左上 fallback へ落ちる (proxy は生きたままなので、anchor 要素の
+  unmount とは別経路で同じ結末に至る)。padding は持たない
   (透明 padding があると keep-out clamp 時にタイトルバーとの間へスキマが出る。`p-0` は
   UA default の `[popover]` padding の打ち消し)。
   UA default の `[popover] { overflow: auto }` は
@@ -655,7 +661,7 @@ watch([hasMain, hasSub], ([main, sub]) => {
        (popover 外 click / ESC) で閉じる。
        本文描画は SessionLogMessageBody に委譲 (assistant のみ markdown 解釈)。 -->
   <PreviewPopover
-    class="m-0 flex w-3xl max-w-[80vw] flex-col overflow-visible border-none bg-transparent p-0 text-base"
+    class="m-0 w-3xl max-w-[80vw] flex-col overflow-visible border-none bg-transparent p-0 text-base [&:popover-open]:flex"
     :style="previewPopoverStyle"
   >
     <template v-if="previewContext">

@@ -28,14 +28,16 @@ export async function openExternal(url: string): Promise<void> {
 }
 
 /**
- * このマウスイベントをリンク起動とみなすか。リンクを描く層はすべてこの述語を通す
- * （層ごとに条件を持つと、同じ操作でも押した場所で開く / 開かないが変わる）。
+ * このマウスイベントをリンク起動とみなすか。**anchor のクリックからリンクを起動する層**は
+ * すべてこの述語を通す（層ごとに条件を持つと、同じ操作でも押した場所で開く / 開かないが変わる）。
+ *
+ * 例外は terminal で、そこは shift+click を起動条件とする別契約になる。素のクリックは端末
+ * アプリのマウス報告とテキスト選択に食われるため、修飾キー無しではリンクを起動できない。
  *
  * 左クリックと中クリックの両方を通す。中クリックは `click` を発火せず `auxclick` になるため、
- * 呼び出し側は両方の event に bind する。片方だけだと既定の new-window 要求に落ち、main の
- * 防壁が URL を見ずに deny してリンクが無音で死ぬ。
+ * 呼び出し側は両方の event に bind する。
  *
- * control+click は除く。macOS の WebKit はこれを button 0 の click として dispatch するが、
+ * control+click は除く。macOS ではこれが button 0 の click としても dispatch されるが、
  * 意図はコンテキストメニューでリンク起動ではない。
  */
 export function isLinkActivation(event: MouseEvent): boolean {

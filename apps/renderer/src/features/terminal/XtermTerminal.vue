@@ -250,6 +250,8 @@ onMounted(async () => {
   // WebLinksAddon: テキスト中の URL パターンを自動検出
   // linkHandler: OSC 8 エスケープシーケンスによる明示リンク（例: "PR #88"）
   const openLink = (event: MouseEvent, url: string) => {
+    // 起動条件を `shared/rpc` の isLinkActivation に寄せない。端末は素のクリックでリンクが
+    // 誤発火するため shift を要求する契約で、anchor をクリックする層とは前提が違う
     if (!event.shiftKey) return;
     // 端末出力は untrusted。allowlist 外の scheme は openExternal が reject するため、
     // 無反応で終わらせず通知に倒す

@@ -91,9 +91,7 @@ function sameGhRef(a: GhRef, b: GhRef): boolean {
 }
 
 /** ghRef の strict 検証。唯一の例外として、kind の**未知の文字列値**だけは ghRef ごと落とす
- * （`GhRefKind` は tasks.json に永続化される文字列 enum で、新 kind を書いた新バージョンの
- * ファイルを旧バージョンが読む forward-compat 経路が docs/rpc.md で契約化されているため。
- * 表示 / upsert 判定が意味を持たないので drop し、観察ログを残す）。
+ * （未知 kind は表示 / upsert 判定のどちらでも意味を持たないため drop し、観察ログを残す）。
  * それ以外の型違反（非 object / 非文字列 kind / 非 number の number）は state 系 strict
  * ポリシーどおり RawJsonTypeError で reinit に倒す */
 function normalizeGhRef(raw: unknown, label: string): GhRef | undefined {

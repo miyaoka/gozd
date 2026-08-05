@@ -123,8 +123,18 @@ export interface GitCommit {
   truncatedAbove: boolean;
 }
 
-/** PR の head ref に対する CI の総合結果。GitHub GraphQL の `StatusState` に対応する。 */
-export type GitPullRequestCheckState = "EXPECTED" | "ERROR" | "FAILURE" | "PENDING" | "SUCCESS";
+/** PR の head ref に対する CI の総合結果。GitHub GraphQL の `StatusState` に対応する。
+ * 型は list から導出する。受信側の検証に使う実体と型が同じ declaration から出るため、
+ * 値を足して片方だけ更新するというドリフトが起こせない。 */
+export const GIT_PULL_REQUEST_CHECK_STATES = [
+  "EXPECTED",
+  "ERROR",
+  "FAILURE",
+  "PENDING",
+  "SUCCESS",
+] as const;
+
+export type GitPullRequestCheckState = (typeof GIT_PULL_REQUEST_CHECK_STATES)[number];
 
 export interface GitPullRequest {
   number: number;
@@ -146,8 +156,9 @@ export interface GitPullRequest {
   baseRefOid: string;
   /** head ref の CI 総合結果。check / status が 1 つも登録されていない commit では undefined。 */
   checkState?: GitPullRequestCheckState;
-  /** PR に付いた発言のかたまりの数。会話コメント + レビュー + インラインスレッドの合計で、
-   * スレッドは返信数によらず 1 と数える。 */
+  /** PR に付いた会話の総量。会話コメント + レビュー送信 + インラインスレッドの合計。
+   * スレッドへの返信は 1 件のレビュー送信として送られるため、返信も 1 と数える。
+   * 解決済みかどうかは区別しないので、単調増加する累積値になる。 */
   commentCount: number;
 }
 

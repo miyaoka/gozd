@@ -10,7 +10,8 @@
 //   Finder/Dock 起動の最小 PATH には Homebrew の `gh` が存在せず、Apple stub にも救われない
 //   （設計理由は commandResolver.ts 冒頭コメント参照）
 
-import type { GitPullRequestCheckState } from "@gozd/rpc";
+import type { GitPullRequest, GitPullRequestCheckState } from "@gozd/rpc";
+import { GIT_PULL_REQUEST_CHECK_STATES } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -47,27 +48,6 @@ type GhErrorKindName = "rateLimit" | "unauthenticated" | "repoNotFound" | "netwo
 interface GhError {
   kind: GhErrorKindName;
   detail: string;
-}
-
-export interface PullRequestInfo {
-  number: number;
-  title: string;
-  url: string;
-  state: string;
-  author: string;
-  headRef: string;
-  baseRef: string;
-  isDraft: boolean;
-  assignees: string[];
-  reviewers: string[];
-  updatedAt: string;
-  authorAvatarUrl: string;
-  /** base branch の commit OID。PR diff 表示モードで base 端を識別する SSOT */
-  baseRefOid: string;
-  /** head ref の CI 総合結果。check / status が未登録の commit では undefined */
-  checkState?: GitPullRequestCheckState;
-  /** PR に付いた発言のかたまりの数（会話コメント + レビュー + インラインスレッド） */
-  commentCount: number;
 }
 
 export interface IssueInfo {
@@ -141,9 +121,8 @@ query($owner: String!, $repo: String!, $limit: Int!) {
   }
 }`;
 
-/** open PR 一覧。fork PR（head owner ≠ local owner）は除外する: worktree 作成側が
- * `origin/<headRef>` を startPoint に使うため、fork からの PR は ref 解決に失敗する */
-export async function prList(dir: string): Promise<GhResult<PullRequestInfo[]>> {
+/** open PR 一覧 */
+export async function prList(dir: string): Promise<GhResult<GitPullRequest[]>> {
   const identity = await resolveGitHubRepoOrError(dir);
   if (!identity.ok) return identity;
   const { owner, repo } = identity.value;
@@ -153,9 +132,20 @@ export async function prList(dir: string): Promise<GhResult<PullRequestInfo[]>> 
   if (nodes === undefined) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
   }
-  const prs: PullRequestInfo[] = [];
+  return { ok: true, value: parsePullRequestNodes(nodes, owner) };
+}
+
+/**
+ * PR 一覧 query の nodes を `GitPullRequest` へ変換する pure 関数。取得経路はすべてこれを
+ * 経由する SSOT で、snapshot 入力に対する境界の振る舞いをここに閉じる。
+ *
+ * fork PR（head owner ≠ local owner）は除外する: worktree 作成側が `origin/<headRef>` を
+ * startPoint に使うため、fork からの PR は ref 解決に失敗する。`owner` は remote URL から
+ * local に解決した値を渡す。
+ */
+export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullRequest[] {
+  const prs: GitPullRequest[] = [];
   for (const item of nodes) {
-    // fork PR を除外（owner は repoOwnerName で local に得たものを SSOT として使う）
     const headOwner = str(getPath(item, "headRepository", "owner", "login"));
     if (headOwner !== owner) continue;
     prs.push({
@@ -176,7 +166,7 @@ export async function prList(dir: string): Promise<GhResult<PullRequestInfo[]>> 
       commentCount: commentCount(item),
     });
   }
-  return { ok: true, value: prs };
+  return prs;
 }
 
 /** open issue 一覧 */
@@ -346,15 +336,17 @@ function int(v: unknown): number {
 }
 
 /**
- * PR に付いた「発言のかたまり」の数。会話コメント + レビュー + インラインスレッドを足す。
+ * PR に付いた会話の総量。会話コメント + レビュー送信 + インラインスレッドを足す。
  *
  * `totalCommentsCount` を使わないのは、本文を持つだけでインラインコメントを伴わないレビューを
  * 数え落とすため。CI / AI が要約レビューを 1 本投げる形（CodeRabbit 等）がまさにこの形で、
  * 「コメントが付いたこと」に気づくという用途に対して致命的に効かない。
  *
- * スレッドは返信数によらず 1 と数える。レビューは本文の有無を問わず 1 と数えるため、本文の無い
- * approve だけのレビューは過大に数える（本文の有無は connection を辿らないと分からず、それは
- * cost に乗る）。
+ * 数え方は「レビュー送信」単位になる。スレッドへの返信は 1 件のレビューとして送られるため、
+ * 返信のあるスレッドは スレッド 1 + 返信数 と数える。本文の無い approve だけのレビューも
+ * 1 と数える（本文の有無は connection を辿らないと分からず、それは cost に乗る）。
+ *
+ * 解決済みかどうかは区別しないため、値は単調増加する累積値であり、未読や残タスクの数ではない。
  */
 function commentCount(item: unknown): number {
   return (
@@ -364,20 +356,20 @@ function commentCount(item: unknown): number {
   );
 }
 
-const CHECK_STATES: readonly GitPullRequestCheckState[] = [
-  "EXPECTED",
-  "ERROR",
-  "FAILURE",
-  "PENDING",
-  "SUCCESS",
-];
+function isCheckState(v: unknown): v is GitPullRequestCheckState {
+  return typeof v === "string" && (GIT_PULL_REQUEST_CHECK_STATES as readonly string[]).includes(v);
+}
 
-/** rollup が null（check 未登録の commit）と、GitHub が将来追加する未知の state を
- * どちらも undefined に倒す。表示側は undefined を「CI 無し」として扱う */
+/**
+ * rollup の state を検証する。表示側は undefined を「check が 1 つも無い」と読むため、
+ * 値が来たのに未知だった場合はログを残してから undefined にする。黙って倒すと、GitHub が
+ * enum を増やした瞬間に「CI 無し」という事実でない主張を polling のたびに出し続ける。
+ */
 function checkState(v: unknown): GitPullRequestCheckState | undefined {
-  return CHECK_STATES.includes(v as GitPullRequestCheckState)
-    ? (v as GitPullRequestCheckState)
-    : undefined;
+  if (v === null || v === undefined) return undefined;
+  if (isCheckState(v)) return v;
+  console.error(`[prList] unknown statusCheckRollup.state: ${JSON.stringify(v)}`);
+  return undefined;
 }
 
 function logins(nodes: unknown, field: string): string[] {

@@ -143,6 +143,7 @@ export type {
   SortMode,
 } from "./gitOps";
 export type { GitStatusRequest, GitStatusResponse } from "./gitStatus";
+export { GIT_PULL_REQUEST_CHECK_STATES } from "./common";
 export { ghRefForIssue, ghRefForPr, ghRefLabel } from "./helpers";
 export type {
   OpenExternalRequest,

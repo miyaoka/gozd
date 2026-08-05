@@ -27,16 +27,43 @@ AI エージェントの並列開発を管理するデスクトップアプリ�
 | [server.md](docs/server.md)               | サーバー検出（LISTEN port ポーリング、worktree 帰属、一覧パネル）           |
 | [release.md](docs/release.md)             | リリースと配布（canary / stable、CI、mise、wrapper 同期、channel identity） |
 
+## ドキュメントは契約であって実装の写しではない
+
+**ドキュメントに書くのは「実装を差し替えても変わらない約束」だけ**。実装は契約を満たす一つの手段に
+過ぎず、常に揺れ動く。ドキュメントが実装を写すと、実装を変えるたびにドリフトが生じる。
+
+判定基準は **「実装を変えたら追従が必要になる記述は書かない」**。
+
+書く（契約）:
+
+- 責務と目的、機能の境界（何をやらないか）
+- 外部から観測できる振る舞い（状態遷移、モード決定表、既定値、失敗時の見え方）
+- 不変条件と保証（「〜は常に 1 つ」「〜は必ず 1 経路を通る」）
+- なぜそうしないか（Why not）。代替案を却下した理由
+- 外部インタフェースの名前: コマンド ID、キーバインド、環境変数、設定ファイルのパス、
+  RPC の path と push type、CLI サブコマンド
+
+書かない（実装）:
+
+- **実装先の参照**。ファイルパス、関数名、変数名、コンポーネント名、store 名。
+  ドキュメントを読んで実装を参照するのは当然のことで、書くまでもない。書けば移動と改名でドリフトする
+- ディレクトリ構成のツリー、モジュール一覧、コード例、型定義の転記（型の SSOT はコード）
+- 変更の経緯（「旧〜は廃止」「〜期の設計」「issue #N で導入」）。経緯はコミットログと PR にある
+- 「未実装」「部分実装」「今フェーズ」。現在形の契約でないものは書かない。
+  **意図的なスコープ外は契約なので書く**（境界を定めるため）
+- 内部の閾値やチューニング値。**ユーザーが観測できる数値は契約なので書く**（polling 間隔、debounce 等）
+
 ## ドキュメントの階層
 
-| 階層           | 場所                        | 内容                                                                               | 例                                                               |
-| -------------- | --------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| 横断設計       | `docs/*.md`                 | 機能の全体設計、feature 間の連携、データフロー                                     | docs/terminal.md — 分割ツリー設計、PTY ライフサイクル            |
-| モジュール内部 | `**/README.md`              | コンポーネントを持たないモジュールの実装詳細（変換ルール、文法、モジュール間依存） | shared/command/README.md — パーサー文法、除外判定ロジック        |
-| コンポーネント | Vue SFC の `<doc>` ブロック | 単一コンポーネントの責務、動作、注意点                                             | TerminalPane.vue — フラットレンダリング方式、leaf と rect の分離 |
+| 階層           | 場所                        | 内容                                                       |
+| -------------- | --------------------------- | ---------------------------------------------------------- |
+| 機能の契約     | `docs/*.md`                 | 機能の責務、観測可能な振る舞い、feature 間の契約           |
+| パッケージ契約 | `packages/*/README.md`      | その package が存在する理由、公開 API、利用側への要求      |
+| コンポーネント | Vue SFC の `<doc>` ブロック | 単一コンポーネントの責務と、コードを読んでも分からない前提 |
 
-- `docs/` は機能の「使い方・設計判断」、feature 内 README は「実装の内部知識」を担う
-- Vue コンポーネントがある feature は `<doc>` ブロックで十分なことが多い。README が必要なのは非コンポーネントモジュールが多い feature のみ
+- 実装の内部知識（なぜこの順序か、なぜこの API を使わないか）は **コードコメント**に書く。
+  実装と同じファイルに置けば、実装を変えるときに必ず目に入る
+- feature 内に README を置かない。契約は `docs/`、実装知識はコードコメントへ分ける
 
 ## 技術スタック
 
@@ -70,7 +97,7 @@ AI エージェントの並列開発を管理するデスクトップアプリ�
 | `apps/electron`               | Electron main process + `gozd-cli`（TS）。electron-builder で `.app` バンドルを生成する                                              |
 | `apps/renderer`               | Vue フロントエンド（Electron renderer 内で動作）                                                                                     |
 | `packages/rpc`                | RPC message / 永続化 schema の型 SSOT（手書き TS）。`@gozd/rpc` として renderer / electron が import                                 |
-| `packages/eslint-plugin`      | 自前 ESLint プラグイン（barrel-import / isolateModules ルール）                                                                      |
+| `packages/eslint-plugin`      | 自前 ESLint プラグイン（`no-define-expose` / `no-iconify-class` / `no-raw-tailwind-palette`）                                        |
 | `packages/design-tokens`      | Tier 1 design tokens の primitives CSS（Adobe Leonardo で生成、prepare で build）                                                    |
 | `packages/shared`             | 全パッケージ共通の型・定数・ユーティリティ（Result 型 + tryCatch、RPC ブリッジ契約、window chrome 定数）                             |
 | `packages/claude-session-log` | Claude Code セッションログ（JSONL）の解釈層。生 JSONL → transcript イベント列の純関数（framework 非依存、ログ形式変更の追従先 SSOT） |

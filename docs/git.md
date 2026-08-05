@@ -1,166 +1,185 @@
 # Git / GitHub
 
-gozd の git / gh 連携を担う層のドキュメント。データ取得経路、更新トリガー、エラーハンドリング、設計上のトレードオフをまとめる。
+git / GitHub 連携の更新契約。何がいつ更新されるか、どこまで取りに行くか、失敗をどう見せるか。
 
-ファイル監視そのものの基盤については [architecture.md](architecture.md) の「SSOT push の dir filter 規律」「FSWatch の対象スコープ」セクションを参照。
+監視基盤そのものは [architecture.md](architecture.md) の「SSOT push の dir filter 規律」
+「ファイル監視」を参照。
 
 ## 設計原則
 
-- **git / gh の実行バイナリはユーザーログインシェル経由（`command -v`）で解決する**。Finder/Dock
-  起動の `.app` は launchd の最小 PATH しか継承せず、PATH 解決だと Apple 版 git に倒れる。macOS
-  Keychain の ACL はバイナリ単位のため、ターミナルと別バイナリの credential helper が keychain に
-  触ると認証ダイアログが発生する。解決失敗時も `/usr/bin/git` へ silent fallback しない（fallback
-  は同じ非対称を silent に再導入する）。詳細は `apps/electron/src/commandResolver.ts` 冒頭コメント
-- **local refs / ファイルの変化は SSOT push (FSEvents) で取る**。push 経路で取れる情報を polling でも取る二重経路は予防的逃げ道として禁止する
-- **local refs を動かさない GitHub mutation (`gh pr create` (既 push) / `gh pr edit` / `gh pr comment` 等) は polling で取る**。push 経路では原理的に到達不能なため、scope を active worktree 1 個に絞った 60 秒 polling が **唯一の正規経路**。`gh pr list` のみが対象 (全 worktree fan-out にはしない)
-- gh (GitHub API) の呼び出しは **必要最小限**。session 中に冪等な情報 (viewer / repo owner) は memoize / local 取得で gh コール自体を回避する
-- gh 失敗は **silent drop 禁止**。原因種別ごとに分類してトースト通知し、rate limit 枯渇を観察可能性から消さない
+- **git / gh の実行バイナリはユーザーのログインシェル経由で解決する**。Finder / Dock から起動した
+  アプリは最小の PATH しか継承せず、PATH 解決では OS 同梱の git に倒れる。macOS の Keychain ACL は
+  バイナリ単位のため、ターミナルと別バイナリの credential helper が keychain に触ると認証ダイアログが
+  出る。**解決に失敗しても既定パスへ silent fallback しない** — fallback は同じ非対称を黙って
+  再導入する
+- **local な参照とファイルの変化は push で取る**。push で取れる情報を polling でも取る二重経路は、
+  予防的な逃げ道として禁止する
+- **local な参照を動かさない GitHub 側の変更だけ polling で取る**。push では原理的に到達できない
+  ため、これが唯一の正規経路
+- **GitHub API の呼び出しは必要最小限**。セッション中に不変な情報は memoize するか local から得て、
+  API 呼び出し自体を避ける
+- **GitHub 由来の失敗を silent drop しない**。原因種別ごとに分類して通知し、rate limit の枯渇を
+  観察可能性から消さない
 
-## push 経路 (native → renderer)
+## push 経路
 
-すべて FSEvents 経由で発火し、payload に `dir` を必須で持つ ([architecture.md](architecture.md#ssot-push-の-dir-filter-規律))。
+すべてファイル監視から発火し、payload に発火源の `dir` を持つ。
 
-| push event         | 発火源                                                                                                                                                                                  | 主な subscriber                                                                                                                                    |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fsChange`         | worktree 内ファイルの変更                                                                                                                                                               | FilerPane (active dir のみ)                                                                                                                        |
-| `gitStatusChange`  | per-wt の `index` / `HEAD` / `reftable/*`、common の `refs/remotes/*` / `packed-refs` / `reftable/*`、作業ツリー側のファイル変更                                                        | useGitStatusSync (全 worktree の ahead/behind 反映)、FilerPane / GitGraphPane (active の HEAD / branchHead / upstream 変化で `loadLog`)            |
-| `branchChange`     | `refs/heads/*` / `packed-refs` / `reftable/*`                                                                                                                                           | GitGraphPane (同 repo の active で `loadLog`)、useSidebarData (source dir の repo を refetch)                                                      |
-| `remoteRefsChange` | `refs/remotes/*` / `packed-refs` / `reftable/*` (push / fetch 後)                                                                                                                       | GitGraphPane (同 repo の active で `loadLog`。current 以外の remote ref 動きは `gitStatusChange` の upstream key では検知できないため、ここで補完) |
-| `worktreeChange`   | `worktrees/*` 配下 (構造変化: worktree 追加削除 / secondary 切替)、main worktree (root) の branch 切替 (head digest の変化。候補は files の `.git/HEAD` / reftable の共有 `reftable/*`) | useSidebarData (source dir の repo)                                                                                                                |
-| `fsWatchReady`     | `rpcFsWatch` 成功直後の re-sync シグナル                                                                                                                                                | GitGraphPane (active)、useSidebarData (source dir)                                                                                                 |
+| push event         | 発火源                                                     | 主な購読者                          |
+| ------------------ | ---------------------------------------------------------- | ----------------------------------- |
+| `fsChange`         | worktree 内のファイル変更                                  | ファイルツリー（active dir のみ）   |
+| `gitStatusChange`  | worktree の index / HEAD、共有の参照領域、作業ツリーの変更 | ahead / behind 表示、ツリー、グラフ |
+| `branchChange`     | ローカルブランチ参照の変化                                 | グラフ、サイドバー                  |
+| `remoteRefsChange` | リモート tracking 参照の変化（push / fetch 後）            | グラフ、PR 一覧の再取得             |
+| `worktreeChange`   | worktree の追加削除、main worktree の checkout 先変化      | サイドバーの worktree 一覧          |
+| `fsWatchReady`     | 監視登録が成立した直後の再同期シグナル                     | グラフ、サイドバー                  |
 
-### ref backend 非依存の分類 (files / reftable)
+`remoteRefsChange` を `gitStatusChange` と別に持つのは、**current branch 以外の remote 参照が
+動いたときを status の upstream 情報では検知できない**ため。各 push の責務を分けることで
+取りこぼしを構造的に防ぐ。
 
-発火源の ref パスは git の ref backend 2 種を両方トリガーに含む。`classify` は「どの ref store が動いた可能性があるか」の **候補** を path から立てるだけで、`branchChange` / `remoteRefsChange` / head 由来の `worktreeChange` の最終発火は primary watcher が `git for-each-ref` + `git symbolic-ref HEAD` の内容ダイジェスト (`GitOps.refDigest`) を前回値と比較して決める。`for-each-ref` / `symbolic-ref` は git が backend を吸収するため、内容比較なら files / reftable 両 backend で「実際に何が動いたか」を判定でき、backend の物理 layout に白名簿を焼き込まずに済む。digest は 3 カテゴリを持つ:
+### ref backend に依存しない分類
 
-| カテゴリ  | 取得                                               | 変化する操作                                                               | 発火               |
-| --------- | -------------------------------------------------- | -------------------------------------------------------------------------- | ------------------ |
-| `heads`   | `for-each-ref refs/heads`                          | commit / branch 作成・削除・rename                                         | `branchChange`     |
-| `remotes` | `for-each-ref refs/remotes`                        | push / fetch                                                               | `remoteRefsChange` |
-| `head`    | `symbolic-ref HEAD` (detached は `rev-parse HEAD`) | **branch 切替** (commit では不変 — symbolic-ref 先は変わらず OID だけ進む) | `worktreeChange`   |
+git の ref backend は複数あり、物理レイアウトが異なる。**監視で拾えるのは「どの ref store が動いた
+可能性があるか」という候補まで**で、実際に何が動いたかは backend に依存しない問い合わせ結果の
+ダイジェストを前回値と比較して確定する。物理レイアウトの allowlist を焼き込まない。
 
-- **files backend** (loose `refs/` + `packed-refs`): branch 切替は per-wt の `HEAD` (symbolic ref 先) だけが変わり `refs/heads/*` は動かない。main worktree (root) の `HEAD` は `.git/HEAD`、secondary の `HEAD` は `.git/worktrees/<name>/HEAD` に置かれる。後者は root watcher が `worktrees/*` 規則で `worktreeChange` (構造変化) として拾う。root の `.git/HEAD` 変化は head 候補を立て、digest の `head` が変われば `worktreeChange` を発火して branch label を更新する
-- **reftable backend** (Git 2.51+、3.0 で default 化): ref はバイナリテーブル `reftable/` に格納され、`HEAD` スタブは `ref: refs/heads/.invalid` 固定で動かない。branch 切替・作成・削除・rename・fetch がすべて共有 `reftable/` の書き換えに funnel され、local / remote / HEAD を種別判別できない。そのため共有 `reftable/*` は `branchChange` + `remoteRefsChange` + (root では) head の全候補を立て、実際に動いたカテゴリは digest 比較が確定する。reftable では `.git/HEAD` が動かないため、main worktree の branch 切替を捕捉する唯一の経路がこの head 候補 (`symbolic-ref HEAD` は backend 非依存に現在 branch を返す)。既存 branch 切替は `heads` digest が不変なので `branchChange` は抑止され、`head` のみ変化して `worktreeChange` が発火する。per-wt の `reftable/*` (secondary の `.git/worktrees/<name>/reftable/`) はその worktree の checkout 先変化として `gitStatusChange` を立て、secondary の branch 切替は root watcher の `worktrees/*` 構造規則が `worktreeChange` で拾う (head digest は main worktree の HEAD しか表さないため)
+ダイジェストは 3 カテゴリを持つ。
 
-### primary watcher dedup
+| カテゴリ      | 変化する操作                                           | 発火する push      |
+| ------------- | ------------------------------------------------------ | ------------------ |
+| ローカル参照  | commit / branch の作成・削除・rename                   | `branchChange`     |
+| リモート参照  | push / fetch                                           | `remoteRefsChange` |
+| HEAD の指す先 | **branch 切替**（commit では不変。参照先は変わらない） | `worktreeChange`   |
 
-同じ commonGitDir を共有する N 個の worktree watcher で `refs/heads/*` のような共有領域の event が起きると、N 重発火する。`FSWatchRegistry` は main worktree (`perWorktreeGitDir == commonGitDir`) を primary に固定し、その 1 つだけに `branchChange` / `remoteRefsChange` / `worktreeChange` の dispatch を collapse する (旧設計の「lex 最小」は worktree clone で wt path が main より lex 小のとき primary を奪い、`worktrees/<name>/` 削除を分類できない死角を生んだため廃止)。
+backend によって branch 切替の物理的な現れ方が違う。片方では worktree ごとの HEAD ファイルが動き、
+もう片方では HEAD が固定スタブのまま共有テーブルだけが書き換わる。**後者では HEAD の内容比較だけが
+main worktree の branch 切替を捕捉できる唯一の経路**になるため、この問い合わせを backend 判定の外に
+置く。
 
-- `gitStatusChange` は per-worktree の ahead/behind を返すため primary watcher への collapse はしない (各 worktree で値が異なるので N 個すべて発火させる)
-- 非 git project (`commonGitDir == nil`) では `branchChange` / `remoteRefsChange` / `worktreeChange` 自体が発火しない
+### 共有領域の多重発火を畳む
 
-### 同一 dir の内容一致 dedup
+同じ git ディレクトリを共有する N 個の worktree 監視は、共有領域の変化で N 重に発火する。
 
-primary watcher collapse とは別軸で、`FSWatchRegistry` は dir ごとに直近 push 済みの `StatusFull` を保持し、新たに算出した値が完全一致する場合は `gitStatusChange` push をスキップする。
+- **共有領域由来の push は main worktree の監視 1 つに集約する**。集約先を「共有 git ディレクトリと
+  一致する worktree」で決めるのは、辞書順のような相対比較だと worktree の配置次第で集約先が
+  入れ替わり、worktree の構成変化を分類できない死角が生まれるため
+- **worktree ごとに値が異なる `gitStatusChange` は集約しない**。ahead / behind は worktree 単位の
+  値なので、全監視で発火させる
+- 非 git のディレクトリでは共有領域由来の push 自体が発火しない
 
-- 作業ツリー側のファイル変更は gitignore 対象 (`*.tsbuildinfo` / `dist` / `node_modules` 等のビルド成果物) でも `gitStatusChange` に分類される (git dir 外の変更は untracked / 差分の可能性があるため一律立てる)。だが `git status` 出力は ignore ファイルを除外するので `StatusFull` の `statuses` map は前回と同一になる。typecheck / ビルド中はこの「内容不変の push」が連射され、renderer 側 `setWorktreeGitStatuses` の参照差し替えを通じて changes / filer ビューが再描画され続ける。内容一致 dedup でこれを止める
-- `StatusFull.==` は synthesized Equatable のため `renameOldPaths` (rename の新パス → 旧パス map) も比較対象に含まれる。`statuses` と同一 snapshot から派生する 1 セットなので dedup 軸として自然に揃う
-- `StatusFull.==` の比較対象には `latestMtime` (= 変更ファイルの mtime 最大値、秒粒度) を含める。既存差分ファイルを再保存しただけのケースで Working Tree 行の date 列を更新するため、mtime 変化は push 対象として扱う。**`statuses` set が変わらない連続保存** (autoformat / hot reload watch 由来等) では秒粒度の mtime 等値性で押し込まれ最大 1 push / 秒 / dir に収束する。`statuses` set が秒内に変動する経路 (新規追加 / staging 切替 / 削除) は本 dedup の射程外で、`statuses` 不変条件を満たさない限り push 流量はその秒粒度を超え得る。gitignored ファイルは `statuses` に入らないので mtime 集計の対象外で、上の typecheck 連射 dedup を壊さない
-- collapse と直交する: 各 worktree が独立した last-push キャッシュを持つので worktree 間の ahead/behind 差は失わない。最初の status は初期値が無いため必ず push され、`unwatch` / 再 watch でキャッシュを破棄して次の status を無条件 push する
+### 内容が変わらない push を落とす
 
-### `refs/remotes/*` / `packed-refs` の多重発火と `scheduleLoadLog` の coalescing
+dir ごとに直近 push した status を保持し、**新たに算出した値が完全一致するなら push しない**。
 
-`refs/remotes/*` は `gitStatusChange` + `remoteRefsChange` の **両方** を発火する。`packed-refs` (および reftable backend の `reftable/*`) は `branchChange` + `gitStatusChange` + `remoteRefsChange` の **3 つ** を発火する。これにより、active worktree の current branch を `git push` した場合、GitGraphPane の handler が短時間に 2〜3 回 `loadLog` を要求する状況が生じる。
+git ディレクトリ外の変更は untracked や差分の可能性があるため一律 `gitStatusChange` に分類するが、
+ビルド成果物のように ignore 対象なら `git status` の出力は変わらない。typecheck やビルド中は
+この「内容不変の push」が連射され、購読側の再描画が続く。
 
-各 push の責務を分けることで「current branch 以外の remote ref が動いたとき git log が再 load されない」取りこぼしを構造的に防ぐ。詳細は [SSOT push の dir filter 規律](architecture.md#ssot-push-の-dir-filter-規律) を参照。
+- 比較対象には **変更ファイルの最終更新時刻も含める**。既存の差分ファイルを再保存しただけの
+  ケースで表示上の日時を更新する必要があるため
+- ignore 対象のファイルは status に現れないので時刻集計の対象外。上のビルド連射の抑止を壊さない
+- 各 worktree が独立したキャッシュを持つため、集約とは直交する。最初の status と監視の張り直し後は
+  無条件で push する
 
-GitGraphPane 側の防衛は 2 段構え:
+### 購読側の coalescing
 
-- **`scheduleLoadLog` (事前防衛)**: push 由来 handler (`branchChange` / `remoteRefsChange` / `fsWatchReady` / `gitStatusChange` の scroll 不要経路) はこれを呼ぶ。`loadLogInFlightCount > 0` なら 1 bit の pending flag に畳み、`count === 0` に落ちた時点で trailing 1 fetch を発射する。burst N 発火を最大 2 fetch (in-flight + trailing) に集約する
-- **counter で coalesce target を統一**: 明示 trigger 由来の `await loadLog()` (worktree 切替 / firstParentOnly / `headChanged` 経路) も同じ `loadLogInFlightCount` を立てる。よって明示 trigger が走っている間に届く burst 由来 push も pending に畳まれる (片方向ではなく双方向の集約)
-- **`loadLogGen` (事後防衛)**: 並走する `loadLog` が複数完了したときの最終結果を世代管理で 1 つに収束させる。`scheduleLoadLog` でも交錯で 2 fetch を超えた場合の保険として機能する
+同一の操作が複数の push を発火するため（例: push すると status とリモート参照の両方が動く）、
+購読側は再取得要求を畳む必要がある。契約は 2 段構え。
+
+- **事前防衛**: 取得が進行中なら要求を 1 bit の pending に畳み、進行中が無くなった時点で
+  1 回だけ発射する。明示的な操作由来の取得も同じカウンタに乗せ、**片方向でなく双方向に集約する**
+- **事後防衛**: 並走した取得が複数完了したときは世代で最終結果を 1 つに収束させる
 
 ## 更新トリガー
 
-「いつ何が更新されるか」のユーザー観点まとめ。すべて event-driven。
+すべて event-driven。
 
-### 即時反映される (local event 起点)
+| ユーザー操作                       | 反映先                                 |
+| ---------------------------------- | -------------------------------------- |
+| ファイル編集 / 追加 / 削除         | ファイルツリー                         |
+| `git add` / `git restore` 等       | status の色分け、変更一覧              |
+| `git commit`                       | グラフ                                 |
+| `git switch`（既存 branch）        | サイドバーの branch 表示、グラフ       |
+| `git branch -m`（rename）          | グラフ（HEAD の commit は不変）        |
+| `git fetch` / `git push`           | グラフ、ahead / behind                 |
+| `git worktree add` / `remove`      | サイドバーの worktree 一覧             |
+| 別 worktree / 別 repo での同種操作 | 該当する pane（dir filter で振り分け） |
+| worktree 切替                      | 切替先 dir の初回取得                  |
+| PR / Issue picker 起動             | 起動時に 1 回だけ一覧を取得            |
 
-| ユーザー操作                       | 経路                                                    | 反映先                                                            |
-| ---------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------- |
-| ファイル編集 / 追加 / 削除         | `fsChange`                                              | FilerPane                                                         |
-| `git add` / `git restore` 等       | `gitStatusChange`                                       | git status 色分け、ChangesPane                                    |
-| `git commit`                       | `gitStatusChange` + `branchChange`                      | GitGraphPane (`loadLog`)、PR list 等                              |
-| `git switch` (既存 branch)         | `gitStatusChange` + `worktreeChange` (head digest 変化) | サイドバー branch label、GitGraphPane (`branchHead` で `loadLog`) |
-| `git branch -m` (rename)           | `branchChange` (HEAD OID 不変)                          | GitGraphPane (`branchHead` 変化で発火)                            |
-| `git fetch`                        | `gitStatusChange` + `remoteRefsChange`                  | GitGraphPane (`loadLog`)、ahead/behind                            |
-| `git push`                         | `gitStatusChange` + `remoteRefsChange`                  | ahead/behind、GitGraphPane                                        |
-| `git worktree add` / `remove`      | `worktreeChange`                                        | サイドバー worktree 一覧                                          |
-| 別 worktree / 別 repo での同種操作 | 上記すべて (全 worktree watch)                          | 該当する pane (dir filter で振り分け)                             |
-| worktree 切替                      | UI 操作                                                 | 切替対象 dir の初回 load                                          |
-| PR / Issue picker 起動             | UI 操作                                                 | 起動時に `gh pr list` / `gh issue list` 1 回                      |
+### local な参照を動かさない GitHub 側の変更
 
-### local refs を動かさない GitHub mutation
+`gh pr create`（push 済み branch）/ `gh pr edit` / `gh pr comment` / `gh pr merge` などは local な
+参照もファイルも動かさないため、push が発火しない。他人や CI による GitHub 側の変化も同じ。
 
-`gh pr create` (既 push 済み branch) / `gh pr edit` / `gh pr comment` / `gh pr review` / `gh pr ready` / `gh pr merge` / `gh issue create` / `gh issue edit` / `gh issue comment` 等は local refs / ファイルが変化しないため SSOT push が発火しない。他人 / CI による GitHub サーバ側の変化 (PR コメント / 新規 PR / 他人による merge / CI status) も同様。
+gozd の中核的な使い方は「worktree で並列に PR を作る」ことなので、これを反映する経路が要る。
+**active な worktree 1 個を対象にした 60 秒間隔の PR 一覧取得**が唯一の polling で、全 worktree への
+fan-out はしない。
 
-gozd の primary use case は **「Claude / ユーザーが worktree で並列に `gh pr create` する」** ことであり、上記の中でも特に `gh pr create` (既 push) は中核の操作。これを反映する経路として **active worktree 1 個に対する 60 秒間隔の `gh pr list` polling** が GitGraphPane に組み込まれている。
+**ウィンドウのフォーカスを可視性の一部として扱う**。blur 中はユーザーが見ていないので対象を空にして
+撃たず、focus 復帰は「対象の出入り」として自然に catch-up する（focus 専用の発火トリガを持たない）。
+負荷の上限は focus 時で active な repo 1 個あたり 60 query/h、blur 中は 0。
 
-scope は active worktree 1 個に限定し全 worktree fan-out にはしない。**window focus を可視性の一部として扱う**: blur 中はユーザーが見ていないので poll 対象を undefined にし（撃たない）、focus 復帰は対象の出入りとして watch に乗り catch-up する（focus 専用の発火トリガは持たない）。per-repo の 60s freshness lock と合わせ、負荷の上限は focus 時で active repo 1 個あたり 60 query/h（GH GraphQL 5000/h の 1.2%）、blur 中は 0。
+### PR 一覧のキャッシュ契約
 
-### `usePrListStore` の per-repo キャッシュと発火条件
+PR 一覧は repo 単位で結果が同じなので、**repo 単位でキャッシュする**。
 
-`gh pr list` は repo 単位で結果が同じなので、PR 一覧を **repo (rootDir) 単位でキャッシュ** (`cacheByRepo`) し、per-repo の freshness lock (`nextAllowedAt`、成否問わず取得後 60s) で再取得を絞る。取得・error 通知・in-flight dedup は `usePrListStore` に閉じ、GitGraphPane は「どの repo をいつ」だけを持つ (`useRemoteFetchStore` の git fetch と同型の per-repo 管理)。
+- **repo 単位の freshness lock**: 成否を問わず取得後 60 秒は再取得しない。worktree を頻繁に
+  切り替えても、同じ repo を撃ち直さない
+- **表示は active な repo のキャッシュを直接導出する**。別の ref にミラーしない — ミラーすると
+  SSOT が二重化し、正しさが特定のコンポーネントの mount 状態に結びつく
+- **repo 切替時にキャッシュを消さない**。別 repo の PR が混ざる事故は repo 単位のキー分離で
+  構造的に起きないため、切替直後もキャッシュを即座に表示できる
+- **後着の応答は repo 単位のキーへ書く**。切替と取得が重なっても cross-repo の汚染は起きない
 
-表示は `prByBranch` computed が **active repo のキャッシュ**を返す。「active repo」は `repoStore.selectedRootDir` を SSOT に直接導出し、別 ref にミラーしない（ミラーすると SSOT が二重化し、正しさが GitGraphPane の mount 状態に結びつく）。repo 切替時はキャッシュを即表示し `clear()` しない。別 repo の PR が残る cross-repo 表示事故は repo 単位キー分離で構造的に起きないため、旧来必要だった await 前後の repo-identity stale 判定 / coalescer は不要になった。
+発火元:
 
-poll 対象は `pollTargetRootDir`（focus 中は `selectedRootDir`、blur 中は undefined）。発火元:
+| 発火元             | 場面                                                                     |
+| ------------------ | ------------------------------------------------------------------------ |
+| 対象の出入り       | repo 切替 / focus 復帰・喪失。同一 repo 内の worktree 切替では発火しない |
+| 60 秒間隔          | active な repo の定期取得。blur 中は対象が無く no-op                     |
+| `remoteRefsChange` | push / fetch でリモート参照が動いたとき。同 repo の active のみ          |
 
-| 発火元                      | 場面                                                                                                                                                                       |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `watch(pollTargetRootDir)`  | 対象の出入り（repo 切替 / focus 復帰・喪失）で `fetchIfDue`（lock 越し）。focus 復帰は undefined→rootDir の変化として catch-up。同一 repo 内の worktree 切替では発火しない |
-| `useIntervalFn` (60 秒間隔) | active repo の定期取得。blur 中は対象 undefined で no-op                                                                                                                   |
-| `remoteRefsChange`          | push / fetch で remote ref が動いたとき。同 repo の active のみ。blur 中は対象 undefined で no-op                                                                          |
+`gitStatusChange` からは PR 一覧を取り直さない。upstream の数値変化は必ず同じ burst で
+`remoteRefsChange` も発射するため、両方から呼ぶ必要がない。
 
-focus 抑制は発火元の上流（`pollTargetRootDir` が blur 中 undefined）にあり、blur 中は `refreshActivePrList` が `fetchIfDue` に到達しない。focus 中の発火元は `fetchIfDue` を経由し、内部で in-flight → lock（`isPrListFetchDue`）の順に gate する。これにより claude terminals の高頻度 repo 切替 (別 repo の worktree が並び active が頻繁に変わる) でも、60s 以内に取得済みの repo は撃ち直さない。後着レスポンスは repo 単位キーに書くため切替と in-flight が重なっても cross-repo 汚染は起きない。
+> [!NOTE]
+> upstream 設定の変更（`git branch --set-upstream-to` 等）は参照を動かさず設定ファイルだけが
+> 変わるため、監視の分類では拾えない。60 秒間隔の取得が吸収する。
 
-`gitStatusChange.upstreamChanged` 側では PR 再取得を呼ばない。`# branch.ab` の数値変化のうち `headChanged` でない経路は構造的に `refs/remotes/origin/<current-branch>` の書き換えに対応し、必ず `remoteRefsChange` も同じ burst で発射されるため、両方で呼ぶ必要がない。`branchChange` / `fsWatchReady` は graph 再描画のみで PR list を取り直さない。
+### セッション内で不変な情報
 
-例外: `git branch --set-upstream-to` / `--unset-upstream` で `.git/config` だけが書き換わる経路は FSEvents の射程外 (refs を動かさない) で classify が silent drop する。`upstreamChanged` 単独経路では PR 再取得が呼ばれないが、60s interval で吸収する。upstream 設定変更は gozd の primary use case (Claude が `gh pr create` する流れ) では低頻度の操作で、運用影響は限定的。
-
-picker 経由は独立: PR picker 起動ごとに `rpcGitPrList` が 1 回走る。
-
-## viewer の session-scope memoize
-
-`useViewer.ts` (module singleton + lazy + in-flight share):
-
-- 戻り値は `Promise<string | undefined>`。成功 / 失敗を型で区別
-- session 中に 1 回成功すれば cache を返し続ける (PR picker / Issue picker を何度開いても `gh api user` は再発射しない)
-- 失敗時は cache に書き込まないため次回 retry 可能
-- `viewer !== ""` UI 契約を保つため、registration 境界で `?? ""` 変換する
+GitHub の認証ユーザーのような、セッション中ほぼ不変な情報は 1 回の成功をキャッシュして返し続ける。
+失敗はキャッシュせず次回リトライできる。
 
 > [!WARNING]
-> CLI 再認証 / account 切替時には stale になる。session 中ほぼ不変という設計上のトレードオフとして受け入れている。
+> CLI の再認証やアカウント切替では stale になる。セッション中ほぼ不変という前提のトレードオフ
+> として受け入れる。
 
-## gh エラー分類
+## GitHub 由来のエラー分類
 
-silent drop / 一律 nil 化は rate limit 枯渇を観察可能性から消すため禁止。main 側で stderr を分類し、文字列リテラル union `GhErrorKind` で renderer に返す。
+一律で「失敗」に畳むと rate limit の枯渇が観察可能性から消える。main 側で原因を分類し、
+文字列リテラル union で renderer に返す。
 
-### 分類 (`classifyGhStderr` in `apps/electron/src/git/github.ts`)
+| 種別              | 意味                             |
+| ----------------- | -------------------------------- |
+| `RATE_LIMIT`      | API の rate limit 枯渇           |
+| `UNAUTHENTICATED` | CLI が未認証                     |
+| `REPO_NOT_FOUND`  | リポジトリが存在しないか権限なし |
+| `NETWORK`         | GitHub へ到達できない            |
+| `OTHER`           | 上記以外                         |
 
-| GhErrorKind       | stderr パターン                        | renderer 文言                                                  |
-| ----------------- | -------------------------------------- | -------------------------------------------------------------- |
-| `RATE_LIMIT`      | `API rate limit exceeded` 等           | `${action}: GitHub API rate limit exhausted`                   |
-| `UNAUTHENTICATED` | `not logged into` / `gh auth login`    | `${action}: gh CLI is not authenticated (run 'gh auth login')` |
-| `REPO_NOT_FOUND`  | `Could not resolve to a Repository` 等 | `${action}: repository not found or no access`                 |
-| `NETWORK`         | `dial tcp` / `connection refused` 等   | `${action}: network error reaching GitHub`                     |
-| `OTHER`           | 上記いずれにも該当しない               | `${action}: gh CLI failed`                                     |
-
-renderer 側は `ghErrorMessage(kind, action)` で文言を組み立て、`notify.error` でトースト通知する。`apps/renderer/src/features/palette/features/pr-picker/ghError.ts` を参照。
-
-### 設計判断
-
-- `runGhOrNilOnCommandFailure` (全失敗 nil 一律化) は廃止。`runGhCategorized` で分類して上位に返す
-- PR の fork 判定に使っていた GraphQL `repository.owner.login` は廃止し、local `parseGitHubOwnerRepo` の owner と比較する
+renderer は種別と操作名から文言を組み立ててトースト通知する。**同じ文言で全失敗を吸収しない**。
 
 ## 観察可能性
 
-- push は `webContents.send("rpc:push", ...)` で配送する。renderer 再構築中に落ちた push は mount 時の pull hydrate + 購読貼り直しで構造的に回復する（architecture.md の push 回復規律）
-- gh 失敗は分類ごとに区別された文言でトースト通知する。同じ文言で全失敗を吸収しない
-- rate limit の実測は `gh api rate_limit` で確認できる (`graphql.remaining` / `core.remaining`)
+- renderer の再構築中に落ちた push は、mount 時の pull と購読の貼り直しで回復する
+- GitHub 由来の失敗は分類ごとに区別された文言で通知する
+- rate limit の実測は `gh api rate_limit` で確認できる
 
 ## 関連ドキュメント
 
-- [architecture.md](architecture.md) — 全体の通信経路、SSOT push の dir filter 規律、FSWatch のスコープ
+- [architecture.md](architecture.md) — 通信経路、push の filter 規律、監視スコープ
 - [workspace.md](workspace.md) — マルチ repo / マルチ worktree の運用
-- [rpc.md](rpc.md) — RPC スキーマの型 SSOT
+- [rpc.md](rpc.md) — 型の SSOT とメッセージ一覧

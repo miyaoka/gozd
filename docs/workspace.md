@@ -1,12 +1,12 @@
-# ワークスペース設計
+# ワークスペース
 
-並列プロジェクト・並列 worktree による開発環境の管理。
+複数のリポジトリと worktree を 1 ウィンドウに同居させ、並列に作業するための設計。
 
 ## コンセプト
 
 - gozd はオーケストレーターであり、複数の Claude エージェントが並列に作業することを前提とする
-- git worktree を活用し、ブランチごとに独立した作業環境を提供する
-- 人間は main で確認作業を行い、各 worktree では Claude が独立して開発する
+- git worktree を使い、ブランチごとに独立した作業環境を与える
+- 人間は main で確認し、各 worktree では Claude が独立して作業する
 
 ## 階層構造
 
@@ -17,113 +17,83 @@
 │   ├── YYYYMMDD_HHMMSS (feature-a)
 │   └── YYYYMMDD_HHMMSS (fix-bug)
 ├── repo B（git リポジトリ）
-│   ├── main
-│   └── YYYYMMDD_HHMMSS (...)
 └── plain dir C（git 管理外）
 ```
 
-1 ウィンドウに複数の repo / 非 git dir を同居させて、サイドバー上部の repo 切替リストで切り替える。VS Code 系（per-workspace window）から **Tower / GitHub Desktop 系（管制塔型）** への転換。
+1 ウィンドウに複数の repo と非 git ディレクトリを同居させる。エディタ系の
+「1 ワークスペース = 1 ウィンドウ」ではなく、**1 ウィンドウが全プロジェクトの管制塔**になる。
 
-`gozd <path>` を実行すると、対象 path が既存 repo の worktree に含まれていればその repo にフォーカス + worktree 切替、含まれていなければ新規 repo として既存ウィンドウに追加される。新ウィンドウは作らない。
+非 git ディレクトリも同じ仕組みで「project」として登録する。worktree の概念が無いため worktree の
+一覧を持たず、セクションのヘッダがそのまま作業ディレクトリを表す。git repo はヘッダのクリックで
+折りたたむが、非 git project は畳む対象が無いためヘッダのクリックが作業ディレクトリの選択になる
+（ファイラーとターミナルを表示する唯一の経路）。
 
-非 git ディレクトリも同じ仕組みで「project」として登録される。worktree 概念がないため、`RepoSection` 内に WtCard 列は描かれず、ヘッダがそのまま rootDir を表す。git repo はヘッダクリックで折りたたみトグルだが、非 git project は畳む対象が無いためヘッダクリックで rootDir を active dir に選択する（ファイラー / ターミナルを表示する唯一の経路）。
+## プロジェクトの解決
+
+`gozd <path>` の解決は次の契約に従う。**新しいウィンドウは作らない**。
+
+- 対象パスが既存 repo の worktree に含まれる → その repo にフォーカスし worktree を切り替える
+- 含まれない → 新規 project として既存ウィンドウに追加する
+
+repo 名は **main リポジトリのディレクトリ名**から取る。worktree から開いてもタイムスタンプ名に
+ならないようにするため。git 管理下でないパスは、そのパス自身をプロジェクトの root とする。
+
+`gozd <path>` で既存プロジェクトを開いたとき、それが表示中のリストに無ければ末尾へ追加する
+（開いたのに何も見えない状態を作らない）。
 
 ## アプリ状態の復元
 
-`~/.local/state/gozd/app-state.json`（XDG state ディレクトリ）に最後の sidebar 状態を保存し、次回起動時に sidebar として hydrate する。dev / stable で同じファイルを共有する。
+「前回の続き」を state ファイルに保存し、次回起動時に復元する（配置は
+[architecture.md](architecture.md#データ永続化)）。
 
-save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が前回と変化した時のみ。snapshot に含めるのは `repoLists`（id / name / dirOrder）/ `activeRepoListId` / `collapsedRoots` / `selectedDir`（`activeDir` として保存）/ 各 repo の `repoName` / `isGitRepo` と、各 worktree の `path` / `branch` / `isMain`（worktree 一覧キャッシュ）。`gitStatuses` / `task` は snapshot に含めないため、git status push / Task title 同期では save が走らない。発火するのは上記フィールドが実際に変化した時のみ。
+保存する情報:
 
-> [!WARNING]
-> dev / stable を同時起動して両方の sidebar を編集した場合、最後に save したプロセスが他方の sidebar 状態を上書きする。プロセス間ロックは未実装。詳細は [architecture.md](./architecture.md#データ永続化) を参照。
+- ウィンドウに同居する project のプール（root / 名前 / git かどうか / 折りたたみ状態）
+- リスト（プールの部分集合と並び順を持つ名前付きビュー）とアクティブなリスト
+- 各 project の worktree 一覧の**キャッシュ**。起動直後のレイアウト揺れを消すための楽観的描画用で、
+  SSOT はあくまで git。実際の一覧が届いたら上書きされる
+- 最後に選択していた worktree
 
-保存する情報（`~/.local/state/gozd/app-state.json`、XDG state ディレクトリ）:
+**保存は snapshot の内容が実際に変化したときだけ発火する**。git status や Task のタイトルのように
+頻繁に動く値は snapshot に含めないため、それらの更新では保存が走らない。
 
-- window に同居する repo プール（`sidebarRepos`: rootDir / repoName / isGitRepo / collapsed。全 repo list の union）
-- repo list 一覧（`repoLists`: id / name / dirOrder）と アクティブ repo list（`activeRepoListId`）
-- 各 repo の worktree 一覧キャッシュ（`sidebarRepos[].worktrees`: path / branch / isMain）。起動直後の layout shift を消すための楽観描画用。SSOT は git で、`rpcGitWorktreeList` の真値が来たら上書きされる
-- 最後に選択していた worktree（`activeDir`: worktree path、非 git project は rootDir。未選択はキー不在）
-
-repo list の不整合（空 / プール外 dir / 迷子の activeRepoListId / どの repo list にも属さないプール repo）は renderer の `hydrateFromAppState` が正規化する。repoLists が空のファイルは「全プール repo を含む Default 1 個」に倒れる。
+**不整合は読み込み時に正規化する**。プール外を指すエントリ、迷子の参照、どのリストにも属さない
+project は正常な形へ倒す。リストが空のファイルは「全 project を含む既定のリスト 1 個」になる。
 
 起動時の挙動:
 
-- CLI の launch request ファイル（`gozd <dir>` 時）があればその dir を開く
-- それ以外（Dock/Finder / `pnpm dev` 起動時）は launch request なし → renderer が `app-state.json` を hydrate して sidebar を復元し、`activeDir` の worktree を自動選択する（`setOpen` 経由なので TerminalPane がターミナルを開く）。既に gozdOpen で選択済み / `activeDir` がどの repo にも属さない場合は復元しない
-- 初回起動時（state なし）は空の sidebar で待機する
-
-## プロジェクト管理
-
-### 解決フロー
-
-1. CLI / Open directory… ボタンが絶対パス（`targetPath`）を native に送信
-2. native の `buildGozdOpenPayload` が:
-   - `git rev-parse --show-toplevel` で git toplevel を解決（成功時 `isGitRepo=true`）
-   - `git rev-parse --git-common-dir` の親から **main repo の basename** を取得して `repoName` にする（worktree から開いても timestamp 名にならない）
-   - 非 git の場合は `targetPath` をそのまま `dir` として扱う
-3. payload を `gozdOpen` イベントとして renderer に push
-4. renderer の `useRepoStore.findRepoOwning(targetDir)` で既存 repo の worktrees に target が含まれるかチェック
-   - 含まれる: `selectDir(targetDir)` のみ（既存 repo にフォーカス + 該当 worktree 切替）
-   - 含まれない: 新規 repo として `addRepo` + worktrees / branches を fetch
-
-### 永続化
-
-`app-state.json` の `sidebarRepos` で同居中の repo 一覧（rootDir / repoName / collapsed 状態）+ 各 repo の worktree 一覧キャッシュ、`activeDir` で最後に選択していた worktree を永続化済み。
-
-未実装:
-
-- worktree ごとの setup / teardown スクリプト（`pnpm install` 等の初期化自動化）
-
-将来的に永続化対象が大きく増えた場合は SQLite への移行を検討する。
+- CLI の起動要求があればその対象を開く
+- 起動要求が無ければ state を復元し、最後の worktree を自動選択する。既に開く対象が決まっている
+  場合や、記録された worktree がどの project にも属さない場合は復元しない
+- state が無い初回起動は空のサイドバーで待機する
 
 ## Worktree 運用ルール
 
-### main ブランチ
+### 起点ブランチ
 
-- メインディレクトリ（clone 元）が main の worktree として機能する
-- main は参照・確認専用。dev サーバーの起動や build は自由に行える
+- メインディレクトリが main ブランチの worktree として機能する
+- main は参照・確認専用。開発サーバーの起動やビルドは自由に行える
 - main で直接コミットしない。Claude も main では作業しない
-- 「参照用」は規範ではなく、新規 worktree がリモートのデフォルトブランチ（`origin/HEAD`）を起点に作られる仕様の帰結。main はその起点を最新に保つために pull する場、という位置づけになる
-  - サイドバーの新規 worktree ボタン / Issue picker 経由はリモートのデフォルトブランチ起点
-  - PR picker 経由はその PR の head ブランチを `origin` 上で解決した ref 起点。fork PR は head が `origin` 上に無いため picker のリスト時点で除外する
 
-### 作業用 worktree
+「参照用」は規範ではなく仕様の帰結。新規 worktree は **リモートの既定ブランチを起点に作る**ため、
+main はその起点を最新に保つために pull する場になる。
 
-- 新しい作業を始めるときは必ず worktree を作成する
-- worktree 作成時にタイムスタンプ形式のブランチ名（`YYYYMMDD_HHMMSS`）を自動生成する。同一秒内の連続作成では連番 suffix（`_2`, `_3`...）が付き、名前はプロセス内で一意
-- ブランチ名は `git branch -m <名前>` でいつでもリネームできる（worktree の紐づけは追従する）
-- PR 作成時にリネームを促す導線を用意する。検証だけで終わる worktree は名前を付けずに削除してもよい
-- 各 worktree は独立したファイルシステムを持ち、`pnpm install` / `pnpm dev` / `pnpm build:all` を独立して実行できる
+- 新規 worktree ボタン / Issue 経由: リモートの既定ブランチ起点
+- PR 経由: その PR の head ブランチを origin 上で解決した参照が起点。**fork PR は head が origin 上に
+  無いため一覧の時点で除外する**
 
-### worktree 作成時のセットアップ
+### 命名
 
-worktree を作成した直後に、プロジェクトごとの初期化を自動で行える。設定はプロジェクト設定
-（`~/.config/gozd/projects/<projectKey>/config.json`）に個人ローカルとして持ち、repo にはコミット
-しない。設定 UI は Settings モーダルの「Project」タブ（対象はアクティブ worktree が属する
-プロジェクト。アクティブ worktree が無いときは対象が定まらないためタブを無効化する）。
+- 新しい作業を始めるときは必ず worktree を作る
+- ブランチ名はタイムスタンプ形式（`YYYYMMDD_HHMMSS`）で自動生成する。同一秒内の連続作成では
+  連番の suffix が付き、名前はプロセス内で一意になる
+- ブランチ名はいつでもリネームでき、worktree の紐づけは追従する
+- PR 作成時にリネームを促す。検証だけで終わる worktree は名前を付けずに削除してよい
 
-**シンボリックリンク共有（`worktreeSymlinks`）**: メインリポジトリの指定ファイル/ディレクトリを
-新 worktree にシンボリックリンクする。`.claude/`（Claude Code のローカル設定・許可済みコマンド）や
-`.env.local`（環境変数）など、git 管理外のローカル設定を全 worktree で共有するための仕組み。
-メインリポジトリに存在しないパス、または worktree 側に既に存在するパス（git checkout 済み）は
-スキップする。main 側の fs 操作として `createWorktree` 内で適用する。
+### 配置
 
-**setup スクリプト（`setupScript`）**: `pnpm install` など worktree ごとに必要な初期化コマンドを、
-専用ターミナル leaf で実行する。renderer が spawn env に `GOZD_SETUP_SCRIPT` を注入し、zsh init の
-`_gozd_run_setup` が eval で実行する（`GOZD_RESUME_CLAUDE_SESSION` / `GOZD_AUTOSTART_CLAUDE` と同じ
-env 注入方式）。作業ターミナルとは別 leaf に並走させ、フォーカスは最初のターミナルに残す。作成時
-だけ実行するため、visit（作成経路が立てたヒントの消費）で 1 回だけ発火し、既存 worktree の再オープン
-では走らない。
-
-### git worktree の制約
-
-- ブランチと worktree は 1:1。同じブランチを複数の worktree でチェックアウトできない
-- worktree 内から他の worktree が使用中のブランチへの `git switch` は不可
-- detached HEAD なら同じコミットを複数の worktree で参照可能（名前付きポインタが存在しないため競合しない）
-
-### worktree の配置
-
-`~/.local/share/gozd/worktrees/<repoName>-<hash>/` に配置する。リポジトリ外なので `.gitignore` の変更は不要。ディレクトリ名は `realpath` 後の絶対パスの SHA-256 ハッシュ（先頭12文字）で一意に識別する。
+worktree は `~/.local/share/gozd/worktrees/<repoName>-<hash>/` に置く。リポジトリの外なので
+`.gitignore` を触る必要が無い。`<hash>` は realpath の SHA-256 先頭 12 文字。
 
 ```text
 ~/projects/gozd/                                  ← main（メインディレクトリ）
@@ -132,26 +102,78 @@ env 注入方式）。作業ターミナルとは別 leaf に並走させ、フ�
 └── 20260316_001435/                              ← fix-bug
 ```
 
+**このパスは決定論的関数**であり、main リポジトリの位置から一意に導ける。削除済みセッションの
+復活（後述）はこの性質に依存する。
+
+### 作成時のセットアップ
+
+worktree を作った直後の初期化をプロジェクト設定として持つ。設定はローカルに置き、リポジトリには
+コミットしない。設定 UI の対象はアクティブな worktree が属する project で、アクティブな worktree が
+無いときは対象が定まらないため操作できない。
+
+- **シンボリックリンク共有**: メインリポジトリの指定パスを新 worktree にリンクする。エージェントの
+  ローカル設定や環境変数ファイルなど、git 管理外のローカル設定を全 worktree で共有するための仕組み。
+  メインリポジトリに存在しないパスと、worktree 側に既にあるパスはスキップする
+- **セットアップスクリプト**: 依存インストール等を専用のターミナルで実行する。作業用ターミナルとは
+  別に並走させ、フォーカスは最初のターミナルに残す。**作成時だけ実行する** — 既存 worktree を
+  開き直しても走らない
+
+### git worktree の制約
+
+- ブランチと worktree は 1:1。同じブランチを複数の worktree でチェックアウトできない
+- 他の worktree が使用中のブランチへは切り替えられない
+- detached HEAD なら同じコミットを複数の worktree で参照できる
+
+## 並列作業の独立性
+
+各 worktree は完全に独立した環境として機能する。
+
+- ファイルシステムが独立（依存やビルド成果物を含む）
+- 開発サーバーを独立して起動できる
+- Claude Code のセッションが独立（cwd が異なる）
+- ターミナルセッションが独立
+
+人間が main で確認しても、各 worktree の作業には影響しない。
+
+## 監視 / データ取得ポリシー
+
+複数 repo が同居しても破綻しないよう、取得の範囲を項目ごとに分ける。
+
+| 項目              | 範囲                         | トリガー                                        |
+| ----------------- | ---------------------------- | ----------------------------------------------- |
+| ファイル監視      | 開いている全 repo / worktree | 監視対象集合の変化で登録 / 解除                 |
+| ファイルツリー    | 選択中 dir のみ              | 監視イベント                                    |
+| git status        | 全 worktree                  | 監視イベント                                    |
+| PTY               | 全 dir 並列                  | 起動時に生成し、worktree 削除か明示終了まで維持 |
+| Claude 状態       | 全 dir / 全 PTY              | hook を常時受信                                 |
+| PR 一覧           | active repo 1 個             | 60 秒間隔 + リモート参照の変化                  |
+| worktree / branch | 取得時のスナップショット     | 開いたとき、および該当 repo の監視イベント      |
+
+- **ファイル監視のスコープを active な 1 dir に絞らない**。マルチ repo × マルチ worktree が機能要件
+  なので、絞ると他の worktree で起きた変化を取りこぼす
+- **ファイルツリーの表示だけは選択中 dir に閉じる**。表示していない dir のツリーを構築する必要が
+  無いため
+- **PTY と Claude 状態は全 repo で並列に維持する**。止めると作業そのものが壊れる
+- **外部リソースを消費する取得（GitHub API）だけ範囲を絞る**（[git.md](git.md)）
+
 ## UI 構成
 
 ### サーフェスの重ね順
 
-レイアウトフローから分離して重なる面を **サーフェス** と呼ぶ。preview / server list / event log /
-notification center の右ドックパネルと、undock されたパネル 1 枚 1 枚が該当する。
+レイアウトフローから分離して重なる面を **サーフェス** と呼ぶ。右ドックのパネル各種と、切り離された
+パネル 1 枚 1 枚が該当する。
 
-重ね順の規則は **最後に触ったものが最前面**（開く / クリックする、どちらも「触った」に含む）。
-ウィンドウマネージャの click-to-front と同じで、サーフェス間に固定の優先順位は持たない。種類に
-よらず全サーフェスが 1 つの列に並ぶため、preview が undock パネル 2 枚の間に入ることもある。
-サーフェス間の重ね順に z-index は使わない（コンポーネント内部のスティッキーヘッダ等は別）。
+重ね順の規則は **最後に触ったものが最前面**（開く / クリックのどちらも「触った」に含む）。
+ウィンドウマネージャの click-to-front と同じで、サーフェス間に固定の優先順位を持たない。種類に
+よらず全サーフェスが 1 つの列に並ぶ。**サーフェス間の重ね順に z-index を使わない**。
 
-例外はトーストで、常にサーフェスより手前に留める。エラー通知の一次表示がパネルに埋もれると
-失敗の可視性が落ちるため。
+例外はトーストで、常にサーフェスより手前に留める。エラー通知がパネルに埋もれると失敗の可視性が
+落ちるため。
 
 メニューとモーダルは例外にしない。前面化はクリックと open の 2 経路で起きるが、クリック経路では
 覆われない（そのクリックがメニューの light dismiss を兼ね、モーダルは backdrop が背後のクリックを
-吸う）。open 経路はキーボードから起こせるため覆われうる（モーダル表示中の Cmd+J 等）が、これは
-「モーダル表示中に開いたサーフェスは手前に見えるが inert で操作できない」という既存の受容範囲
-（`SettingsModal` の doc）。
+吸う）。open 経路はキーボードから起こせるため覆われうるが、「モーダル表示中に開いたサーフェスは
+手前に見えるが操作できない」は受容範囲。
 
 **閉じる対象は常にフォーカスがあるもの**。ESC と Cmd+W は同義で、フォーカスを含むサーフェスを
 閉じる。ターミナルにフォーカスがあれば、サーフェスが開いていても Cmd+W はターミナルの pane を
@@ -159,175 +181,159 @@ notification center の右ドックパネルと、undock されたパネル 1 �
 
 この 2 つを繋ぐのが **フォーカスは前面に追従する** という不変条件。前面化のたびにそのサーフェスへ
 フォーカスが入り、閉じたら次の前面へ移り、最後の 1 枚が閉じたら開く前の位置へ戻る。結果として
-ESC の連打は前面から順に閉じていくが、これは規則ではなく帰結。「最前面を閉じる」を規則に置き換えると
-ターミナルの Cmd+W が壊れる。
+ESC の連打は前面から順に閉じていくが、**これは規則ではなく帰結**。「最前面を閉じる」を規則に
+置き換えるとターミナルの Cmd+W が壊れる。
 
-サーフェスの root はいずれも `tabindex="-1"` を持つ。フォーカス追従の行き先として root を使うため。
+開閉・前面化・閉じる宛先の解決はすべて 1 つの経路を通す契約で、迂回すると「今どれが前面か /
+どれを閉じるか」の判定が壊れる。開閉状態の SSOT は状態側が持ち、DOM への反映は view が担う。
 
-実装は `shared/surface` に集約する。開閉も前面化も close の宛先解決もここを通す契約で、迂回すると
-「今どれが前面か / どれを閉じるか」の判定が壊れる。開閉状態の SSOT は各 store が持ち、DOM への
-ミラーは popover 要素を所有する component が担う（DOM 操作とフォーカス移送は view の関心）。
-順序が z-index ではなく show 順で決まる理由と、積み直しが見た目のコストを持たない理由は同
-モジュールの docstring が SSOT。
+### ウィンドウ chrome
 
-### ウィンドウ chrome（titlebar）
+ネイティブのツールバーを持たず、タイトルバーを自前で描画する。
 
-Electron shell は native toolbar を持たない（Swift 期の Liquid Glass toolbar 運用は撤廃）。
-main が `titleBarStyle: "hiddenInset"` でネイティブバーの描画を消し、renderer の
-`TitleBar.vue` がドラッグ領域とタイトル表示を担うカスタムタイトルバー方式。
+- **タイトル表示**: アクティブな repo / worktree を `"repoName · branchName"` 形式で表示する。
+  同じ文字列をウィンドウのタイトルにも反映し、OS 側のウィンドウ一覧でも識別できるようにする
+- **channel の視覚区別**: 開発中のインスタンスはタイトルバーを専用の色で塗り、チップを表示する。
+  配布版との取り違え防止
+- **信号機ボタン**: OS が合成する。位置はタイトルバーの高さの垂直中央に合わせる。fullscreen では
+  ボタンが消えるため、遷移を受けて左の逃げ幅を畳む。この同期はイベントのみで、ずれても次の遷移で
+  自己回復する
+- **メニュー**: 標準メニューを明示的に定義し、既定任せにしない。パッケージング後の挙動を固定するため
+- **ウィンドウ位置**: close 時に保存し、起動時に復元する。画面外になった位置は既定に倒す
 
-- **タイトル表示**: 現在 active な repo / worktree を `"repoName · branchName"` 形式で表示。整形の SSOT は renderer の `useTitleContext` で、`TitleBar.vue` がウィンドウ内に描画し、`useTitleContextSync` が同じ文字列を `rpcWindowSetTitleContext` で main に送って native window title（Mission Control / Cmd+Tab 表示）にも反映する
-- **channel の視覚区別**: dev channel（`pnpm dev`）ではタイトルバーを `channel-dev` semantic token（緑系の専用 role）で塗り "dev" チップを表示する。packaged (stable) との取り違え防止。channel は main の `gozdEnv.channel` が SSOT で、additionalArguments → preload 経由で renderer に届く
-- **信号機ボタン**: macOS が web コンテンツの上に合成する。位置は main の `trafficLightPosition` がタイトルバー高さ（`@gozd/shared` の `TITLEBAR_HEIGHT` が SSOT）の垂直中央に合わせる。fullscreen ではボタンが消えるため、main が `windowFullscreenChange` を push し renderer が左の逃げ幅 pad を畳む（イベントのみで pull hydrate なし。ずれても次の遷移で自己回復する）
-- **メニュー**: role ベースの macOS 標準メニュー（`apps/electron/src/menu.ts`）。Electron デフォルトメニュー任せにせず明示定義してパッケージング後の挙動を固定する
-- **window frame**: close 時に `getNormalBounds` を `~/.local/state/gozd/electron-window.json` に保存し、起動時に復元する（off-screen 化した frame はデフォルトに倒す）
+### サイドバー
 
-### サイドバー（左端）
+ウィンドウ内に同居する project 全体のナビゲーション。git 管理外の dir でも常時表示する。
 
-ウィンドウ内に同居する repo / dir 全体のナビゲーション。常時表示（git 管理外の dir でも表示される）。
+project 一覧は **リスト** 単位で表示する。リストはプール（ウィンドウに同居する全 project）に対する
+名前付きビューで、表示する部分集合と並び順を持つ。1 つの project は複数のリストに所属できる。
+**プール = 全リストの union が不変条件**で、どのリストにも属さない不可視の project は存在しない。
 
-repo 一覧は **repo list** 単位で表示する（機能名は repo list、UI 文言は "List" 単体。非 git project も含むため UI では repo を冠さない）。repo list は repo プール（window に同居する全 repo）に対する名前付きビューで、表示する repo の部分集合と並び順を持つ。1 repo は複数 repo list に所属できる。プール = 全 repo list の union が不変条件で、どの repo list にも属さない不可視 repo は存在しない。repo list は表示を切り替え、PTY / fs watch はプール全体で維持されるが、背景 git fetch は画面に写っている repo ∪ active repo に絞る（repo list を切り替えると表示される repo が変わり fetch 対象も変わる。[git.md](git.md) 参照）。
+リストは表示だけを切り替える。PTY とファイル監視はプール全体で維持し、外部リソースを消費する取得
+だけが表示中の範囲に追従する。
 
 構造:
 
-- **トップツールバー**:
-  - 左にビューモードトグル: アクティブな worktree のターミナル / 動いている Claude ターミナル一覧
-  - 右に時計
-- **repo list バー**: 右端に編集モードトグル（編集の作用範囲がこのバー以下のリストエリアに閉じるため、ツールバーではなくここに置く）。通常モードは chip 列（クリックでアクティブ repo list を切り替え）。編集モードは縦一覧に切り替わり、行 drag で list の並び替え、行 hover の ⋮ メニューから Rename（編集ダイアログ）/ Delete（確認ダイアログ。最後の 1 個は不可。削除 repo list にしか属さない repo は先頭の残存 repo list へ移る）、末尾に New list
-- **repo セクション一覧**: アクティブ repo list の dirOrder 順に repo / dir を縦に **並列展開**。空リストの通常モードでは empty state（Edit list ボタンで編集モードへ入る導線）を表示する。セクション単位で折りたたみ可能（collapsed は repo 単位のグローバル状態で repo list を跨いで共有）。編集モード中は drag-drop で並び替え
-- **active session ペイン（下段）**: サイドバーは縦 2 分割で、下段に「いま動いている Claude セッション」を常時出す（ResizeHandle で高さ可変。セッション 0 件のときはヘッダ行だけに畳み、ハンドルも出さない）。ビューモードトグルはターミナルのタイル表示だけに効き、サイドバーの表示内容は切り替えない。上段は「どこで作業するか」の地図、下段は「いま何が動いているか」の一覧という役割分担で、上段をモードで絞ると切り替えのたびに操作の起点が消えるため絞らない
-- **active session ペインの形式**: 上段の repo セクションを絞り込んだものではなく、**セッション専用の 2 階層**（`repoName · branch` の 1 行ラベル + その配下に live session を持つ task 行）。上段と同型のカードを並べると、境界線・余白・背景差を足しても「同じカード列の続き」としか読めないため、形そのものを変える（VS Code の Open Editors が Explorer ツリーと別形式、Copilot の Agents window がセッション行を workspace でグルーピングするのと同じ考え方）。ペイン全体は border + 角丸の 1 枚のプレートで、四辺に余地を残して囲いを成立させる
-- **active session ペインの母集団**: repo プール全体（poolDirs）のうち、live な Claude セッションを持つ dir と、その配下で session が attach 済みの task。dir 集合のキーはターミナルのタイル対象（`claudeActiveLeafIds`）から導出するため、タイル側と同じ集合を指す（`repos` は fetch 時点のスナップショットなので、repo 除去中や worktree 未反映の窓では dir が引けずグループが出ないことがある）。アクティブ repo list で絞らないのは、セッションが repo list と無関係に全 dir で動くため。未起動 / resume 待ちの task は出さない（起動可能な候補の一覧ではないため）
-- **active session ペインの選択**: 行 / ラベルのクリックはビューモードを変えず、選択 dir の追従と対象 leaf の focus だけを行う。claude タイル表示中にクリックしてタイルが畳まれると常設ペインとして機能しないため（横断ビューでの focus 追従と同じ意味論。[terminal.md](terminal.md) 参照）
-- **repo list への repo 追加**: 編集モード時、他 repo list にのみ所属するプール repo が「Add from other lists」セクションに repo 行（RepoIcon + repo 名）として並び、クリックでアクティブ repo list に追加できる
-- **Open directory… ボタン**: 編集モード時のみリスト末尾に表示。既存 repo 候補とは divider で区切られ、クリックでネイティブのフォルダ選択ダイアログを開き、ユーザーが選んだ任意のディレクトリ（git 管理下 / 外問わず）を既存ウィンドウに追加する（プール + アクティブ repo list に入る）
+- **トップツールバー**: ビューモードの切替と時計
+- **リストバー**: 通常モードはチップ列（クリックで切替）。編集モードでは縦一覧になり、並び替え /
+  リネーム / 削除 / 新規作成ができる。**編集の作用範囲がリストエリアに閉じるため、切替はツールバー
+  ではなくこのバーに置く**。最後の 1 個は削除できない。削除するリストにしか属さない project は
+  残る先頭のリストへ移る
+- **project セクション一覧**: アクティブなリストの順に縦に並列展開する。セクション単位で
+  折りたたみでき、**折りたたみ状態は project 単位でリストを跨いで共有する**
+- **アクティブセッションペイン**: サイドバー下段に「いま動いている Claude セッション」を常時出す。
+  上段は「どこで作業するか」の地図、下段は「いま何が動いているか」の一覧という役割分担で、
+  **上段をモードで絞らない** — 絞ると切り替えのたびに操作の起点が消える
 
-`gozd <path>` で既存プール repo を開いた場合、その repo がアクティブ repo list に無ければ末尾に追加される（開いたのに何も見えない状態を作らない）。
+アクティブセッションペインの契約:
 
-アクティブ worktree がサイドバー外の経路（claude タイルのフォーカス / ターミナルペインのフォーカス移動 / 下段の active session ペイン等）で切り替わり、その repo がアクティブ repo list に無い場合は、その repo を含む list（複数所属なら repoLists 先頭側）へアクティブ repo list も追従する。追従しないと上段の repo 一覧にアクティブ worktree が見えないずれが残る。編集モード中は追従しない（編集対象が足元で変わるため）。
+- **形式は上段と変える**。上段と同型のカードを並べると、境界線や余白を足しても「同じカード列の
+  続き」としか読めない。セッション専用の 2 階層（worktree ラベル + その配下のセッション行）にする
+- **母集団はプール全体**。セッションはリストと無関係に全 dir で動くため、アクティブなリストで
+  絞らない。未起動 / 再開待ちは出さない（起動可能な候補の一覧ではない）
+- **クリックはビューモードを変えない**。選択の追従とフォーカス移動だけを行う。クリックで
+  ビューが畳まれると常設ペインとして機能しない
 
-各 repo セクションの中身:
+各 project セクション:
 
-- ヘッダ: 展開トグル + RepoIcon（GitHub avatar / identicon）+ repo 名。展開時のみ 2 行目に GitHub owner を表示する（owner 解決済みかつ GitHub owner がある repo のみ。解決中・owner なし・編集モードでは表示しない）。編集モード中は ✕ 表示。✕ は他 repo list にも属する repo なら「アクティブ repo list から外す」（非破壊・確認なし）、最後の所属なら「window から解除」（確認 + PTY cleanup）
-- worktree カード列: main worktree を先頭に固定し、その後は `git worktree list` の順を維持。Claude state による並び替えはしない（位置の安定性を優先）
+- ヘッダ: 展開トグル + アイコン + 名前。展開時のみ 2 行目に所有者を表示する（解決済みで所有者が
+  ある場合のみ）。編集モードでは削除操作を出し、**他のリストにも属するなら「このリストから外す」
+  （非破壊・確認なし）、最後の所属なら「ウィンドウから解除」（確認あり）** と意味を分ける
+- worktree カード列: main を先頭に固定し、その後は git が返す順を維持する。
+  **Claude の状態で並び替えない**（位置の安定性を優先）
 - 末尾に新規 worktree 作成ボタン
 
 各 worktree カード:
 
-- ヘッダ: branch アイコン + ブランチ名 + git 変更ファイル数バッジ（modified / added / deleted / untracked）+ upstream に対する ahead / behind 表示（上下矢印 + 数値）+ メニュー
-- 配下のタスク行: 1 task ＝ 1 行。task は永続オブジェクト（PR / issue picker 由来 or 手動作成）。Claude session は task に attach する短命属性として表現する
-  - 行頭アイコンで `working / asking / done / idle / resumable / not-started` の 6 状態を識別
-  - 経過時間（相対時刻）は全 state で常時表示
-  - バブルは `done` / `asking` 限定。`done` は応答テキストの抜粋、`asking` はツール承認要求の抜粋
-  - task は作成順の append で固定（state による並び替えはしない）
+- ヘッダ: ブランチ名 + 変更ファイル数バッジ + upstream に対する ahead / behind
+- 配下のタスク行: 1 task = 1 行。**task は永続オブジェクトで、Claude セッションは task に attach する
+  短命属性**（[task.md](task.md)）。行頭アイコンで状態を識別し、経過時間を常時表示する。
+  **task は作成順の append で固定し、状態で並び替えない**
 
-### ビュー切り替え
-
-- **一覧ビュー**（サイドバーのルート）: 各 worktree のターミナルが並ぶ。全体の作業状況を俯瞰できる
-- **詳細ビュー**（worktree 選択時）: ターミナル（分割可）、ファイルツリー、プレビュー（右端、開閉可）のフル構成。現在の MainLayout に相当する
-
-## 監視 / データ取得ポリシー
-
-複数 repo 同居でも全部の状態をリアルタイム同期するとコストが重い。watch / fetch を範囲別に分けて運用する:
-
-| 項目                                                                              | 範囲                     | 取得トリガー                                                                                                |
-| --------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| FS watch（fsChange / gitStatusChange / branchChange / worktreeChange push event） | 選択中 dir のみ          | `selectedDir` の watcher が dir 切替時に `rpcFsWatch` / `rpcFsUnwatch` で付け替え                           |
-| filer ツリー                                                                      | 選択中 dir のみ          | FS watch event                                                                                              |
-| git status                                                                        | 選択中 dir のみ          | FS watch event **または** その dir に紐づく PTY の Claude state 変化（done / asking 等への遷移）            |
-| PTY                                                                               | 全 dir 並列              | 起動時に spawn、worktree 削除 / 明示 kill まで維持                                                          |
-| Claude status                                                                     | 全 dir / 全 PTY          | hook events を常時受信（`claudeStatusByPtyId` が ptyId キーで保持）                                         |
-| サイドバーの worktrees / branches                                                 | 取得時のスナップショット | `gozdOpen` 受信時に fetch、選択中 repo の push event で再 fetch（非選択 repo は明示リフレッシュまで stale） |
-
-設計の根拠:
-
-- ファイルツリーを表示するのは選択 dir だけ → FS watch も同じく選択 dir だけで十分
-- Claude が動く dir では Claude の状態遷移をシグナルとして git status を再取得すれば、FS watch を増やさなくても作業完了直後に変更ファイルが反映される
-- PTY と Claude status は全 repo で並列維持（重要度が高く、止めると作業が壊れる）
-
-## 並列作業の独立性
-
-各 worktree は完全に独立した環境として機能する:
-
-- ファイルシステムが独立（`node_modules/`、`dist/`、`.vite/` 等）
-- dev サーバーを独立して起動できる（ポートは自動で空きポートにフォールバック）
-- Claude Code のセッションが独立（cwd が異なるため）
-- ターミナルセッションが独立
-
-人間が main で確認作業をしても、各 worktree の Claude の作業には影響しない。
-
-ターミナル出力のファイルパスをクリックでプレビューに表示する機能により、各 worktree 内のファイル確認がスムーズに行える。
+アクティブな worktree がサイドバー外の経路で切り替わり、その project がアクティブなリストに無い
+場合は、それを含むリストへ表示も追従する。追従しないと上段にアクティブな worktree が見えないずれが
+残る。**編集モード中は追従しない**（編集対象が足元で変わるため）。
 
 ## ビュー状態の保持
 
-worktree を切り替えても以下のビュー状態は破棄せず保持する:
+worktree を切り替えても **ターミナルセッションは破棄せず保持する**。PTY は裏で動き続け、表示・
+非表示の切り替えだけを行う。
 
-- ターミナルセッション（PTY プロセスは裏で動き続ける）
+一方、ファイラーのツリー展開状態とプレビューの選択ファイルは worktree 切替でクリアする。
+プレビューの選択解除は意図的な契約で、切替と同時に同期的に行う（[preview.md](preview.md)）。
 
-これらは表示・非表示の切り替えのみ行い、再生成しない。
+## Claude セッションの resume
 
-ファイラーのツリー展開状態とプレビュー対象の選択ファイルは worktree 切替時にクリアされる。前者は単数 state のため `dir` の watch でツリーが再ロードされる結果として展開状態が失われ、後者は `useWorktreeStore` 側で `dir` が変わった瞬間に `selection` / `initialSelection` を `flush: "sync"` の watch で undefined にリセットする。`setOpen` を経由しない `selectedDir` の変更（例: `useRepoStore.removeRepo` で active repo が消えた場合のフォールバック）でも同様にクリアされる。
+ターミナルのスクロールバックは保存しない。代わりに **Claude Code のセッション ID を Task に持ち**、
+セッションそのものを再開する。ID の SSOT は Task であり、専用のストアを持たない。
 
-### workspace-scoped な状態管理（部分実装）
+### resume を駆動するもの
+
+**worktree を選ぶだけでは resume しない**。ターミナルを開くだけで、保存済みセッションは自動再開
+されない。
+
+resume が走るのは **サイドバーの task 行を明示的にクリックした経路だけ**。
+
+- 未訪問の worktree: 初回のターミナルにセッション ID を載せて開く
+- 訪問済みの worktree: レイアウトの先頭に新しいターミナルを追加する
+
+いずれも起動時に「このセッションを再開する」意図を環境変数で渡し、zsh 初期化がそれを **1 回だけ**
+消費して再開コマンドを実行する。
+
+**resume 可否を事前に検証しない**。明示クリックを尊重し、失敗は後述の検出経路で回収する。
+
+### resume 可能な状態から外れる経路
+
+判定は「セッション ID を持つ」かつ「ユーザーが明示的に閉じていない」。ここから外れる決定点は
+**ユーザーの明示操作 / Claude の明示終了 / 再開失敗の検出** に置き、**PTY の終了そのものは契機に
+しない**。
+
+| 経路                       | 契機                                             |
+| -------------------------- | ------------------------------------------------ |
+| ターミナルの明示的な削除   | ユーザー操作                                     |
+| セッション終了 hook        | Claude 自身の正規終了                            |
+| 同一ターミナル内での再開始 | 新しいセッション ID の到達時に旧 ID を切り離す   |
+| 再開失敗の検出             | 期待した ID のセッションが開始されないまま閉じた |
+
+**task 本体は削除しない**。状態フラグを立てるかセッション ID を空に戻すだけで、行はサイドバーに
+残る。明示削除はユーザーの操作か worktree 削除の連鎖を待つ。
+
+アプリの強制終了では終了処理が走らないため、**次回も resume できる状態のまま残る**（これが正しい
+挙動）。
+
+**セッションログの存在を先回りして確認しない**。Claude 側のログ配置仕様への依存を避けるため、
+失敗は実際にクリックされた時点で検出する。
+
+削除要求は PTY の識別子をキーに発火し、受け側は識別子からセッションを解決する。これにより
+hook の到達順との race が構造的に排除される。**削除の後に遅れて届いた開始通知は弾き、弾いた事象を
+ログに残す**。
+
+### 削除済み worktree のセッション復活
+
+worktree を削除すると resume は届かなくなる。理由は 2 つ。
+
+- **cwd のパスが消える**。Claude Code は cwd からセッションログの置き場所を導くため、実体が無いと
+  引き当てが成立しない
+- **task が消える**。worktree 削除は紐づく task も消すため、起点となる行が残らない
+
+一方 **セッションログ自体は cwd の実体とは独立に残る**。失われるのは「cwd パスの存在」だけなので、
+**元の cwd に worktree を作り直せば resume は成立する**。gozd 製 worktree のパスは決定論的関数
+（上記「配置」）なので、記録された cwd を 1 バイト違わず再現できる。
+
+**復活の対象は gozd 製 worktree に限る**。外部で作られた worktree は cwd から repo の帰属を導けない。
+
+- **発見**: セッションログを走査し、cwd が当該 repo の worktree 置き場の配下かつ **実在しない**
+  ものを列挙する。表示に使うメタ情報はログ末尾に最新値があるため、**全行を読まず末尾だけを読む**
+- **復活**: 「worktree の作成」と「セッションの紐づけ」の合成で行い、**専用の resume 経路を
+  増やさない**
+- **ブランチ名**: 記録された最後のブランチ名を第 1 候補にし、他の worktree に占有されていれば
+  タイムスタンプ名に倒す。起点は既定ブランチにする（元の tip はマージ済み / prune 済みでありうる
+  ため）。**ブランチ名は resume に影響せず、cwd の一致だけが要件**なので、意味のある名前を優先
+  しつつ衝突だけ避ける
+- **起動元**: 明示的に対象の repo を指定して起動できるほか、指定が無ければアクティブな worktree の
+  repo に倒す
 
 > [!NOTE]
-> ターミナル（`useTerminalStore.layoutsByDir`）は dir ごとの保持を実装済み。ファイラー展開状態は単数 state で、選択 dir 切替時に再取得する設計。プレビュー選択は単数 state かつ意図的に切替時クリアの設計。
-
-`useRepoStore` で複数 repo を保持する基盤は整ったが、各 repo の filer 展開状態は per-dir に持っていないため、worktree を切り替えるたびに失われる。プレビュー選択は意図的に切替時クリアの設計（上記参照）。
-
-切り替え速度より状態保存を優先する場合: ファイラーも `Map<dir, State>` 化し、参照先切替で復元する。
-取得コストが軽くシンプルさを優先する場合: 現状（FS watch event で再取得）のまま。
-
-優先度は実利用での体感次第。
-
-対象:
-
-- ファイラー: 展開状態、スクロール位置
-
-### ターミナルのスクロールバック永続化（未実装）
-
-アプリ再起動時にターミナルの内容を復元するため、PTY セッション終了時にスクロールバックをディスクに保存する。復元時は読み取り専用で表示し、新しい PTY セッションを開始する。
-
-### Claude セッションの resume 復元（実装済み）
-
-ターミナル全体のスクロールバックは保存しない代わりに、Claude Code セッションの sessionId を `tasks.json` の `task.session_id` に持つ（SSOT。専用ストアは持たない）。`SessionStart` hook は CLI 経由で `session_id` を渡し、`attachSession` で「同 worktree の sessionId 空 + createdAt 最新の task」に attach する（無ければ新規 task を作る）。
-
-worktree の選択（visit）はターミナル leaf を作るだけで、保存済みセッションを自動 resume しない。resume が走るのはサイドバーの task 行を明示クリックした経路だけ: 未訪問 worktree なら `requestResumeSession` が visit へのヒントとして sessionId を残して初期 leaf に載せ、訪問済みならレイアウト先頭（最左）に新 leaf を追加する。いずれも PTY spawn 時に `GOZD_RESUME_CLAUDE_SESSION` を env に注入し、gozd の zsh init がこの env を見て `claude --resume <sessionId>` を 1 回だけ実行する。
-
-resume 可能な task の判定は `sessionId != "" && !closedByUser`:
-
-- **closed task の ghRef 再選択で resume 可能に復帰する**。`add`（PR/issue picker 再選択）は同 worktreeDir + 同 ghRef の closed task を `closedByUser=false` に再活性化し、sessionId は保持する。次の task クリックで前回 session を resume する（閉じた PR を再選択して作業を継続する流れと一貫。dead なら下記 fallback に倒れる）
-
-resume 可能なセッションはサイドバーの TaskRow に `resumable` / `closed` state アイコンとして表示する（判定は [task.md](task.md)）。worktree 単位の集計バッジは出さない (TaskRow が task 1 件単位で正確に状態を出すため、wt 行に集計を出すと同じ情報が二重表示になる)。Claude 以外のターミナルは保存対象ではない。
-
-#### resume 可能な状態から task が外れる経路
-
-resume 可能な状態 (`sessionId != "" && !closedByUser`) から task が外れる経路は 4 つ。決定点は **ユーザーの明示的操作 / Claude の明示的終了 / resume 失敗の reactive 検出** に置き、PTY exit そのものは契機にしない。task 本体は削除せず `closedByUser=true` を立てる（or sessionId を空に戻す）だけなので、サイドバーには `closed` / `not-started` として残り、明示削除はユーザーの ⋮ メニュー or worktree 削除 cascade を待つ。アプリ終了時は renderer ごと死んで `unregisterPane` が走らないため、`closedByUser=false` のまま残り次回 resume できる。proactive な transcript 存在チェックはしない (Claude 側の transcript 仕様への依存を避けるため)。
-
-| 経路                                                                             | 契機                                                                                             | 動作                                                                                                                             |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| renderer の `unregisterPane`（terminal.closePane / resetLayout / worktree 削除） | ユーザーの明示的 pane 削除                                                                       | `rpcClaudeSessionRemoveByPty({ ptyId, worktreePath })` → native が `PTYRegistry` の per-pty sessionId を解決して `detachSession` |
-| `SessionEnd` hook                                                                | Claude 自身の正規終了（`/exit` 等）                                                              | CLI 経由で `detachSession`（sessionId は保持、`closedByUser=true`）                                                              |
-| 同 PTY 内の `/clear` / `--resume`                                                | 新 `session-start` 到達時、旧 sessionId と比較                                                   | 旧 ID を `detachSession`                                                                                                         |
-| resume 失敗検出 (`removeByPty` 経路)                                             | spawn 時 `GOZD_RESUME_CLAUDE_SESSION` 期待 sid が SessionStart hook 不達のまま pane が閉じられた | `clearDeadSession` で sid を空に + `closedByUser=true`（task 本体は残す）                                                        |
-
-削除 RPC は ptyId をキーに発火する。renderer は `paneRegistry` に保持している ptyId をそのまま渡すだけで、hook 到達順との race を排除できる。native の `PTYRegistry` は `ptyId → sessionId` マッピングを保持し、`clearAssociations` で `worktreePath` も併せて消すことで、削除 RPC 受信後に到達した late `session-start` hook を `applyClaudeSessionHook` の guard で構造的に弾く（弾いた事象は stderr に「late session-start ... after removeByPty; skipping」として観察可能）。
-
-resume 失敗検出は、`PTYRegistry` が spawn 時に `env["GOZD_RESUME_CLAUDE_SESSION"]` を per-pty に保存しておき、SessionStart hook 着弾時に同じ sid なら消費 (= 成功)、`removeByPty` 受信時に残っていれば失敗と判定する仕組み。これにより 30 日以上経過した古い sid (Claude 側で transcript rotation 済み) や、`~/.claude/projects/` 手動クリーンアップ後の stale な sid を、ユーザーがクリックして失敗を確認した時点で gozd 側からも掃除する。
-
-#### 削除済み worktree のセッション復活（revive）
-
-worktree を削除すると上記の resume は届かなくなる。理由は 2 つ:
-
-- **cwd パスが消える**。`claude --resume <sessionId>` は cwd を `~/.claude/projects/<enc>/` の project key に変換して jsonl を引く（scope は cwd の project + その git worktree 群）ため、cwd の実体が無いと引き当てが成立しない
-- **task が消える**。`removeByWorktree` が worktree 削除時に該当 task を tasks.json から消すため、resume 起点となる task 行がサイドバーに残らない
-
-一方でセッションログ（`~/.claude/projects/<enc>/<sessionId>.jsonl`）は cwd の実体とは独立に残る。失われるのは「cwd パスの存在」だけなので、**元の cwd に worktree を作り直せば resume は成立する**。gozd 製 worktree のパスは `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` の決定論的関数で、`projectKey` は main repo root から不変に導け、`leaf` は cwd の basename なので、記録された cwd を 1 バイト違わず再現できる（この一致が resume の project key 一致条件）。復活対象を gozd 製 worktree に限定するのはこのためで、外部 worktree は cwd が gozd スキーム外で repo 帰属を導けない。
-
-発見は `~/.claude/projects/` を走査し、cwd が当該 repo の `worktrees/<projectKey>/` 配下かつ**実在しない**（= 削除済み）セッションを列挙する。行の表示メタ（branch = 末尾の `gitBranch` / title = 末尾の `aiTitle`（Claude 生成の要約 = gozd の terminalTitle と同一物）/ 最終日時 = 末尾レコードの `timestamp`）はいずれもログ末尾に最新値があるため、全行 parse せず tail のみ読む。
-
-復活は `createWorktree` + `attachSession` の合成で、専用の resume 経路は増やさない。branch は「末尾の gitBranch（リネーム済みなら PR 名）」を第 1 候補にし、他 worktree に占有されていれば日付ブランチへ倒す。branch tip はマージ / prune 済みでありうるので startPoint は default branch にする（branch 名は resume に影響せず cwd 一致だけが要件のため、意味のある名前を優先しつつ衝突だけ避ける）。worktree を作り直したら `attachSession` が sessionId 付き task を書き、renderer が `requestResumeSession` の明示ヒントを立てて visit がそれを消費し resume を駆動する。
-
-起動は command `workspace.reviveSession`。サイドバーの repo ⋮ メニューは対象 repo の rootDir を明示引数で渡し、コマンドパレット起動時は active worktree の repo に fall back する（VSCode の SCM コマンドが clicked resource を優先し無ければ active に倒す `getRepository(args[0]) ?? pickRepository()` と同型）。
-
-制約: 1 つの削除済み worktree に複数セッション（同一 cwd で複数回 `claude` を起動 = 同 projectDir 内に複数 jsonl）が紐づく場合、一覧は各セッションを別行で出すが、1 件を revive すると cwd が実在に転じて残りの兄弟セッションは次回一覧から外れる（`attachSession` は選んだ 1 件しか task 化しない）。gozd は 1 worktree 1 セッションが主で複数はエッジのため許容する。兄弟の jsonl は残るので、復活後の worktree で手動 `claude --resume <sessionId>` は可能。
+> 1 つの削除済み worktree に複数のセッションが紐づく場合、一覧は各セッションを別行で出すが、
+> 1 件を復活させると cwd が実在に転じて残りは次回の一覧から外れる。gozd は 1 worktree 1 セッションを
+> 主とするため許容する。復活後の worktree で手動 resume は可能。

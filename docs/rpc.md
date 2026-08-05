@@ -1,140 +1,91 @@
 # RPC
 
-renderer（Vue）と main（Electron）間の通信。型は共有 TS 型パッケージ `@gozd/rpc` を SSOT
-に置き、ワイヤは Electron IPC の structured clone で plain data をそのまま運ぶ
-（codec レス。旧 `.proto` SSOT + ts-proto 生成、および JSON 文字列ワイヤは廃止済み）。
+renderer と main の通信、および CLI / Claude hooks からの受付。
 
-## SSOT は `@gozd/rpc`
+## 型の SSOT
 
-`packages/rpc` が全 message 型（request / response / 永続化 schema / socket の
-ClientMessage）を手書き TS interface / 文字列リテラル union として持つ。renderer /
-electron の両方が同じ型定義を import するため、ワイヤ変換は存在しない（オブジェクトを
-そのまま渡す）。
+全メッセージ型（request / response / 永続化 schema / socket message）を単一のパッケージが持ち、
+renderer と main の両方が同じ定義を参照する。**両端が同型を見るため、ワイヤ変換層は存在しない**。
 
-- 型は plain data（JSON 形のオブジェクト / 配列 / プリミティブ + `WireBytes`）に限る。
-  Vue の reactive proxy 等の exotic object は structured clone できず reject するため、
-  呼び出し側が plain data を渡す（不変条件の SSOT は `@gozd/shared` の
-  `ElectronRpcBridge` docstring）
-- バイナリは `WireBytes`（専有 ArrayBuffer 背景の `Uint8Array`）を第一級で運ぶ。main の
-  Buffer は送出前に exact-size コピー（`toWireBytes`）へ変換する（共有プール view を
-  そのまま送ると backing buffer ごと複製され、無関係なデータが漏出するため）。socket の
-  NDJSON を通る型（ClientMessage）にはバイナリを載せない
-- フィールド名は旧 proto3 JSON mapping の lowerCamelCase を踏襲（永続化 JSON のキーと一致）
-- `?` フィールドは undefined で未設定を表現する（永続化 JSON ではキー不在）
-- 旧 enum は文字列リテラル union（`SortMode = "topo" | "date"` 等）。main 内部表現と
-  同じ文字列にしてあり、境界での変換層は存在しない
-- 例外は `GhRefKind`（`"GH_REF_KIND_PR"` / `"GH_REF_KIND_ISSUE"`）。tasks.json に
-  永続化される値で、merge までは main branch の Swift 版 gozd と実ファイルを共有する
-  ため、旧 proto3 JSON の enum 名を維持する（組み立ては `ghRefForPr` / `ghRefForIssue`
-  ヘルパー経由に限定）
+型に課す制約は [architecture.md](architecture.md#プロセス境界を跨ぐ型) の契約に従う。加えて:
 
-型ファイルはドメインごとに分割（`packages/rpc/src/`）。新しい RPC を足すときは該当
-ファイルに request / response を追加して `index.ts` barrel から export し、renderer 側は
-feature の `rpc.ts` に wrapper、main 側は `apps/electron/src/routes.ts` に handler を登録する。
-
-### 両端の型付け規律
-
-- renderer（`shared/rpc/client.ts`）: `rpc<Resp>(path, req)`。response 型は feature の
-  wrapper が generic で当てる
-- main（`routes.ts`）: request は `body as XxxRequest` の cast で受け（送り手が同型を
-  参照する renderer なので構造は一致する契約）、response は `satisfies XxxResponse` で
-  型チェックして素の object を返す
-- プロセス境界を跨ぐ「信頼できない入力」（永続ファイル / socket の NDJSON）だけは
-  受信側で default 充填の正規化を通す（`apps/electron/src/rawJson.ts` の契約）
+- **列挙は文字列リテラル union** で表し、main の内部表現と同じ文字列にする。境界での変換層を
+  持たない
+  - 例外は `GhRef` の種別（`"GH_REF_KIND_PR"` / `"GH_REF_KIND_ISSUE"`）。永続化ファイルに書かれる
+    値なので文字列を固定する。組み立ては専用ヘルパー経由に限定し、リテラルを散らさない
+- **フィールド名は永続化 JSON のキーと一致させる**。永続化形式と RPC 形式で別の命名規約を
+  持たない
 
 ## 通信モデル
 
 ```mermaid
 flowchart LR
-    subgraph renderer [renderer / Vue]
-        REQ[ipcRenderer.invoke rpc:request]
-        RECV[onPush listener]
-    end
-
-    subgraph main [main / Electron]
-        DISP[rpcDispatcher]
-        PUSH[webContents.send rpc:push]
-    end
-
-    subgraph cli [CLI / Claude hooks]
-        SOCK[NDJSON via Unix Socket]
-    end
-
-    REQ -->|request/response| DISP
-    DISP -->|push| PUSH -->|preload 経由| RECV
-    SOCK -->|ClientMessage| DISP
+    R[renderer] -->|request| M[main]
+    M -->|response| R
+    M -->|push| R
+    C[CLI / Claude hooks] -->|NDJSON socket| M
 ```
 
-### renderer → main（request / response）
+### request / response
 
-`apps/renderer/src/shared/rpc/client.ts` の `rpc()` ヘルパーが preload の
-`window.__gozdElectronRpc.request(path, body)` を呼ぶ（実体は
-`ipcRenderer.invoke("rpc:request")`）。body / response は `@gozd/rpc` の型の plain data
-そのもので、push 方向（`webContents.send`）と同じ structured clone 意味論に揃っている。
+renderer が path と body を渡し、main が path でハンドラへ配送して応答を返す。body と応答は
+どちらも型定義そのままの plain data。
 
-main 側は `ipcMain.handle("rpc:request")` が受け、`rpcDispatcher.ts` のルート表から
-`routes.ts` の handler に配送する。
+型付けの規律は非対称になる。
 
-> [!NOTE]
-> ファイル内容などのバイナリも本経路で `WireBytes` として運ぶ（VS Code が Electron IPC に
-> `VSBuffer` の生 bytes を直接乗せるのと同じ構造）。バイナリ専用の別 scheme
-> （旧 `gozd-file://` protocol）は廃止済み。
+- **renderer**: 呼び出し側が応答型を指定する
+- **main**: request は同型を参照する renderer からしか来ない契約なので受け口で型を当て、
+  応答は型を満たすことを検査してから返す
 
-### main → renderer（push）
+ファイル内容などのバイナリも本経路で生 bytes として運ぶ。バイナリ専用の配信 scheme は
+HTML preview 用の 1 つだけで、それ以外の到達経路を増やさない（[preview.md](preview.md)）。
 
-main は `webContents.send("rpc:push", type, payload)` で renderer に push する。preload の
-`onPush` 経由で `apps/renderer/src/shared/rpc/messages.ts` の dispatcher が受け、type ごとの
-リスナーに分配する。
+### push
 
-主な push type:
+main から renderer への一方向通知。
 
-| type                     | 発火元                                           | 用途                                                               |
-| ------------------------ | ------------------------------------------------ | ------------------------------------------------------------------ |
-| `ptyText`                | main (`routes.ts` の node-pty onData)            | PTY 出力                                                           |
-| `ptyExit`                | main (`routes.ts` の node-pty onExit)            | PTY 終了                                                           |
-| `fsChange`               | main (`fsWatchRegistry`)                         | watch dir 配下のファイル変更                                       |
-| `fsChangeAbsolute`       | main (`absFileWatcher`)                          | watch 中の絶対パス単一ファイルの変更（preview の worktree 外追従） |
-| `gitStatusChange`        | main (`fsWatchRegistry` の git 経路)             | git status snapshot 変化                                           |
-| `branchChange`           | main (primary worktree のみ dedup)               | ローカルブランチ参照の変化 (`refs/heads/*`)                        |
-| `remoteRefsChange`       | main (primary worktree のみ dedup)               | リモート tracking 参照の変化 (`refs/remotes/*`、push / fetch 後)   |
-| `worktreeChange`         | main (primary worktree のみ dedup)               | `worktrees/*` 配下の変化                                           |
-| `fsWatchReady`           | renderer 内部 (`useFsWatchSync.dispatchMessage`) | `rpcFsWatch` 成功直後の dir 単位 re-sync シグナル                  |
-| `gozdOpen`               | main                                             | CLI / launch request からの open リクエスト                        |
-| `serverPortsChange`      | main (`portScanner`)                             | 実行中サーバー検出結果の snapshot                                  |
-| `hook`                   | main (`socketServer` → `HookMessage`)            | Claude Code Hook イベント                                          |
-| `notify`                 | main                                             | main 側のバックグラウンドエラー / 情報通知                         |
-| `windowFullscreenChange` | main (BrowserWindow enter/leave-full-screen)     | macOS fullscreen 遷移（タイトルバーの信号機 pad 開閉）             |
-| `appConfigChange`        | main (`appConfigWatcher`)                        | AppConfig ファイル変更の hot reload（直接編集の即時適用）          |
+| type                     | 意味                                                     |
+| ------------------------ | -------------------------------------------------------- |
+| `ptyText`                | PTY 出力                                                 |
+| `ptyExit`                | PTY 終了                                                 |
+| `fsChange`               | 監視 dir 配下のファイル変更                              |
+| `fsChangeAbsolute`       | 監視中の単一ファイル（worktree 外）の変更                |
+| `gitStatusChange`        | git status snapshot の変化                               |
+| `branchChange`           | ローカルブランチ参照の変化                               |
+| `remoteRefsChange`       | リモート tracking 参照の変化                             |
+| `worktreeChange`         | worktree の構成、または main worktree の checkout 先変化 |
+| `fsWatchReady`           | 監視登録成立後の dir 単位の再同期シグナル                |
+| `gozdOpen`               | CLI / 起動要求からの open 要求                           |
+| `serverPortsChange`      | 実行中サーバー検出結果の snapshot                        |
+| `hook`                   | Claude Code の hook イベント                             |
+| `notify`                 | main 側のバックグラウンドエラー / 情報通知               |
+| `windowFullscreenChange` | fullscreen 遷移                                          |
+| `appConfigChange`        | 設定ファイルの外部編集                                   |
 
-fsWatchRegistry 由来の複数 dir 監視の push payload は `dir`（または発火元 dir）を必須で持つ。
-詳細は [architecture.md](architecture.md#ssot-push-の-dir-filter-規律) を参照。単一ファイル
-watcher の push はこの dir filter 規律の対象外で、`fsChangeAbsolute` は exact `path` match、
-`appConfigChange` は唯一のグローバル config が対象のため filter キー自体を持たない。
+- ファイル監視由来の push は **発火源の `dir` を必須で持つ**
+  （[architecture.md](architecture.md#ssot-push-の-dir-filter-規律)）
+- 単一ファイル監視の push は exact path 一致で受け取るため、dir filter 規律の対象外
+- グローバルに 1 つしか対象が無い push は filter キー自体を持たない
 
-push payload の型は request / response と違い `@gozd/rpc` に置かない。main 側の
-push 発火箇所（手組み dict）と renderer 側 feature の `*Payload` interface を SSOT とする
-（`shared/rpc` は payload 形を知らない設計。`messages.ts` の設計判断を参照）。
+**push payload の型は共有パッケージに置かない**。request / response は両端が同じ型を参照する
+必要があるが、push は「main の発火箇所」と「renderer の購読側」がそれぞれ形を持つ。共通の
+イベントバス層は payload の形を知らない設計にする。
 
-### CLI / Claude hooks → main（NDJSON socket）
+### CLI / Claude hooks → main
 
-CLI は `gozd-cli`（TS 実装、`dist/cli.cjs`）。`Unix Domain Socket`
-（`$TMPDIR/gozd-{channel}.sock`）に `ClientMessage`（`@gozd/rpc`）の JSON を 1 行送る。
-`{"open":{...}}` / `{"hook":{...}}` のどちらか一方だけを設定する（旧 proto3 oneof の
-JSON 形状をそのまま維持しており、nc 直送の固定 JSON に埋め込める）:
+ソケットの受付契約は [architecture.md](architecture.md#ソケットからの受付)。メッセージ形状は
+`open` / `hook` のどちらか一方だけを持つ形で、**フィールドを持たない直送経路でも埋められる**
+最小構成に保つ。受信側が不在フィールドを default で埋める。
 
-- `open`: `gozd open <path>` / cold start launch request
-- `hook`: Claude Code hooks イベント。nc 直送経路は `event` / `ptyId` しか載せないため、
-  受信側（`socketMessages.ts` の `parseClientMessage`）が default 充填して使う
+## renderer 側の購読契約
 
-`socketServer.ts`（`node:net`）が受け、`socketMessages.ts` の逐次キューに流す。decode 失敗
-（不正 JSON / hook・open とも未指定）は stderr にログするだけで接続は維持する。
+push の購読はイベントバス相当の API を通す。
 
-## Renderer 側の購読契約
-
-shared/rpc がイベントバス相当の API を提供する。型付き generic + disposer パターンで購読する契約:
-
-- `onMessage<TPayload>(type, handler)` で型付き購読、戻り値の disposer を `onUnmounted` で解除
-- renderer 内部から push を発射する経路もイベントバス経由（main 経由と同じ subscriber に流れるため、source dir に紐付く再同期シグナル等で利用）
-- push の到達順序は保証されない。リスナー側で必要な整合性を担保する（例: `gitStatusChange` は `dir` をキーに最新値で上書きする）
-- 1 つのリスナーが throw しても他のリスナーへの配送は続く。失敗は呼び出し元へ伝播せず、event-log パネルに記録される
-- 同一 type に同じ handler 関数を二重購読しても 1 件として扱われ、1 回の解除で消える
+- **購読は disposer を返す**。コンポーネントの破棄時に必ず解除する
+- **renderer 内部からも同じバスへ push を発射できる**。main 由来と同じ購読者へ流れるため、
+  再同期シグナルのような内部イベントを同じ経路に乗せられる
+- **push の到達順序は保証しない**。購読側が必要な整合性を担保する（dir をキーに最新値で
+  上書きする等）
+- **1 つの購読者が throw しても他への配送は続く**。失敗は呼び出し元へ伝播せず、
+  イベントログに記録される
+- **同一 type に同じ関数を二重購読しても 1 件として扱う**。1 回の解除で消える

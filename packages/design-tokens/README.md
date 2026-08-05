@@ -1,86 +1,71 @@
 # @gozd/design-tokens
 
-gozd の Tier 1 (primitives) design tokens を Adobe Leonardo の contrast-driven
-algorithm で生成する。出力は `dist/tokens.generated.css` に `:root { --gray-1: ...; ... }`
-形式の CSS variable として書き出される。
+Tier 1（primitives）の design token を **contrast 駆動のアルゴリズムで生成**する。出力は
+CSS 変数。
+
+## tier の分離
+
+| Tier                      | 責任                          | 配置               |
+| ------------------------- | ----------------------------- | ------------------ |
+| Tier 1 (primitives)       | 物理的な色値、12 段のスケール | この package       |
+| Tier 2 (semantic aliases) | role 名 → primitive の写像    | 利用側の entry CSS |
+| Tier 3 (element defaults) | UA スタイルシートの上書き     | 利用側の entry CSS |
+
+**この package は role を知らない。** 「どの step をどの用途に使うか」は利用側の責務。
 
 ## 使い方
 
-renderer 側 (consumer) の Tailwind v4 entry CSS で `@import` する:
+利用側の entry CSS で import し、semantic alias を自分で定義する。
 
 ```css
 @import "tailwindcss";
 @import "@gozd/design-tokens/tokens.css";
 
 @theme inline {
-  /* Tier 2: semantic alias を consumer 側で定義 */
   --color-background: var(--gray-1);
   --color-panel: var(--gray-2);
-  /* ... */
 }
 ```
 
-## tier 分離の責任
-
-| Tier                      | 責任                             | 配置                                 |
-| ------------------------- | -------------------------------- | ------------------------------------ |
-| Tier 1 (primitives)       | OKLCH 物理値、12-step scale      | この package (`@gozd/design-tokens`) |
-| Tier 2 (semantic aliases) | role 名 → primitive の写像       | renderer の `main.css @theme inline` |
-| Tier 3 (element defaults) | UA stylesheet 上書き / scrollbar | renderer の `main.css @layer base`   |
-
 ## token 一覧
 
-| 名前             | step  | role                                          |
-| ---------------- | ----- | --------------------------------------------- |
-| `--gray-1..12`   | solid | app bg / component bg / border / solid / text |
-| `--gray-a1..a12` | alpha | overlay / chrome (白 alpha)                   |
-| `--blue-1..12`   | solid | intent: primary / info                        |
-| `--red-1..12`    | solid | intent: destructive                           |
-| `--green-1..12`  | solid | intent: success                               |
-| `--amber-1..12`  | solid | intent: warning                               |
-| `--orange-1..12` | solid | intent: warning-strong                        |
+| 名前             | 種別  | intent                     |
+| ---------------- | ----- | -------------------------- |
+| `--gray-1..12`   | solid | 中立（bg / border / text） |
+| `--gray-a1..a12` | alpha | overlay / chrome           |
+| `--blue-1..12`   | solid | primary / info             |
+| `--red-1..12`    | solid | destructive                |
+| `--green-1..12`  | solid | success                    |
+| `--amber-1..12`  | solid | warning                    |
+| `--orange-1..12` | solid | warning-strong             |
 
-Radix の step → role 写像に従う:
+step → 用途の写像は Radix の規約に従う。
 
-- 1-2 app / subtle bg
-- 3-5 component bg (rest / hover / active)
-- 6 subtle border (non-interactive)
-- 7 interactive border
-- 8 strong border / focus ring
-- 9-10 solid bg (rest / hover)
-- 11 low-contrast text (WCAG2 8.0+)
-- 12 high-contrast text (WCAG2 14.0+)
+| step | 用途                                        |
+| ---- | ------------------------------------------- |
+| 1-2  | app / subtle な背景                         |
+| 3-5  | コンポーネント背景（通常 / hover / active） |
+| 6    | 非対話の境界線                              |
+| 7    | 対話可能な境界線                            |
+| 8    | 強い境界線 / フォーカスリング               |
+| 9-10 | 塗りつぶし背景（通常 / hover）              |
+| 11   | 低コントラストのテキスト                    |
+| 12   | 高コントラストのテキスト                    |
 
-## 再生成
+**step 11 / 12 は目標コントラスト比を満たすことが生成時に保証される。**
 
-`pnpm install` で `prepare` script が自動実行される。brand を変えたいときは
-`src/generateTokens.ts` の `BRAND` を編集して再 `pnpm install` (または
-`pnpm --filter @gozd/design-tokens build`)。
+## なぜ生成するか
 
-## なぜ Leonardo か
+contrast 駆動の生成器は **目標コントラストを入力に指定すると、それを満たす色を逆算する**。
+テキスト用の step が要求水準を確実に満たす。
 
-contrast-driven generator なので、target contrast (WCAG2 / APCA) を **入力に指定**
-すると、その contrast を満たす色を逆算する。step 11 が WCAG2 8.0、step 12 が 14.0
-を確実に満たすため、APCA Lc 60/90 に近い結果になる。生 OKLCH を手書きすると
-gamut 上の chroma 限界 / contrast 検証が手動になり破綻しやすい。
+**手書きすると、色域上の彩度限界とコントラスト検証が手動になり破綻しやすい。**
 
-### colorKeys は複数 anchor を渡す (canonical pattern)
+## brand の変更
 
-Leonardo の `Color({ colorKeys })` に **単一 anchor** を渡すと、内部で
-`[white, brand, black]` 構成となり chroma curve を designer が制御できない。
-低 step (subtle bg 用途) で brand の chroma がほぼそのまま維持され、Radix Dark 流の
-「低 step で chroma を絞る」curve にならない (gamut の隅にある hue では overshoot
-も起きる)。`packages/contrast-colors/README.md` の `Color` 例も全て 2+ anchor。
-
-本 generator では各 intent に `[dark_anchor, brand, light_anchor]` の 3 anchor を渡す。
-dark / light anchor は brand hex の hue を保ったまま L=0.18 C=0.04 (dark) /
-L=0.93 C=0.03 (light) の固定 OKLCH を `chroma.oklch().hex()` で構築する。Leonardo は
-`[white, light, brand, dark, black]` の 5 点 spline 補間に切り替わり、両端で chroma が
-tapered する Radix-style scale を出力する。
+**primitives は手書きしない。** brand を変えるときは生成器側の定義を編集し、依存インストールを
+再実行して再生成する。
 
 > [!NOTE]
-> dark / light anchor の (L, C) は全 intent 共通の固定値であり、hue ごとの OKLCH gamut
-> 境界に最適化されていない。実用上は問題ない出力に揃うが、Radix Dark scale そのものとは
-> 厳密一致しない (Radix は手作業で hue ごとに別 curve を持つ)。将来 hue 固有のチューニングが
-> 必要になったら、`BRAND` を `{hex, darkAnchor, lightAnchor}` の triple に拡張する
-> 構造に進化させる。BackgroundColor (gray) は無彩色なので単一 anchor のままで十分。
+> テーマに追従しない固定の brand 色（外部サービスの指定配色など）は生成パイプラインに乗らないため、
+> 利用側で例外として手書きし、命名規約で識別できるようにする。

@@ -50,11 +50,31 @@ PR diff / 実体なし）では consumer が target を渡さず source 表示�
 
 中クリックは popup 要求なので上記のとおりブロックされ、何も起きない (VS Code の webview も
 中クリックでリンクを開けない)。
+
+## 外側のポインタ操作を奪わない
+
+契約は [docs/preview.md](../../../../../docs/preview.md) の HTML ビュー。ここには判定をこの面に
+置いた理由と、このコンポーネントの都合から来る制約だけを書く。
+
+cross-origin の frame を跨いでイベントが届くのは pointer capture を持つドラッグだけで、
+持たないドラッグは frame に吸われ、外側から傍受する経路も無い。
+
+判定を外側のドラッグではなくこの面に置くのは、**外側に規律を課しても届かない実装があるため**。
+xterm.js のテキスト選択は pointer capture を使わず、gozd から実装を変えられない。「全ての
+ドラッグが capture する」も「全てのドラッグがドラッグ中を宣言する」も到達できない前提であり、
+そこに依存する設計は成立しない。この面が自分で押下を観測するなら、外側が何であっても成立する。
+
+このコンポーネント固有の制約:
+
+- 押下が始まった時点でこの面がまだ現れていなければ、現れた直後は保護が効かないことがある
+- 押下の起点がこの面の中か外かを cross-origin では観測できないため、起点で分岐して
+  この面の中で始まったドラッグを保護の対象外にする実装は採れない
 </doc>
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
-import { onBeforeUnmount, ref, watch } from "vue";
+import { useEventListener } from "@vueuse/core";
+import { onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { rpcPreviewHtmlUrl, rpcPreviewReleaseHtml } from "./rpc";
 
@@ -69,6 +89,45 @@ const props = defineProps<{
 
 const notify = useNotificationStore();
 const src = ref<string>();
+
+/**
+ * 監視の起点。iframe ではなく常設のラッパーから document を取る。iframe は src の解決後にしか
+ * 現れないため、iframe を起点にすると解決中の押下を観測できず、mount した iframe が保護の
+ * 無い状態で現れる。
+ *
+ * global の `document` ではなく `ownerDocument` なのは、undock したパネルが別 OS ウィンドウへ
+ * 昇格すると Teleport 先の document が変わり、global は opener 側を指すため。
+ */
+const rootRef = useTemplateRef<HTMLElement>("root");
+const rootDocument = () => rootRef.value?.ownerDocument;
+
+/** 外側でポインタが押されているか (doc の「外側のポインタ操作を奪わない」) */
+const outerPointerHeld = ref(false);
+
+// - pointerup をイベント種別だけで解除に倒せない: `buttons` はそのイベント時点で押されて
+//   いるボタンなので、多ボタン押下中に 1 つ離しただけで保護が外れる
+// - pointermove を式から外せない: 取りこぼした pointerup をここで回収する。これが無いと
+//   外れた無効化が復帰せず preview が恒久的に無反応になる
+// - bubble phase では受けられない: 経路上の `@pointerdown.stop` (このコードベースの確立した
+//   イディオム) 1 つで防御が無音で外れる
+useEventListener(
+  rootDocument,
+  ["pointerdown", "pointerup", "pointermove"],
+  (event: PointerEvent) => {
+    outerPointerHeld.value = event.buttons !== 0;
+  },
+  { capture: true },
+);
+// cancel は押下そのものの中止なので、残っているボタンの有無によらず保護を解く。上の式に
+// 載せると解除の判断を `buttons` の報告値に預けることになる
+useEventListener(
+  rootDocument,
+  "pointercancel",
+  () => {
+    outerPointerHeld.value = false;
+  },
+  { capture: true },
+);
 
 /** 固定 message + 詳細を cause に分離し、対象違いでトーストが累積しないようにする */
 const URL_FAILED_MESSAGE = "Could not open HTML preview";
@@ -139,17 +198,21 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!--
-    background は web platform の default canvas (白) に固定する。iframe 内は gozd の themed UI
-    ではなく白背景前提で書かれた外部 HTML 文書を描画するため、semantic token ではなくリテラル白が
-    意味的に正しい。
-  -->
-  <iframe
-    v-if="src !== undefined"
-    :src="src"
-    sandbox="allow-same-origin"
-    title="HTML preview"
-    class="size-full border-0"
-    style="background: #ffffff"
-  />
+  <!-- ラッパーは常設。iframe より先に mount して押下の観測を始める (根拠は rootRef) -->
+  <div ref="root" class="size-full">
+    <!--
+      background は web platform の default canvas (白) に固定する。iframe 内は gozd の themed UI
+      ではなく白背景前提で書かれた外部 HTML 文書を描画するため、semantic token ではなくリテラル白が
+      意味的に正しい。
+    -->
+    <iframe
+      v-if="src !== undefined"
+      :src="src"
+      sandbox="allow-same-origin"
+      title="HTML preview"
+      class="size-full border-0"
+      :class="{ 'pointer-events-none': outerPointerHeld }"
+      style="background: #ffffff"
+    />
+  </div>
 </template>

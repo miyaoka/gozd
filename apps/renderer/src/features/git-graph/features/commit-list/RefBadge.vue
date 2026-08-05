@@ -64,8 +64,10 @@ const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
 
 <template>
   <!-- PR number badge (left of branch label) -->
-  <!-- クリックは `activateExternalLink` が OS のブラウザへ渡す。`href` は遷移させず、hover 時の
-       URL 表示とコンテキストメニュー (Copy Link Address) のために置く。 -->
+  <!-- クリックは `activateExternalLink` が OS のブラウザへ渡す。`href` は遷移させないが、外すと
+       a[href] のリンク意味論 (キーボードフォーカス到達、Enter による起動、支援技術への link
+       としての露出、UA の cursor: pointer) が同時に落ちる。no-underline のこのバッジでは
+       カーソル形状が唯一の hover アフォーダンスでもある。 -->
   <a
     v-if="pr"
     :href="pr.url"

@@ -2,7 +2,7 @@
 // 各 feature の rpc.ts に置く。`openExternal` が例外なのは、scheme allowlist の判定点を
 // 1 つに保つ契約そのものだから（feature ごとに wrapper を持つと判定が分散する）。
 export { rpc } from "./client";
-export { openExternal } from "./openExternal";
+export { isLinkActivation, LINK_OPEN_FAILED_MESSAGE, openExternal } from "./openExternal";
 export {
   dispatchMessage,
   initRpcDispatcher,

@@ -26,3 +26,25 @@ export async function openExternal(url: string): Promise<void> {
   }
   await rpc<OpenExternalResponse>("/open/external", { url } satisfies OpenExternalRequest);
 }
+
+/**
+ * このマウスイベントをリンク起動とみなすか。リンクを描く層はすべてこの述語を通す
+ * （層ごとに条件を持つと、同じ操作でも押した場所で開く / 開かないが変わる）。
+ *
+ * 左クリックと中クリックの両方を通す。中クリックは `click` を発火せず `auxclick` になるため、
+ * 呼び出し側は両方の event に bind する。片方だけだと既定の new-window 要求に落ち、main の
+ * 防壁が URL を見ずに deny してリンクが無音で死ぬ。
+ *
+ * control+click は除く。macOS の WebKit はこれを button 0 の click として dispatch するが、
+ * 意図はコンテキストメニューでリンク起動ではない。
+ */
+export function isLinkActivation(event: MouseEvent): boolean {
+  if (event.button !== 0 && event.button !== 1) return false;
+  return !event.ctrlKey;
+}
+
+/**
+ * リンクを開けなかったときの通知 message。URL は message ではなく cause に載せる
+ * （message を可変にすると toast の文言が毎回変わって読み取れなくなる。URL は Details から辿れる）。
+ */
+export const LINK_OPEN_FAILED_MESSAGE = "Could not open link in the browser";

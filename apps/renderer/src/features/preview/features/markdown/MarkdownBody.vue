@@ -29,7 +29,7 @@ import DOMPurify from "dompurify";
 import { marked, type MarkedExtension } from "marked";
 import { nextTick, ref, watch } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
-import { openExternal } from "../../../../shared/rpc";
+import { isLinkActivation, LINK_OPEN_FAILED_MESSAGE, openExternal } from "../../../../shared/rpc";
 
 const props = defineProps<{
   content: string;
@@ -47,19 +47,13 @@ const renderedHtml = ref<string>();
 const bodyEl = ref<HTMLElement>();
 const notify = useNotificationStore();
 
-/** 固定 message + 詳細を cause に分離し、URL 違いのリンク連打でトーストが累積しないようにする */
-const LINK_OPEN_FAILED_MESSAGE = "Could not open link in the browser";
-
 /**
- * 左クリックと中クリックを同じ判定に通す。中クリックは `click` を発火せず `auxclick` なので、
- * 片方だけ bind すると既定の new-window 要求に落ち、この層の allowlist を迂回して OS に
- * URL が渡る。VS Code の markdownRenderer も同じコールバックを両イベントに登録している。
+ * リンク起動を捕まえる。`click` と `auxclick` の両方に bind するのは中クリックが `click` を
+ * 発火しないため（VS Code の markdownRenderer も同じコールバックを両イベントに登録している）。
+ * 起動条件そのものは `shared/rpc` の `isLinkActivation` が SSOT。
  */
 function onLinkActivate(event: MouseEvent) {
-  if (event.button !== 0 && event.button !== 1) return;
-  // macOS の WebKit は control+click を button 0 の click として dispatch する。
-  // 意図はコンテキストメニューなので、リンク起動として扱わず既定挙動に渡す
-  if (event.ctrlKey) return;
+  if (!isLinkActivation(event)) return;
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const anchor = target.closest("a");

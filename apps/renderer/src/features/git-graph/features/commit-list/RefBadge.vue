@@ -1,5 +1,18 @@
 <doc lang="md">
-Branch ref badge with optional PR link. Displays a PR number badge (left) and branch label (right).
+Branch ref badge with optional PR link. Displays a PR number badge, its CI / comment indicators,
+and the branch label (in that order).
+
+## PR インジケータ
+
+PR 番号バッジの後ろに CI ドットとコメント数を並べる。何を出さないかの契約は
+[docs/git.md](../../../../../../../docs/git.md) の「PR 一覧が運ぶ情報の範囲」。
+
+`checkState` が undefined なのは **check が 1 つも登録されていない commit** であって、失敗でも
+取得漏れでもない。CI を持たない repo に加え、push 直後に GitHub が check を作るまでの過渡状態も
+ここに落ちるため、push のたびにドットが一瞬消えてから復帰する。
+
+値は PR 一覧の polling が運ぶため即時ではない。CI 実行中の PENDING → SUCCESS 遷移は最大
+1 周期ぶん遅れて反映される。
 
 ## カラー設計
 
@@ -20,13 +33,14 @@ local / remote は **同じ hue で明度差** で区別する:
 </doc>
 
 <script setup lang="ts">
-import type { GitPullRequest } from "@gozd/rpc";
+import type { GitPullRequest, GitPullRequestCheckState } from "@gozd/rpc";
 import { computed } from "vue";
 import { activateExternalLink } from "../../externalLink";
 import type { DisplayRef } from "./displayRef";
 import IconLucideGitPullRequest from "~icons/lucide/git-pull-request";
 import IconLucideLink from "~icons/lucide/link";
 import IconLucideLink2Off from "~icons/lucide/link-2-off";
+import IconLucideMessageSquare from "~icons/lucide/message-square";
 
 const props = defineProps<{
   displayRef: DisplayRef;
@@ -60,26 +74,65 @@ const CURRENT_REMOTE_CLASS = "bg-warning text-warning-foreground opacity-50";
 
 /** default branch decoration。type 色の上に ring を重ねる */
 const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
+
+/**
+ * CI 総合結果 → ドットの色と tooltip。
+ *
+ * `ERROR` (インフラ起因の異常終了) と `FAILURE` (チェック自体の失敗) は「直さないと merge
+ * できない」点で利用者の次の行動が同じなので同色に潰す。`EXPECTED` は必須チェックがまだ
+ * 報告されていない待ち状態なので `PENDING` と同色。
+ */
+const CHECK_STATE_DISPLAY: Record<GitPullRequestCheckState, { class: string; title: string }> = {
+  SUCCESS: { class: "bg-success", title: "All checks passing" },
+  FAILURE: { class: "bg-destructive", title: "Some checks failing" },
+  ERROR: { class: "bg-destructive", title: "Checks errored" },
+  PENDING: { class: "bg-warning", title: "Checks running" },
+  EXPECTED: { class: "bg-warning", title: "Checks expected" },
+};
+
+/** CI ドットの表示。check 未登録 (`checkState` undefined) ならドットごと出さない */
+const checkDot = computed(() => {
+  const state = pr.value?.checkState;
+  return state === undefined ? undefined : CHECK_STATE_DISPLAY[state];
+});
 </script>
 
 <template>
-  <!-- PR number badge (left of branch label) -->
-  <!-- クリックは `activateExternalLink` が OS のブラウザへ渡す。`href` は遷移させないが、外すと
-       a[href] のリンク意味論 (キーボードフォーカス到達、Enter による起動、支援技術への link
-       としての露出、UA の cursor: pointer) が同時に落ちる。no-underline のこのバッジでは
-       カーソル形状が唯一の hover アフォーダンスでもある。 -->
-  <a
-    v-if="pr"
-    :href="pr.url"
-    class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium no-underline"
-    :class="pr.isDraft ? 'bg-element text-foreground' : 'bg-primary-subtle text-primary-text'"
-    :title="`PR #${pr.number}${pr.isDraft ? ' (draft)' : ''}`"
-    @click="activateExternalLink($event, pr.url)"
-    @auxclick="activateExternalLink($event, pr.url)"
-  >
-    <IconLucideGitPullRequest class="size-3" />
-    #{{ pr.number }}
-  </a>
+  <!-- PR number badge + CI / comment indicators (left of branch label) -->
+  <template v-if="pr">
+    <!-- クリックは `activateExternalLink` が OS のブラウザへ渡す。`href` は遷移させないが、外すと
+         a[href] のリンク意味論 (キーボードフォーカス到達、Enter による起動、支援技術への link
+         としての露出、UA の cursor: pointer) が同時に落ちる。no-underline のこのバッジでは
+         カーソル形状が唯一の hover アフォーダンスでもある。 -->
+    <a
+      :href="pr.url"
+      class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium no-underline"
+      :class="pr.isDraft ? 'bg-element text-foreground' : 'bg-primary-subtle text-primary-text'"
+      :title="`PR #${pr.number}${pr.isDraft ? ' (draft)' : ''}`"
+      @click="activateExternalLink($event, pr.url)"
+      @auxclick="activateExternalLink($event, pr.url)"
+    >
+      <IconLucideGitPullRequest class="size-3" />
+      #{{ pr.number }}
+    </a>
+    <!-- CI rollup。装飾ではなく状態を運ぶ図形なので role="img" + aria-label で AT に露出する -->
+    <span
+      v-if="checkDot"
+      class="size-2 shrink-0 rounded-full"
+      :class="checkDot.class"
+      role="img"
+      :aria-label="checkDot.title"
+      :title="checkDot.title"
+    />
+    <span
+      v-if="pr.commentCount > 0"
+      class="flex shrink-0 items-center gap-0.5 text-[10px] leading-none text-foreground-low"
+      :title="`Comments: ${pr.commentCount}`"
+    >
+      <IconLucideMessageSquare class="size-3" />
+      {{ pr.commentCount }}
+    </span>
+  </template>
   <!-- Branch / tag label -->
   <span
     class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"

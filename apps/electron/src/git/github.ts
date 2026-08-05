@@ -10,6 +10,8 @@
 //   Finder/Dock 起動の最小 PATH には Homebrew の `gh` が存在せず、Apple stub にも救われない
 //   （設計理由は commandResolver.ts 冒頭コメント参照）
 
+import type { GitIssue, GitPullRequest, GitPullRequestCheckState } from "@gozd/rpc";
+import { GIT_PULL_REQUEST_CHECK_STATES } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -48,42 +50,20 @@ interface GhError {
   detail: string;
 }
 
-export interface PullRequestInfo {
-  number: number;
-  title: string;
-  url: string;
-  state: string;
-  author: string;
-  headRef: string;
-  baseRef: string;
-  isDraft: boolean;
-  assignees: string[];
-  reviewers: string[];
-  updatedAt: string;
-  authorAvatarUrl: string;
-  /** base branch の commit OID。PR diff 表示モードで base 端を識別する SSOT */
-  baseRefOid: string;
-}
-
-export interface IssueInfo {
-  number: number;
-  title: string;
-  url: string;
-  state: string;
-  author: string;
-  labels: string[];
-  assignees: string[];
-  updatedAt: string;
-  authorAvatarUrl: string;
-}
-
 export type GhResult<T> = { ok: true; value: T } | { ok: false; error: GhError };
 
 // GitHub の avatar 画像サイズ（px）。PR/Issue picker 行の表示サイズに合わせる
 const AVATAR_SIZE = 64;
 
 // `owner { login }` は廃止（fork 判定にはローカルで parse した owner を使う）。
-// `assignees` / `reviewRequests` は PR picker の filter 機能で参照するため一覧 query に含める
+// `assignees` / `reviewRequests` は PR picker の filter 機能で参照するため一覧 query に含める。
+//
+// GraphQL の rate limit cost は connection 1 つにつき「親の件数ぶんの request」で積まれ、
+// その合計を 100 で割って算出される。`statusCheckRollup` は connection ではないため cost に
+// 乗らない。CI 結果を `commits(last: 1)` 経由で取ると connection が 1 つ増えて cost が上がる
+// ので、PullRequest 直下の rollup を使う。
+// connection の `totalCount` も `first` / `last` を渡さなければページを 1 枚も要求しないため
+// cost に乗らない。件数系はこの形でだけ取る。
 const PR_QUERY = `
 query($owner: String!, $repo: String!, $limit: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -102,6 +82,10 @@ query($owner: String!, $repo: String!, $limit: Int!) {
         headRepository { owner { login } }
         assignees(first: 100) { nodes { login } }
         reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } } } }
+        statusCheckRollup { state }
+        comments { totalCount }
+        reviews { totalCount }
+        reviewThreads { totalCount }
       }
     }
   }
@@ -125,9 +109,8 @@ query($owner: String!, $repo: String!, $limit: Int!) {
   }
 }`;
 
-/** open PR 一覧。fork PR（head owner ≠ local owner）は除外する: worktree 作成側が
- * `origin/<headRef>` を startPoint に使うため、fork からの PR は ref 解決に失敗する */
-export async function prList(dir: string): Promise<GhResult<PullRequestInfo[]>> {
+/** open PR 一覧 */
+export async function prList(dir: string): Promise<GhResult<GitPullRequest[]>> {
   const identity = await resolveGitHubRepoOrError(dir);
   if (!identity.ok) return identity;
   const { owner, repo } = identity.value;
@@ -137,9 +120,20 @@ export async function prList(dir: string): Promise<GhResult<PullRequestInfo[]>> 
   if (nodes === undefined) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
   }
-  const prs: PullRequestInfo[] = [];
+  return { ok: true, value: parsePullRequestNodes(nodes, owner) };
+}
+
+/**
+ * PR 一覧 query の nodes を `GitPullRequest` へ変換する pure 関数。取得経路はすべてこれを
+ * 経由する SSOT で、snapshot 入力に対する境界の振る舞いをここに閉じる。
+ *
+ * fork PR（head owner ≠ local owner）は除外する: worktree 作成側が `origin/<headRef>` を
+ * startPoint に使うため、fork からの PR は ref 解決に失敗する。`owner` は remote URL から
+ * local に解決した値を渡す。
+ */
+export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullRequest[] {
+  const prs: GitPullRequest[] = [];
   for (const item of nodes) {
-    // fork PR を除外（owner は repoOwnerName で local に得たものを SSOT として使う）
     const headOwner = str(getPath(item, "headRepository", "owner", "login"));
     if (headOwner !== owner) continue;
     prs.push({
@@ -156,13 +150,15 @@ export async function prList(dir: string): Promise<GhResult<PullRequestInfo[]>> 
       updatedAt: str(getPath(item, "updatedAt")),
       authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
       baseRefOid: str(getPath(item, "baseRefOid")),
+      checkState: checkState(getPath(item, "statusCheckRollup", "state")),
+      commentCount: commentCount(item),
     });
   }
-  return { ok: true, value: prs };
+  return prs;
 }
 
 /** open issue 一覧 */
-export async function issueList(dir: string): Promise<GhResult<IssueInfo[]>> {
+export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
   const identity = await resolveGitHubRepoOrError(dir);
   if (!identity.ok) return identity;
   const { owner, repo } = identity.value;
@@ -172,7 +168,7 @@ export async function issueList(dir: string): Promise<GhResult<IssueInfo[]>> {
   if (nodes === undefined) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
   }
-  const issues: IssueInfo[] = nodes.map((item) => ({
+  const issues: GitIssue[] = nodes.map((item) => ({
     number: int(getPath(item, "number")),
     title: str(getPath(item, "title")),
     url: str(getPath(item, "url")),
@@ -325,6 +321,40 @@ function str(v: unknown): string {
 
 function int(v: unknown): number {
   return typeof v === "number" && Number.isInteger(v) ? v : 0;
+}
+
+/**
+ * `GitPullRequest.commentCount` を組み立てる。数え方の定義は同フィールドの doc が SSOT。
+ *
+ * `totalCommentsCount` を使わないのは、本文を持つだけでインラインコメントを伴わないレビューを
+ * 数え落とすため。CI / AI が要約レビューを 1 本投げる形（CodeRabbit 等）がまさにこの形で、
+ * 「コメントが付いたこと」に気づくという用途に対して致命的に効かない。
+ *
+ * 本文の無い approve だけのレビューも 1 と数える。本文の有無は connection を辿らないと
+ * 分からず、それは cost に乗るため。
+ */
+function commentCount(item: unknown): number {
+  return (
+    int(getPath(item, "comments", "totalCount")) +
+    int(getPath(item, "reviews", "totalCount")) +
+    int(getPath(item, "reviewThreads", "totalCount"))
+  );
+}
+
+function isCheckState(v: unknown): v is GitPullRequestCheckState {
+  return typeof v === "string" && (GIT_PULL_REQUEST_CHECK_STATES as readonly string[]).includes(v);
+}
+
+/**
+ * rollup の state を検証する。表示側は undefined を「check が 1 つも無い」と読むため、
+ * 値が来たのに未知だった場合はログを残してから undefined にする。黙って倒すと、GitHub が
+ * enum を増やした瞬間に「CI 無し」という事実でない主張を polling のたびに出し続ける。
+ */
+function checkState(v: unknown): GitPullRequestCheckState | undefined {
+  if (v === null || v === undefined) return undefined;
+  if (isCheckState(v)) return v;
+  console.error(`[prList] unknown statusCheckRollup.state: ${JSON.stringify(v)}`);
+  return undefined;
 }
 
 function logins(nodes: unknown, field: string): string[] {

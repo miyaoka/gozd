@@ -76,29 +76,30 @@ undefined ──セッション開始──→ idle ──タイトル: 稼働�
 
 ## hook イベントの対応
 
-| hook                 | gozd イベント    | 状態への作用                                       |
-| -------------------- | ---------------- | -------------------------------------------------- |
-| `SessionStart`       | `session-start`  | `idle`                                             |
-| `SessionEnd`         | `session-end`    | `undefined`（エントリ削除）                        |
-| `Stop`               | `done`           | `done`（保留作業があれば表示のみ `working`）       |
-| `PermissionRequest`  | `needs-input`    | `asking`（debounce あり）                          |
-| `StopFailure`        | `stop-failure`   | `done`                                             |
-| `UserPromptSubmit`   | `running`        | なし（効果の発行と、承認 debounce の cancel のみ） |
-| `PostToolUse`        | `tool-done`      | なし（同上）                                       |
-| `PostToolUseFailure` | `tool-failure`   | なし（承認 debounce の cancel のみ）               |
-| `SubagentStart`      | `subagent-start` | なし（teammate 台帳への追加のみ）                  |
-| `SubagentStop`       | `subagent-stop`  | なし（台帳から除去 → done 表示の回復）             |
-| `TeammateIdle`       | `teammate-idle`  | なし（同上 + 通知の in-flight マーカー）           |
+| hook                 | gozd イベント    | 状態への作用                                 |
+| -------------------- | ---------------- | -------------------------------------------- |
+| `SessionStart`       | `session-start`  | `idle`                                       |
+| `SessionEnd`         | `session-end`    | `undefined`（エントリ削除）                  |
+| `Stop`               | `done`           | `done`（保留作業があれば表示のみ `working`） |
+| `PermissionRequest`  | `needs-input`    | `asking`（即時ではない。下記の条件）         |
+| `StopFailure`        | `stop-failure`   | `done`                                       |
+| `UserPromptSubmit`   | `running`        | なし（効果の発行と、承認要求の取り消しのみ） |
+| `PostToolUse`        | `tool-done`      | なし（同上）                                 |
+| `PostToolUseFailure` | `tool-failure`   | なし（承認要求の取り消しのみ）               |
+| `SubagentStart`      | `subagent-start` | なし（teammate 台帳への追加のみ）            |
+| `SubagentStop`       | `subagent-stop`  | なし（台帳から除去 → done 表示の回復）       |
+| `TeammateIdle`       | `teammate-idle`  | なし（同上 + 通知の in-flight マーカー）     |
 
 送信経路の選択基準は [architecture.md](architecture.md#送信経路の使い分け)。
 
-### 承認要求の debounce
+### 承認要求が UI に出る条件
 
-承認要求を受けても即座に `asking` へ遷移せず、**短い遅延を挟む**。遅延の満了前に
-「実行中 / 完了 / ツール完了 / ツール失敗 / セッション終了 / 停止失敗」のいずれかが来たら遷移を破棄する。
+承認要求を受けても即座に `asking` へ遷移しない。**続けて「その呼び出しが自力で抜けた」ことを示す
+イベント（実行中 / 完了 / ツール完了 / ツール失敗 / セッション終了 / 停止失敗）が届かなかったときにだけ**
+`asking` に入る。
 
 これにより **自動承認で一瞬で抜けるツール呼び出しではバッジが瞬かず、人間が本当に止まる承認だけが
-UI に出る**。debounce 中にセッションが消えていた場合は満了時に遷移を中止する。
+UI に出る**。待っている間にセッションが消えていた場合は遷移しない。
 
 ## 既読の消化
 

@@ -29,8 +29,7 @@ const notification = useNotificationStore();
 
 /**
  * MarkdownBody が外部送りと `preventDefault` を済ませた後の href を受け、worktree 相対として
- * 解決する。middle click (`auxclick`) は bind されないため WebView の既定挙動のまま
- * (VS Code でも内部リンクとして扱わない)。
+ * 解決する。左クリックと中クリックは同じ経路で届く。
  *
  * notification は **固定 message + 詳細を `cause` に分離** する。
  * `useNotificationStore` は同一 message を重複抑制するため、href 違いのリンクを連続

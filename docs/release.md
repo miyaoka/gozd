@@ -16,8 +16,8 @@ GitHub Releases に tag と tar.gz を積み、mise の github backend でイン
 | canary     | main への push（feat / fix があるときだけ） | `v0.1.1-canary.<UTC 日時>`   | prerelease |
 | stable     | 手動実行（事前に人間が version を bump）    | `v0.1.1`（バージョンと一致） | latest     |
 
-判定・採番と、ビルド・添付を段に分ける。**チャンネル別に直列実行を強制する** — canary の日時採番で
-同刻衝突と時系列の逆転を防ぐため。
+判定・採番と、ビルド・添付を別の段階に分ける。**チャンネル別に直列実行を強制する** — canary の
+日時採番で同刻衝突と時系列の逆転を防ぐため。
 
 - **canary の発火判定**: 直近の tag から HEAD までに feat / fix があればリリースする。
   **依存更新の commit は scope の除外で落ちる。前提となる契約は「人間は依存更新用の scope を

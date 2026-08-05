@@ -7,8 +7,8 @@
  * 行き先をトーストにしないのは、listener の throw が「ユーザーが行動できる通知」ではなく
  * 実装バグの観測であり、かつ push には ptyText のように高頻度で流れる type があるため。
  * 恒常的に throw する listener が 1 つあるだけでトーストが上限まで埋まり、通知センターが
- * 観察不能になる（docs/architecture.md の「行動可能なものだけ user-facing、
- * それ以外はログチャンネル」に従う）。event-log は ring buffer なので溢れない。
+ * 観察不能になる。行動可能なものだけをトーストに出し、それ以外はログへ流す。
+ * event-log は ring buffer なので溢れない。
  */
 import { logEvent } from "../../shared/debug";
 import { setListenerErrorReporter } from "../../shared/rpc";

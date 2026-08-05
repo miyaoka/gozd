@@ -3,7 +3,7 @@
  * commit / PR diff / uncommitted のモード文脈から rev を決め、line-no クリック → popover 起動の
  * 橋渡しと、文脈乖離時の popover 一括 close を担う。
  *
- * rev 決定ルールの決定表は docs/preview.md の BlamePopover / FileCommitDate セクションを参照。
+ * rev 決定ルールの決定表は docs/preview.md を参照。
  */
 import { computed, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";

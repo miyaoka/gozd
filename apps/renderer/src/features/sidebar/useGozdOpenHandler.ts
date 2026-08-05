@@ -1,7 +1,7 @@
 /**
  * native の `gozdOpen` push を購読し、ワークスペースに repo を登録する。
  *
- * 解決フロー（docs/workspace.md「プロジェクト管理」参照）:
+ * 解決フロー（docs/workspace.md 参照）:
  * - targetDir が既存 repo の worktrees に含まれる → 切替のみ
  * - 含まれない → 新規 repo として worktrees を fetch して `addRepo` → 切替
  */

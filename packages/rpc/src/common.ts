@@ -123,6 +123,9 @@ export interface GitCommit {
   truncatedAbove: boolean;
 }
 
+/** PR の head ref に対する CI の総合結果。GitHub GraphQL の `StatusState` に対応する。 */
+export type GitPullRequestCheckState = "EXPECTED" | "ERROR" | "FAILURE" | "PENDING" | "SUCCESS";
+
 export interface GitPullRequest {
   number: number;
   title: string;
@@ -141,6 +144,11 @@ export interface GitPullRequest {
    * fork PR / base force-push / base rename にまたがって安定して base 端を識別できる。
    * PR diff 表示モードで「base..working tree」の base 端に使う SSOT。 */
   baseRefOid: string;
+  /** head ref の CI 総合結果。check / status が 1 つも登録されていない commit では undefined。 */
+  checkState?: GitPullRequestCheckState;
+  /** PR に付いた発言のかたまりの数。会話コメント + レビュー + インラインスレッドの合計で、
+   * スレッドは返信数によらず 1 と数える。 */
+  commentCount: number;
 }
 
 export interface GitIssue {

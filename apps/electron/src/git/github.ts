@@ -10,6 +10,7 @@
 //   Finder/Dock 起動の最小 PATH には Homebrew の `gh` が存在せず、Apple stub にも救われない
 //   （設計理由は commandResolver.ts 冒頭コメント参照）
 
+import type { GitPullRequestCheckState } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -63,6 +64,10 @@ export interface PullRequestInfo {
   authorAvatarUrl: string;
   /** base branch の commit OID。PR diff 表示モードで base 端を識別する SSOT */
   baseRefOid: string;
+  /** head ref の CI 総合結果。check / status が未登録の commit では undefined */
+  checkState?: GitPullRequestCheckState;
+  /** PR に付いた発言のかたまりの数（会話コメント + レビュー + インラインスレッド） */
+  commentCount: number;
 }
 
 export interface IssueInfo {
@@ -83,7 +88,14 @@ export type GhResult<T> = { ok: true; value: T } | { ok: false; error: GhError }
 const AVATAR_SIZE = 64;
 
 // `owner { login }` は廃止（fork 判定にはローカルで parse した owner を使う）。
-// `assignees` / `reviewRequests` は PR picker の filter 機能で参照するため一覧 query に含める
+// `assignees` / `reviewRequests` は PR picker の filter 機能で参照するため一覧 query に含める。
+//
+// GraphQL の rate limit cost は connection 1 つにつき「親の件数ぶんの request」で積まれ、
+// その合計を 100 で割って算出される。`statusCheckRollup` / `totalCommentsCount` は
+// connection ではないため cost に乗らない。CI 結果を `commits(last: 1)` 経由で取ると
+// connection が 1 つ増えて cost が上がるので、PullRequest 直下の rollup を使う。
+// connection の `totalCount` も `first` / `last` を渡さなければページを 1 枚も要求しないため
+// cost に乗らない。件数系はこの形でだけ取る。
 const PR_QUERY = `
 query($owner: String!, $repo: String!, $limit: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -102,6 +114,10 @@ query($owner: String!, $repo: String!, $limit: Int!) {
         headRepository { owner { login } }
         assignees(first: 100) { nodes { login } }
         reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } } } }
+        statusCheckRollup { state }
+        comments { totalCount }
+        reviews { totalCount }
+        reviewThreads { totalCount }
       }
     }
   }
@@ -156,6 +172,8 @@ export async function prList(dir: string): Promise<GhResult<PullRequestInfo[]>> 
       updatedAt: str(getPath(item, "updatedAt")),
       authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
       baseRefOid: str(getPath(item, "baseRefOid")),
+      checkState: checkState(getPath(item, "statusCheckRollup", "state")),
+      commentCount: commentCount(item),
     });
   }
   return { ok: true, value: prs };
@@ -325,6 +343,41 @@ function str(v: unknown): string {
 
 function int(v: unknown): number {
   return typeof v === "number" && Number.isInteger(v) ? v : 0;
+}
+
+/**
+ * PR に付いた「発言のかたまり」の数。会話コメント + レビュー + インラインスレッドを足す。
+ *
+ * `totalCommentsCount` を使わないのは、本文を持つだけでインラインコメントを伴わないレビューを
+ * 数え落とすため。CI / AI が要約レビューを 1 本投げる形（CodeRabbit 等）がまさにこの形で、
+ * 「コメントが付いたこと」に気づくという用途に対して致命的に効かない。
+ *
+ * スレッドは返信数によらず 1 と数える。レビューは本文の有無を問わず 1 と数えるため、本文の無い
+ * approve だけのレビューは過大に数える（本文の有無は connection を辿らないと分からず、それは
+ * cost に乗る）。
+ */
+function commentCount(item: unknown): number {
+  return (
+    int(getPath(item, "comments", "totalCount")) +
+    int(getPath(item, "reviews", "totalCount")) +
+    int(getPath(item, "reviewThreads", "totalCount"))
+  );
+}
+
+const CHECK_STATES: readonly GitPullRequestCheckState[] = [
+  "EXPECTED",
+  "ERROR",
+  "FAILURE",
+  "PENDING",
+  "SUCCESS",
+];
+
+/** rollup が null（check 未登録の commit）と、GitHub が将来追加する未知の state を
+ * どちらも undefined に倒す。表示側は undefined を「CI 無し」として扱う */
+function checkState(v: unknown): GitPullRequestCheckState | undefined {
+  return CHECK_STATES.includes(v as GitPullRequestCheckState)
+    ? (v as GitPullRequestCheckState)
+    : undefined;
 }
 
 function logins(nodes: unknown, field: string): string[] {

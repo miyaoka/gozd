@@ -72,6 +72,7 @@
 import { tryCatch } from "@gozd/shared";
 import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { openExternal } from "../../shared/rpc";
 import type { FileContextMenuPayload } from "../navigator";
 import {
   resolveDirectoryGitChange,
@@ -91,7 +92,7 @@ import {
   toFileEntriesFromGitTree,
 } from "./filerUtils";
 import type { FileEntry, FileEntryKind, FileRealTarget } from "./filerUtils";
-import { rpcFsReadDir, rpcGitLsTree, rpcGitSubmoduleUrl, rpcOpenExternal } from "./rpc";
+import { rpcFsReadDir, rpcGitLsTree, rpcGitSubmoduleUrl } from "./rpc";
 import { getFileIconUrl, getFolderIconUrl, getSubmoduleIconUrl } from "./useFileIcon";
 import { useFilerEventStore } from "./useFilerEventStore";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
@@ -308,7 +309,7 @@ async function openSubmoduleRepo() {
     notify.info(`No GitHub repository URL for submodule: ${props.path}`);
     return;
   }
-  const opened = await tryCatch(rpcOpenExternal({ url }));
+  const opened = await tryCatch(openExternal(url));
   if (!opened.ok) notify.error(`Failed to open ${url}`, opened.error);
 }
 

@@ -3,7 +3,7 @@ marked で Markdown → HTML 変換し、DOMPurify でサニタイズして表�
 
 - YAML frontmatter はコードブロックとして描画
 - 相対パスリンクのクリックは worktree 相対パスとして解決し、プレビュー対象を切り替える
-  （http(s) / mailto: 等の絶対 URL は `ExternalLinkNavigationDecider` 経路で外部ブラウザに渡す）
+- 外部 URL (http(s) / mailto:) は MarkdownBody が開く。ここに来る href は内部リンクだけ
 - 行番号フラグメント (`./foo.ts#L42`) は lineNumber として `selectPath` に渡す
 - 解決ロジックは `resolveMarkdownLink` に分離 (純粋関数 + ユニットテスト)
 - 内部リンクの遷移は `useMarkdownHistoryStore.navigate()` 経由で行い、back / forward 履歴に積む。
@@ -28,11 +28,9 @@ const markdownHistory = useMarkdownHistoryStore();
 const notification = useNotificationStore();
 
 /**
- * クリック経路は VS Code (`markdown-language-features/preview-src/index.ts`) に揃える。
- * - 左クリックの `@click` のみ。middle click (`auxclick`) は WebView の既定挙動に任せる
- *   (VS Code でも未対応 / 内部リンクとして扱わない)
- * - scheme 付き URL と `#fragment` 単独は preventDefault せず素通しし、
- *   `ExternalLinkNavigationDecider` (外部 URL) / ブラウザ既定スクロール (`#`) に委ねる
+ * MarkdownBody が外部送りと `preventDefault` を済ませた後の href を受け、worktree 相対として
+ * 解決する。middle click (`auxclick`) は bind されないため WebView の既定挙動のまま
+ * (VS Code でも内部リンクとして扱わない)。
  *
  * notification は **固定 message + 詳細を `cause` に分離** する。
  * `useNotificationStore` は同一 message を重複抑制するため、href 違いのリンクを連続
@@ -42,14 +40,7 @@ const notification = useNotificationStore();
 const ANCHOR_IGNORED_MESSAGE = "Heading anchors are not yet supported; opened the file only";
 const LINK_INVALID_MESSAGE = "Could not open link from markdown preview";
 
-function onLinkClick(e: MouseEvent) {
-  const target = e.target;
-  if (!(target instanceof HTMLElement)) return;
-  const anchor = target.closest("a");
-  if (anchor === null) return;
-  const href = anchor.getAttribute("href");
-  if (href === null) return;
-
+function onLinkClick(href: string) {
   const resolved = resolveMarkdownLink({
     href,
     basePath: worktreeStore.selection,
@@ -58,9 +49,8 @@ function onLinkClick(e: MouseEvent) {
     normalizeAbsolute,
   });
 
+  // passthrough (`#fragment` 単独) は MarkdownBody が素通しするためここには来ない
   if (resolved.kind === "passthrough") return;
-
-  e.preventDefault();
 
   if (resolved.kind === "invalid") {
     notification.error(LINK_INVALID_MESSAGE, { href, reason: resolved.reason });

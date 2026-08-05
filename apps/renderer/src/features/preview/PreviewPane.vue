@@ -29,7 +29,7 @@ leaf コンポーネントの内訳 (`PreviewContent` 配下):
 - 差分 → DiffPreview（`git diff --no-index` で取得した hunk 配列を描画）
 - 画像 / SVG → ImagePreview（取得済み content から Blob → ObjectURL）
 - Markdown → MarkdownPreview（marked + DOMPurify）
-- HTML → HtmlPreview（sandboxed `<iframe srcdoc>` でネイティブ描画）
+- HTML → HtmlPreview（`gozd-preview://` の実 URL を `<iframe>` に load してネイティブ描画）
 </doc>
 
 <script setup lang="ts">
@@ -39,9 +39,10 @@ import { useRepoStore } from "../../shared/repo";
 import { useChangesSummaryStore } from "../changes";
 import type { UndockDragHandoff } from "../floating-window";
 import { usePrDiffToggleStore } from "../git-graph";
-import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
+import { joinAbsRel, UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import { ChangesSummaryView } from "./features/changes-summary";
 import { useBlamePopover, useFileHistoryPopover } from "./features/commit-history";
+import { canRenderHtmlNatively, htmlPreviewTarget } from "./htmlPreviewTarget";
 import PreviewContent from "./PreviewContent.vue";
 import PreviewHeader from "./PreviewHeader.vue";
 import PreviewToolbar from "./PreviewToolbar.vue";
@@ -195,6 +196,47 @@ function buildUndockedDoc(): UndockedPreviewDoc | undefined {
   }
   return { filePath: path, current, original };
 }
+
+/**
+ * HTML preview の再 load 契機。配信は実ファイルを読むため、内容が変わったら iframe を作り直す。
+ *
+ * `contentEpoch` は主 watch (選択 / rev / git status の変化) でしか増えず「previewed file の
+ * 内容が変わった」信号ではない。並列エージェントが常時ファイルを書き換える前提のアプリでは
+ * 無関係な変更でも増えるため、preview 内でリンク遷移した先が入口ページに戻ってしまう。
+ * `displayContent` は fetch が内容を差し替えた時点で必ず変わる (UndockedPreviewWindow と同じ規律)。
+ */
+const htmlEpoch = ref(0);
+watch(displayContent, () => {
+  htmlEpoch.value += 1;
+});
+
+/**
+ * HTML preview の配信対象 (絶対パス) と配信を許す root。
+ *
+ * worktree 相対 selection は worktree root を root にする。worktree 外の絶対パス selection は
+ * そのファイルが居る dir を root にして、配信範囲を最小に保つ (VS Code の localResourceRoots が
+ * 開いているものだけを列挙するのと同じ絞り方)。
+ */
+const htmlTarget = computed(() => {
+  if (fileType.value !== "html") return undefined;
+  // 配信経路は working tree の実ファイルしか読めない。表示中 rev がそれと一致しないときは
+  // native preview を出さず source 表示に倒す
+  if (
+    !canRenderHtmlNatively({
+      activeMode: activeMode.value,
+      isSnapshot: isCommitMode.value || prDiffToggle.isOn,
+      isNotFound: isNotFound.value,
+    })
+  ) {
+    return undefined;
+  }
+  const sel = worktreeStore.selection;
+  if (sel === undefined) return undefined;
+  if (sel.kind === "absolute") return htmlPreviewTarget(sel.absPath, undefined);
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return undefined;
+  return htmlPreviewTarget(joinAbsRel(dir, sel.relPath), dir);
+});
 
 /**
  * 「本体 preview として開き直す」ボタンの対象 (undock 元の選択の焼き込み)。未選択 /
@@ -476,6 +518,9 @@ function onCodeScrolled() {
             :diff-current="diffCurrent"
             :code-content="codeContent"
             :display-content="displayContent"
+            :html-abs-path="htmlTarget?.absPath"
+            :html-root="htmlTarget?.root"
+            :html-epoch="htmlEpoch"
             :image-source="imageSource"
             :display-is-binary="displayIsBinary"
             :loading="loading"

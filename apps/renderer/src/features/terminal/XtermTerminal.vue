@@ -11,9 +11,11 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type IMarker } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
+import { openExternal } from "../../shared/rpc";
 import { createCwdTracker } from "./cwdTracker";
 import { parseOsc7Cwd } from "./parseOsc7Cwd";
-import { rpcOpenExternal, rpcPtyResize, rpcPtyWrite } from "./rpc";
+import { rpcPtyResize, rpcPtyWrite } from "./rpc";
 import {
   currentTheme,
   terminalFontFamily,
@@ -58,6 +60,10 @@ const emit = defineEmits<{
 
 const containerRef = ref<HTMLElement>();
 const terminalStore = useTerminalStore();
+const notify = useNotificationStore();
+
+/** 固定 message + 詳細を cause に分離し、URL 違いのリンク連打でトーストが累積しないようにする */
+const LINK_OPEN_FAILED_MESSAGE = "Could not open link";
 function sendPtyWrite(ptyId: number, data: string) {
   void rpcPtyWrite({ ptyId, data });
 }
@@ -247,7 +253,13 @@ onMounted(async () => {
   // linkHandler: OSC 8 エスケープシーケンスによる明示リンク（例: "PR #88"）
   const openLink = (event: MouseEvent, url: string) => {
     if (!event.shiftKey) return;
-    void rpcOpenExternal({ url });
+    // 端末出力は untrusted。allowlist 外の scheme は openExternal が reject するため、
+    // 無反応で終わらせず通知に倒す
+    void tryCatch(openExternal(url)).then((opened) => {
+      if (!opened.ok) {
+        notify.error(LINK_OPEN_FAILED_MESSAGE, new Error(`url=${url}`, { cause: opened.error }));
+      }
+    });
   };
   terminal.loadAddon(new WebLinksAddon(openLink));
   terminal.options.linkHandler = {

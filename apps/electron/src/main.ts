@@ -24,6 +24,7 @@ import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG } from "./ipc";
 import { consumeLaunchRequest } from "./launchRequest";
 import { installAppMenu } from "./menu";
 import { buildGozdOpenPayload } from "./openTarget";
+import { installPreviewProtocol, registerPreviewSchemePrivileges } from "./previewProtocol";
 import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
 import {
   killAllPtys,
@@ -35,10 +36,14 @@ import {
 import { createSocketMessageHandler } from "./socketMessages";
 import { startSocketServer, type SocketServerHandle } from "./socketServer";
 import { runSpikeResolverDiag } from "./spikeDiag";
-import { isHttpUrl, isInternalUrl } from "./urlPolicy";
+import { decideFrameNavigation } from "./urlPolicy";
 import { windowStateStore, type WindowBounds } from "./windowState";
 
 const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
+
+// HTML preview の配信 scheme は standard + secure として宣言する必要があり、その宣言は
+// app ready より前でなければ効かない（Electron の制約）。module 実行時に済ませる
+registerPreviewSchemePrivileges();
 
 // Vite dev server の URL 解決。GOZD_DEV_VITE_PORT が port の SSOT
 // （root の dev script が設定。scheme + host は http://localhost 固定契約）。
@@ -51,7 +56,7 @@ function resolveRendererUrl(): string | undefined {
   return undefined;
 }
 const rendererUrl = resolveRendererUrl();
-// isInternal の完全一致比較用 (installExternalLinkPolicy 参照)。不正な env 値は起動時に
+// urlPolicy の isRendererOrigin が完全一致で比較する相手。不正な env 値は起動時に
 // fail-loud させる (fallback して黙って外部扱いにすると防壁の誤動作原因が追えない)
 const rendererOrigin = rendererUrl !== undefined ? new URL(rendererUrl).origin : undefined;
 
@@ -66,11 +71,14 @@ const DEFAULT_WINDOW_SIZE = { width: 1280, height: 800 };
 const TRAFFIC_LIGHT_RADIUS = 6;
 const TRAFFIC_LIGHT_X = 16;
 
-/** renderer 内リンクの外部送り防壁。Swift 版 ExternalLinkNavigationDecider の対応物。
- * デフォルトでは `<a target="_blank">` が新しい Electron window を開き、main frame の
- * http(s) 遷移は UI 全体を置換してしまうため構造的に必要な防壁。判定軸は Swift 版と
- * 同じ scheme 3 分岐: 内部 origin（dev の Vite URL / packaged の file:）は許可、
- * それ以外の http(s) は OS のデフォルトブラウザへ、その他 scheme は許可。
+/** renderer の navigation 防壁。デフォルトでは `<a target="_blank">` が新しい Electron window を
+ * 開き、URL 遷移は遷移先の frame（main frame なら UI 全体、subframe なら HTML preview 面）を
+ * 置換してしまうため構造的に必要。
+ *
+ * この層は URL の中身で「開いてよいか」を判断しない。frame を動かさせず、window も作らせず、
+ * 要求された URL は OS に委ねるだけ（VS Code の `app.on("web-contents-created")` と同じ切り方）。
+ * 「この URL を OS に渡してよいか」の allowlist は、リンククリックを受け取る renderer 側
+ * （`shared/rpc` の openExternal）が単独で持つ。
  *
  * 唯一の例外が `window.open("about:blank")` で、undock 用 child window として許可する
  * （VS Code の auxiliary window と同じ判定軸）。same-origin の about:blank は opener と
@@ -86,13 +94,15 @@ function installExternalLinkPolicy(contents: WebContents): void {
       }
     });
   };
-  // 判定はセキュリティ境界のため純関数 (urlPolicy.ts) に切り出し、バイパス文字列の
-  // 回帰テストで固定している
-  const isHttp = isHttpUrl;
-  const isInternal = (url: string): boolean => isInternalUrl(url, rendererOrigin);
 
   // window.open / target="_blank" は about:blank（undock child window）以外は新 window を
-  // 作らせない。http(s) のみ外部ブラウザに送り、それ以外は黙って deny。
+  // 作らせず、**URL も OS に渡さない**。gozd に外部 URL を window.open する first-party コードは
+  // 無いので、ここに来る要求は rendered content 由来か、リンククリックを受け取る層
+  // （renderer の openExternal）が取りこぼしたものだけ。渡すとその層の allowlist を迂回する。
+  // VS Code はここで openExternal に渡すが、あちらは untrusted content が popup を出せない
+  // 構造（webview 内 + 受け取り層が click / auxclick 両方を捕まえる）が前提であり、
+  // untrusted markdown を main frame に直接描画する gozd では前提が成り立たない。
+  //
   // about:blank も frame 名 prefix で first-party の undock 経路に限定する — rendered
   // content 由来の window.open("about:blank") 等を allow すると registry に乗らない
   // 追跡外の空ウィンドウが生まれるため
@@ -105,16 +115,29 @@ function installExternalLinkPolicy(contents: WebContents): void {
         overrideBrowserWindowOptions: { backgroundColor: WINDOW_BACKGROUND_COLOR },
       };
     }
-    if (isHttp(url)) openExternal(url);
+    console.error(`[ExternalLink] denied window.open: ${url}`);
     return { action: "deny" };
   });
 
-  // main frame の遷移。内部 origin（Vite フルリロード等）は許可、外部 http(s) は
-  // ブラウザへ、その他 scheme は許可（Swift 版と同じ分岐）
-  contents.on("will-navigate", (event, url) => {
-    if (isInternal(url) || !isHttp(url)) return;
-    event.preventDefault();
-    openExternal(url);
+  // frame の遷移。`will-navigate` を使わないのは main frame でしか発火せず、subframe
+  // （HTML preview の iframe）の遷移を素通しするため。
+  contents.on("will-frame-navigate", (details) => {
+    const verdict = decideFrameNavigation({
+      url: details.url,
+      isMainFrame: details.isMainFrame,
+      currentUrl: contents.getURL(),
+      rendererOrigin,
+    });
+    if (verdict === "allow") return;
+    details.preventDefault();
+    if (verdict === "external") {
+      openExternal(details.url);
+      return;
+    }
+    // block は UI 上何も起きないため、このログが唯一の診断材料。どの frame が止められたかで
+    // 調べに行く先（UI 本体か HTML preview か）が変わるので frame 役割を載せる
+    const frame = details.isMainFrame ? "main frame" : "subframe";
+    console.error(`[ExternalLink] blocked ${frame} navigation: ${details.url}`);
   });
 }
 
@@ -264,6 +287,7 @@ let socketServer: SocketServerHandle | undefined;
 
 void app.whenReady().then(() => {
   installAppMenu();
+  installPreviewProtocol();
 
   // spike 診断: 実 Electron main が使う git / credential helper を stdout に残す。
   // GOZD_SPIKE_FETCH_DIR=<repo> で起動時 background fetch の再現まで行う（spikeDiag.ts 参照）

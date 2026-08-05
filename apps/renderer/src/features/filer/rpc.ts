@@ -25,8 +25,6 @@ import {
   GitLsTreeResponse,
   GitSubmoduleUrlRequest,
   GitSubmoduleUrlResponse,
-  OpenExternalRequest,
-  OpenExternalResponse,
   OpenFileRequest,
   OpenFileResponse,
 } from "@gozd/rpc";
@@ -43,10 +41,6 @@ export const rpcGitLsTree = (req: GitLsTreeRequest) => rpc<GitLsTreeResponse>("/
 // （呼び出し側が「リンク先が無い」ことを通知する責務を持つ）。
 export const rpcGitSubmoduleUrl = (req: GitSubmoduleUrlRequest) =>
   rpc<GitSubmoduleUrlResponse>("/git/submoduleUrl", req);
-
-/** URL を OS のデフォルトブラウザで開く。scheme allowlist は main 側の防壁。 */
-export const rpcOpenExternal = (req: OpenExternalRequest) =>
-  rpc<OpenExternalResponse>("/open/external", req);
 
 export const rpcFsReadFile = (req: FsReadFileRequest) =>
   rpc<FsReadFileResponse>("/fs/readFile", req);

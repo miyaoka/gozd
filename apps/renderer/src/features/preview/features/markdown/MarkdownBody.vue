@@ -1,7 +1,16 @@
 <doc lang="md">
-Markdown 文字列を marked で HTML 変換し DOMPurify でサニタイズして描画する
-プレゼンテーション専用コンポーネント。リンクのナビゲーション挙動は持たず、クリックを
-`linkClick` イベントで上位に委譲するだけ。
+Markdown 文字列を marked で HTML 変換し DOMPurify でサニタイズして描画するコンポーネント。
+
+## リンククリックの契約
+
+`#fragment` 単独を除き、リンククリックは**必ず `preventDefault` する**。ブラウザ既定の
+navigation に委ねる経路を残さないのは、consumer によって委ねた先が消えるため
+（contenteditable host では既定挙動が起きず、main の防壁も UI 面を守る側なので外部送りしない）。
+
+その上で「OS へ渡してよい URL」は本コンポーネントが `openExternal` で開き、それ以外の href は
+`linkClick` で上位に委譲する。外部送りを consumer 任せにすると、購読しない consumer
+（SessionLogMessageBody 等）でリンクが黙って死ぬ。VS Code の webview host が全リンククリックを
+`preventDefault` して host へ転送するのと同じ位置づけ。
 
 - YAML frontmatter は ```yaml コードブロックに変換して描画する
 - ` ```mermaid ` コードブロックは mermaid ライブラリで SVG にレンダリングする。mermaid は
@@ -10,22 +19,25 @@ Markdown 文字列を marked で HTML 変換し DOMPurify でサニタイズし�
 - padding / 文字サイズは consumer ごとに異なるため持たせず、class フォールスルーで外から渡す
   (preview は `p-6`、session log dialog は `px-3 py-2` 等)
 - 相対リンク解決 / 履歴ナビゲーションが必要な consumer は `linkClick` を購読して処理する
-  (MarkdownPreview 参照)。購読しない場合はブラウザ既定挙動 + `ExternalLinkNavigationDecider`
-  に委ねられる
+  (MarkdownPreview 参照)。購読しない consumer では内部リンクが無効になるだけで、外部リンクは
+  本コンポーネントが開く
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
+import { isExternalUrl, tryCatch } from "@gozd/shared";
 import DOMPurify from "dompurify";
 import { marked, type MarkedExtension } from "marked";
 import { nextTick, ref, watch } from "vue";
+import { useNotificationStore } from "../../../../shared/notification";
+import { openExternal } from "../../../../shared/rpc";
 
 const props = defineProps<{
   content: string;
 }>();
 
 const emit = defineEmits<{
-  linkClick: [event: MouseEvent];
+  /** 外部送りしなかった href。consumer が自分の文脈 (worktree 相対等) で解決する */
+  linkClick: [href: string];
   // marked の async parse + DOM 反映が完了したタイミング。consumer が描画後の
   // レイアウト確定 (高さ等) に依存する処理 (scroll-spy の observe 等) のフックに使う。
   rendered: [];
@@ -33,6 +45,42 @@ const emit = defineEmits<{
 
 const renderedHtml = ref<string>();
 const bodyEl = ref<HTMLElement>();
+const notify = useNotificationStore();
+
+/** 固定 message + 詳細を cause に分離し、URL 違いのリンク連打でトーストが累積しないようにする */
+const LINK_OPEN_FAILED_MESSAGE = "Could not open link in the browser";
+
+/**
+ * 左クリックと中クリックを同じ判定に通す。中クリックは `click` を発火せず `auxclick` なので、
+ * 片方だけ bind すると既定の new-window 要求に落ち、この層の allowlist を迂回して OS に
+ * URL が渡る。VS Code の markdownRenderer も同じコールバックを両イベントに登録している。
+ */
+function onLinkActivate(event: MouseEvent) {
+  if (event.button !== 0 && event.button !== 1) return;
+  // macOS の WebKit は control+click を button 0 の click として dispatch する。
+  // 意図はコンテキストメニューなので、リンク起動として扱わず既定挙動に渡す
+  if (event.ctrlKey) return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const anchor = target.closest("a");
+  if (anchor === null) return;
+  const href = anchor.getAttribute("href");
+  if (href === null) return;
+  // `#fragment` 単独だけはブラウザ既定の同一文書内スクロールに任せる
+  if (href.startsWith("#")) return;
+
+  event.preventDefault();
+
+  if (!isExternalUrl(href)) {
+    emit("linkClick", href);
+    return;
+  }
+  void tryCatch(openExternal(href)).then((opened) => {
+    if (!opened.ok) {
+      notify.error(LINK_OPEN_FAILED_MESSAGE, new Error(`url=${href}`, { cause: opened.error }));
+    }
+  });
+}
 
 /** YAML frontmatter を ```yaml コードブロックに変換して表示する */
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/;
@@ -133,7 +181,8 @@ watch(
     ref="bodyEl"
     class="_markdown-body"
     v-html="renderedHtml"
-    @click="emit('linkClick', $event)"
+    @click="onLinkActivate"
+    @auxclick="onLinkActivate"
   />
 </template>
 

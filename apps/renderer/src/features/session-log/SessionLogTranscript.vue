@@ -335,26 +335,13 @@ watch(
 );
 
 // assistant markdown 内リンクのポリシー。
-// session log dialog は MarkdownPreview と違い worktree 相対解決の文脈を持たないため、
-// 外部 http(s) URL のみ素通しし (main 側の navigation 防壁が外部ブラウザで開く)、
-// それ以外 (相対パス / ルート絶対パス / protocol-relative / fragment / 他 scheme) はすべて
-// 無効化する。放置すると renderer origin 基準で解決され main frame 置換リスクがある。
-// 相対解決を意図的に行わない設計なので resolveMarkdownLink は再利用しない (ポリシーが異なる)。
-const EXTERNAL_HTTP_RE = /^https?:\/\//i;
-function onAssistantLinkClick(e: MouseEvent) {
-  const target = e.target;
-  if (!(target instanceof HTMLElement)) return;
-  const anchor = target.closest("a");
-  if (anchor === null) return;
-  const href = anchor.getAttribute("href");
-  if (href === null) return;
-  // 外部 http(s) は decider に委ねて素通し。
-  if (EXTERNAL_HTTP_RE.test(href)) return;
-  // それ以外は WebView 内遷移を止める。空 href はクリック対象が無いだけなので無通知。
-  e.preventDefault();
-  if (href !== "") {
-    notify.info("Only external http(s) links are navigable in the session log viewer", { href });
-  }
+// 外部 URL は MarkdownBody が開くので、ここに届くのは内部リンク (相対パス / ルート絶対パス /
+// protocol-relative / 他 scheme) だけ。session log dialog は MarkdownPreview と違い worktree
+// 相対解決の文脈を持たないため解決せず、無効化した旨だけ通知する。
+function onAssistantLinkClick(href: string) {
+  // 空 href はクリック対象が無いだけなので無通知
+  if (href === "") return;
+  notify.info("Only external links are navigable in the session log viewer", { href });
 }
 
 // --- scroll-spy (現在地 → 横断タイムラインの playhead) ---

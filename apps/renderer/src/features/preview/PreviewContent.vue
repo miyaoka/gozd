@@ -31,6 +31,12 @@ import type { PreviewMode } from "./previewMode";
 withDefaults(
   defineProps<{
     filePath: string;
+    /** HTML preview 対象の絶対パス。html 以外では undefined */
+    htmlAbsPath?: string;
+    /** HTML preview の配信を許す root（対象が属する worktree root）。html 以外では undefined */
+    htmlRoot?: string;
+    /** content 更新のカウンタ。増えると HTML preview が iframe を再 load する */
+    htmlEpoch?: number;
     fileType: FileType;
     activeMode: PreviewMode;
     previewEnabled: boolean;
@@ -133,10 +139,14 @@ const emit = defineEmits<{
       :content="displayContent"
     />
 
-    <!-- HTML preview モード（sandboxed iframe でネイティブ描画） -->
+    <!-- HTML preview モード（main の配信 scheme 経由で実 URL を load する） -->
     <HtmlPreview
-      v-else-if="fileType === 'html' && previewEnabled && displayContent"
-      :content="displayContent"
+      v-else-if="
+        fileType === 'html' && previewEnabled && htmlAbsPath !== undefined && htmlRoot !== undefined
+      "
+      :abs-path="htmlAbsPath"
+      :root="htmlRoot"
+      :epoch="htmlEpoch ?? 0"
     />
 
     <!-- コード表示・編集 -->

@@ -72,34 +72,19 @@ function expectInternalAbs(
 }
 
 describe("resolveMarkdownLink", () => {
-  describe("passthrough (allowlist のみ)", () => {
-    test("http(s) URL は passthrough", () => {
-      expect(resolve("https://example.com/", relBase("docs/preview.md"))).toEqual({
-        kind: "passthrough",
-      });
-      expect(resolve("http://example.com/", relBase("docs/preview.md"))).toEqual({
-        kind: "passthrough",
-      });
+  describe("外部送り対象の scheme", () => {
+    // MarkdownBody が openExternal で先に処理するため本関数には来ないが、届いた場合は
+    // 内部経路として扱わない (invalid) ことを固定する
+    test("http(s) / mailto: は invalid (信頼境界の外)", () => {
+      expect(resolve("https://example.com/", relBase("docs/preview.md")).kind).toBe("invalid");
+      expect(resolve("mailto:user@example.com", relBase("docs/preview.md")).kind).toBe("invalid");
     });
+  });
 
-    test("mailto: は passthrough", () => {
-      expect(resolve("mailto:user@example.com", relBase("docs/preview.md"))).toEqual({
-        kind: "passthrough",
-      });
-    });
-
-    test("# 単独は passthrough (同一文書内アンカー)", () => {
+  describe("passthrough (同一文書内アンカーのみ)", () => {
+    test("# 単独は passthrough", () => {
       expect(resolve("#section", relBase("docs/preview.md"))).toEqual({ kind: "passthrough" });
       expect(resolve("#", relBase("docs/preview.md"))).toEqual({ kind: "passthrough" });
-    });
-
-    test("scheme 大文字小文字混在も passthrough", () => {
-      expect(resolve("HTTPS://example.com/", relBase("docs/preview.md"))).toEqual({
-        kind: "passthrough",
-      });
-      expect(resolve("Mailto:user@example.com", relBase("docs/preview.md"))).toEqual({
-        kind: "passthrough",
-      });
     });
   });
 

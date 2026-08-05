@@ -22,6 +22,7 @@ local / remote は **同じ hue で明度差** で区別する:
 <script setup lang="ts">
 import type { GitPullRequest } from "@gozd/rpc";
 import { computed } from "vue";
+import { activateExternalLink } from "../../externalLink";
 import type { DisplayRef } from "./displayRef";
 import IconLucideGitPullRequest from "~icons/lucide/git-pull-request";
 import IconLucideLink from "~icons/lucide/link";
@@ -63,19 +64,16 @@ const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
 
 <template>
   <!-- PR number badge (left of branch label) -->
-  <!-- 外部リンクは main 側の navigation 防壁 (setWindowOpenHandler) が OS のブラウザに渡す。
-       `target="_blank" rel="noopener noreferrer"` は防壁が deny するまでの thin window に
-       エンジンが referrer / opener を組み立てる可能性に対する defense in depth。
-       行クリック伝播は `@click.stop` で止める。 -->
+  <!-- クリックは `activateExternalLink` が OS のブラウザへ渡す。`href` は遷移させず、hover 時の
+       URL 表示とコンテキストメニュー (Copy Link Address) のために置く。 -->
   <a
     v-if="pr"
     :href="pr.url"
-    target="_blank"
-    rel="noopener noreferrer"
     class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium no-underline"
     :class="pr.isDraft ? 'bg-element text-foreground' : 'bg-primary-subtle text-primary-text'"
     :title="`PR #${pr.number}${pr.isDraft ? ' (draft)' : ''}`"
-    @click.stop
+    @click="activateExternalLink($event, pr.url)"
+    @auxclick="activateExternalLink($event, pr.url)"
   >
     <IconLucideGitPullRequest class="size-3" />
     #{{ pr.number }}

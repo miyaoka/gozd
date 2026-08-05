@@ -17,6 +17,13 @@ describe("pathToPreviewUrl / parsePreviewUrl", () => {
     }
   });
 
+  test("query は path に混ざらない（iframe の再 load は epoch query で起こす）", () => {
+    // 契約の consumer は配信 handler と navigation 防壁の 2 つ。崩れると HTML preview は
+    // 初回 load から block され、手がかりは stderr 1 行だけになる
+    const parsed = parsePreviewUrl(`${pathToPreviewUrl("/repo/a.html", PREVIEW_ID)}?e=3`);
+    expect(parsed).toEqual({ previewId: PREVIEW_ID, path: "/repo/a.html" });
+  });
+
   test("host に preview id が載る（origin が preview ごとに分かれる）", () => {
     const parsed = parsePreviewUrl(pathToPreviewUrl("/repo/a.html", PREVIEW_ID));
     expect(parsed?.previewId).toBe(PREVIEW_ID);

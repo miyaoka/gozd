@@ -28,6 +28,15 @@ describe("isRendererOrigin", () => {
     );
   });
 
+  test("大文字 scheme も内部 (scheme の大小は URL の同一性を変えない)", () => {
+    expect(isRendererOrigin("HTTP://localhost:5173/src/main.ts", RENDERER_ORIGIN)).toBe(true);
+    expect(isRendererOrigin("HttP://localhost:5173/", RENDERER_ORIGIN)).toBe(true);
+  });
+
+  test("blob: は内部でない (origin が inner origin を返すので origin 比較だけでは通る)", () => {
+    expect(isRendererOrigin("blob:http://localhost:5173/abcd", RENDERER_ORIGIN)).toBe(false);
+  });
+
   test("parse 不能な文字列は外部側に倒す", () => {
     expect(isRendererOrigin("not a url", RENDERER_ORIGIN)).toBe(false);
   });
@@ -80,6 +89,10 @@ describe("decideFrameNavigation", () => {
       ).toBe("allow");
     });
 
+    test("配信側が解釈できない gozd-preview:// は block (host 部の preview id が無い)", () => {
+      expect(decide("gozd-preview:///Users/x/repo/a.html", false)).toBe("block");
+    });
+
     test("外部 http(s) は external (この frame のクリックを受け取れる層が他に無い)", () => {
       expect(decide("https://example.com/", false)).toBe("external");
       expect(decide("http://example.com/", false)).toBe("external");
@@ -88,6 +101,10 @@ describe("decideFrameNavigation", () => {
     test("dev の Vite origin は同一 URL でも block (プレビュー面を動かさない)", () => {
       expect(decide(CURRENT_URL, false)).toBe("block");
       expect(decide(`${RENDERER_ORIGIN}/page2.html`, false)).toBe("block");
+    });
+
+    test("大文字 scheme の Vite origin も block (外部送りに落ちない)", () => {
+      expect(decide("HTTP://localhost:5173/page2.html", false)).toBe("block");
     });
 
     test("mailto: は external (この frame はクリックを傍受できず、ここが唯一の受け取り口)", () => {

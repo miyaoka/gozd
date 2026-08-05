@@ -10,12 +10,10 @@
 // (previewProtocol.ts)、その中の script は CSP で止めてある。renderer からクリックを傍受する
 // 経路が無いため、外部送りはこの層が担う。
 import { isExternalUrl, tryCatch } from "@gozd/shared";
-import { PREVIEW_SCHEME } from "./previewUrl";
+import { parsePreviewUrl } from "./previewUrl";
 
-/** http(s) スキームか。dev の Vite origin 判定に使う（Vite の URL は必ず http(s)） */
-function isHttpUrl(url: string): boolean {
-  return url.startsWith("http://") || url.startsWith("https://");
-}
+/** dev の Vite origin が名乗り得る scheme。Vite dev server の URL は必ず http(s)。 */
+const RENDERER_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:"]);
 
 /**
  * dev の Vite origin か。origin は完全一致で比較する。prefix 比較
@@ -27,14 +25,17 @@ function isHttpUrl(url: string): boolean {
  *
  * origin 一致の前に scheme を http(s) に固定する。`new URL("blob:http://host/…").origin` は
  * blob の inner origin (`http://host`) を返すため、origin 比較だけだと `blob:` が内部扱いになる。
- * Vite dev server の URL は必ず http(s) なので、scheme を固定しても取りこぼしはない。
+ *
+ * scheme は parse 結果の `protocol` で見る。URL パーサーは scheme を小文字へ正規化するため、
+ * 生文字列の前方一致だと `HTTP://` を取りこぼし、同じ判定内の isExternalUrl (protocol で判定)
+ * とだけ答えが食い違って外部送りに倒れる。判定を 1 度の parse に畳んで導出を 1 つに保つ。
  */
 export function isRendererOrigin(url: string, rendererOrigin: string | undefined): boolean {
   if (rendererOrigin === undefined) return false;
-  if (!isHttpUrl(url)) return false;
   const parsed = tryCatch(() => new URL(url));
   // parse 不能な文字列は内部と証明できないため外部側に倒す
   if (!parsed.ok) return false;
+  if (!RENDERER_SCHEMES.has(parsed.value.protocol)) return false;
   return parsed.value.origin === rendererOrigin;
 }
 
@@ -78,8 +79,11 @@ export function decideFrameNavigation({
   rendererOrigin: string | undefined;
 }): FrameNavigationVerdict {
   if (!isMainFrame) {
-    // previewed HTML の相対リンク。配信 root 外は protocol handler が 403 にする
-    if (url.startsWith(`${PREVIEW_SCHEME}://`)) return "allow";
+    // previewed HTML の相対リンク。配信 root 外は protocol handler が 403 にする。
+    // 判定を配信側と同じ parsePreviewUrl に通すことで、allow した URL は handler が
+    // 解釈できる URL に一致する。解釈できない形（host 空など）は配信側のエラー応答では
+    // なく block の stderr に出る
+    if (parsePreviewUrl(url) !== undefined) return "allow";
     // 内部 origin は「外部」ではない。dev では previewed HTML の絶対リンクがここに解決され得るため、
     // 外部送りすると意図しないブラウザ起動になる
     if (isRendererOrigin(url, rendererOrigin)) return "block";

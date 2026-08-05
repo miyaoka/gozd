@@ -56,7 +56,7 @@ function resolveRendererUrl(): string | undefined {
   return undefined;
 }
 const rendererUrl = resolveRendererUrl();
-// isInternal の完全一致比較用 (installExternalLinkPolicy 参照)。不正な env 値は起動時に
+// urlPolicy の isRendererOrigin が完全一致で比較する相手。不正な env 値は起動時に
 // fail-loud させる (fallback して黙って外部扱いにすると防壁の誤動作原因が追えない)
 const rendererOrigin = rendererUrl !== undefined ? new URL(rendererUrl).origin : undefined;
 

@@ -1,4 +1,5 @@
 import { defineComponent, h, type PropType } from "vue";
+import { activateExternalLink } from "./externalLink";
 import type { CommitMessageSegment } from "./linkifyCommitMessage";
 
 /** `linkifyCommitMessage` の戻り値 (`CommitMessageSegment[]`) を render する dumb component。
@@ -8,9 +9,13 @@ import type { CommitMessageSegment } from "./linkifyCommitMessage";
  * commit body の whitespace を壊すリスクを構造的に消すため。`h()` は VNode を直接組み立てるため
  * source の整形に関係なく余分な text node が混入しない。
  *
- * `<a>` の class / title / rel / target / `@click.stop` の組み合わせは renderer 内で 1 箇所に
- * 集約 (SSOT)。利用側 (GitGraphPane の commit row / CommitDetailPane の subject + body) は
- * `<CommitSegmentList :segments="...">` を呼ぶだけで、`a` の attribute 揃え漏れが起きない。 */
+ * commit message 中の issue リンクの `a` は本 component だけが組み立てる。利用側
+ * (GitGraphPane の commit row / CommitDetailPane の subject + body) は
+ * `<CommitSegmentList :segments="...">` を呼ぶだけで、`a` の attribute 揃え漏れが起きない。
+ *
+ * `href` は付けるが遷移させない。OS への受け渡しは `activateExternalLink` が担う。それでも
+ * href を外さないのは、a[href] のリンク意味論 (キーボードフォーカス到達、Enter による起動、
+ * 支援技術への link としての露出、UA の cursor: pointer) が同時に落ちるため。 */
 export default defineComponent({
   name: "CommitSegmentList",
   props: {
@@ -27,12 +32,10 @@ export default defineComponent({
             "a",
             {
               href: seg.href,
-              target: "_blank",
-              rel: "noopener noreferrer",
               class: "text-primary-text hover:underline",
               title: `Open ${seg.value} on GitHub`,
-              // 行クリック (commit 選択) の伝播を止めて、リンクだけを発火させる
-              onClick: (e: MouseEvent) => e.stopPropagation(),
+              onClick: (e: MouseEvent) => activateExternalLink(e, seg.href),
+              onAuxclick: (e: MouseEvent) => activateExternalLink(e, seg.href),
             },
             seg.value,
           );

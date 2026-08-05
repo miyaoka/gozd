@@ -1,8 +1,10 @@
 // URL を OS のデフォルトアプリで開く経路。
 //
-// renderer 内で「リンクを OS に渡す」意思決定をする層（markdown 本文 / terminal の OSC 8 /
-// filer の submodule リンク）はすべてここを通す。main の `/open/external` route は scheme を
-// 見ない。
+// renderer 内で「リンクを OS に渡す」意思決定をする層はすべてここを通す。main の
+// `/open/external` route は scheme を見ない。
+//
+// 外部リンクを `target="_blank"` でブラウザ既定の挙動に委ねてはいけない。main の防壁は URL を
+// 見ずに新 window を deny するため、委ねた先が存在せずリンクが無音で死ぬ。
 //
 // 唯一の例外が HTML preview の subframe で、そこは renderer からクリックを傍受できないため
 // main の navigation 防壁が判定する。両者が同じ集合を見るよう、allowlist は `@gozd/shared` の
@@ -24,3 +26,28 @@ export async function openExternal(url: string): Promise<void> {
   }
   await rpc<OpenExternalResponse>("/open/external", { url } satisfies OpenExternalRequest);
 }
+
+/**
+ * このマウスイベントをリンク起動とみなすか。**anchor のクリックからリンクを起動する層**は
+ * すべてこの述語を通す（層ごとに条件を持つと、同じ操作でも押した場所で開く / 開かないが変わる）。
+ *
+ * 例外は terminal で、そこは shift+click を起動条件とする別契約になる（理由は
+ * `features/terminal` の gate に置く。この述語を呼ばないことが例外の中身なので、
+ * 呼び出し元を辿っても行き着かない）。
+ *
+ * 左クリックと中クリックの両方を通す。中クリックは `click` を発火せず `auxclick` になるため、
+ * 呼び出し側は両方の event に bind する。
+ *
+ * control+click は除く。macOS ではこれが button 0 の click としても dispatch されるが、
+ * 意図はコンテキストメニューでリンク起動ではない。
+ */
+export function isLinkActivation(event: MouseEvent): boolean {
+  if (event.button !== 0 && event.button !== 1) return false;
+  return !event.ctrlKey;
+}
+
+/**
+ * リンクを開けなかったときの通知 message。URL は message ではなく cause に載せる
+ * （message を可変にすると toast の文言が毎回変わって読み取れなくなる。URL は Details から辿れる）。
+ */
+export const LINK_OPEN_FAILED_MESSAGE = "Could not open link in the browser";

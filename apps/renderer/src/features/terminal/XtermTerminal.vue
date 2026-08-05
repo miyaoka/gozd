@@ -12,7 +12,7 @@ import { Terminal, type IMarker } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { openExternal } from "../../shared/rpc";
+import { LINK_OPEN_FAILED_MESSAGE, openExternal } from "../../shared/rpc";
 import { createCwdTracker } from "./cwdTracker";
 import { parseOsc7Cwd } from "./parseOsc7Cwd";
 import { rpcPtyResize, rpcPtyWrite } from "./rpc";
@@ -62,8 +62,6 @@ const containerRef = ref<HTMLElement>();
 const terminalStore = useTerminalStore();
 const notify = useNotificationStore();
 
-/** 固定 message + 詳細を cause に分離し、URL 違いのリンク連打でトーストが累積しないようにする */
-const LINK_OPEN_FAILED_MESSAGE = "Could not open link";
 function sendPtyWrite(ptyId: number, data: string) {
   void rpcPtyWrite({ ptyId, data });
 }
@@ -252,6 +250,8 @@ onMounted(async () => {
   // WebLinksAddon: テキスト中の URL パターンを自動検出
   // linkHandler: OSC 8 エスケープシーケンスによる明示リンク（例: "PR #88"）
   const openLink = (event: MouseEvent, url: string) => {
+    // 起動条件を `shared/rpc` の isLinkActivation に寄せない。端末は素のクリックでリンクが
+    // 誤発火するため shift を要求する契約で、anchor をクリックする層とは前提が違う
     if (!event.shiftKey) return;
     // 端末出力は untrusted。allowlist 外の scheme は openExternal が reject するため、
     // 無反応で終わらせず通知に倒す

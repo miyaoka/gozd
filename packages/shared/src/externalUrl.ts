@@ -1,7 +1,7 @@
 // 「OS へ渡してよい URL」の契約。renderer と main の両方が参照する。
 //
-// 主たる判定点は renderer の `shared/rpc` の openExternal で、リンククリックを受け取る層
-// （markdown 本文 / terminal の OSC 8 / filer の submodule リンク）はすべてそこを通る。
+// 主たる判定点は renderer の `shared/rpc` の openExternal で、リンククリックを受け取る層は
+// すべてそこを通る。
 //
 // 例外が HTML preview の subframe。opaque ではない実 origin で配信され script も CSP で
 // 止めてあるため renderer からクリックを傍受できず、main の navigation 防壁が唯一の

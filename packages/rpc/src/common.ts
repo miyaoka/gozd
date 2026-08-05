@@ -158,7 +158,7 @@ export interface GitPullRequest {
   checkState?: GitPullRequestCheckState;
   /** PR に付いた会話の総量。会話コメント + レビュー送信 + インラインスレッドの合計。
    * スレッドへの返信は 1 件のレビュー送信として送られるため、返信も 1 と数える。
-   * 解決済みかどうかは区別しないので、単調増加する累積値になる。 */
+   * 解決しても減らないため未読や残作業の数ではないが、コメントが削除されれば減る。 */
   commentCount: number;
 }
 

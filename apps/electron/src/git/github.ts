@@ -10,7 +10,7 @@
 //   Finder/Dock 起動の最小 PATH には Homebrew の `gh` が存在せず、Apple stub にも救われない
 //   （設計理由は commandResolver.ts 冒頭コメント参照）
 
-import type { GitPullRequest, GitPullRequestCheckState } from "@gozd/rpc";
+import type { GitIssue, GitPullRequest, GitPullRequestCheckState } from "@gozd/rpc";
 import { GIT_PULL_REQUEST_CHECK_STATES } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { execFile } from "node:child_process";
@@ -48,18 +48,6 @@ type GhErrorKindName = "rateLimit" | "unauthenticated" | "repoNotFound" | "netwo
 interface GhError {
   kind: GhErrorKindName;
   detail: string;
-}
-
-export interface IssueInfo {
-  number: number;
-  title: string;
-  url: string;
-  state: string;
-  author: string;
-  labels: string[];
-  assignees: string[];
-  updatedAt: string;
-  authorAvatarUrl: string;
 }
 
 export type GhResult<T> = { ok: true; value: T } | { ok: false; error: GhError };
@@ -170,7 +158,7 @@ export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullR
 }
 
 /** open issue 一覧 */
-export async function issueList(dir: string): Promise<GhResult<IssueInfo[]>> {
+export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
   const identity = await resolveGitHubRepoOrError(dir);
   if (!identity.ok) return identity;
   const { owner, repo } = identity.value;
@@ -180,7 +168,7 @@ export async function issueList(dir: string): Promise<GhResult<IssueInfo[]>> {
   if (nodes === undefined) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
   }
-  const issues: IssueInfo[] = nodes.map((item) => ({
+  const issues: GitIssue[] = nodes.map((item) => ({
     number: int(getPath(item, "number")),
     title: str(getPath(item, "title")),
     url: str(getPath(item, "url")),
@@ -336,17 +324,14 @@ function int(v: unknown): number {
 }
 
 /**
- * PR に付いた会話の総量。会話コメント + レビュー送信 + インラインスレッドを足す。
+ * `GitPullRequest.commentCount` を組み立てる。数え方の定義は同フィールドの doc が SSOT。
  *
  * `totalCommentsCount` を使わないのは、本文を持つだけでインラインコメントを伴わないレビューを
  * 数え落とすため。CI / AI が要約レビューを 1 本投げる形（CodeRabbit 等）がまさにこの形で、
  * 「コメントが付いたこと」に気づくという用途に対して致命的に効かない。
  *
- * 数え方は「レビュー送信」単位になる。スレッドへの返信は 1 件のレビューとして送られるため、
- * 返信のあるスレッドは スレッド 1 + 返信数 と数える。本文の無い approve だけのレビューも
- * 1 と数える（本文の有無は connection を辿らないと分からず、それは cost に乗る）。
- *
- * 解決済みかどうかは区別しないため、値は単調増加する累積値であり、未読や残タスクの数ではない。
+ * 本文の無い approve だけのレビューも 1 と数える。本文の有無は connection を辿らないと
+ * 分からず、それは cost に乗るため。
  */
 function commentCount(item: unknown): number {
   return (

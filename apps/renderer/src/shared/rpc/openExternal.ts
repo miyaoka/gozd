@@ -31,7 +31,9 @@ export async function openExternal(url: string): Promise<void> {
  * このマウスイベントをリンク起動とみなすか。**anchor のクリックからリンクを起動する層**は
  * すべてこの述語を通す（層ごとに条件を持つと、同じ操作でも押した場所で開く / 開かないが変わる）。
  *
- * 例外は terminal で、そこは shift+click を起動条件とする別契約になる（理由は呼び出し側）。
+ * 例外は terminal で、そこは shift+click を起動条件とする別契約になる（理由は
+ * `features/terminal` の gate に置く。この述語を呼ばないことが例外の中身なので、
+ * 呼び出し元を辿っても行き着かない）。
  *
  * 左クリックと中クリックの両方を通す。中クリックは `click` を発火せず `auxclick` になるため、
  * 呼び出し側は両方の event に bind する。

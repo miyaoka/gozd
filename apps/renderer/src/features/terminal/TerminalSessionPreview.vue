@@ -136,7 +136,9 @@ DOM 構造は三段:
   クランプ内へ縮めてスクロール面に高さ制約を届けるための指定。display を
   `:popover-open` で条件づけるのは、素の `flex` が author origin として UA の
   `[popover]:not(:popover-open) { display: none }` に勝ち、閉じた popover を描画させて
-  しまうため。描画され続ければ上記の anchor 喪失に行き着く。padding は持たない
+  しまうため。閉じても描画され続けると、hide が `showPopover` の暗黙 anchor を外した
+  時点で上と同じ左上 fallback へ落ちる (proxy は生きたままなので、anchor 要素の
+  unmount とは別経路で同じ結末に至る)。padding は持たない
   (透明 padding があると keep-out clamp 時にタイトルバーとの間へスキマが出る。`p-0` は
   UA default の `[popover]` padding の打ち消し)。
   UA default の `[popover] { overflow: auto }` は

@@ -140,9 +140,9 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 
 gozd は現在 **ベータ版**。安定版リリース前であり、永続データ（`~/.config/gozd/` 配下 / `@gozd/rpc` の schema 型）に **後方互換性は作らない**。
 
-- schema 進化（フィールド削除・rename・型変更）で旧 JSON が parse 失敗した場合、**新規初期化が期待挙動**。マイグレーションコード（旧フィールド読み替え・退避コピー・shallow merge による未知フィールド保持等）は書かない
+- schema 進化（フィールド削除・rename・型変更）で旧 JSON が parse 失敗した場合、**新規初期化が期待挙動**。旧バージョンが書いたファイルを読み続けるためのマイグレーションコードは書かない
 - 破壊的変更を許容する。古い設定 / 永続データを「いつまでも動かす」ためのコードを足さない
-- 永続化ストアの load 経路で JSON parse 失敗を検知したら空オブジェクトで上書き save する（`TaskStore` 参照）。stderr に reinit ログを残し観察可能性は保つ
+- 永続化ストアの load 経路で JSON parse 失敗を検知したら空オブジェクトで上書き save する。stderr に reinit ログを残し観察可能性は保つ
 - 安定版に切り替わる時点で本セクションを書き換える
 
 ## 対応プラットフォーム

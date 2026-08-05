@@ -27,7 +27,7 @@
 
 ### key の書式
 
-modifier + key を `+` で結合。すべて小文字。
+modifier + key を `+` で結合。**大文字小文字は区別しない**。
 
 **modifier**: `ctrl`, `shift`, `alt`, `cmd`（`meta`, `opt`, `win` も可）
 

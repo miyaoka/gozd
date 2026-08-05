@@ -13,19 +13,10 @@ CSS 変数。
 
 **この package は role を知らない。** 「どの step をどの用途に使うか」は利用側の責務。
 
-## 使い方
+## 利用側への要求
 
-利用側の entry CSS で import し、semantic alias を自分で定義する。
-
-```css
-@import "tailwindcss";
-@import "@gozd/design-tokens/tokens.css";
-
-@theme inline {
-  --color-background: var(--gray-1);
-  --color-panel: var(--gray-2);
-}
-```
+公開するのは `@gozd/design-tokens/tokens.css` の 1 つだけ。中身は CSS 変数で、role 名は持たない。
+利用側はこれを読み込んだうえで **semantic alias（role 名 → primitive の写像）を自分で定義する**。
 
 ## token 一覧
 
@@ -63,8 +54,8 @@ contrast 駆動の生成器は **目標コントラストを入力に指定す�
 
 ## brand の変更
 
-**primitives は手書きしない。** brand を変えるときは生成器側の定義を編集し、依存インストールを
-再実行して再生成する。
+**primitives は手書きしない。** brand の変更は生成器への入力を変えることで行い、出力は必ず再生成
+された結果とする。
 
 > [!NOTE]
 > テーマに追従しない固定の brand 色（外部サービスの指定配色など）は生成パイプラインに乗らないため、

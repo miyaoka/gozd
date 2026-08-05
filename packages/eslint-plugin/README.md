@@ -10,19 +10,7 @@ gozd 固有の規約を lint で強制する。**規約の意図はここに書�
 | `gozd/no-iconify-class`        | class 名によるアイコン指定                 | アイコンは明示 import で書き、存在しない名前をビルドエラーにする。class 名では検出できない          |
 | `gozd/no-raw-tailwind-palette` | 生のカラーパレットと primitive の直参照    | 色は semantic token だけを使う（テーマ切替が効かなくなるため）                                      |
 
-## 使い方
+## 利用側への要求
 
-```typescript
-import pluginGozd from "@gozd/eslint-plugin";
-
-export default [
-  {
-    plugins: { gozd: pluginGozd },
-    rules: {
-      "gozd/no-define-expose": "error",
-      "gozd/no-iconify-class": "error",
-      "gozd/no-raw-tailwind-palette": "error",
-    },
-  },
-];
-```
+**3 ルールはすべて error として有効にする**。どれも「書けてしまうが規約に反する」書き方を止めるための
+もので、warning に落とすと違反が残り続ける。

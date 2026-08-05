@@ -354,7 +354,14 @@ onMounted(async () => {
   // Marker ベースの安定アンカーで
   // スクロール位置を保持する。TUI アプリ（Claude Code 等）の再描画でエスケープシーケンスに
   // より viewportY がリセットされる場合があるため、Marker で物理行を追跡して復元する。
-  // 復元処理は onWriteParsed（フレームごとに最大1回発火）で集約する
+  // 復元処理は onWriteParsed（フレームごとに最大1回発火）で集約する。
+  //
+  // viewportY の生値を持ち回る形は採らない。共有変数に置くと非同期の WriteBuffer と
+  // スナップショットの対応が崩れ、クロージャに捕捉するとコールバック実行時に古い
+  // スナップショットでユーザーの操作を踏み潰す。世代番号で解く形も主要ターミナル
+  // （alacritty / kitty / WezTerm）のいずれにも存在せず、あちらはコア内部の
+  // スクロールバック行数や論理行インデックスを行追加のたびに加算している。
+  // コア内部を触れない以上、行の増減に追従する Marker が唯一の安定アンカーになる。
   type ViewportIntent = { kind: "bottom" } | { kind: "anchored"; marker: IMarker };
   let viewportIntent: ViewportIntent = { kind: "bottom" };
   let parsedSinceLastRestore = false;

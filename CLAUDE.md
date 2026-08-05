@@ -29,14 +29,16 @@ AI エージェントの並列開発を管理するデスクトップアプリ�
 
 ## ドキュメントの階層
 
-| 階層           | 場所                        | 内容                                                                               | 例                                                               |
-| -------------- | --------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| 横断設計       | `docs/*.md`                 | 機能の全体設計、feature 間の連携、データフロー                                     | docs/terminal.md — 分割ツリー設計、PTY ライフサイクル            |
-| モジュール内部 | `**/README.md`              | コンポーネントを持たないモジュールの実装詳細（変換ルール、文法、モジュール間依存） | shared/command/README.md — パーサー文法、除外判定ロジック        |
-| コンポーネント | Vue SFC の `<doc>` ブロック | 単一コンポーネントの責務、動作、注意点                                             | TerminalPane.vue — フラットレンダリング方式、leaf と rect の分離 |
+| 階層             | 場所                        | 内容                                                       |
+| ---------------- | --------------------------- | ---------------------------------------------------------- |
+| 機能の契約       | `docs/*.md`                 | 機能の責務、観測可能な振る舞い、feature 間の契約           |
+| モジュールの契約 | `**/README.md`              | そのモジュールの責務と公開 API、利用側への要求             |
+| コンポーネント   | Vue SFC の `<doc>` ブロック | 単一コンポーネントの責務と、コードを読んでも分からない前提 |
 
-- `docs/` は機能の「使い方・設計判断」、feature 内 README は「実装の内部知識」を担う
-- Vue コンポーネントがある feature は `<doc>` ブロックで十分なことが多い。README が必要なのは非コンポーネントモジュールが多い feature のみ
+- feature 内の README は既定では要らない。`docs/` の機能契約と `<doc>` で足りる。置くのは feature が
+  複雑化して、モジュール単体で語るべき契約が機能契約とは別粒度で立ったときだけ
+- `docs/` が機能をまたぐ契約、README がモジュール単体の契約を担う。**同じ内容を両方に書かない** —
+  重複すると片方だけ直され、同じ誤りが 2 コピー残る
 
 ## 技術スタック
 
@@ -70,7 +72,7 @@ AI エージェントの並列開発を管理するデスクトップアプリ�
 | `apps/electron`               | Electron main process + `gozd-cli`（TS）。electron-builder で `.app` バンドルを生成する                                              |
 | `apps/renderer`               | Vue フロントエンド（Electron renderer 内で動作）                                                                                     |
 | `packages/rpc`                | RPC message / 永続化 schema の型 SSOT（手書き TS）。`@gozd/rpc` として renderer / electron が import                                 |
-| `packages/eslint-plugin`      | 自前 ESLint プラグイン（barrel-import / isolateModules ルール）                                                                      |
+| `packages/eslint-plugin`      | 自前 ESLint プラグイン（`no-define-expose` / `no-iconify-class` / `no-raw-tailwind-palette`）                                        |
 | `packages/design-tokens`      | Tier 1 design tokens の primitives CSS（Adobe Leonardo で生成、prepare で build）                                                    |
 | `packages/shared`             | 全パッケージ共通の型・定数・ユーティリティ（Result 型 + tryCatch、RPC ブリッジ契約、window chrome 定数）                             |
 | `packages/claude-session-log` | Claude Code セッションログ（JSONL）の解釈層。生 JSONL → transcript イベント列の純関数（framework 非依存、ログ形式変更の追従先 SSOT） |
@@ -96,7 +98,7 @@ renderer の `src/` は **feature** と **shared** の 2 層で構成する。
 
 shared の制約:
 
-- shared 間の依存は禁止（`isolateModules` lint ルールで強制）。各モジュールは独立して閉じる
+- shared 間の依存は禁止（`barrel-import` ルールの scope 設定で強制）。各モジュールは独立して閉じる
 
 ### バレルファイル（index.ts）
 
@@ -112,7 +114,7 @@ import { useRpc } from "../../shared/rpc/useRpc";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 ```
 
-`@gozd/eslint-plugin` の `barrel-import` ルールがこれを強制する。違反すると lint エラーになる。
+外部プラグイン `@miyaoka/eslint-plugin-barrel-import` の `barrel-import` ルールがこれを強制する。違反すると lint エラーになる。
 
 ### ルール
 
@@ -138,10 +140,12 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 
 gozd は現在 **ベータ版**。安定版リリース前であり、永続データ（`~/.config/gozd/` 配下 / `@gozd/rpc` の schema 型）に **後方互換性は作らない**。
 
-- schema 進化（フィールド削除・rename・型変更）で旧 JSON が parse 失敗した場合、**新規初期化が期待挙動**。マイグレーションコード（旧フィールド読み替え・退避コピー・shallow merge による未知フィールド保持等）は書かない
+- schema 進化（フィールド削除・rename・型変更）で旧 JSON が parse 失敗した場合、**新規初期化が期待挙動**。旧バージョンが書いたファイルを読み続けるためのマイグレーションコードは書かない
 - 破壊的変更を許容する。古い設定 / 永続データを「いつまでも動かす」ためのコードを足さない
-- 永続化ストアの load 経路で JSON parse 失敗を検知したら空オブジェクトで上書き save する（`TaskStore` 参照）。stderr に reinit ログを残し観察可能性は保つ
-- 安定版に切り替わる時点で本セクションを書き換える
+- **これは保証しない側の宣言であって、既存データの削除を要求するものではない**。動かし続けるための
+  コードを足さないだけで、消すためのコードも足さない
+- 永続化ストアの load 経路で JSON parse 失敗を検知したら空オブジェクトで上書き save する。stderr に reinit ログを残し観察可能性は保つ
+- 安定版に切り替わる時点で、本セクションと [architecture.md](docs/architecture.md) のベータ版節を書き換える
 
 ## 対応プラットフォーム
 

@@ -1,266 +1,362 @@
 # Task 管理
 
-worktree に紐づく作業項目を管理する。Task は PR/issue/手動操作で生まれる永続オブジェクトで、Claude session は task に attach する短命属性として扱う。サイドバーで Task をクリックすると attach 中の session があれば `claude --resume`、無ければ素の `claude` が起動して SessionStart hook で attach される。
+worktree に紐づく作業項目。**Task は永続オブジェクトで、Claude セッションは Task に attach する
+短命属性**として扱う。
+
+サイドバーで Task をクリックすると、attach 中のセッションがあれば再開、無ければ新規に起動して
+セッション開始 hook で attach される。
 
 ## データモデル
 
-```typescript
-interface Task {
-  id: string; // UUID (main 側 taskStore.add で生成)
-  userTitle: string; // ユーザーが UI で明示編集した確定タイトル
-  ghTitle: string; // PR/issue picker 取得時の snapshot タイトル
-  terminalTitle: string; // OSC ターミナルタイトル経由で観測した live 値
-  worktreeDir: string; // 紐づいた worktree のパス
-  ghRef?: GhRef; // GitHub PR/issue 参照。task 1 件あたり最大 1 つ
-  createdAt: string; // ISO 8601
-  sessionId: string; // 最後に attach した Claude session の ID。空文字は未起動 / 終了済み
-  closedByUser: boolean; // ユーザーが明示的にターミナルを閉じたか
-}
-interface GhRef {
-  kind: GhRefKind; // GH_REF_KIND_PR | GH_REF_KIND_ISSUE
-  number: number;
-}
-```
+型の SSOT は共有スキーマパッケージ（[rpc.md](rpc.md)）。ここでは概念と寿命だけを定める。
 
-GitHub では PR と issue が同一の番号空間を共有するため、種別 + 番号の組で表現する。`ghRef` 自体の有無で「PR/issue 由来 task かどうか」を判定する。
+| 概念               | 意味                                                                      |
+| ------------------ | ------------------------------------------------------------------------- |
+| id                 | セッション ID とは独立した識別子。セッションの生成 / 消滅で再作成されない |
+| worktree           | 紐づいた worktree のパス                                                  |
+| GitHub 参照        | PR / issue への参照。**Task 1 件あたり最大 1 つ**                         |
+| 3 種のタイトル     | 起源ごとに分離（後述）                                                    |
+| セッション ID      | 最後に attach したセッション。空は未起動 / 再開不能                       |
+| 明示クローズフラグ | ユーザーが明示的に端末を閉じたか                                          |
 
-- `id` は Claude session id と独立した UUID。session の生成 / 消滅で task は再作成されない
-- task 本体は **terminal close / SessionEnd で削除しない**。削除はユーザーが明示的に行う (worktree 削除 cascade / task 行 ⋮ の Remove task / worktree 行 ⋮ の Remove all tasks)。これにより gh 由来 / 直接起動由来を問わず resume 起点となる sessionId を失わない
-- `sessionId` は SessionEnd でも保持し、次回 `claude --resume` の起点に使う
-- `closedByUser` は **状態表示専用フラグ**。`detachSession` (SessionEnd / terminal close) で true に倒し、`attachSession` (SessionStart hook) や `add` (PR/issue picker 再選択) で false に戻す。app close (renderer 強制終了) では `detachSession` 経路を通らないため据え置きとなり、自動的に `resumable` 側に倒れる
+**GitHub では PR と issue が同一の番号空間を共有する**ため、参照は種別 + 番号の組で表す。参照の
+有無で「PR / issue 由来かどうか」を判定する。
 
-### タイトル 3 レイヤ (起源で分離)
+寿命の契約:
 
-タイトルは起源で 3 フィールドに分離し、それぞれ独立した寿命を持つ。書き込み経路を交差させない契約で「gh 由来 task が terminal 観測値で上書きされる」事故を構造的に排除する。
+- **Task 本体は端末の close やセッション終了で削除しない**。削除はユーザーの明示操作（Task の削除 /
+  worktree 単位の一括削除）と、worktree 削除の連鎖だけ。これにより **由来を問わず再開の起点となる
+  セッション ID を失わない**
+- セッション ID はセッション終了後も保持し、次回の再開の起点に使う
+- 明示クローズフラグは **状態表示専用**。端末を閉じた / セッションが正規終了したときに立ち、
+  セッション開始や PR / issue の再選択で降りる。**アプリの強制終了ではこの経路を通らないため
+  据え置かれ、自動的に「再開可能」側に倒れる**
 
-| field           | 性質                          | 書き込み経路                           |
-| --------------- | ----------------------------- | -------------------------------------- |
-| `userTitle`     | ユーザー編集の確定値 (最優先) | 編集 dialog Save                       |
-| `ghTitle`       | gh picker snapshot (静的)     | PR/issue picker 作成時 + revive upsert |
-| `terminalTitle` | OSC 観測値 (動的)             | OSC タイトル更新時                     |
+### タイトルの 3 レイヤ
 
-#### 表示優先度 (`resolveDisplayTitle` SSOT)
+タイトルは起源で 3 つに分離し、それぞれ独立した寿命を持つ。**書き込み経路を交差させない契約で
+「gh 由来のタイトルが端末の観測値で上書きされる」事故を構造的に排除する**。
+
+| レイヤ       | 性質                             | 書き込み経路                |
+| ------------ | -------------------------------- | --------------------------- |
+| ユーザー編集 | 確定値（最優先）                 | 編集ダイアログの保存        |
+| gh 由来      | 取得時のスナップショット（静的） | PR / issue から作成したとき |
+| 端末観測     | 端末タイトル経由の観測値（動的） | 端末タイトルの更新          |
+
+表示の優先順位:
 
 ```text
-userTitle 非空 → userTitle
-ELSE ghTitle 非空 → ghTitle
-ELSE terminalTitle 非空 (CLAUDE_PLACEHOLDER "Claude Code" 除外) → terminalTitle
-ELSE undefined (呼び出し側で "New session" or "#N" にフォールバック)
+ユーザー編集 が非空 → それを使う
+それ以外で gh 由来 が非空 → それを使う
+それ以外で 端末観測 が非空（起動直後の既定文字列は除外）→ それを使う
+いずれも空 → 呼び出し側でフォールバック（"New session" または番号）
 ```
 
-`ghRef` ありの task は先頭に PR/issue 番号が付く。
+GitHub 参照を持つ Task は先頭に番号が付く。
 
-#### 編集 dialog (`TaskEditDialog`)
+編集ダイアログの契約:
 
-`userTitle` を編集する `input` 1 つに操作を集約する。
+- **操作は「ユーザー編集タイトル」の入力 1 つに集約する**
+- **placeholder には「ユーザー編集を空にしたときの見え方」を動的に出す**。番号 prefix や
+  フォールバックを含め、サイドバーの表示と一致する形で保存後の結果を予告する
+- gh 由来 / 端末観測は参考表示のみ（操作なし、選択してコピーできる）
+- **空文字での保存はクリアを意味し、フォールバックチェーンに復帰する**。専用のリセットボタンを
+  置かない
 
-- input placeholder に `placeholderForEmptyUserTitle(task)` (= `taskDisplayTitle({ ...task, userTitle: "" })` の SSOT 再利用) を動的バインドし、`#N` prefix や "New session" フォールバックを含めてサイドバー表示と一致する形で「Save 時の見え方」を予告する
-- Sources セクションは `ghTitle` / `terminalTitle` を参考表示するだけ (操作なし、選択可能テキストでコピペ可)
-- 空文字保存 = `userTitle` クリア = フォールバックチェーンに復帰 (専用 reset ボタンを置かない)
+## Task とセッションの関係
 
-## task と session の関係
+| 概念       | 寿命の始まり                                       | 寿命の終わり                             |
+| ---------- | -------------------------------------------------- | ---------------------------------------- |
+| Task       | PR / issue からの作成、または直接起動時の開始 hook | worktree 削除、明示的な削除操作          |
+| セッション | 開始 hook                                          | 終了 hook（**Task 側の ID は保持する**） |
 
-| 概念               | 寿命の始まり                                                    | 寿命の終わり                                               |
-| ------------------ | --------------------------------------------------------------- | ---------------------------------------------------------- |
-| **Task**           | PR/issue picker から生成、Claude 直接起動時の SessionStart hook | worktree 削除、⋮ メニューの Remove task / Remove all tasks |
-| **Claude session** | SessionStart hook                                               | SessionEnd hook (task.sessionId は保持)                    |
+1 つの worktree に複数の Task が同居しうる。
 
-1 worktree に対して `WorktreeEntry.tasks` は `repeated Task`。複数の Task が同居しうる。
+### attach の優先順位
 
-### attachSession のロジック (main `taskStore.attachSession`)
+セッション開始 hook で呼ばれ、次の順に attach 先を決める。
 
-SessionStart hook で呼ばれる。以下の優先順位で attach 先を決める。
+- **同じセッション ID が既に attach 済み** → 同一セッションの継続（再開からの復帰）が確定している
+  経路。明示クローズフラグを降ろして「生きている」状態に戻す
+- **同じ worktree でセッション ID が空の候補から選ぶ**（作成が新しいものを優先し、同時なら決定論的に
+  倒す）。**明示クローズ済みでもセッション ID が空なら候補に含め、選ばれた時点でフラグを降ろす**
+- 該当なし → 新規 Task を作る（直接起動の経路）
 
-- 同 sessionId が既に attach 済み → 同一セッションの継続 (`claude --resume <sid>` 復帰) が確定している経路。当該 task の `closedByUser` を false に倒し「生きている」状態に戻す
-- 同 `worktreeDir` の `sessionId == ""` candidate から pick (createdAt 最大値、tie-break は id 辞書順で最大値) し、新 sid を attach。`closedByUser=true` でも `sessionId` が空なら candidate に含め、pick 時に false へ戻す (resume 失敗で sid を空に戻された task 等)。**`closedByUser=true` でも `sessionId` を保持する (= resume 可能な) task は candidate にしない**。新しい session_id は必ず別 task になる (session ≒ task の 1:1。`/clear` で session_id が変わったら別 task。既存 task の sid を別 session が奪う hijack はしない)。累積した closed task はユーザーが ⋮ メニュー or worktree 削除 cascade で消す
-- 該当無 → 新規 task を UUID id で作成し sessionId を入れる (Claude 直接起動経路)
+> [!IMPORTANT]
+> **セッション ID を保持している（= 再開可能な）Task は候補にしない**。新しいセッション ID は
+> 必ず別の Task になる（セッションと Task はおおむね 1:1。会話をクリアして ID が変わったら別 Task）。
+> **既存 Task の ID を別のセッションが奪う hijack はしない**。累積した closed な Task はユーザーが
+> 明示的に消す。
 
-> [!NOTE]
-> **不変条件**: `sessionId` は Claude が session ごとに振る UUID で worktree 内で一意。`attachSession` priority 1 / `detachSession` / `clearDeadSession` はいずれも `firstIndex(sessionID ==)` で 1 件のみに作用するが、closed task が累積しても各 task は異なる `sessionId` を持つため引き当ては曖昧にならない。新規 sid は priority 1 で既存と衝突せず (一致すれば継続扱いの no-op)、priority 2 / 新規作成でも live session の一意な sid が入るので、同一 `sessionId` を持つ task が 2 つ並ぶことはない。
+**不変条件**: セッション ID はセッションごとに一意なので、ID による引き当ては常に 1 件に定まる。
+上記の優先順位により、同一のセッション ID を持つ Task が 2 つ並ぶことはない。
 
-### detachSession のロジック (main `taskStore.detachSession`)
+### ライフサイクル遷移
 
-SessionEnd hook / terminal close で呼ばれる。
+経路ごとの作用をここで確定させる。
 
-- task 本体は **削除しない** (ghRef 有無に関わらず)
-- `task.sessionId` は保持する (再 resume の起点)
-- `closedByUser=true` を立てる。サイドバー上の状態表示が `resumable` → `closed` に切り替わる
+| 経路                              | Task 本体 | セッション ID | 明示クローズ |
+| --------------------------------- | --------- | ------------- | ------------ |
+| 端末 close（生きたセッション）    | 保持      | 保持          | true         |
+| セッション終了 hook               | 保持      | 保持          | true         |
+| 端末 close（再開失敗を検出）      | 保持      | 空            | true         |
+| 再開失敗 + 新セッションの着弾     | 保持      | 空            | 据え置き     |
+| アプリの強制終了 / クラッシュ     | 保持      | 保持          | 据え置き     |
+| worktree の削除 / Task の一括削除 | 削除      | —             | —            |
+| Task の個別削除                   | 削除      | —             | —            |
+| 外部での worktree 消失を検知      | 削除      | —             | —            |
 
-### clearDeadSession のロジック (main `taskStore.clearDeadSession`)
+**再開失敗の検出で Task 本体を削除しない**。セッション ID を空にするだけで、次のクリックは新規起動の
+経路へ流れる。
 
-resume 失敗検出経路 (`claude --resume <sid>` が transcript 不在等で error 終了) で呼ばれる。`markClosedByUser` で caller の意図を切り替える。
+> [!WARNING]
+> 状態フラグの書き込みが I/O 失敗すると、「ユーザーが閉じたのに再開可能と表示される」ずれが出る。
+> ログと通知で観察可能化しているが、**closed / resumable の区別は書き込み成功を前提とした
+> best-effort な意味論**である点に留意する。修正は I/O 失敗の根本原因を直す。
 
-- task 本体は削除せず、`sessionId` を空にする。次のクリックで `--resume` ではなく素の `claude` 起動経路へ流す
-- `markClosedByUser=true` (terminal close 由来 / `removeByPty`): `closedByUser=true` も立てる
-- `markClosedByUser=false` (session-start fallback 由来 / `applyClaudeSessionHook`): `closedByUser` は据え置く。直後の `attachSession(新 sid)` が candidate ピックで同一 task に転移する
+### 再開失敗の検出
 
-### remove のロジック (main `taskStore.remove`)
+**セッションログの存在を先回りして確認しない**（Claude 側のログ仕様への依存を避けるため）。
+代わりに、実際に再開を試みた結果から判定する。
 
-⋮ メニューの "Remove task" からのみ呼ばれる。指定 id の task を一つ削除する。
+zsh 側は再開起動の終了コードを見て、次の基準でフォールバックを決める。
 
-### removeByWorktree の単独発火 (worktree 行 ⋮ の "Remove all tasks")
+- **ユーザー操作で終わらせた終了コード**（正常終了 / 割り込み / 終了要求）→ フォールバックしない
+- **それ以外の非 0** → 素の起動を即座にリトライする。ログ不在による再開失敗のほか、認証や
+  ネットワークのエラーで会話中に落ちたケースも含む。後者では新しいセッションが立つが、これは
+  **「再開できる前提が壊れたら新セッションで再開する」仕様として認める**
 
-worktree 削除 cascade の task 掃除 (`removeByWorktree`) を、worktree を残したまま単独発火するユーザー操作。`git worktree remove` できない main worktree では worktree 削除経由の一括掃除が使えないため、滞留した task (= サイドバーの session 行) を一掃する唯一の手段になる。消えるのは tasks.json の Task レコードだけで、Claude セッションの JSONL と live terminal は削除しない。task が 1 件以上ある worktree でのみメニューに表示する。
-
-### ライフサイクル遷移 (SSOT)
-
-dead session 検出 / 削除 / 状態フラグの作用は経路ごとに以下の 1 表に集約する。`detachSession` / `clearDeadSession` / `remove` / `removeByWorktree` / app close の各経路で `task 本体` / `sessionID` / `closedByUser` がどう動くかをここで確定させる。
-
-| 経路                                               | 関数                                 | task 本体 | sessionID | closedByUser     |
-| -------------------------------------------------- | ------------------------------------ | --------- | --------- | ---------------- |
-| ターミナル close (live session)                    | `detachSession`                      | 保持      | 保持      | true             |
-| SessionEnd hook                                    | `detachSession`                      | 保持      | 保持      | true             |
-| ターミナル close (resume 失敗 + SessionStart 不達) | `clearDeadSession(markClosed=true)`  | 保持      | 空        | true             |
-| resume 失敗 + zsh fallback (新 sid 着弾)           | `clearDeadSession(markClosed=false)` | 保持      | 空        | 据え置き         |
-| app close (renderer 強制終了 / クラッシュ)         | —                                    | 保持      | 保持      | 据え置き (false) |
-| worktree 行 `[⋮]` → "Remove worktree"              | `removeByWorktree`                   | 削除      | —         | —                |
-| worktree 行 `[⋮]` → "Remove all tasks"             | `removeByWorktree`                   | 削除      | —         | —                |
-| task 行 `[⋮]` → "Remove task"                      | `remove`                             | 削除      | —         | —                |
-| 外部で worktree 消失 (`gitWorktreeList` で検知)    | `removeByWorktree`                   | 削除      | —         | —                |
-
-#### 失敗時の注意
-
-`detachSession` / `clearDeadSession` の I/O (JSON write) が throw した場合、stderr ログのみ残り `closedByUser` は据え置きになる。結果として「ユーザーが閉じたのに `resumable` 表示」になる lying state が出る。ログ (`[TaskStore] detachSession failed: ...`) と onNotify トーストで観察可能化しているが、UI 上の `closed` / `resumable` 区別は **detachSession 成功を前提とした best-effort な semantic** である点に留意する。修正は I/O 失敗の根本原因 (権限 / disk / corruption) を直す。
-
-### dead session 自動検出の補足
-
-proactive な transcript ファイル存在チェックはしない (Claude 側の transcript 仕様への依存を避けるため)。zsh wrapper は resume 起動の exit code を見て次の denylist で fallback の発火を判定する。
-
-- ユーザー操作で claude を終わらせた exit code (正常終了 / SIGINT で Ctrl-C 抜け / SIGTERM) → fallback しない
-- それ以外の非 0 → 素の claude を即座にリトライする。範囲には transcript 不在 (resume 起動失敗) の他、claude 自身の runtime error (auth / network / API rate limit 等で会話中に非 0 終了したケース) も含む。後者では新規 session が立ち上がるが、これは「resume できる前提が壊れたら新 session で再開する」仕様として認める
-
-同 PTY で発火する新 SessionStart hook の sid が期待 sid と一致しないことを native 側が検知し、dead 期待 sid を永続化ストア (claude session ストア / task ストア) から掃除した上で新 sid を attachSession の candidate (上記 priority 2 の「sessionId 空」) に attach する。`clearDeadSession` (`markClosedByUser=false`) が元 task の sessionID を空に書き戻すことで、その元 task が sessionId 空 candidate として pick 対象に乗る。pick ルールは createdAt 最大値、tie-break は id 辞書順で最大値 (= 1 秒以内に複数 task が並ぶ稀ケースで決定論的に倒すため)。同 worktree に他の sessionId 空 candidate があれば createdAt 最新の方が拾われる点に注意 (元 task に確実に紐付くわけではない)。pane を閉じて再クリックする操作を挟まずに resume が新セッションへ自動転移する。
-
-## 保存
-
-`~/.config/gozd/projects/<projectKey>/tasks.json` に `TaskList`（`@gozd/rpc`）の JSON を保存する。`projectKey` は dir の realpath から SHA-256 で算出する (Claude Code と同じ方式に依存しない)。
+受け側は「同じ端末で発火した新しい開始 hook の ID が、期待していた ID と一致しないこと」を検知し、
+古い ID を掃除したうえで新しい ID を attach する。これにより **端末を閉じて再クリックする操作を
+挟まずに、再開が新セッションへ自動転移する**。
 
 ## ライフサイクル
 
-### PR から worktree 作成
+### PR / issue から worktree を作る
 
-```text
-"Workspace: New Worktree from Pull Request" → PR 選択 → worktree 作成 + Task 作成
-  (ghTitle=PR タイトル、userTitle=""、ghRef={kind: PR, number}、sessionId="")
-```
+作成時に worktree と Task を同時に作る。gh 由来タイトルと GitHub 参照を持ち、セッション ID は空。
+サイドバーで行をクリックすると素の起動が走り、開始 hook で attach される。
 
-サイドバーで該当行をクリックすると素の `claude` が起動し、SessionStart hook で attach される。
+- **PR 経由**: その PR の head ブランチを起点にする
+- **issue 経由**: ブランチ名はタイムスタンプ形式（通常の新規作成と同じ）。**issue は head ref を
+  持たないため worktree との 1:1 をブランチ名に埋め込まない** — 埋め込むと、Task を消した後に
+  同じ issue から作り直したときブランチ名が衝突する
 
-### 既存 task の検知と切り替え
+### 既存 Task の検知と切り替え
 
-どちらの picker も、開いたときに repo 内全 worktree の task を ghRef (kind + number) で JOIN する。既に task がある PR / issue は行を色分け (背景 tint + 番号横のチェックアイコン) して表示し、選択しても新規作成せず **その task の worktree に切り替える**。closed task は同 ghRef の upsert (`add`) で蘇生される。同一 ghRef の task が複数残っている場合は createdAt 最新の 1 件が切り替え先になる。PR picker は task 不在でも同 headRef branch の worktree が残っていれば同様に切り替える (branch hit)。
+どちらの一覧も、開いたときに **repo 内の全 worktree の Task を GitHub 参照で JOIN する**。
+既に Task がある行は視覚的に区別し、**選択しても新規作成せずその Task の worktree に切り替える**。
 
-### 連続作成 (Shift 選択)
+- closed な Task は同じ参照での再選択で蘇生する
+- 同じ参照の Task が複数残っている場合は作成が新しい 1 件が切り替え先になる
+- PR の一覧は Task が無くても、同じ head ブランチの worktree が残っていれば同様に切り替える
 
-Shift+Enter / Shift+Click は picker を閉じずに accept し、複数の PR / issue からの連続作成に使う。作成完了時に picker item へ task が書き戻され、行が作成済み表示に変わる。別 item の accept は並行に走り、ブロックするのは同一 item の accept 実行中の再選択のみ (同じ branch の二重作成になるため。実行中の行はチェックマーク位置にスピナー表示)。
+### 連続作成
 
-排他はコマンド層 (`useInFlightGhRefs`。rootDir + ghRef キーの共有集合) が保持する。dialog ローカルではないため、通常選択 (picker を閉じた後の fire-and-forget 実行) 中に picker を開き直して同じ対象を選ぶ経路もブロックされ、開き直した一覧でも実行中の行はスピナー + 選択不可のまま維持される。同一秒内の並行作成による timestamp branch 名の衝突は、`generateTimestamp` (`@gozd/shared`) が per-process 一意 (同一秒は連番 suffix) を保証するため起きない。
+一覧を閉じずに accept して、複数の PR / issue から連続で作成できる。作成完了時に一覧側へ結果が
+書き戻され、行の表示が変わる。
 
-### Issue から worktree 作成
+**別の対象への accept は並行に走り、ブロックするのは同一対象の実行中の再選択だけ**（同じブランチの
+二重作成になるため）。
 
-```text
-"Workspace: New Worktree from Issue" → issue 選択 → worktree 作成 (branch=YYYYMMDD_HHMMSS) + Task 作成
-  (ghTitle=issue タイトル、userTitle=""、ghRef={kind: ISSUE, number}、sessionId="")
-```
+**排他はダイアログのローカルではなくコマンド層が保持する**。ダイアログを閉じた後の実行中に一覧を
+開き直して同じ対象を選ぶ経路もブロックされ、開き直した一覧でも実行中の行は選択不可のまま維持される。
 
-PR picker と異なり branch 名は timestamp ベース (通常の新規 worktree と同じ命名)。issue は head ref を持たないため worktree との 1:1 紐付けを branch 名に埋め込まず、task を削除した後に同じ issue から作り直しても branch 名が衝突しない。
+同一秒内の並行作成によるブランチ名の衝突は、**タイムスタンプ生成がプロセス内で一意を保証する**ため
+起きない。
 
-### PR/issue URL の prefill
+### PR / issue URL の事前挿入
 
-どちらの picker 経路でも、worktree 作成直後の autostart は `claude --prefill <PR/issue URL>` で起動し、URL をプロンプト入力欄に事前挿入する (挿入のみで送信はしない。ユーザーが指示を書き足してから送信する前提)。URL は task に永続化せず、picker コールバックが持つ値を spawn env (`GOZD_CLAUDE_PREFILL`) 経由で `.zshrc` の `_gozd_start_claude` まで届ける。`--prefill` は claude CLI の hidden option (`--help` に出ない) であり、非送信挿入を実現する唯一の公式経路として採用している。
+どちらの経路でも、作成直後の自動起動は **URL をプロンプト入力欄に挿入した状態**で起動する
+（挿入のみで送信はしない。ユーザーが指示を書き足してから送る前提）。
 
-### Claude を worktree で直接起動 (PR/issue 経由なし)
+**URL は Task に永続化しない**。作成時の値を起動時の環境変数として渡し、zsh 初期化が消費する。
 
-```text
-worktree visit → ターミナル起動 → ユーザーが `claude` を実行
-  → SessionStart hook → attachSession が「sessionId 空の最新 task」を探す
-  → 該当無しなら新規 task を作成 (全 title 空、sessionId=新 sid)
-```
+### 直接起動
 
-このルートで生まれた task は `ghRef` を持たない。terminal close 時の `detachSession` でも削除されず、`closedByUser=true` を立てて滞留する。不要になったらユーザーが ⋮ メニューの "Remove task" で明示削除する。
+worktree を訪問して端末でエージェントを起動すると、開始 hook が「セッション ID が空で最も新しい
+Task」を探し、無ければ新規に作る。**この経路の Task は GitHub 参照を持たない**。
 
-### autostart で起動した claude を終了したあとの挙動
+端末を閉じても削除されず、明示クローズフラグが立って滞留する。不要になったらユーザーが明示的に削除する。
 
-PR/issue picker や session 未紐付け task クリックで `claude` を autostart した leaf でユーザーが `/exit` すると、claude プロセスは終了して素の zsh プロンプトに戻る。task 側は SessionEnd hook 経由で `detachSession` が走り、`closedByUser=true` + `sessionID` 保持で `closed` 表示に切り替わる。
+### 自動起動したセッションを終了した後
 
-ターミナル自体は素の zsh として残る (`claude` プロセスのみ終了して shell は kill しない)。サイドバーで再度 task をクリックすると `claude --resume <sessionId>` 経路 (sessionId 保持時) または新規 claude 経路 (`Not started` 降格後) に乗る。
+エージェントを終了すると、**端末自体は素の shell として残る**（エージェントのプロセスだけが終了し、
+shell は kill しない）。Task 側は終了 hook で明示クローズフラグが立ち、セッション ID を保持したまま
+`closed` 表示に切り替わる。
 
-### サイドバークリックの分岐 (`SidebarPane.onSelectTask`)
+再度クリックすると、セッション ID が残っていれば再開経路、空になっていれば新規起動経路に乗る。
 
-| task.sessionId | live PTY | 動作                                                                                    |
-| -------------- | -------- | --------------------------------------------------------------------------------------- |
-| 空文字         | —        | `requestNewClaudeSession`: レイアウト先頭の新 leaf で素の `claude` を起動               |
-| 値あり         | あり     | 該当 leaf を focus                                                                      |
-| 値あり         | 無し     | `requestResumeSession`: レイアウト先頭の新 leaf で `claude --resume <sessionId>` を起動 |
+### サイドバークリックの分岐
 
-訪問済み worktree では新 leaf をレイアウト先頭 (最左) に追加する。素のターミナルが既に開いていても、Claude セッションの leaf が常に先頭に来る。
+| セッション ID | 生きた端末 | 動作                                 |
+| ------------- | ---------- | ------------------------------------ |
+| 空            | —          | レイアウト先頭の新しい端末で素の起動 |
+| あり          | あり       | 該当端末にフォーカス                 |
+| あり          | 無し       | レイアウト先頭の新しい端末で再開     |
 
-## サイドバー UI における状態表示
+**訪問済みの worktree では新しい端末をレイアウトの先頭に追加する**。素の端末が既に開いていても、
+セッションの端末が常に先頭に来る。
 
-`TaskRow` の state アイコンは以下の 3 区分で「session の現在状態」と「ユーザーの意思」を表現する。
+## 状態表示
 
-| 状態          | 判定条件                                                | アイコン                | 意味                                                                 |
-| ------------- | ------------------------------------------------------- | ----------------------- | -------------------------------------------------------------------- |
-| `not-started` | `sessionId == ""`                                       | `lucide--circle-dashed` | Claude が一度も起動していない (picker 直後 / resume 失敗で sid 空化) |
-| `resumable`   | `sessionId != ""` + `closedByUser == false` + live なし | `lucide--square-play`   | app close で中断された (ユーザーは閉じていない)                      |
-| `closed`      | `sessionId != ""` + `closedByUser == true` + live なし  | `lucide--eye-closed`    | ユーザーが明示的にターミナルを閉じた                                 |
+| 状態          | 判定条件                                    | 意味                                          |
+| ------------- | ------------------------------------------- | --------------------------------------------- |
+| `not-started` | セッション ID が空                          | 再開の起点を持たない（作成直後 / 再開失敗後） |
+| `resumable`   | ID あり + 明示クローズなし + 生きた端末なし | アプリ終了等で中断された                      |
+| `closed`      | ID あり + 明示クローズあり + 生きた端末なし | ユーザーが明示的に閉じた                      |
 
-`resumable` と `closed` のクリック挙動は同じ (`claude --resume <sessionId>`)。UI 上の意味的区別だけを行う。live PTY ありの状態 (idle / working / asking / done) は `CLAUDE_STATE_ICON` 由来のアイコンが優先される。
+**`resumable` と `closed` のクリック挙動は同じ**（どちらも再開）。UI 上の意味的区別だけを行う。
+生きた端末があるときは Claude の状態アイコンが優先される（[claude-status.md](claude-status.md)）。
 
-> [!IMPORTANT]
-> `task.session_id` (tasks.json) が Claude セッションの SSOT。専用ストアは持たない。worktree の visit は保存済みセッションを自動 resume しない — resume は task 行の明示 click だけが駆動する。未訪問 worktree の task click は `requestResumeSession` が sessionId をヒント (`preferred`) として残し、`visit` がそれを初期 leaf に載せる。resume 可否の検証はせず明示 click を尊重する (`resumable` / `closed` を問わず同じ経路)。
+### 死んだセッションをクリックしたときの挙動
 
-resume 可否の検証は renderer では行わず、native 側の dead session 清掃 (hook 経路) に一元化する。transcript が消えた dead な sessionId を resume しようとした場合の挙動は決定的に次へ倒れる:
+**再開可否を renderer で事前判定しない**。明示クリックを尊重し、失敗は決定的に次へ倒れる。
 
-- `claude --resume <dead-sid>` が失敗 → zsh fallback で素の `claude` が起動し SessionStart hook が着弾
-- native が `consumeExpectedResumeSid` で「期待した resume sid ≠ 実際の新 sid」を検知し `clearDeadSession` で task の sessionId を空化 → サイドバー表示が `not-started` に倒れる
-- この経路で renderer のトーストは出ない。観察可能性は native の stderr ログと task の状態遷移 (`closed` → `not-started`) が担う
+- 再開が失敗し、zsh のフォールバックで素の起動が走って開始 hook が着弾する
+- 受け側が「期待した ID ≠ 実際の ID」を検知してセッション ID を空にする
+- サイドバーの表示が `not-started` に倒れる
 
-つまり dead session の click は「resume 失敗を UI で通知する」のではなく「素の claude 起動にサイレントにフォールバックし、task を `not-started` に戻す」のが期待挙動。resume 可否を click 時点で事前判定する責務は renderer に置かない。
+**この経路でトーストは出さない**。観察可能性はログと状態遷移（`closed` → `not-started`）が担う。
 
-## RPC
+つまり死んだセッションのクリックは「再開失敗を UI で通知する」のではなく
+**「素の起動にサイレントにフォールバックし、Task を未起動に戻す」**のが期待挙動。
 
-```text
-taskAdd:               { dir, userTitle, ghTitle, worktreeDir, ghRef? } → Task
-taskSetTerminalTitle:  { dir, id, terminalTitle } → Task   (OSC title 同期で使用)
-taskSetUserTitle:      { dir, id, userTitle } → Task       (編集 dialog Save、空文字も valid = reset)
-taskRemove:            { dir, id } → {}                    (⋮ メニューの明示削除)
-```
+## 作成 API の契約
 
-`taskAdd` は **upsert** 動作。`ghRef` 指定があり同 `worktreeDir` + 同 `ghRef` の既存 task が見つかれば、その `ghTitle` を上書き + `closedByUser=false` で再活性化して返す (`id` / `createdAt` / `sessionId` / `userTitle` / `terminalTitle` は保持。**ユーザー編集レイヤである `userTitle` は触らない**)。それ以外は新規 task を UUID で作成する。PR picker は新規作成ルートと `pr.headRef` による既存 worktree hit ルートの両方で同じ `taskAdd` を呼び、再選択で closed 化済み task を蘇らせる + `ghTitle` を最新化する。issue picker は branch を timestamp ベースにしているため常に新規作成ルートに倒れる。
+Task の作成は **upsert** として振る舞う。GitHub 参照の指定があり、同じ worktree + 同じ参照の Task が
+既にあれば、gh 由来タイトルを最新化して再活性化する。
 
-`taskSetUserTitle` は空文字も valid な確定値として受理する (reset 操作経路を別動詞で増やさず、編集 dialog の `input` 操作に集約する)。
+**このとき ID / 作成日時 / セッション ID / ユーザー編集タイトル / 端末観測タイトルは保持する。
+特にユーザー編集レイヤには触れない**。
 
-## サイドバー UI レイアウト
+タイトルの確定値の設定は **空文字も有効な値として受理する**（リセット専用の操作を増やさず、
+編集ダイアログの入力に集約するため）。
+
+## サイドバー UI
 
 ```text
 ROOT
   🏠 main
 
 WORKTREES
-  ● feature-aの実装    [⋮]
-  ● #123 Fix bug       [⋮]   ← ghRef が設定済みなら `#番号` プレフィックス
-  ● New session         [⋮]   ← 全 title 空 + ghRef 無しのフォールバック
+  ● feature-a の実装    [⋮]
+  ● #123 Fix bug        [⋮]   ← GitHub 参照があれば番号を prefix
+  ● New session         [⋮]   ← 全タイトルが空でのフォールバック
 ```
 
-セッションが attach 中の task には Claude ステータスのバッジ / 吹き出しが付く。session 未紐付け task (`sessionId == ""`) は静的表示。task 行も hover で右端に `[⋮]` ボタンが現れ、`Edit title` / `Show session log` / `Remove task` が選択できる。タイトル編集は `[⋮]` の `Edit title` 一本に集約しており、行のクリックは常に task 選択 (wt active 化 + 対応 leaf focus / resume 起動) として解釈される。
+- セッションが attach 中の Task には Claude の状態バッジと吹き出しが付く。未 attach は静的表示
+- 行のメニューから「タイトル編集」「セッションログ表示」「Task の削除」を選べる
+- **タイトル編集はメニューに集約する**。行のクリックは常に Task の選択（worktree のアクティブ化 +
+  対応端末へのフォーカス / 再開起動）として解釈される
 
-### セッションログ表示 (`Show session log`)
+### worktree 単位の一括削除
 
-`task.sessionId` が非空のときだけ ⋮ メニューに出る。選択すると `SessionLogDialog` が開き、Claude Code が `~/.claude/projects/<cwd エンコード>/<sessionId>.jsonl` に書き出したセッションログを整形トランスクリプトとして表示する。
+worktree を残したまま、その worktree の Task を一掃する操作。**削除できない main worktree では
+worktree 削除経由の掃除が使えない**ため、滞留した行を消す唯一の手段になる。
 
-- **ファイル解決は glob**: cwd → ディレクトリ名のエンコード規則は Claude 側の内部仕様で将来変わりうるため再構成に依存せず、native (`ClaudeSessionLog.read`) が `~/.claude/projects/*/<sessionId>.jsonl` を glob 解決する。`sessionId` は `[0-9a-fA-F-]` のみ許可で検証し path traversal を塞ぐ。RPC は `/claudeSession/readLog` (生 JSONL を返し、parse は renderer 側 `parseSessionLog`)
-- **表示対象**: user / assistant / thinking / tool / image / ask の会話イベントと、system 注入イベント (`kind:"system"`。下記)。`tool_use` と `tool_result` は `tool_use_id` でペア化して 1 ブロックにまとめる。非会話レコードと `queued_command` / hook 系以外の attachment は載せず件数だけ footer に集計する。平文の無い thinking (最新モデルの暗号化 signature のみ / フィールド欠落) も載せないが、会話イベントなので非会話レコードとは別カウンタ (`emptyThinking`) にし、footer で別ラベル表示する。image は base64 source を data URL にして `<img>` 描画する
-- **AskUserQuestion は会話 (Q+A) に畳む**: `tool_use.name === "AskUserQuestion"` は通常の tool イベントではなく専用の `kind:"ask"` に倒す。`input.questions[]` から質問列と選択肢 (`options[]`) を取り出し、後続 `tool_result` が来た raw line の top-level `toolUseResult.answers` (Claude Code が組み立てた `question 文字列 → answer 文字列` の構造化 Map) を SSOT に各 question の `answer` を充填する。`tool_result.content` の自然言語テキスト (`"Q"="A"` 形式) は等価情報だが質問・回答が `"` を含むと regex 復元が壊れるため使わない。resume 中断等で `tool_result` 自体が来ない、または `toolUseResult.answers` フィールドが欠落しているケースは `answer === undefined` のまま残し、UI 側で「(no response)」を出す (silent drop ではなく可視化、text 経路 fallback は持たない)。空文字 answer (`""`) も「未充填」と同義として parser 側で `undefined` に倒し、「未充填」概念を `q.answer === undefined` の 1 条件に閉じる (consumer の if 分岐 SSOT 化。dialog の `v-if` と `expandAskMessages` の判定が parser invariant に一意に従う)。dialog (`SessionLogTranscript`) は質問を assistant 吹き出し + 選択肢の chip 列 + 回答 user 吹き出しのセットで描画 (選択肢は選ばれた option だけ success 色でハイライト)、terminal preview (`TerminalSessionPreview`) は `expandAskMessages` で「質問 = assistant 発言」「回答 = user 発言」に inline 展開した後、preview 側で `user | assistant` のみを filter する責務分離 (parser 側に「どの kind を見せるか」の表示制約を持ち込まない)。`tool_result` の引き当ては `askById` (ask 用) → `toolById` (通常 tool 用) の優先順で 1 つの `tool_use_id` がどちらに居るかを構造的に決め、経路の混在を防ぐ
-- **注入 user レコードの除外と slash command / queued_command の表示**: harness は `<local-command-stdout>` / `<task-notification>` 等を `type:"user"` + content=string (isMeta:null) で main loop に注入する。これらはユーザーの生発話ではないため、先頭ラッパータグで判定して USER ブロック / 目次に出さず skipped に計上する。`isMeta:true` の user レコードも同様に除外する。一方、先頭が `<command-name>` / `<command-message>` で始まる slash command 起動 (`/foo`) はユーザーの操作なので `slashCommandText` がコマンド名 (引数があれば `/foo args`) を取り出して載せる。採否を先頭アンカー (`COMMAND_BLOCK_LEAD_RE`) で決めることで、本文中にたまたま `<command-name>` を含む生発話を slash command と誤認して切り詰めない。さらにエージェント作業中に積まれた **queued command** は本文が `type:"user"` に昇格せず `type:"attachment"` の `attachment.type:"queued_command"` (`attachment.prompt`) にしか残らないことがあるため、これも載せる。採否は上流 (Claude Code) が分類済みの `attachment.commandMode` を SSOT にし、生発話 (`"prompt"`) のみ拾う。注入通知 (`"task-notification"` 等) は除外する。本文パターンで種別を再導出しないため、`<span>` 始まり等の正当な生発話を取りこぼさない
-- **system 注入の可視化 (`kind:"system"`)**: エージェントのコンテキストに注入されたシステム由来テキストを、thinking / tool と同じデフォルト折りたたみの中央システム行で表示する (「エージェントが何を指示されて動いたか」の観察可能性)。ソースは hook 由来 attachment (`hook_success` / `hook_additional_context`)。SessionStart hook の出力等、実行時に system-reminder としてエージェントに届く content の永続化形で、注入元の識別は `label` (hook 名) に寄せる。content 空の hook_success (発火記録だけの PreToolUse 等が大半) は表示する中身が無いため skipped のまま。system イベントは会話ターンではないため branch 候補 / scroll-spy / 目次には含めない。なお output_style / task_reminder 等のランタイムリマインダは JSONL に永続化されず、また harness 追記の `<system-reminder>` は tool_result content 内に現れて tool ブロックの結果として表示済みのため、どちらも system イベントの対象ではない
-- **サブエージェントのログも表示**: Task ツールで起動したサブエージェントの会話は `~/.claude/projects/<encoded>/<親sessionId>/subagents/agent-<agentId>.jsonl` に別ファイル (`isSidechain:true`) + 同名 `.meta.json` (`agentType` / `description` / `toolUseId`) で記録される。native (`ClaudeSessionLog.read`) は main を解決した projectDir からこのサブディレクトリを列挙し、main + subagents を entry 配列で返す。各 transcript ペインは `SessionLogTranscript` (目次 + チャット + scroll-spy をインスタンス内に閉じる) が描画する
-- **Workflow サブエージェントのログも表示**: Workflow ツール (`agent()` 呼び出し) で起動したサブエージェントは 1 階層深い `~/.claude/projects/<encoded>/<親sessionId>/subagents/workflows/<wf_id>/agent-<agentId>.jsonl` に記録される。これらの `.meta.json` は `agentType` しか持たないため、表示名 (`label`) / phase (`phaseTitle`) / workflow 名は兄弟ディレクトリ `<親sessionId>/workflows/<wf_id>.json` の `workflowProgress` から `agentId` をキーに JOIN する (`agentType` は `null` のことがあり、その場合のみ agent の `.meta.json` をフォールバック)。native はこれらも列挙し、entry に `workflow_run_id` / `workflow_name` / `phase_title` を載せて返す
-- **Main + subagent の 2 ペイン同時表示**: dialog は Main を左ペインに常時表示し、subagent があればヘッダ下の subagent タブで選んだ 1 つを右ペインに横並びで出す。subagent が無ければ Main を全幅表示しタブも出さない。タブバーは Task ツール subagent (`workflow_run_id` 空) をフラットなチップ列、Workflow agent を `workflow_run_id` ごとにグループ化して workflow 名見出し付きで並べる (各チップは `phaseTitle · label`)。scroll-spy (`IntersectionObserver`) はペインごとに独立する
-- **subagent へのジャンプボタン + 時刻同期**: Main の `Agent` (新規 spawn) / `SendMessage` (resume) / `Workflow` (workflow 起動) tool 行に、紐づく subagent を右ペインで開く黄色いボタン (`SessionLogSubagentButton`) を出す。`Agent` は3段階の厳密一致のみで引く: (1) `tool_use.id` == subagent meta.json の `toolUseId` (ワイヤ型 `parentToolUseId` で露出)、(2) `tool_result` の `toolUseResult.agentId` == subagent の物理 id (meta.json に `toolUseId` を持たない spawn パターンでも tool_result 自体にこの物理 id が乗る)、(3) `tool_result.promptId` == subagent ファイル先頭レコードの `promptId` (team teammate 専用の最終手段。`promptId` は「1 回のプロンプト処理サイクル」単位の id で spawn 単位ではないため、同一サイクル内で複数 subagent が spawn されると値を共有しうる。この場合は一意に決められないためリンクを張らない)。`name`/`agentType` はコーディネータが指定するラベルに過ぎず同名 spawn の繰り返しで衝突するため、`Agent` の新規 spawn 解決には使わない。`SendMessage` は main の `tool_use.input.to` == subagent の `agent_id` または `name` (Claude Code は `to` に id / name のどちらも取りうるため両引きし、id を優先。ワイヤ型 `name` で露出。同名 subagent が複数ある name は一意に決められずリンクを張らない)、`Workflow` は main の tool_result テキストの `Run ID: wf_xxx` == workflow agent の `workflow_run_id` (1 Workflow = N agent なので先頭 agent に結び、残りはタブバーのグループから辿る。ラベルは `<workflow 名> (件数)`)。いずれの経路でも一意に決められないときは `buildSubagentLinks` が `{status:"unresolved"}` を返す (`Agent`/`SendMessage`/`Workflow` 以外の tool には entry 自体を作らない)。`SessionLogSubagentButton` は `resolved` ならボタン、`unresolved` なら警告アイコン、entry 自体が無ければ何も描画しない。「どの tool 名が紐付け対象か」の判定は `buildSubagentLinks` の分岐条件 1 箇所に閉じており、view 側は tool 名を判定し直さない。ボタンクリックで右ペインをその subagent に切り替え、呼び出し時刻に最も近い subagent イベントへスクロール同期する (resume の注入 user メッセージは SendMessage 発火の数十ms後に subagent ログへ書かれるため最近傍 ts で当たる)
-- **assistant は markdown 描画**: preview feature から切り出した `MarkdownBody` (marked + DOMPurify) で描画する。user / thinking は素テキスト
-- **左に目次**: user / assistant のみを時刻見出しで並べ、クリックで該当イベントへスクロール。`IntersectionObserver` で現在地をハイライトする (純 CSS の scroll marker / `:target-current` が未対応だった WebKit shell 期の判断を維持)。各イベント見出しは `position: sticky` で上部固定
-- **各 agent の使用 model 表示**: 各 transcript ペインのヘッダ (`SessionLogTranscript`) と横断タイムラインの gutter (`SessionLogTimeline`) に、その agent が実際に使った model を出す。出典は assistant レコードの `message.model` 実測値で `parseSessionLog` が出現順ユニークに集め (`ParsedSessionLog.models`)、`formatModelLabel` が `claude-opus-4-8` → `Opus 4.8` に整形する。jsonl 内に閉じるため main / subagent 問わず採れ、`/model` 切り替えで複数混在した場合は中黒で連ねる。effort は jsonl に書き出されず agent 定義 frontmatter にしか無いため、セッションファイル自己完結の方針として model のみ表示する
-- **生ログを preview で開く**: 各 transcript ペインのヘッダに、そのペインの jsonl を preview ペインで開くボタンを出す。main / subagent は別ファイルのためペイン単位に置く。jsonl は worktree 外なので `PathTarget` の absolute 経路（dir 文脈不要）で開き、repo 未選択でも成立する（[preview.md](preview.md) の entry point 決定表参照）。modal dialog と preview popover は両方 top layer で同時に見せられないため、dialog を閉じてから `forceSelect` で開く
-- **ライブ更新**: dialog が開いている間、`SessionLogDialog` がログの親 dir (`~/.claude/projects/<encoded>/`) を `rpcFsWatch` で監視する。jsonl は worktree の外にあり filer の app-scope watch (`useFsWatchSync`) には乗らないため、dialog が自前で watch ライフサイクルを所有する (open で watch、close / unmount で unwatch)。`fsChange` push を受けたら当該セッションの main (`relDir === ""`) / subagents (`relDir` が `<sessionId>/...`) の変更だけ拾い、250ms debounce して再読込する。再読込は `loading` を立てず `sessions` を差し替えるだけのサイレント更新で、transcript の remount とスクロール状態リセットを避ける (`:key` は同一 sessionId で安定)。`/fs/watch` は冪等な native `FSWatchRegistry` を worktree watch と共有するため、別 dir の watch が共存しても衝突しない
-- **ボトム追従**: ライブ更新で `parsed` が差し替わるたび、更新前にボトム付近にいた場合だけボトムへ追従する (ターミナル / ログビューア標準の sticky bottom)。スクロールバック中は追従せず本文下部に sticky 配置の `New updates` ボタンを出し、クリックで最新へ飛ばす。初回 mount もボトム表示。markdown は async 描画で高さが後から確定するため追従要求を保留し描画完了後に再適用する。subagent の時刻ジャンプが同時に立った場合は明示操作を優先する
+消えるのは Task レコードだけで、**セッションログと生きている端末は削除しない**。Task が 1 件以上
+ある worktree でのみメニューに出す。
+
+## セッションログの表示
+
+セッション ID が非空のときだけメニューに出る。Claude Code が書き出したセッションログを整形した
+トランスクリプトとして表示する。
+
+### ファイルの解決
+
+**cwd からログの置き場所を再構成しない**。エンコード規則は Claude 側の内部仕様で将来変わりうるため、
+セッション ID による検索で解決する。**セッション ID は文字種を検証してパストラバーサルを塞ぐ**。
+
+生の JSONL を返す経路と、それを解釈する経路を分ける。**ログ形式の変更に追従する責務は解釈層に
+閉じる**。
+
+### 表示するもの / しないもの
+
+**表示する**: 会話イベント（ユーザー / アシスタント / 思考 / ツール / 画像 / 質問）と、エージェントの
+コンテキストに注入されたシステム由来テキスト。
+
+**表示しない**（件数だけ集計して末尾に出す）:
+
+- 非会話レコード
+- ハーネスが内部的に注入したユーザー扱いのレコード。**先頭のラッパータグで判定し、本文中にたまたま
+  同じ文字列を含む生の発話を誤認して切り詰めない**
+- 平文を持たない思考（暗号化のみ / フィールド欠落）。ただし**会話イベントではあるので別枠で
+  集計し、別ラベルで表示する**
+
+**ユーザーの操作は表示する**。スラッシュコマンドの起動と、作業中に積まれたコマンドは、
+**上流が分類済みのメタデータを SSOT にして採否を決める**。本文のパターンから種別を再導出しない —
+再導出すると正当な生の発話を取りこぼす。
+
+### 表示の契約
+
+- **ツールの呼び出しと結果はペア化して 1 ブロックにまとめる**
+- **質問ツールは会話（Q + A）に畳む**。選択肢を chip として並べ、選ばれたものを強調する。
+  回答の SSOT は上流が組み立てた構造化データで、**自然言語のテキストからは復元しない**（引用符を
+  含む質問で壊れるため）
+  - **回答が来ないケースは「未回答」として可視化する**（silent drop にしない）。テキストからの
+    フォールバック経路は持たない
+  - **空文字の回答も「未充填」に畳み、判定を 1 条件に閉じる**。表示側の分岐が parser の不変条件に
+    一意に従うようにするため
+  - **parser 側に「どの種別を見せるか」の表示制約を持ち込まない**。展開した結果から何を出すかは
+    表示側が絞る
+- **システム注入は折りたたみの中央行で表示する**（「エージェントが何を指示されて動いたか」の
+  観察可能性）。注入元は名前で識別する。**内容が空のものは表示する中身が無いので出さない**。
+  会話ターンではないため目次やスクロール追従の対象にも含めない
+- **アシスタントの発言は markdown として描画する**。ユーザーと思考は素のテキスト
+- **左に目次を出す**。ユーザーとアシスタントのみを時刻見出しで並べ、クリックでジャンプ、
+  現在地をハイライトする
+
+### サブエージェント
+
+サブエージェントの会話は別ファイルに記録される。これも列挙して表示する。
+
+- **Main を左ペインに常時表示し、サブエージェントがあればタブで選んだ 1 つを右ペインに並べる**。
+  無ければ Main を全幅にしてタブも出さない
+- ネストして起動されたサブエージェントは、**表示名や所属の情報を兄弟の進捗情報から結合して補う**
+- スクロール追従はペインごとに独立させる
+
+**Main からサブエージェントへのジャンプ**は、起動元のツール行にボタンを出す。
+
+紐づけは **厳密な一致だけで引く**。一意に決められないときはリンクを張らず、警告として示す。
+
+- ラベルや種別名は呼び出し側が指定する任意の文字列に過ぎず、同名の起動を繰り返すと衝突する。
+  **新規起動の解決には使わない**
+- 識別子の意味が「起動 1 回」ではなく「処理サイクル 1 回」の粒度になる経路では、同一サイクル内で
+  複数が起動されると値を共有しうる。**この場合は一意に決められないためリンクを張らない**
+- **「どのツールが紐づけ対象か」の判定は 1 か所に閉じる**。表示側はツール名を判定し直さない
+
+ジャンプ時は **呼び出し時刻に最も近いイベントへスクロールを同期する**。
+
+### 使用モデルの表示
+
+各ペインのヘッダに、そのエージェントが **実際に使ったモデル**を出す。出典はログ内の実測値で、
+出現順にユニークに集める。切り替えで複数が混在した場合は連ねて表示する。
+
+**推論の努力度はログに書き出されないため表示しない**（セッションファイルで自己完結する方針）。
+
+### 生ログを開く
+
+各ペインのヘッダから、そのペインの生ログを preview で開ける。Main とサブエージェントは別ファイルの
+ためペイン単位に置く。
+
+**生ログは worktree の外にあるため絶対パスの経路で開き、project 未選択でも成立する**
+（[preview.md](preview.md) の entry point）。**ダイアログと preview は同時に見せられないため、
+ダイアログを閉じてから開く**。
+
+### ライブ更新
+
+ダイアログを開いている間、ログの親ディレクトリを監視する。**ログは worktree の外にありアプリ全体の
+監視には乗らないため、ダイアログが自前で監視の寿命を所有する**（open で開始、close で解除）。
+
+- 変更通知は当該セッションの Main / サブエージェントの分だけ拾う。**連続した通知は畳んで再読込を
+  1 回にまとめる**
+- **再読込は読み込み表示を出さずに差し替えるだけのサイレント更新**にする。再マウントとスクロール
+  リセットを避けるため
+- 監視の登録は冪等なので、他の監視と共存しても衝突しない
+
+**ボトム追従**: 更新前にボトム付近にいた場合だけボトムへ追従する。スクロールバック中は追従せず、
+最新へ飛ぶボタンを出す。初回は最下部を表示する。
+
+- **markdown は非同期に描画されて高さが後から確定するため、追従要求を保留して描画完了後に再適用する**
+- **明示的なジャンプ操作が同時に立った場合はそちらを優先する**

@@ -1,10 +1,9 @@
 /**
- * 選択中 dir の git status を最新に保つ app-scope な watcher。
- *
- * docs/workspace.md の「git status は選択中 dir のみ」方針に従い、以下のトリガで store を更新する:
- * - dir 切替時（gitStatusChange は watch 開始時には push されないため、切替自体をトリガに含める）
- * - 同 dir に紐づく PTY の Claude state 遷移時（fs 変更がない静的な repo でも反映させるため）
- * - native 側 FSWatchRegistry からの gitStatusChange push（外部エディタ等での編集を反映）
+ * git status を最新に保つ app-scope な watcher。更新の契機は 3 つ:
+ * - dir 切替時（gitStatusChange は watch 開始時には push されないため、切替自体を契機に含める）
+ * - 同 dir に紐づく PTY の Claude state 遷移時
+ * - native 側 FSWatchRegistry からの gitStatusChange push（全 worktree が対象。payload の dir で
+ *   該当 worktree に直接反映する）
  */
 import { onMounted, onUnmounted, watch } from "vue";
 import { logEvent } from "../../shared/debug";

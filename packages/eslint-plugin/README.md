@@ -1,32 +1,16 @@
 # @gozd/eslint-plugin
 
-gozd プロジェクト固有の ESLint ルールを提供する。
+gozd 固有の規約を lint で強制する。**規約の意図はここに書き、判定の実装はルール側に閉じる。**
 
 ## ルール
 
-### `gozd/no-define-expose`
+| ルール                         | 禁止するもの                               | 理由                                                                                                |
+| ------------------------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `gozd/no-define-expose`        | Vue SFC で子の内部メソッドを外部へ公開する | 親から子を命令的に呼ぶ設計は依存を不透明にする。値は props で渡し、共有ロジックは composable に出す |
+| `gozd/no-iconify-class`        | class 名によるアイコン指定                 | アイコンは明示 import で書き、存在しない名前をビルドエラーにする。class 名では検出できない          |
+| `gozd/no-raw-tailwind-palette` | 生のカラーパレットと primitive の直参照    | 色は semantic token だけを使う（テーマ切替が効かなくなるため）                                      |
 
-Vue SFC の `defineExpose` の使用を禁止する。
+## 利用側への要求
 
-親から子の内部メソッドを命令的に呼ぶ設計はコンポーネント間の依存を不透明にする。値は props で渡し、子が自分で処理する。共有ロジックは composable に出す。
-
-#### 判定ロジック
-
-`defineExpose` は Vue の compiler macro であり、import されずに直接呼び出される。AST 上は `CallExpression` で callee が Identifier `defineExpose` となる。識別子名一致のみで判定するため、`foo.defineExpose()` のような member call や別名で wrap した呼び出しは対象外。
-
-#### 設定例
-
-```typescript
-import pluginGozd from "@gozd/eslint-plugin";
-
-export default [
-  {
-    plugins: {
-      gozd: pluginGozd,
-    },
-    rules: {
-      "gozd/no-define-expose": "error",
-    },
-  },
-];
-```
+**3 ルールはすべて error として有効にする**。どれも「書けてしまうが規約に反する」書き方を止めるための
+もので、warning に落とすと違反が残り続ける。

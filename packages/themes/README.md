@@ -1,39 +1,25 @@
 # @gozd/themes
 
-ターミナルカラーテーマ。[mbadolato/iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)（MIT ライセンス）の Windows Terminal 形式 JSON を vendor データとして格納し、xterm.js の ITheme 互換オブジェクトに変換する。
-
-## 構成
-
-```text
-packages/themes/
-├── vendor/                          # iTerm2-Color-Schemes の Windows Terminal 形式 JSON（484テーマ）
-│   ├── LICENSE                      # 元リポジトリの MIT ライセンス
-│   └── *.json
-├── dist/                            # 生成物（.gitignore 対象）
-│   └── themeLoaders.ts              # テーマ遅延ローダーマップ + dark/light 分類済み名前一覧
-├── scripts/
-│   └── generateThemeLoaders.ts      # dist/themeLoaders.ts を生成するスクリプト
-└── src/
-    ├── convertTheme.ts              # WindowsTerminalTheme → XtermTheme 変換
-    ├── loadTheme.ts                 # テーマ名から遅延ロード + 変換（公開 API）
-    └── index.ts                     # バレルファイル
-```
+ターミナルのカラーテーマ。[iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)
+（MIT）を vendor データとして持ち、ターミナルエミュレータが要求する形へ変換して提供する。
 
 ## 公開 API
 
-- `loadTheme(name)` — テーマ名から JSON を遅延ロードし `XtermTheme` に変換して返す
-- `darkThemeNames` / `lightThemeNames` / `themeNames` — ソート済みテーマ名一覧
-- `XtermTheme` — xterm.js ITheme 互換の型
+| 名前                                                | 契約                                            |
+| --------------------------------------------------- | ----------------------------------------------- |
+| `loadTheme(name)`                                   | テーマ名から **遅延ロード**して変換した値を返す |
+| `darkThemeNames` / `lightThemeNames` / `themeNames` | ソート済みのテーマ名一覧                        |
+| `XtermTheme`                                        | 変換後の型                                      |
 
-## 生成
+**遅延ロードにするのは、全テーマを同時に抱えないため。** 一覧は名前だけを持ち、実体は選択された
+ものだけを読む。
 
-`dist/themeLoaders.ts` は `pnpm install` 時に `prepare` スクリプトで自動生成される。各テーマの背景色から sRGB 相対輝度を算出し、dark（luminance < 0.5）/ light に分類する。
+## dark / light の分類
 
-## vendor の更新
+**背景色の相対輝度で機械的に分類する**。vendor 側にこの区別が無いため、こちらで導出する。
+テーマの追加でメンテナンスが要らない形にしてある。
 
-[mbadolato/iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes) の `windowsterminal/` ディレクトリから JSON をコピーする。
+## 上流データの更新
 
-```bash
-cp /path/to/iTerm2-Color-Schemes/windowsterminal/*.json packages/themes/vendor/
-pnpm install  # prepare で dist/ が再生成される
-```
+上流のテーマ定義を取り込み直したら、**公開する一覧と dark / light の分類は再生成された結果に揃う**。
+手で書き足したテーマは持たない。

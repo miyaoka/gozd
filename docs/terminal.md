@@ -1,261 +1,170 @@
 # Terminal
 
-ターミナルエミュレータ。RPC（IPC）経由で main process 側の PTY プロセスと通信する。
-xterm.js をバックエンドとして使用する。
+worktree ごとの疑似端末を分割配置し、複数の作業を並べて見せる。
 
-## 構成
+PTY の起動環境（環境変数、zsh 初期化チェーン）は
+[architecture.md](architecture.md#pty-環境)、プロセス隔離は
+[architecture.md](architecture.md#native-拡張の隔離) を参照。
+
+## 端末の生成と cwd
+
+- shell は固定。ユーザーの設定で切り替える経路は持たない
+- cwd は worktree のパス。worktree ごとに異なる
+- **ターミナル種別とカラー対応の宣言は起動要求が毎回指定し、親の値を上書きする**。アプリ識別と
+  ハイパーリンク許可は gozd が既定として保証し、指定が無いときだけ埋まる
+  （[architecture.md](architecture.md#ターミナル環境変数)）
+
+## 分割
+
+水平・垂直分割を二分木で管理する。ツリー操作は不変（immutable）で、既存のノードを破壊しない。
 
 ```text
-features/terminal/
-├── TerminalPane.vue              # leaf 群の統括コンテナ（CSS Grid レイアウト、可視性制御、コマンド登録）
-├── TerminalLeaf.vue              # リーフノード（XtermTerminal ラップ、フォーカス管理）
-├── SplitResizeHandle.vue         # 分割リサイズハンドル（ドラッグ）
-├── XtermTerminal.vue             # xterm.js ターミナルエミュレータ
-├── splitTree.ts                  # immutable な分割ツリー操作（split, remove, resize）
-├── terminalConfig.ts             # 共通設定（フォント、スクロールバック、テーマ ref）
-├── registerTerminalCommands.ts   # 分割・ナビゲーションコマンドの登録
-├── registerThemeCommand.ts       # テーマ選択コマンド（QuickPick + リアルタイムプレビュー）
-├── useTerminalStore.ts           # worktree ごとの分割レイアウト状態管理（Pinia）
-├── useFilePathLinkProvider.ts    # ターミナル出力のファイルパス検出・クリック
-├── useSplitResize.ts             # ratio ベースのリサイズ管理
-└── useSpatialNavigation.ts       # leaf 間の矩形ベース空間ナビゲーション
+分割ノード
+├── direction: horizontal | vertical
+├── ratio: 分割比率
+├── left:  分割ノード | 葉
+└── right: 分割ノード | 葉
+
+葉 = 1 つの端末
 ```
 
-## PTY ライフサイクル
+**全 worktree の全端末を 1 つのグリッドでフラットに管理する**。分割ツリーからグリッドの配置定義を
+生成し、各端末は自分がどの区画に入るかを宣言するだけでサイズはコンテナが決める。表示モードの
+切り替えはコンテナの配置定義を変えるだけで済む。
 
-```mermaid
-sequenceDiagram
-    participant R as TerminalPane (renderer)
-    participant N as main (Electron)
-    participant P as PTY (shell)
-
-    R->>N: ptySpawn({ dir, cols, rows })
-    N->>P: forkpty + execve(shell)
-    N-->>R: PTY ID
-
-    loop ユーザー操作
-        R->>N: ptyWrite({ id, data })
-        N->>P: write(masterFd, data)
-    end
-
-    loop PTY 出力
-        P-->>N: read(masterFd) → DispatchSourceRead
-        N-->>R: ptyText({ id, text })
-    end
-
-    opt リサイズ
-        R->>N: ptyResize({ id, cols, rows })
-        N->>P: ioctl(masterFd, TIOCSWINSZ, ...)
-    end
-
-    R->>N: ptyKill({ id })
-    N->>N: dispose onData/onExit（破棄中 push の多重防御）
-    N->>P: kill(pid, SIGHUP) + destroy(masterFd)（socket close で終了時 SIGABRT を回避）
-
-    Note over P,R: 自然終了は waitpid → ptyExit({ id, reason }) を push
-```
-
-- shell: `/bin/zsh`（renderer 側で固定。`apps/renderer/src/features/terminal/useTerminalStore.ts` の `DEFAULT_SHELL`）
-- cwd: `ptySpawn` の `dir` パラメータ（worktree ごとに異なる）
-- 環境変数: PTY spawn 時に native 側で固定の overlay が適用され、CLI ツール向けに `FORCE_HYPERLINK=1` / `TERM=xterm-256color` / `COLORTERM=truecolor` / `TERM_PROGRAM=gozd` を保証する（renderer から `env` を渡しても、上記キーは指定が無い場合のみ overlay 側で埋まる）。全項目と上書き順序は [architecture.md](architecture.md#ターミナル環境変数) を参照
-- UTF-8 デコード: `TextDecoder({ stream: true })` でチャンク分割時のマルチバイト文字化けを防止
-
-## ターミナル分割
-
-バイナリツリー構造で水平・垂直分割を管理する。`splitTree.ts` が immutable なツリー操作を提供する。
-
-```
-splitNode（内部ノード）
-├── direction: "horizontal" | "vertical"
-├── ratio: 分割比率（0〜1）
-├── left: SplitNode | LeafNode
-└── right: SplitNode | LeafNode
-
-leafNode
-└── id: ターミナル ID
-```
-
-### CSS Grid レイアウト
-
-`TerminalPane` が全 worktree の全 leaf を1つの CSS Grid コンテナでフラットに管理する。`treeToGridTemplate()` が分割ツリーから `grid-template-areas` / `columns` / `rows` を生成し、各 leaf は `grid-area` で配置される。表示モードの切り替えはコンテナの grid-template を変えるだけで済む。
-
-- leaf の DOM は v-show で表示/非表示を制御（xterm バッファは維持される）
-- リサイズハンドルは `flattenHandles()` で gap の位置を算出し、absolute overlay で配置
+- **端末の DOM は非表示でも破棄しない**（バッファを維持するため）。非表示の端末は配置の自動割当に
+  影響しない
+- リサイズハンドルは分割の境界位置から算出し、重ねて配置する
 
 ### 空間ナビゲーション
 
-`useSpatialNavigation` が各 leaf の矩形位置（rect）から、指定方向の最近傍 leaf を算出する。非表示 worktree の leaf は候補から除外する。
+各端末の矩形位置から、指定方向の最近傍を算出する。**非表示の worktree の端末は候補から除外する**。
 
-## Worktree ごとのレイアウト保持
+## worktree ごとのレイアウト保持
 
-`useTerminalStore`（Pinia）が `layoutsByDir`（`Map<dir, TerminalLayoutState>`）で worktree ごとに分割レイアウトを保持する。
+分割レイアウトを worktree ごとに保持する。
 
-- `visit(dir)` で初回訪問時にレイアウトを作成し、PTY を spawn する。2 回目以降の `visit` は既存レイアウトをそのまま使う（PTY と xterm バッファは破棄しない）
-- worktree 切り替え時は v-show で対象 leaf のみ表示する。非表示中も PTY と xterm バッファは生存する
-- worktree 削除時 (`removeWorktreeFromLayout`) は `visitGenByDir` を bump して進行中の `visit` を stale 化し、`layout.remove(dir)` で該当 dir の全 PTY を kill する。さらに `preferredResumeByDir` / `preferredAutostartByDir` の未消費ヒントも掃除する（再作成された worktree に古い意図が漏れないようにする）
+- **初回訪問時にレイアウトを作り端末を起動する。2 回目以降はそのまま使う**（端末とバッファを
+  破棄しない）
+- worktree の切替は表示の切り替えだけで、非表示中も端末は生存する
+- **worktree 削除時は進行中の訪問処理を無効化し、その dir の全端末を終了する**。加えて、
+  未消費の起動意図（セッション再開 / 自動起動）も掃除する — **再作成された worktree に古い意図が
+  漏れないようにするため**
 
-### TerminalPane のレイアウト
+## 表示モード
 
-`TerminalPane.vue` が全 worktree の全 leaf を1つの CSS Grid でフラットに管理する。MainLayout はこのコンポーネントを配置するだけでよい。
+| モード   | 内容                                           |
+| -------- | ---------------------------------------------- |
+| `wt`     | アクティブな worktree の分割レイアウト（既定） |
+| `all`    | 全端末を均等タイル配置                         |
+| `claude` | Claude が動いている端末のみ均等タイル配置      |
 
-- **コンテナ**: `grid-template-areas` / `columns` / `rows` で全 leaf の配置を定義。`:style` バインディングで動的に設定
-- **子（TerminalLeaf）**: `grid-area` でどのエリアに入るかを宣言するだけ。サイズはコンテナ grid が決める
-- **リサイズハンドル**: `flattenHandles()` で gap 位置を算出し、absolute overlay で配置
+**ユーザーの意図と表示用の実効値を 2 段で管理する**。`claude` モード中にセッションが全て終了しても
+対象が空にならないよう、実効値を `wt` に倒す（画面が空になるのを防ぐ）。セッションが再開すれば
+意図は `claude` のままなので自動復帰する。
 
-> [!NOTE]
-> `v-show:false` は `display:none` になるため、非表示の leaf は grid item から外れ auto-placement に影響しない
+**分割操作は意図を `wt` に戻す**。新しい端末は素の shell で `claude` タイルの対象外なので、分割した
+時点で意図は「アクティブな worktree のレイアウトを編集」に変わったとみなす。
 
-#### 表示モード
+### 横断ビューでの選択追従
 
-`useTerminalStore.viewMode` で3つのモードを切り替える。
+`all` / `claude` では複数 worktree の端末が同時に見えるため、**フォーカスを受けた端末は常に選択を
+その worktree へ追従させる**。ただし **表示モードは変更しない**（横断ビューを維持したまま、
+サイドバー・ファイラー・プレビューだけが追従する）。
 
-- **wt**（デフォルト）: `treeToGridTemplate()` でアクティブ worktree の分割ツリーから grid-template を生成。非アクティブ leaf は `v-show:false`
-- **all**: `tileGridTemplate()` で全 leaf を均等タイル配置
-- **claude**: `tileGridTemplate()` で Claude 起動中の leaf のみ均等タイル配置
+`wt` モードでは同じ dir への追従で実質 no-op だが、**選択の更新自体が既読消化の契機を兼ねるため
+常に呼ぶ**（[claude-status.md](claude-status.md)）。
 
-`viewMode` はユーザー意図 (`userViewMode`) と表示用実効値 (`viewMode` computed) の 2 段で管理する。実効値は `userViewMode === "claude" && claudeActiveLeafIds.length === 0 ? "wt" : userViewMode`。これにより `claude` モード中に Claude セッションが全終了しても `tileGridTemplate()` の対象が空にならず、画面が真っ黒になる事象を回避する（Claude が再起動すれば `userViewMode` は `claude` のままなので自動復帰する）。`viewMode = "wt"` のような外部からの代入は computed の setter 経由で `userViewMode` に転送される。
+**アクティブ表示は最大 1 つに収める**。判定は「選択中の worktree 配下」かつ「その worktree の
+フォーカス端末」の AND。レイアウトは worktree ごとに独立したフォーカスを持つため、単純比較だと
+タイルモードで worktree ごとに 1 つずつアクティブ表示になる。選択中 worktree に該当端末が無い場合は
+アクティブが 0 になりうる。
 
-加えて、ターミナル分割コマンド（`terminal.splitHorizontal` / `terminal.splitVertical`）は split 直前に `userViewMode = "wt"` を明示する。新規 pane は素の PTY なので claude タイル対象外であり、ユーザーが分割操作を行った時点で意図は「アクティブ worktree のレイアウトを編集」に変わったとみなす。
+## 端末からの通知（OSC）
 
-`all` / `claude` モードでは複数 worktree の leaf が同時に表示されるため、focus を受けた leaf は常に `worktreeStore.setOpen(dir)` を呼んで選択を追従させる。viewMode は変更しない（横断ビューを維持したまま、サイドバー・ファイラー・プレビューのみ追従）。`wt` モードでは同 dir に対する setOpen となり実質的に no-op だが、`selectionVersion` を発火させて `clearDoneStates` を起動するために常に呼ぶ（[claude-status.md](claude-status.md) の既読消化フロー参照）。
+| OSC | 用途               | 使い道                                 |
+| --- | ------------------ | -------------------------------------- |
+| 0/2 | ウィンドウタイトル | Task タイトルの同期、Claude の状態検出 |
+| 7   | 現在のディレクトリ | 相対パスのリンク解決                   |
+| 8   | ハイパーリンク     | URL の外部送り                         |
 
-active leaf の判定は「選択中 worktree（`worktreeStore.dir`）配下」かつ「`layout.focusedLeafId` と一致」の AND で行う。`layoutsByDir` は dir ごとに独立した `focusedLeafId` を持つため、単純比較だと tile モードで worktree ごとに 1 つずつ active 表示になってしまう。worktree 単位の選択を条件に加えることで、横断ビューでも `opacity-100` で表示される leaf は最大 1 つに収まり、それ以外は `opacity-50` にフェードする。`worktreeStore.dir` 未確定時や、`claude` モードで選択中 worktree に Claude-active leaf が存在しない場合は active が 0 になりうる。
+タイトルの契約:
 
-## OSC ハンドラ
+- Claude Code 等のプログラムが標準的な仕組みで設定する。**空文字はタイトルのクリアとして扱う**
+- 端末が観測したタイトルは **常に端末観測レイヤーへ書く**。ユーザー編集や gh 由来のタイトルがあれば
+  表示は優先順位で決まるため見た目は変わらない（[task.md](task.md) のタイトル 3 レイヤ）
+- **端末ヘッダに生の OSC タイトルや cwd は表示しない**。Claude セッションが attach された端末だけ、
+  サイドバーと同一の見た目で「repo 名」と「Task タイトル」を 2 段で表示する（素の端末には何も
+  出さない）
 
-xterm.js のイベントまたは `parser.registerOscHandler()` でエスケープシーケンスを受信し、store に保存する。
+タイトルからの状態検出は [claude-status.md](claude-status.md)。
 
-| OSC | 用途                | 受信方法                          | 保存先          | 用途                               |
-| --- | ------------------- | --------------------------------- | --------------- | ---------------------------------- |
-| 0   | タイトル+アイコン名 | `terminal.onTitleChange` イベント | `titleByLeafId` | Task タイトル同期（leaf に非表示） |
-| 2   | タイトル            | `terminal.onTitleChange` イベント | `titleByLeafId` | Task タイトル同期（leaf に非表示） |
+## ファイルパスのリンク
 
-- OSC 0/2 は xterm.js に既定ハンドラがあるため `registerOscHandler` ではなく `onTitleChange` イベントを購読する
-- タイトルは Claude Code 等のプログラムが `\x1b]2;タイトル\a` で設定する。Ghostty 等の一般的なターミナルと同じ標準的な仕組み
-- 空文字列が送信された場合はタイトルをクリアする
-- 選択中 worktree のターミナルでタイトルが更新されると、`useSidebarData` が worktree に紐づく Task のタイトル（body 一行目）を同期する。Task がなければ新規作成し、既にタイトルがある Task は上書きしない
-- leaf 上部のヘッダには OSC タイトル / CWD は表示しない。Claude セッションが attach された leaf だけ、`TerminalLeafTitle` が 2 段で表示する（素の PTY では何も出さない）。上段はサイドバー RepoSection と同一の repo アイコン + repo 名、下段はサイドバー TaskRow と同一の status アイコン + Task タイトル。上段の repo アイコンは sidebar と同一の `RepoIcon` を共有する
+端末出力中のファイルパスをクリック可能にする。
 
-## ファイルパスリンク
+- 相対パスと任意の絶対パス（worktree 内 / 外 / ホーム展開）に対応する
+- パスの直後に `:行番号` が続く場合は行番号を抽出する
+- クリックでプレビューに表示する（行番号があればその行へスクロール + ハイライト）
 
-`useFilePathLinkProvider` が xterm の LinkProvider を実装し、ターミナル出力のファイルパスをクリック可能にする。
+### 相対パスの解決基準は「その行が出力された時点の cwd」
 
-- 相対パスと任意の絶対パス（worktree 内 / 外 / `/tmp/...` / `/var/folders/...` / `~/` 展開）に対応
-- パスの直後に `:行番号` が続く場合（`src/main.ts:30` 等）は行番号を抽出
-- クリック時にプレビューペインでファイルを表示（行番号付きの場合は該当行にスクロール＋ハイライト）
+ツールはパスを実行時のカレントディレクトリ基準で出力するため、**worktree root 基準で解決すると
+サブディレクトリで実行した出力のリンク先がずれる**。
 
-### 相対パスの解決基準は「その行が出力された時点のシェル cwd」
+shell が送る cwd 通知を受け、「遷移が起きたバッファ行 → cwd」の列として保持する。相対パスは
+**hover 行以前で最後の遷移の cwd** を基準に絶対化し、worktree 内なら worktree 相対（ツリーの
+reveal が効く）、外なら絶対パス（プレビューのみ）として解決する。
 
-ツール（tsc / eslint 等）はパスを実行時の pwd 基準で出力するため、worktree root 基準で解決すると
-サブディレクトリで実行した出力のリンク先がずれる。zsh init が chpwd hook で送る OSC 7 を
-`registerOscHandler(7)` で受け、`cwdTracker` が「遷移が起きたバッファ行 → cwd」の列として保持する。
-相対パスは hover 行以前で最後の遷移の cwd 基準で絶対パス化し、worktree 内なら
-worktreeRelative（filer reveal が成立）、外なら absolute（プレビューのみ）に解決する。
+- **最新の cwd 単一値ではなく、行位置つきの遷移列を持つ**。単一値だと、cd 後にスクロールバックへ
+  残った古い出力のリンクが最新 cwd で誤解決する
+- **遷移位置は行の追加・削除に追従するアンカーで追跡する**。スクロールバックの切り詰めや折り返しの
+  再計算で行が移動しても自動で追従する
+- **cwd が不明な行（通知を送らない shell / 最初の遷移より前）は worktree root 基準に fallback する**
+- 遷移列は端末インスタンスに紐づくため状態ストアには置けない。再マウント時は出力の再生で再構築され、
+  再生の窓から溢れた遷移より前の行は worktree root 基準に倒れる
+- **送信側でエスケープし、受信側は常にデコードする**。パス中のリテラルなエスケープ表記を誤って
+  デコードしないための対称性
 
-- 最新 cwd の単一値でなく行位置つき遷移列を持つのは、cd 後にスクロールバックへ残った古い出力の
-  リンクが最新 cwd で誤解決するのを防ぐため。遷移位置は xterm の Marker で追跡し、
-  scrollback trim / resize reflow による行移動に自動追従する（遷移列の保持戦略は
-  `cwdTracker` の docstring が SSOT）
-- cwd 不明（OSC 7 を送らないシェル / 最初の遷移より前の行）は worktree root 基準に fallback する
-- 遷移列は Marker が terminal インスタンスに紐づくため store には置けず、component と同じ
-  ライフサイクルで持つ。再マウント時は ring buffer replay が OSC 7 を再発火して再構築する。
-  replay 窓から evict された遷移より前の行は worktree root 基準に倒れる
-- zsh hook は `%` のみ `%25` に escape して送る。受信側は常に percent-decode するため、
-  パス中の literal `%XX` の誤 decode を送信側の escape で防ぐ（非 ASCII は生 UTF-8 のまま
-  decode を素通りするので full encode は不要）
+### パスの境界
 
-### パス境界（区切り文字）
+**shell で引用符なしのパスに現れない文字を区切りとする**。
 
-`PATH_TERMINATORS`（`findAbsolutePathMatches.ts`）でパスの末尾を判定する。シェルで unquoted なパスに現れない文字を区切りとする。
+- リダイレクト / サブシェル / コマンド置換 / glob / 履歴展開 / エスケープ / 引用符 / 行番号区切り
+- コメントと fragment を表す文字、パイプと変数展開の文字
+- ログ出力がパスを囲む慣習に使う括弧類とカンマ（開き / 閉じ対称）
 
-- ベースは VS Code `terminalLinkParsing` の Unix 版 `ExcludedPathCharacters`（リダイレクト `<` `>` / サブシェル `(` `)` / コマンド置換 `` ` `` / glob `*` `?` / 履歴展開 `!` / エスケープ `\` / 引用符 `'` `"` / 行番号区切り `:` `;` 等）
-- gozd 独自の追加: `#`（コメント・fragment）/ `|` `$`（パイプ・変数展開）/ `{` `}` `[` `]` `,`（log 出力がパスを囲む慣習、開き／閉じ対称）
-- VS Code が持つ `\0`(NUL) は xterm バッファに来ない前提で除外
+**gozd はパスの存在検証をしない**。実在確認で誤検出を弾く層が無いため、**区切りを保守的に取ることで
+誤検出を抑える**。
 
-gozd は VS Code と異なりパスの存在検証をしない。VS Code は最終的に `stat` で実在を確認して誤検出を弾くが、gozd にはその検証層が無いため、区切りを保守的に取る（`#` を含める等）ことで誤検出を抑える。
+### 折り返しの結合
 
-### 改行折り返しの結合（collectIndentedBlock）
+改行 + インデントで折り返された長いパスも結合して検出する。
 
-Claude Code が改行+インデントで折り返した長いパスも結合して検出する。
+- ハードラップ（端末幅による自動折り返し）は空白が挿入されないためそのまま連結する
+- 明示的な改行 + インデントは、**継続行の先頭がパス文字のときだけ**連結する。パスの直後に来る
+  コメント行のような区切り文字始まりの行は別トークンとして扱う
+- **継続行が絶対パスの起点で始まる場合は連結しない**。それは単独の絶対パスであって上の行の継続では
+  ないため、コメントの直下に来ても繋がない
+- **結合テキストと現在行の開始位置を同じ計算で求める**。結合条件と位置計算を二重管理すると乖離する
 
-- ハードラップ（`isWrapped`）は空白が挿入されないのでそのまま連結する
-- 明示改行+インデントは、継続行の trim 後の先頭文字が区切り文字でない（＝パス文字始まり）時のみ連結する。`.../file.txt` の次に来る `# コメント` のような区切り文字始まりの行は別トークンとして結合しない。`.../very/lo` ⏎ `  ng/file.ts` のようなセグメント途中の折り返しは正しく繋ぐ
-- 継続行が絶対パス root（`/` `~`）で始まる場合は連結しない。`/...` `~/...` は単独の絶対パスであって上の行の継続ではないため、shebang やコメントの直下に来ても上の行と繋がず、汚染で boundary が壊れてリンクが消えるのを防ぐ
-- 結合テキストと「現在行の開始オフセット」を同じ下方向パスで算出し、結合条件と offset 計算の二重管理（desync）を防ぐ
+## スクロール位置の保持
 
-## xterm.js アドオン
+TUI アプリが再描画すると、エスケープシーケンスによってスクロール位置がリセットされる。ネイティブの
+ターミナルはコア内部でスクロール位置を持つためこれが起きないが、**組み込みのエミュレータはコア内部を
+変更できない**。この制約の下で次を満たす。
 
-`XtermTerminal.vue` で以下を `loadAddon` する。
+- **スクロールバック中の再描画で位置が飛ばない**。前後に行が増減しても、見ていた位置が指す内容は
+  変わらない
+- **最下部にいるときは最下部に留まる**。代替バッファでも同じ
+- **高頻度の書き込みでも位置の復元は 1 回に収束する**。書き込みのたびに補正してちらつかせない
+- **リサイズ時は保たれないことがある**。TUI アプリの再描画とぶつかるため。他のターミナルでも
+  リサイズでは最下部に戻るので許容する
 
-| アドオン         | 役割                                                                   |
-| ---------------- | ---------------------------------------------------------------------- |
-| `FitAddon`       | コンテナサイズに合わせて cols / rows をリサイズ                        |
-| `Unicode11Addon` | Unicode 11 幅テーブルで CJK・絵文字の幅計算を正確にする                |
-| `WebLinksAddon`  | テキスト中の URL パターンを自動検出（クリックで `open_external` 呼出） |
-| `WebglAddon`     | GPU レンダラ。スクロール / 高頻度更新時のフレームレートを稼ぐ          |
+## テーマ
 
-加えて `useFilePathLinkProvider` で `terminal.registerLinkProvider` を呼び、ファイルパス（相対 / 絶対 / 改行折り返し）を別途検出する。
+ターミナルのカラーテーマを選択できる。コマンドパレットから開き、dark / light に分けて一覧する。
+**フォーカス移動でリアルタイムにプレビューし、確定で保存、キャンセルでロールバックする**。
+選択したテーマ名は設定に永続化する。
 
-## 設定（terminalConfig.ts）
-
-- フォント: UDEV Gothic 35NF, Menlo, monospace（13px）
-- テーマ: `@gozd/themes` パッケージから iTerm2-Color-Schemes ベースのテーマを選択可能。コマンドパレットの "Terminal: Select Theme" で QuickPick が開き、dark/light セクション分けで表示される。フォーカスでリアルタイムプレビュー、Enter で確定保存、Escape でロールバック。選択テーマ名は `config.json` に永続化される
-- デフォルトテーマ: zinc 系ダークテーマ（xterm 背景 `#18181b`）
-- ペイン背景: `bg-background`（semantic token）。非アクティブ leaf は `opacity-50` で背景が透ける
-- カーソル: 点滅有効
-
-## スクロール位置保持（xterm.js）
-
-TUI アプリ（Claude Code 等）が normal buffer で動作する場合、スクロールバック中に再描画が起きるとエスケープシーケンスにより viewportY がリセットされる。ネイティブターミナルではコア内部でスクロール位置を管理するためこの問題は起きないが、xterm.js ではコア内部を変更できないため外部から補正する。
-
-### 業界ターミナルの設計
-
-| ターミナル | アンカー方式                             | 行追加時の処理                                           |
-| ---------- | ---------------------------------------- | -------------------------------------------------------- |
-| alacritty  | `display_offset`（スクロールバック行数） | `scroll_up()` 内で `display_offset += positions`         |
-| kitty      | `scrolled_by`（スクロールバック行数）    | render loop で `scrolled_by += history_line_added_count` |
-| WezTerm    | `StableRowIndex`（論理行インデックス）   | `stable_row_index_offset` で削除行数を追跡               |
-
-共通点:
-
-- スクロール位置はターミナルコアの内部状態として管理される
-- 外部 callback で補正するパターンはどのターミナルにも存在しない
-
-### xterm.js での実装: ViewportIntent + Marker
-
-xterm.js の `registerMarker()` は安定アンカーとして機能し、行の追加・削除に追従する。
-
-```text
-ViewportIntent = "bottom" | "anchored(marker)"
-
-write() 前:
-  captureViewportIntent()
-    → bottom にいる or alternate buffer → intent = bottom
-    → スクロールバック中 → Marker を登録して intent = anchored(marker)
-
-write() 後（onWriteParsed で集約）:
-  restoreViewportIntent()
-    → intent = bottom → scrollToBottom()
-    → intent = anchored → marker.line に scrollToLine()
-```
-
-`onWriteParsed` はフレームごとに最大1回発火するため、高頻度 write() でも復元が1回に集約される。
-
-### 検討・却下した方式
-
-- **viewportY 生値の共有変数**: xterm.js の非同期 WriteBuffer とスナップショットの対応が崩れる
-- **viewportY 生値のローカル変数（クロージャキャプチャ）**: コールバック実行時に古いスナップショットでユーザー操作を踏み潰す
-- **scrollRevision（世代番号）**: 業界4大ターミナルのどれにも存在しないパターン
-
-### リサイズ時の挙動
-
-リサイズ時は Marker ベースの復元を試みるが、TUI アプリの SIGWINCH 再描画で Marker 復元後にずれる場合がある。他のターミナル（alacritty, kitty 等）でもリサイズ時は bottom にリセットされるため、許容する。
-
-## main 側の PTY 管理
-
-- PTY の実体は node-pty。instance の所有は `apps/electron/src/routes.ts`、PTY ⇔ Claude session の紐付けは `ptySessions.ts` が持つ
-- アプリ終了時 (`will-quit`) の `killAllPtys`・個別 kill・worktree 削除は共通の破棄経路（`teardownPty`）を通す
-- **アプリ終了時 SIGABRT 回避の主因は `destroy()`（ptmx master を閉じる）**。node-pty の exit callback（native waitpid ベースの ThreadSafeFunction）は listener の dispose では止まらず、子 reaped 時に必ず内部の onexit closure を呼ぶ。この closure は socket 未 close だと `setTimeout` を張る分岐に入り、env 破棄中（`FreeEnvironment`）にこれを踏むと NAPI が throw して SIGABRT する。`destroy()` が socket を閉じ `_emittedClose` を立てると、遅れて着弾する native onexit は純 JS の emit 分岐へ落ちて無害化する。onData/onExit listener の dispose は、破棄中に遅延 onExit が破棄済み webContents への `ctx.push` を呼ぶのを防ぐ多重防御（crash の主因対策ではない）
-- `destroy()` は同時に、kill（shell への SIGHUP）だけでは残る配下のサーバー子プロセスを掃除する。ptmx master を閉じるとカーネルが tty hangup で foreground process group に SIGHUP を配り、閉じ忘れた子まで落ちる（master fd リークも防ぐ）。ただし node-pty の destroy は socket close 時に遅延 SIGHUP を撃ち、子 reaped 後は pid が別プロセスに再利用されて誤爆しうるため、destroy 前に kill を no-op 化して無効化する
-- worktree 削除時は worktreePath で該当 PTY を特定して kill
-- spawn のワイヤ契約は argv 全体（args[0] = プログラム名）。node-pty は argv[0] を含めない流儀のため main 側で `args.slice(1)` して渡す
+非アクティブな端末は不透明度を落として区別する。

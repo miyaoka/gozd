@@ -1,165 +1,65 @@
 # アーキテクチャ
 
-アプリの起動から通信までの全体像。各レイヤーがどう繋がるかを把握するためのドキュメント。
+プロセス構成と、プロセス境界を跨ぐときに守る契約。
 
-## レイヤー構成
-
-```text
-┌─────────────────────────────────────────────────────┐
-│  renderer (Vue)                                     │
-│  apps/renderer/                                     │
-│  Electron renderer process 内で動作するフロントエンド │
-└────────────────┬────────────────────────────────────┘
-                 │ contextBridge（window.__gozdElectronRpc）
-                 │ ipcRenderer.invoke("rpc:request") / on("rpc:push")
-┌────────────────┴────────────────────────────────────┐
-│  main (Electron / TypeScript)                       │
-│  apps/electron/src/                                 │
-│  PTY (node-pty), ファイル監視 (@parcel/watcher),     │
-│  RPC ディスパッチ, ソケットサーバー, 永続化ストア      │
-└────────────────┬────────────────────────────────────┘
-                 │ Unix ドメインソケット（NDJSON / JSON 1 行 = 1 ClientMessage）
-┌────────────────┴────────────────────────────────────┐
-│  CLI (TypeScript)                                   │
-│  apps/electron/src/cli.ts → dist/cli.cjs            │
-│  + bin/gozd-cli shim + resources/bin/gozd ラッパー   │
-└─────────────────────────────────────────────────────┘
-```
-
-renderer ↔ main は Electron の process 境界。preload（`src/preload.ts`）が contextBridge で
-`window.__gozdElectronRpc`（request / onPush）を公開し、renderer の `shared/rpc` はこのブリッジの
-有無でトランスポートを静的に選ぶ。ブリッジ契約 `ElectronRpcBridge` は `@gozd/shared` が SSOT。
-
-## 型共有: `@gozd/rpc`
-
-RPC 型は `packages/rpc` の手書き TS 型を SSOT に置き、renderer / electron が同じ定義を
-import する（Swift 並走期の `.proto` SSOT + ts-proto 生成は廃止済み。issue #895）。
-
-- renderer ↔ main のワイヤは Electron IPC の structured clone。両端が同型を参照するため
-  codec は存在せず、plain data（JSON 形 + `WireBytes`）をそのまま運ぶ。main は
-  `body as X` cast + `satisfies X` で型を通す。Vue の reactive proxy 等の exotic object は
-  clone できず reject するため、呼び出し側が plain data を渡す（不変条件の SSOT は
-  `@gozd/shared` の `ElectronRpcBridge` docstring）
-- バイナリ（ファイル内容等）は `WireBytes` を第一級で運ぶ。main の Buffer は送出前に
-  exact-size コピー（`toWireBytes`）へ変換する（Buffer の共有プール view をそのまま送ると
-  backing ArrayBuffer ごと複製され、無関係なデータが漏出するため）。CLI / hooks の
-  Unix ソケットは従来どおり NDJSON で、socket を通る型にバイナリは載せない
-- フィールド名は旧 proto3 JSON mapping の lowerCamelCase を踏襲（永続化 JSON のキーと一致）。
-  `?` フィールドは undefined（永続化 JSON ではキー不在）で未設定を表現する
-- 旧 enum は文字列リテラル union（main 内部表現と同一文字列。境界の変換層なし）。
-  例外は tasks.json に永続化される `GhRefKind`（[rpc.md](rpc.md) 参照）
-- プロセス境界を跨ぐ「信頼できない入力」（永続ファイル / socket NDJSON）だけは受信側で
-  default 充填の正規化を通す（`apps/electron/src/rawJson.ts` の契約）。「フィールド不在 =
-  default」は正常系の契約、「存在するが型違反」は契約外で、入力の性格ごとに扱いが分かれる:
-  state 系永続ファイル（app-state.json / tasks.json）は破損として stderr ログ + 初期状態で
-  上書き save（strict）、ユーザー設定ファイルと socket 入力は違反フィールドだけ default に
-  倒して stderr ログ（lenient。ユーザーのファイルは書き換えない）
-
-## ビルドと `.app` の構造
-
-- `pnpm dev` — renderer（Vite HMR）と Electron shell（esbuild → `electron .`）を concurrently で
-  同時起動。`GOZD_DEV_VITE_PORT`（root の dev runner `scripts/dev.ts` が worktree の realpath から
-  決定論的に導出して設定）が Vite URL の SSOT で、Electron main が `http://localhost:{port}` を
-  導出して loadURL する。port が worktree 単位で分かれるため、複数 worktree の並列 `pnpm dev` が
-  可能。esbuild + electron の起動は Vite より速いため、初回 load の ERR_CONNECTION_REFUSED は
-  did-fail-load で retry する
-- `pnpm --filter @gozd/electron build:app` — buildApp.ts が electron-builder
-  （`electron-builder.yml` + CLI override）を呼び、無指定では `out/mac-arm64/Gozd Local.app`
-  （local channel）を生成する。stable identity（`Gozd.app`）は release CI が
-  `GOZD_BUILD_CHANNEL=stable` で焼き込むビルドだけが名乗れる（[release.md](release.md)）。
-  renderer は `.app` 同梱の Vite build 成果物を `loadFile` で読む
-  （Vite build は `base: "./"` の相対パスなので file:// で成立する）
-
-### electron-builder の前提
-
-- workspace は `nodeLinker: hoisted`（pnpm-workspace.yaml）。Electron 公式処方
-  「パッケージングツールチェーンは npm 式に物理配置された node_modules を前提とする」に従う。
-  これにより electron-builder 標準の prod 依存収集（node-pty / @parcel/watcher + transitive）が
-  そのまま機能する
-- `asar: true` + `asarUnpack`（Electron / electron-builder の公式推奨。`asar: false` は
-  「strongly not recommended」警告が出る）。`ELECTRON_RUN_AS_NODE` は asar 統合をバイパスするため、
-  その経路で実行される `dist/cli.cjs` だけ unpack する（esbuild で全依存 bundle 済みの単一ファイルなので
-  unpack は 1 ファイルで済む）。native module（node-pty / @parcel/watcher の `.node`）は asar 内から
-  dlopen 不可のため unpack する。将来 stable で署名する際に ASAR integrity（`embeddedAsarIntegrityValidation`
-  Fuse）へ地続きで進めるよう asar を有効に保つ。bin/ zsh/ views/ は extraResources で asar の外
-- `electronDist` は指定しない（electron-builder 標準の zip ダウンロード + 展開）。unpacked dist を
-  渡すとコピー経路が Electron.app 最上位の空 `.lproj`（macOS のアプリ言語判定に使われる）を
-  落とし、renderer の Intl ロケールが en-US に固定される
-- bundle id は `io.github.miyaoka.gozd.electron`
-- `build:app` が `buildVersion`（Info.plist の `CFBundleVersion`）に HEAD のコミット日時 + hash を
-  注入する。About パネル括弧内のビルド識別と、wrapper の `~/Applications` 同期の比較キーを兼ねる。
-  未コミット変更を含むビルドは hash に `-dirty` が付き、表示 hash と `.app` の中身の不一致が
-  自己申告される。electron-builder ステップでの注入なので packaged にしか値が存在せず、
-  「dev には出さない」が配管なしで保証される。dev はビルド元 worktree でコードが見えるため
-  識別情報を焼き込まない
-- バージョン番号（`CFBundleShortVersionString`）は `apps/electron/package.json` の version が
-  SSOT。stable リリース前に人間が bump し、canary リリースは CI が tag 由来の version を
-  `extraMetadata.version` でビルドにのみ焼き込む（repo には書き戻さない。[release.md](release.md)）
-- `productName` は yml と package.json の両方に必要。yml 側は Info.plist（About パネルの表示名 /
-  `.app` 名）にだけ効き、実行時の `app.name`（メニューの About / Hide / Quit ラベル）は同梱
-  package.json から読まれる。片方だけだと About とメニューで名前が食い違う
-
-### `.app` 内の配置
+## プロセス構成
 
 ```text
-Gozd.app/Contents/
-├── MacOS/Gozd                       # Electron メインバイナリ
-└── Resources/
-    ├── icon.icns
-    ├── app.asar                     # files（esbuild 成果物）+ prod node_modules をアーカイブ
-    ├── app.asar.unpacked/           # asarUnpack で展開された実ファイル
-    │   ├── dist/cli.cjs             # ELECTRON_RUN_AS_NODE で実行するため実ファイル必須
-    │   └── node_modules/            # node-pty / @parcel/watcher（dlopen する native）
-    └── app/                         # extraResources（asar の外の実ディレクトリ）
-        ├── views/main/              # renderer の Vite ビルド成果物
-        ├── bin/gozd                 # シェルラッパー
-        ├── bin/gozd-cli             # CLI shim（app.asar.unpacked/dist/cli.cjs を ELECTRON_RUN_AS_NODE で実行）
-        ├── channel                  # channel marker（stable / local。buildApp.ts が焼き込む）
-        └── zsh/                     # gozd zsh init チェーン
+┌─────────────────────────────────────────────┐
+│ renderer                                     │
+│ UI 全体。ファイル I/O と外部プロセス起動を持たない │
+└──────────────────┬──────────────────────────┘
+                   │ IPC（structured clone）
+┌──────────────────┴──────────────────────────┐
+│ main                                         │
+│ RPC ディスパッチ / git / 永続化 / ソケット受付   │
+└──────────────────┬──────────────────────────┘
+                   │ Unix ドメインソケット（NDJSON）
+┌──────────────────┴──────────────────────────┐
+│ CLI・Claude hooks                            │
+└─────────────────────────────────────────────┘
 ```
 
-### `bin/gozd` シェルラッパーの動作
+main はさらに、native 拡張を使う責務を専用の隔離プロセスへ切り出す（PTY / ファイル監視）。
 
-`apps/electron/resources/bin/gozd` は bash スクリプト。
+| プロセス     | 持つもの                                                   | 持たないもの                     |
+| ------------ | ---------------------------------------------------------- | -------------------------------- |
+| renderer     | UI 状態、表示判断、worktree 相対パスの解決基準             | ファイル I/O、プロセス起動       |
+| main         | RPC ルーティング、git 実行、永続化、hook の受付            | native 拡張の直接ロード          |
+| PTY host     | 疑似端末のライフサイクルと入出力                           | 環境変数の構築、セッション紐づけ |
+| watcher host | ファイル監視の subscribe                                   | 変更の分類、git 実行、push       |
+| CLI          | ソケットへの 1 行送信、cold start 用の起動要求ファイル生成 | アプリ状態                       |
 
-- **cold start**（アプリ未起動）: CLI が launch request ファイルを `$TMPDIR/gozd-{channel}-launch/` に
-  書き出し → `open` で `.app` を起動 → アプリが起動時に最古の 1 件を consume して renderer に push
-  （読み取り失敗でも対象ファイルは削除する。壊れた request の残留は起動のたびに失敗し続けるため）
-- **warm start**（アプリ起動済み）: CLI がソケット経由で `OpenMessage` を送信 → renderer に push
-- **hook コマンド**: アプリ起動チェックをスキップし、CLI を直接実行
-- **sync-app コマンド**: `~/Applications/Gozd.app` へ自己同期して終了（stable channel のみ）。
-  mise の postinstall から呼ばれる更新伝播の主経路
+## プロセス境界を跨ぐ型
 
-Dock ピン / Spotlight が指す固定パス `~/Applications/Gozd.app` への同期
-（`CFBundleVersion` 比較 + APFS clone の atomic 差し替え）は、mise の postinstall が実行する
-`sync-app` が主経路で、stable channel の cold start 時の自己同期はバックアップ
-（[release.md](release.md)）。
+RPC の型（request / response / 永続化 schema / socket message）は単一のパッケージを SSOT に置き、
+renderer と main が同じ定義を参照する。両端が同型を見るためワイヤ変換層は存在しない。
 
-### gozd-cli（TS 実装）
+- 境界を通せるのは **plain data**（JSON 相当の値と生 bytes）だけ。reactive proxy のような
+  exotic object は複製できず reject されるため、呼び出し側が plain data を渡す責務を持つ
+- **バイナリは第一級で運ぶ**。文字列に詰め替えず、生 bytes のまま渡す
+- バイナリを送出するとき、**送る範囲だけを持つ独立したバッファに複製してから渡す**。共有プールを
+  背景に持つ view をそのまま渡すと、backing buffer ごと複製されて無関係なデータが同伴する
+- socket を通る型にバイナリを載せない（NDJSON はバイナリを保持できない）
+- `?` を持つフィールドは未設定を undefined で表す。永続化 JSON ではキー不在に対応する
 
-`src/cli.ts` を esbuild で `dist/cli.cjs` に全依存 bundle する。実行 shim は 2 種:
+### 信頼できない入力の正規化
 
-- dev: `apps/electron/bin/gozd-cli`（node で実行）
-- packaged: `resources/bin/gozd-cli`（`ELECTRON_RUN_AS_NODE=1` + 同梱 Electron バイナリ。
-  ユーザー環境に Node を要求しない）
+プロセス境界を跨いで届く入力のうち、**gozd が書いたと保証できないもの**（永続ファイル、socket の
+NDJSON）は受信側で正規化を通す。「フィールド不在 = default」は正常系の契約、「存在するが型違反」は
+契約違反で、入力の性格で扱いが分かれる。
 
-ワイヤは NDJSON 1 行の `ClientMessage` JSON。launch dir の channel は
-`GOZD_SOCKET_PATH` のファイル名（`gozd-<channel>.sock`）から導出するため socket と自動で揃う。
+| 入力                           | 型違反の扱い                                       |
+| ------------------------------ | -------------------------------------------------- |
+| gozd が所有する state ファイル | 破損とみなし、ログを残して初期状態で上書き保存する |
+| ユーザーが編集する設定ファイル | 該当フィールドだけ default に倒し、ログを残す      |
+| socket 入力                    | 該当フィールドだけ default に倒し、ログを残す      |
 
-### channel によるリソース分離
+ユーザーのファイルは書き換えない。gozd が所有するファイルは、壊れたまま読み続けるより初期化する。
 
-socket / launch dir / claude settings は channel で分離する。packaged `.app` は build 時に
-焼き込まれた marker（`Resources/app/channel`）で `stable`（release CI ビルド）/ `local`
-（無指定の `build:app`）に分かれ、未パッケージ（`electron .`）は `dev-<worktree hash>`
-（electronRoot の realpath から導出）。packaged 判定は `gozdEnv.isPackaged`（`__dirname` が
-`process.resourcesPath` 配下かどうか）。marker が欠落・不正な packaged ビルドは起動時エラーで
-止める（channel identity の詳細は [release.md](release.md)）。
+## channel によるリソース分離
 
-dev channel を worktree 単位に分けるのは、socketServer が listen 前に既存 socket を
-unlink するため。channel が固定だと 2 個目の `pnpm dev` が先発インスタンスの稼働中 socket を
-奪い、先発が spawn 済みの PTY からの hooks が後発に流れて ClaudeStatus が静かにずれる。
-CLI は socket ファイル名から channel を逆導出する（`cliOps.ts`）ため、hash 付き channel にも
-変更なしで追従する。
+同時に動く複数のインスタンスが互いのリソースを奪わないよう、揮発リソースを channel で分離する。
 
 | リソース          | パス                                          |
 | ----------------- | --------------------------------------------- |
@@ -167,371 +67,324 @@ CLI は socket ファイル名から channel を逆導出する（`cliOps.ts`）
 | launch request    | `$TMPDIR/gozd-{channel}-launch/`              |
 | Claude hooks 設定 | `$TMPDIR/gozd-{channel}-claude-settings.json` |
 
-永続データ（`~/.config/gozd/` 配下）は dev / stable で **共有** する。
+channel の決まり方と identity の詳細は [release.md](release.md)。未パッケージの起動は worktree 単位で
+別 channel になる。
 
-## 外部リンクの navigation 防壁
+worktree 単位に分けるのは、ソケットサーバーが listen 前に既存ソケットを unlink するため。channel が
+共通だと後発インスタンスが先発の稼働中ソケットを奪い、先発が起動した PTY からの hook が後発へ流れて
+状態が静かにずれる。CLI は接続先ソケットのファイル名から channel を逆算するため、channel の命名が
+変わっても追従する。
 
-「この URL を OS に渡してよいか」は、リンククリックを**受け取れる層**が決める。層ごとに判定を
-持つと「同じリンクでも通った経路で開く / 開かないが変わる」非対称が生まれるため、判定点は
-受け取れる層に 1 つだけ置く（VS Code が allowlist を `mainThreadWebviews.isSupportedLink` に
-だけ置き、main プロセスの `will-navigate` / `setWindowOpenHandler` / `openExternal` はいずれも
-URL の中身を見ないのと同じ切り方）。
-
-gozd では受け取れる層が frame によって違う。
-
-| frame                                        | クリックを受け取れる層 | 外部送りの担当                |
-| -------------------------------------------- | ---------------------- | ----------------------------- |
-| main frame（UI 本体）                        | renderer のコード      | renderer の `openExternal`    |
-| subframe（HTML preview の sandboxed iframe） | main の防壁のみ        | 防壁（`will-frame-navigate`） |
-
-subframe が例外なのは、previewed HTML が `gozd-preview://` の実 origin で配信され
-（[preview.md](preview.md) の HtmlPreview）、その中の script は配信時の CSP で止めてあるため。
-renderer からクリックを傍受する経路が無いので、この frame の外部送りは防壁が担う。
-
-### main: frame を動かさせない
-
-`installExternalLinkPolicy`（`src/main.ts`）を `app.on("web-contents-created")` で全 webContents
-（main window + undock child window）に一律適用する。
-
-- `setWindowOpenHandler`: `about:blank` + 所定の frame 名 prefix のみ allow（undock 用
-  child window。same-origin の about:blank は opener と同一 renderer プロセスに作られ、中身は
-  opener が DOM 投影で構築する — renderer の ChildWindow.vue）。それ以外は新 window を作らせず、
-  **URL も OS に渡さない**。gozd に外部 URL を `window.open` する first-party コードは無いため、
-  ここに来る要求は rendered content 由来か、リンククリックを受け取る層が取りこぼしたものだけで、
-  渡すとその層の allowlist を迂回する（VS Code はここで `openExternal` に渡すが、あちらは
-  untrusted content が popup を出せない構造が前提）
-- `will-frame-navigate`: **原則すべて block**（判定の SSOT は純関数 `decideFrameNavigation`）。
-  例外は 2 つ
-  - dev の Vite origin への **main frame の同一 URL 遷移**: 許可。Vite の full reload
-    （`location.reload()`）が `will-frame-navigate` を発火するため。同一 URL に絞るのは、同 origin
-    の別 path を通すと rendered content の root-relative リンクが Vite origin に解決され、UI 面が
-    SPA fallback に置換されるため。packaged は renderer を `loadFile` で読み込み、リロードも
-    webContents API 経由なのでこの判定に到達せず、例外は dev だけに閉じる
-  - **subframe の遷移**: `gozd-preview://` 内（previewed HTML の相対リンク）は許可。配信範囲は
-    protocol handler が登録 root に絞り、root 外は 403 になる。OS へ渡してよい scheme
-    （http / https / mailto。renderer 側 allowlist と同一集合）は preventDefault + OS へ
-    （上表のとおりこの frame のクリックを受け取れる層が他に無い）。それ以外は block
-
-block は stderr に残す（silent drop 禁止）。launch 失敗も同様。
-
-`will-navigate` を使わないのは main frame でしか発火せず subframe を素通しするため。subframe を
-見ないと previewed HTML のリンクが HTML preview 面を置換する。
-
-HTML preview が生きているのは `gozd-preview://` を明示的に allow しているから。undock child window
-が生きているのは、`about:blank` のように URLLoader を経由しない commit がこの判定に到達しないため。
-
-### renderer: OS に渡してよい URL を決める
-
-`shared/rpc` の `openExternal` が唯一の経路。リンククリックを受け取る層（markdown 本文 /
-terminal の OSC 8 / filer の submodule リンク）はすべてこれを通す。allowlist 外は開かずに
-reject し、呼び出し側が通知に倒す。subframe だけは renderer が受け取れないため防壁側が担う（上記）。
-
-scheme allowlist（http / https / mailto）は `@gozd/shared` の `isExternalUrl` が SSOT で、
-renderer の `openExternal` と main の防壁が同じ述語を見る。層ごとに別集合を持つと「同じリンクでも
-通った経路で開く / 開かないが変わる」非対称が生まれる。
-
-markdown 本文は `MarkdownBody` が `#fragment` 単独を除く全リンククリックを `preventDefault` し、
-外部 URL は自分で `openExternal` に流す。残りの href を `linkClick` で consumer に委ねる
-（VS Code の webview host が全リンククリックを preventDefault して host へ転送するのと同じ位置）。
-外部送りを consumer 任せにすると、購読しない consumer でリンクが黙って死ぬ。
-
-`click` と `auxclick` の両方を同じ経路に通す。中クリックは `click` を発火しないため、片方だけ
-bind すると既定の new-window 要求に落ち、この層の allowlist を迂回して OS に URL が渡る
-（VS Code の `markdownRenderer` も同じコールバックを両イベントに登録している）。
-
-child window は URL を load しないため、バイナリ配信セクションのセキュリティ境界は変わらない。
+永続データ（`~/.config/gozd/` / `~/.local/state/gozd/` 配下）は channel をまたいで **共有** する。
 
 ## 通信経路
 
-### IPC（renderer ↔ main）
+### renderer ↔ main
 
-- **request**（応答あり）: renderer → main。`ipcRenderer.invoke("rpc:request", path, body)` →
-  `rpcDispatcher.ts` のルート表 → 実装は `routes.ts`。ワイヤは `@gozd/rpc` 型の plain data
-  （structured clone。push 方向と同じ意味論）
-- **push**（一方向）: main → renderer。`webContents.send("rpc:push", type, payload)` →
-  preload 経由で renderer の `initRpcDispatcher` が購読
+- **request**: renderer から main への往復。応答を返す
+- **push**: main から renderer への一方向
 
-renderer の購読登録（module 実行）は `did-finish-load` 前に完了するため、load 完了後の push は
-落ちない。renderer 再構築中（Vite フルリロード等）に落ちた push は、mount 時の pull hydrate +
-onMessage 購読の貼り直しで構造的に回復する（Swift 期から続く規律。落としてはいけない push は
-「1 度の取りこぼしで UI 状態が永続的にずれる」もので、それらには観察ログを残す）。
+renderer の push 購読はウィンドウの load 完了より先に確立するため、load 後の push は落ちない。
+renderer の再構築中に落ちた push は、mount 時の pull による再取得と購読の貼り直しで回復する。
+この「mount で pull、変化で push」を全 feature で守ることで、push の取りこぼしが恒久的なずれに
+ならない構造にする。
 
-詳細なメッセージ一覧は [rpc.md](rpc.md)。
-
-### バイナリの配信（preview の画像 / SVG）
-
-専用経路を持たない。画像 / SVG もテキストと同じ read RPC で `WireBytes`（生 bytes）として
-運び、renderer 側で表示形へ変換する。旧 `gozd-file://` protocol（`<img>` への raw bytes
-直配信 scheme）は、structured clone ワイヤへの移行で「JSON string はバイナリを保持できない」
-という前提ごと廃止した。
-
-セキュリティ: ファイル読みへの到達経路は first-party の renderer コードだけが呼べる RPC と、
-HTML preview 専用の配信 scheme `gozd-preview://`（[preview.md](preview.md)）の 2 つ。後者は
-URL 越しに読める口だが、配信は renderer が登録した root 配下に限られ、応答の CSP で script と
-外部通信を落としてある。rendered HTML（markdown 等）に `<img src="gozd-preview://…">` と書いても
-到達しないのは、DOMPurify の URI allowlist が未知 scheme を落とすため（この依存があるので、
-sanitizer 設定を緩めるときはこの境界を再確認する）。描画されたコンテンツから RPC bridge を
-呼べないのは、DOMPurify が script を除去するため。
+メッセージ一覧は [rpc.md](rpc.md)。
 
 ### SSOT push の dir filter 規律
 
-ファイル監視経由の push は ms オーダーで届くが、watch 開始往復中の取りこぼしや配送失敗で
-1 度の event を落とすと、UI 状態と git refs の実体が永続的にずれる。これを防ぐため、
-全 push に source `dir` を載せ、購読側が自分の責務に応じて filter する契約を統一する。
+ファイル監視由来の push は、1 度落とすと UI 状態と git の実体が恒久的にずれる。これを防ぐため、
+全 push に発火源の `dir` を載せ、購読側が自分の責務に応じて filter する契約に統一する。
 
-- **payload に dir を載せる**: `gitStatusChange` / `branchChange` / `remoteRefsChange` /
-  `worktreeChange` / `fsWatchReady` すべての push payload は `dir` を必須フィールドとして持つ。
-  dir を載せないと N watch × M subscriber の cross product 発火が避けられず、累積発火が
-  外部リソース（GitHub rate limit 等）を食い潰す
-- **再同期トリガー**: `useFsWatchSync` が `rpcFsWatch` 成功ごとに renderer 内部で `fsWatchReady` を
-  **dir 1 件につき 1 push** 発射する。GitGraphPane は active と同 repo の event だけ `loadLog`、
-  useSidebarData は source dir の所有 repo を再 fetch する
-- **active filter / source-dir filter の使い分け**: pane の責務 + event の種類で filter 方向を変える
-  - GitGraphPane: `gitStatusChange` は per-worktree なので strict dir match、
-    `branchChange` / `remoteRefsChange` / `fsWatchReady` は同 repo 判定で受ける
-  - useSidebarData: `findRepoOwning(dir).rootDir` を fetch
-- **status payload に branch.head を含める**: `git branch -m` は HEAD の commit OID を変えないため、
-  `gitStatusChange.head` だけで判定すると rename を取りこぼす。renderer は `branchHead` の変化でも
-  `loadLog` を発火する
+- **payload に dir を必須で載せる**。載せないと「N 個の監視 × M 個の購読者」の直積で発火し、
+  累積発火が外部リソース（GitHub の rate limit 等）を食い潰す
+- **監視の登録が成立した時点で、dir 1 件につき 1 回の再同期シグナルを流す**。監視の開始往復中に
+  起きた変化を取りこぼさないため
+- **filter の向きは pane の責務と event の種類で変える**。worktree 単位の意味を持つ event は
+  厳密な dir 一致で、repo 単位の意味を持つ event は同一 repo 判定で受ける
+- **status の push には現在の branch が指す commit を含める**。branch の rename は commit を
+  動かさないため、HEAD の commit だけを見ると rename を取りこぼす
 
 > [!NOTE]
-> PR list は push 経路で原理的に到達不能（`gh pr create` 等の local refs を動かさない GitHub
-> mutation）のため、active worktree 1 個に scope を絞った 60 秒間隔の `gh pr list` polling を
-> GitGraphPane 内に持つ。詳細は [git.md](git.md)。
+> local な参照を動かさない GitHub 側の変更は push 経路では原理的に到達できない。この穴だけは
+> polling で埋める（[git.md](git.md)）。
 
-### FSWatch の対象スコープ
+### バイナリの配信とセキュリティ境界
 
-`useFsWatchSync` は **開いている全 repo / 全 worktree の dir** を `rpcFsWatch` に登録する。
-watch 対象の集合は `useRepoStore` の computed `fsWatchTargetDirs` として store 側で派生する。
+画像や SVG も専用経路を持たず、テキストと同じ読み取り RPC で生 bytes として運ぶ。
 
-- gozd は「window 内マルチ repo + マルチ worktree」が機能要件なので、active 1 dir だけの watch では
-  別 repo / 別 worktree の commit / rename / push を取りこぼす
-- per-worktree git dir 配下の `HEAD` / `index` 変化も worktree ごとに独立して watch される
-- 非 git project は rootDir そのものを watch（fsChange のみが意味を持つ）
-- `rpcFsWatch` / `rpcFsUnwatch` は main 側 `fsWatchRegistry` で idempotent
-- @parcel/watcher は 1 subscribe = 1 root で、包含 root を重ねると同一 event が二重配送される。
-  `fsWatchRegistry` は最小被覆集合だけ subscribe する
-- 除外（`AppConfig.watcherExclude` / VS Code の `files.watcherExclude` 相当）は **working-tree
-  root の subscription にだけ**適用し、git dir root には掛けない。git dir を除外すると
-  ref / HEAD / index イベントを落として branch / status 検知が壊れるため
+ファイル内容へ到達できる経路は 2 つに限る。
 
-### @parcel/watcher の utilityProcess 隔離
+- first-party の renderer コードだけが呼べる RPC
+- HTML preview 専用の配信 scheme（[preview.md](preview.md)）
 
-`@parcel/watcher` の subscribe は **Electron の utilityProcess（別 OS プロセス）に隔離**し、
-main は `fsWatchRegistry` の transport 越しに subscribe / unsubscribe を仲介する。
+後者は URL から読める口だが、配信範囲は preview が登録した root 配下に限られ、応答の CSP で
+script 実行と外部通信を落とす。描画されたコンテンツ（markdown 等）から RPC bridge を呼べないのは
+sanitizer が script を除去するため、配信 scheme を参照できないのは sanitizer の URI allowlist が
+未知 scheme を落とすため。**sanitizer の設定を緩めるときはこの 2 つの境界を再確認する**。
 
-- **なぜ別プロセスか**: native FSEvents コールバックスレッドが glob 照合中に heap 破壊で trap
-  すると、in-process では main プロセスごと落ちる。Electron の renderer / GPU 隔離は native
-  addon を main に同居させるため効かない。subscribe を別アドレス空間に閉じ込めることで、
-  native crash をそのプロセス内で完結させ main を巻き込まない（VS Code の
-  UniversalWatcherClient と同じ切り方）
-- **境界**: 隔離プロセスが持つのは subscribe のみ。classify / git / push は main に据え置く。
-  git サブプロセス生成や RPC ブリッジを別プロセスに複製しないための最小境界
-- **crash 復帰**: main が process の異常終了を検知して respawn し、確立済み subscription を
-  全再確立する。連続失敗は上限で打ち切る（落ちたまま監視が黙って止まると push を落とすため、
-  停止は観察可能化する）
-- **観察可能性**: crash / respawn / 隔離プロセス内部ログの診断は `debugLog` push で renderer の
-  event-log パネル（`logEvent`）へ流す。自己修復する crash は toast にせず、監視が完全停止した
-  terminal ケースだけ `notify` でトースト通知する（VS Code の「行動可能なものだけ user-facing、
-  それ以外はログチャンネル」と同じ切り分け）。main 側の push ヘルパー（`makeDebugLogPush`）は
-  event-log push に加えて `console.error` の floor も出す二段構え。event-log push は packaged UI で
-  見えるが push 先 window が未束縛 / クローズ時は無音で落ちるため、dev 可視かつ push 落下時も残る
-  floor で失敗経路の silent drop を防ぐ。隔離プロセス（`watcherProcess`）側の child stderr は
-  不可視なので、そちらは `console.error` を使わず log message を main へ投げる分業とする
+### ソケットからの受付
 
-### Unix ドメインソケット（CLI / Claude hooks → main）
+ソケットのプロトコルは NDJSON で、1 行が 1 メッセージ。メッセージは `open`（パスを開く要求）と
+`hook`（Claude Code の状態通知）のどちらか一方だけを持つ。
 
-`socketServer.ts` が `$TMPDIR/gozd-{channel}.sock` で待ち受ける。プロトコルは NDJSON
-（改行区切り JSON）。1 行が `ClientMessage`（`@gozd/rpc`。`open` / `hook` の
-どちらか一方だけを設定する）。
+処理は逐次キューで直列化し、**同一 PTY のセッション系 hook が送信順に処理されること**を保証する。
+decode 失敗は接続を切らずログに残す。
 
-- `OpenMessage`: `gozd open <path>` 相当。renderer に gozdOpen を push
-- `HookMessage`: Claude Code hooks からの状態通知。renderer に hook を push
+### `gozd` コマンドの起動経路
 
-処理は promise chain の逐次キュー（`socketMessages.ts`）で、同 ptyId の session 系 hook が
-submit 順に処理されることを保証する。
+`gozd` は常に **既存ウィンドウへ要求を届ける**。新しいウィンドウは作らない。
 
-## PTY と環境変数
+| 状況              | 経路                                                                   |
+| ----------------- | ---------------------------------------------------------------------- |
+| アプリ起動済み    | ソケットへ open メッセージを送る                                       |
+| アプリ未起動      | 起動要求ファイルを書いてアプリを起動し、アプリが起動時にそれを消費する |
+| hook サブコマンド | アプリの起動確認を経ずソケットへ直送する                               |
 
-main が PTY を spawn する時に以下の環境変数を注入する（`gozdEnv.buildPtyEnv`。
-親 env 全継承 + deny-list + gozd overlay の 3 層 merge）。
+起動要求ファイルは **読み取りに失敗しても削除する**。壊れた要求が残ると起動のたびに失敗し続ける。
+複数溜まっている場合は最も古い 1 件だけを消費する。
+
+## ファイル監視
+
+### 監視スコープ
+
+監視対象は **開いている全 repo / 全 worktree の dir**。active な 1 dir だけでは、別 repo・別 worktree で
+起きた commit / rename / push を取りこぼす。マルチ repo × マルチ worktree は gozd の機能要件なので、
+スコープを絞らない。
+
+- worktree ごとの git dir も worktree 単位で独立に監視する
+- 非 git のディレクトリは root 自身を監視する（ファイル変更だけが意味を持つ）
+- 監視の登録 / 解除は冪等
+- **包含関係にある root を重ねて登録しない**。同一の変更が二重配送されるため、最小被覆集合だけを
+  監視する
+
+### 除外の適用範囲
+
+ユーザー設定による除外パターンは **working tree 側の監視にだけ**適用し、git dir には掛けない。
+git dir を除外すると参照や HEAD の変化を落とし、branch / status の検知が壊れる。
+
+## native 拡張の隔離
+
+native 拡張（PTY、ファイル監視）は main と同じアドレス空間に置かず、専用の隔離プロセスへ切り出す。
+Electron の renderer / GPU 隔離は native 拡張を main に同居させるため、この用途には効かない。
+
+**共通の契約**: 隔離プロセスが持つのは native 資源のライフサイクルだけ。分類・git 実行・push・
+環境変数の構築・セッション紐づけは main に据え置く。git の起動や RPC 経路を別プロセスへ複製しない
+ための最小境界。
+
+**crash 後の扱いは資源の性質で分かれる**。
+
+| 資源         | crash 時の挙動                                                              | 理由                                                      |
+| ------------ | --------------------------------------------------------------------------- | --------------------------------------------------------- |
+| ファイル監視 | 隔離プロセスを再起動し、確立済みの監視をすべて張り直す                      | 監視は再登録すれば透過的に復帰する                        |
+| PTY          | 復元せず、生存中の全 PTY を終了として通知する。次の起動要求で遅延再起動する | 配下の shell やセッションは子プロセスごと死ぬため蘇生不能 |
+
+監視の再起動は連続失敗で打ち切る。**打ち切って監視が止まった状態を無音にしない** — 止まったまま
+黙っていると push を落とし続ける。
+
+**PTY の入出力には backpressure をかける**。高スループットの出力が IPC を溢れさせないよう、
+未確認のデータ量が閾値を超えたら読み出しを止め、転送済みの確認で再開する。
+
+### 観察可能性
+
+隔離プロセス由来の crash・再起動・内部ログは、UI のイベントログと標準エラー出力の**二段構え**で出す。
+イベントログはパッケージ済みのアプリでも見えるが、送り先のウィンドウが未確立・クローズ時は無音で
+落ちる。標準エラー出力はその落下時にも残る floor として機能する。
+
+隔離プロセス側の標準エラー出力は誰にも見えないため、隔離プロセスからは直接出力せず main へ
+ログメッセージを送る分業にする。
+
+自己修復する crash はトーストにしない。**監視が完全に停止した終端ケースだけ**ユーザーに通知する。
+
+## PTY 環境
+
+PTY 起動時、親の環境変数を継承したうえで gozd 固有の値を重ねる。
 
 > [!WARNING]
-> `PtySpawnRequest.args` のワイヤ契約は **argv 全体**（args[0] = プログラム名）。node-pty は
-> args に argv[0] を含めない流儀なので、main 側で `args.slice(1)` して渡す。
-
-### node-pty の utilityProcess 隔離
-
-node-pty の `IPty` は **Electron の utilityProcess（pty 専用 host。`ptyHost`）に隔離**し、main は
-`ptyClient` の transport 越しに spawn / write / resize / kill を仲介する。main は node-pty を
-一切 import せず、main のバンドルに node-pty への参照は存在しない（唯一の import 元は host entry
-`ptyHost`）。
-
-- **なぜ別プロセスか**: node-pty の exit callback は「native waitpid スレッド → ThreadSafeFunction →
-  JS の onexit」という非同期経路で、子の reap がアプリ終了時の env teardown（`node::FreeEnvironment`
-  → `CleanupHandles` → `uv_run` の drain）と競合すると、破壊中 isolate 上で `cb.Call` が失敗し
-  node-addon-api が二重 throw して `SIGABRT` する。これは in-process では原理的に消せない
-  （microsoft/vscode issue243952 も未解決）。IPty を丸ごと別アドレス空間へ移し、crash する env を
-  使い捨ての host に閉じ込めるのが唯一の構造的解（VS Code ptyHost モデルと同型）。watcher の
-  native heap 破壊とは別クラスの crash だが、封じ込めの思想は共通
-- **境界**: host が持つのは IPty のライフサイクルと data のみ。env 構築（`buildPtyEnv` の
-  `GOZD_PTY_ID` 注入等）・session 紐付け（`ptySessions`）・portScanner の pid 帰属は main に据え置く。
-  pid は spawn 応答で host から返して main が引き取る
-- **flow control**: MB/s 規模の onData を host→main IPC で溢れさせないため backpressure をかける。
-  host は未 ack 文字数を数え、閾値超で `pty.pause()`、main が転送後に ack を返し、下限を割ると
-  `resume()`（VS Code FlowControlConstants と同じ watermark 方式）
-- **crash 復帰が watcher と違う理由**: watcher は re-subscribe で透過復帰できるが、pty host が落ちると
-  配下の shell / claude セッションは子プロセスごと死ぬため蘇生できない。よって host crash 時は
-  respawn して復元せず、live な全 pty を exited として renderer に通知（`ptyExit`）し、次の spawn 要求で
-  host を lazy 再起動する。app 丸ごと即死より厳密に改善（app は生存、当該端末だけ死ぬ）
-- **quit 経路**: アプリ終了時は `ptyClient.dispose()` で host を terminate する。host の env teardown
-  （pending TSFN の drain crash 含む）は使い捨て host 内で完結し、main は `child exit` を観測して
-  cleanly quit する
-- **観察可能性**: crash / host 内部ログは main 側の `makeDebugLogPush`（`console.error` floor +
-  event-log push の二段構え）へ流す（watcher と同じ規律）。host（隔離プロセス）側の child stderr は
-  不可視なので、host からは `console.error` を使わず `log` message を main へ投げる
+> PTY 起動要求における引数配列の契約は **argv 全体**（先頭要素がプログラム名）。
 
 ### gozd 固有の環境変数
 
-| 変数                        | 用途                                                     |
-| --------------------------- | -------------------------------------------------------- |
-| `GOZD_PTY_ID`               | PTY の識別子。hooks イベントの発火元を特定する           |
-| `GOZD_SOCKET_PATH`          | ソケットパス。CLI や hooks コマンドが接続先に使う        |
-| `GOZD_CLI_PATH`             | `gozd-cli` shim の絶対パス。dev と packaged で値が異なる |
-| `GOZD_CLAUDE_SETTINGS_PATH` | Claude hooks 設定ファイルのパス。`claude()` 関数が参照   |
-| `GOZD_ZDOTDIR`              | gozd の zsh 初期化ディレクトリ                           |
-| `GOZD_ORIG_ZDOTDIR`         | ユーザーの元の ZDOTDIR（gozd が上書きする前の値）        |
+| 変数                        | 用途                                          |
+| --------------------------- | --------------------------------------------- |
+| `GOZD_PTY_ID`               | PTY の識別子。hook イベントの発火元を特定する |
+| `GOZD_SOCKET_PATH`          | ソケットのパス。CLI や hook コマンドの接続先  |
+| `GOZD_CLI_PATH`             | CLI 実行 shim の絶対パス                      |
+| `GOZD_CLAUDE_SETTINGS_PATH` | Claude hooks 設定ファイルのパス               |
+| `GOZD_ZDOTDIR`              | gozd の zsh 初期化ディレクトリ                |
+| `GOZD_ORIG_ZDOTDIR`         | gozd が上書きする前のユーザーの ZDOTDIR       |
 
-`GOZD_CLI_PATH` は dev では `apps/electron/bin/gozd-cli`、packaged では
-`.app/Contents/Resources/app/bin/gozd-cli` に解決される（`gozdEnv.ts`）。
+起動の意図を zsh 初期化へ渡す変数。**渡された意図は 1 回だけ消費される**。
+
+| 変数                         | 意図                                         |
+| ---------------------------- | -------------------------------------------- |
+| `GOZD_RESUME_CLAUDE_SESSION` | 指定したセッションを再開する                 |
+| `GOZD_AUTOSTART_CLAUDE`      | 端末を開いた直後にエージェントを起動する     |
+| `GOZD_CLAUDE_PREFILL`        | プロンプト入力欄へ挿入する内容（送信しない） |
+| `GOZD_SETUP_SCRIPT`          | worktree 作成直後に実行する初期化コマンド    |
 
 ### ターミナル環境変数
 
-| 変数              | 値               | 用途                           |
-| ----------------- | ---------------- | ------------------------------ |
-| `TERM`            | `xterm-256color` | ターミナル種別                 |
-| `COLORTERM`       | `truecolor`      | 24bit カラー対応               |
-| `TERM_PROGRAM`    | `gozd`           | アプリ識別                     |
-| `FORCE_HYPERLINK` | `1`              | OSC 8 ハイパーリンク出力を許可 |
+**誰が決めるかで 2 種類に分かれる**。
 
-### ZDOTDIR 差し替えによる zsh 初期化チェーン
+呼び出し側が spawn ごとに指定し、**親の値を上書きする**もの:
 
-PTY 起動時に `ZDOTDIR` を gozd の zsh 初期化ディレクトリ（dev: `apps/electron/resources/zsh/`、
-packaged: `.app/Contents/Resources/app/zsh/`）に差し替え、gozd の初期化ファイルがユーザーの
-初期化ファイルを透過的に `source` する。
+| 変数        | 値               | 用途             |
+| ----------- | ---------------- | ---------------- |
+| `TERM`      | `xterm-256color` | ターミナル種別   |
+| `COLORTERM` | `truecolor`      | 24bit カラー対応 |
+
+gozd が既定として保証し、**指定が無いときだけ埋める**もの:
+
+| 変数              | 値     | 用途                           |
+| ----------------- | ------ | ------------------------------ |
+| `TERM_PROGRAM`    | `gozd` | アプリ識別                     |
+| `FORCE_HYPERLINK` | `1`    | OSC 8 ハイパーリンク出力を許可 |
+
+### zsh 初期化チェーン
+
+PTY 起動時に `ZDOTDIR` を gozd の初期化ディレクトリへ差し替え、gozd の初期化ファイルがユーザーの
+初期化ファイルを透過的に `source` する。ユーザーの設定を壊さずに gozd の注入を重ねるための構造。
 
 ```text
 zsh 起動
   → gozd/.zshenv   → ユーザーの .zshenv を source → ZDOTDIR を gozd に戻す
   → gozd/.zprofile → ユーザーの .zprofile を source
-  → gozd/.zshrc    → ユーザーの .zshrc を source → claude() 関数と OSC 7 通知を注入
+  → gozd/.zshrc    → ユーザーの .zshrc を source → 関数と通知を注入
   → gozd/.zlogin   → ユーザーの .zlogin を source → ZDOTDIR をユーザー側に固定
 ```
 
-注入される関数:
+注入するもの:
 
-- **`claude()`**: `claude` コマンドに `--settings $GOZD_CLAUDE_SETTINGS_PATH` を自動付与。
-  ユーザーが明示的に `--settings` を指定した場合はそのまま通す
-- **`_gozd_osc7_cwd()`**: ディレクトリ変更時に OSC 7 エスケープシーケンスを送信。xterm.js 側でパース
+- **`claude` のラップ**: hooks 設定を自動で付与する。ユーザーが明示的に設定を指定した場合は
+  そのまま通す
+- **cwd 通知**: ディレクトリ変更のたびに OSC 7 で現在の cwd を送る（[terminal.md](terminal.md)）
+- **起動意図の消費**: 環境変数で渡された「セッション再開」「自動起動」「セットアップスクリプト」の
+  意図を 1 回だけ実行する
+
+## 外部リンクの navigation 防壁
+
+「この URL を OS に渡してよいか」の判定点は、**リンククリックを受け取れる層に 1 つだけ**置く。
+層ごとに判定を持つと、同じリンクでも通った経路で開く / 開かないが変わる非対称が生まれる。
+
+受け取れる層は frame によって違う。
+
+| frame                    | クリックを受け取れる層 | 外部送りの担当 |
+| ------------------------ | ---------------------- | -------------- |
+| main frame（UI 本体）    | renderer               | renderer       |
+| subframe（HTML preview） | 防壁のみ               | 防壁           |
+
+subframe が例外なのは、previewed HTML が実 origin で配信され、renderer からクリックを傍受する経路が
+無いため。
+
+### 防壁: frame を動かさせない
+
+全 webContents に一律で適用する。
+
+- **新規ウィンドウ**: UI が自前で使う空ウィンドウだけを許可し、それ以外は作らせず **URL も OS に
+  渡さない**。gozd に外部 URL を `window.open` する first-party コードは無いため、ここへ来る要求は
+  描画コンテンツ由来か、リンクを受け取る層の取りこぼしだけで、渡せばその層の allowlist を迂回する
+- **frame の遷移**: **原則すべて block**。例外は 2 つだけ
+  - 開発時の renderer origin への **main frame の同一 URL 遷移**（開発サーバーのリロード）。
+    同一 URL に絞るのは、同 origin の別 path を通すと描画コンテンツの root 相対リンクが UI 面を
+    置換するため
+  - **subframe の遷移**: preview 配信 scheme 内は許可、OS へ渡してよい scheme は OS へ、
+    それ以外は block
+
+block は必ずログに残す。
+
+frame 単位で判定する API を使う。main frame でしか発火しない API では subframe が素通しになり、
+previewed HTML のリンクが preview 面を置換する。
+
+### renderer: OS に渡してよい URL を決める
+
+外部を開く経路は 1 本に集約する。リンククリックを受け取る層（markdown 本文 / terminal のハイパー
+リンク / filer の submodule リンク）はすべてこれを通し、allowlist 外は開かずに拒否して呼び出し側が
+通知に倒す。
+
+**scheme allowlist（http / https / mailto）は共有モジュールが SSOT** で、renderer と防壁が同じ述語を
+見る。層ごとに別集合を持つと上記の非対称が生まれる。
+
+markdown 本文は `#fragment` 単独を除く全リンククリックを既定動作から奪い、外部 URL は自分で
+外部送りへ流す。残りの href だけを利用側に委ねる。外部送りを利用側任せにすると、購読しない
+利用側でリンクが黙って死ぬ。
+
+**クリックと中クリックの両方を同じ経路に通す**。中クリックは通常のクリックイベントを発火しないため、
+片方だけ扱うと既定の新規ウィンドウ要求に落ち、この層の allowlist を迂回して OS に URL が渡る。
 
 ## データ永続化
 
-アプリのデータは XDG の役割で 2 ディレクトリに分ける。ユーザー設定 (config) / プロジェクトデータは
-`~/.config/gozd/`、「前回の続き」を表す state（sidebar 並び順・折りたたみ / worktree 一覧キャッシュ）は
-`~/.local/state/gozd/` に JSON で保存する。どちらも dev / stable で共有する。
-ファイル I/O は常に main 側で行い、renderer からは RPC request 経由でアクセスする。
+ファイル I/O は常に main 側で行い、renderer は RPC 経由でアクセスする。
 
-> [!WARNING]
-> 永続ファイルへの cross-process ロックは未実装。複数インスタンス（dev / stable、または
-> 複数 worktree の並列 `pnpm dev`）を同時起動した場合、各ストアの `load → mutate → save` が
-> 並走すると、最後に save したプロセスが他方の変更を上書きする可能性がある（last-write-wins を
-> 許容する設計判断。`tasks.json` は project 単位ファイルのため、別プロジェクトを扱う限り実害は
-> グローバルな `app-state.json` / `electron-window.json` に限られる）。
+XDG の役割で 2 ディレクトリに分ける。ユーザー設定とプロジェクトデータは `~/.config/gozd/`、
+「前回の続き」を表す state は `~/.local/state/gozd/`。
 
 ```text
 ~/.local/state/gozd/
-├── app-state.json                        # state: sidebar repo 並び順 / 折りたたみ / worktree 一覧キャッシュ / active worktree
-└── electron-window.json                  # state: window frame（shell 固有。close 時に保存）
+├── app-state.json          # sidebar の構成 / 折りたたみ / worktree 一覧キャッシュ / 最後の選択
+└── electron-window.json    # ウィンドウの位置とサイズ
 
 ~/.config/gozd/
-├── config.json                           # グローバル: ユーザー設定（VOICEVOX 等）
+├── config.json             # グローバルなユーザー設定
 └── projects/
-    └── <projectKey>/                     # <repoName>-<hash>（realpath の SHA-256 先頭12文字）
-        ├── tasks.json                    # プロジェクト固有: Task 一覧（Claude session_id を task.session_id に持つ）
-        └── config.json                   # プロジェクト固有: worktreeSymlinks 等
+    └── <projectKey>/       # <repoName>-<realpath の SHA-256 先頭 12 文字>
+        ├── tasks.json      # Task 一覧
+        └── config.json     # プロジェクト固有設定
 ```
 
-Claude セッションの sessionId は専用ストアを持たず `tasks.json` の `task.session_id` を SSOT とする
-（[workspace.md](workspace.md)）。
+> [!WARNING]
+> 永続ファイルへの cross-process ロックは持たない。複数インスタンスを同時起動して同じファイルを
+> 触ると、最後に保存したプロセスが他方の変更を上書きする（last-write-wins を許容する設計判断）。
 
-- 保存は全フィールドを明示的に書く。旧 proto3 JSON は default 値のフィールドを省略して
-  書いたため、既存ファイルの欠落キーは各 store の load 時に default 充填する
-  （`rawJson.ts` の契約。「フィールド不在 = default 値」の永続ファイル契約を維持）
-- `AppState` の save は既存ファイルを raw dict として読み shallow merge して未知 top-level キー
-  （別バージョンが書いたフィールド）を保持する
-- `TaskStore`（`tasks.json`）の load は parse 失敗時に**空 list で上書き save** する
-  （後方互換を作らない規約。主データを JOIN する立場のため load 経路から throw を伝播させない）。
-  stderr に reinit ログを残して観察可能性を保つ
+### 保存の契約
 
-### 新しい永続化データを追加するパターン
+- **保存は全フィールドを明示的に書く**。読み出し側は欠落キーを default で埋める（「フィールド不在 =
+  default」を永続ファイルの契約として維持する）
+- **`app-state.json` だけは、未知の top-level キーを保存時に消さない**。state ディレクトリは channel を
+  またいで共有され、スキーマの異なるビルドが同じファイルを触るため、自分が書いていないフィールドを
+  積極的に破壊しない。ただし互換の保証ではなく、読めることも残り続けることも約束しない
+- **他の永続ファイルは保存のたびに全体を書き直す**ため、未知のキーは残らない
 
-- `packages/rpc/src/` に schema 型（request / response / 永続化形式）を追加し、
-  `index.ts` barrel から export する
-- `apps/electron/src/` にファイル I/O モジュールを作成する（`stores.ts` / `taskStore.ts` が
-  参考実装。load 経路は `rawJson.ts` で default 充填する）
-- `apps/electron/src/routes.ts` に handler を登録する
-- renderer 側は feature ごとの `rpc.ts` に `rpcXxx()` 関数を追加し、`shared/rpc` の
-  `rpc<Response>(path, req)` でラップする
+#### ベータ版のあいだの扱い
+
+**読めない state ファイルは初期状態で上書きする。** 旧い形式を読み続けるためのマイグレーションは
+書かない。ログを残して観察可能性を保つ。
 
 ### 保存タイミング
 
-| データ       | タイミング         | 実装                                        |
-| ------------ | ------------------ | ------------------------------------------- |
-| アプリ状態   | アプリ終了時の一括 | renderer が保存 RPC を発行                  |
-| window frame | window close 時    | `close` イベントで `getNormalBounds` を保存 |
-| Task         | 操作の都度即時保存 | `addTask()` / `updateTask()` 等で即 write   |
-| ユーザー設定 | 操作の都度即時保存 | `saveConfig()` で read-modify-write         |
+| データ         | タイミング         |
+| -------------- | ------------------ |
+| アプリ状態     | アプリ終了時の一括 |
+| ウィンドウ位置 | ウィンドウの close |
+| Task           | 操作の都度即時     |
+| ユーザー設定   | 操作の都度即時     |
 
 ## Claude Code hooks
 
-Claude Code の hooks 機能を使い、エージェントの状態変化をリアルタイムでフロントに通知する。
-
-### 設定ファイルの生成
-
-アプリ起動時に `claudeHooksSettings.ts` が hooks 設定 JSON を `$TMPDIR` に生成。
-zsh init の `claude()` 関数が `--settings` で自動注入する。
+Claude Code の hooks 機能でエージェントの状態変化を受け取る。設定ファイルはアプリ起動時に生成し、
+zsh init が注入する。
 
 ### イベントと送信経路
 
-| Claude hook          | gozd イベント    | 送信経路    | 取得データ                                                             |
-| -------------------- | ---------------- | ----------- | ---------------------------------------------------------------------- |
-| `SessionStart`       | `session-start`  | CLI 経由    | `ptyId`, `session_id`, `source`                                        |
-| `SessionEnd`         | `session-end`    | CLI 経由    | `ptyId`, `session_id`                                                  |
-| `UserPromptSubmit`   | `running`        | nc 直接送信 | `ptyId`                                                                |
-| `Stop`               | `done`           | CLI 経由    | `ptyId`, `last_assistant_message`, `pending_work`, `has_teammate_task` |
-| `PermissionRequest`  | `needs-input`    | CLI 経由    | `ptyId`, `tool_name`, `tool_input`                                     |
-| `PostToolUse`        | `tool-done`      | nc 直接送信 | `ptyId`                                                                |
-| `PostToolUseFailure` | `tool-failure`   | nc 直接送信 | `ptyId`                                                                |
-| `StopFailure`        | `stop-failure`   | CLI 経由    | `ptyId`, `last_assistant_message`                                      |
-| `SubagentStart`      | `subagent-start` | CLI 経由    | `ptyId`, `agent_id`                                                    |
-| `SubagentStop`       | `subagent-stop`  | CLI 経由    | `ptyId`, `agent_id`                                                    |
-| `TeammateIdle`       | `teammate-idle`  | CLI 経由    | `ptyId`, `teammate_name`                                               |
+| Claude hook          | gozd イベント    | 送信経路 | 取得データ                                                             |
+| -------------------- | ---------------- | -------- | ---------------------------------------------------------------------- |
+| `SessionStart`       | `session-start`  | CLI      | `ptyId`, `session_id`, `source`                                        |
+| `SessionEnd`         | `session-end`    | CLI      | `ptyId`, `session_id`                                                  |
+| `UserPromptSubmit`   | `running`        | 直接送信 | `ptyId`                                                                |
+| `Stop`               | `done`           | CLI      | `ptyId`, `last_assistant_message`, `pending_work`, `has_teammate_task` |
+| `PermissionRequest`  | `needs-input`    | CLI      | `ptyId`, `tool_name`, `tool_input`                                     |
+| `PostToolUse`        | `tool-done`      | 直接送信 | `ptyId`                                                                |
+| `PostToolUseFailure` | `tool-failure`   | 直接送信 | `ptyId`                                                                |
+| `StopFailure`        | `stop-failure`   | CLI      | `ptyId`, `last_assistant_message`                                      |
+| `SubagentStart`      | `subagent-start` | CLI      | `ptyId`, `agent_id`                                                    |
+| `SubagentStop`       | `subagent-stop`  | CLI      | `ptyId`, `agent_id`                                                    |
+| `TeammateIdle`       | `teammate-idle`  | CLI      | `ptyId`, `teammate_name`                                               |
 
 ### 送信経路の使い分け
 
-- **nc 直接送信**: `echo '固定JSON' | nc -w 1 -U $GOZD_SOCKET_PATH`。軽量だが stdin データを
-  取得できない。発火頻度の高い running / tool-done に使用
-- **CLI 経由**: `"$GOZD_CLI_PATH" hook {event}`。CLI が stdin の JSON を parse して payload に
-  マージするため、Claude Code が渡す詳細データをフロントまで届けられる
+- **直接送信**: 固定 JSON を 1 行送るだけ。軽量だが stdin のデータを取れない。発火頻度が高く
+  payload が要らないイベントに使う
+- **CLI 経由**: stdin の JSON を parse して payload にマージする。Claude Code が渡す詳細データを
+  UI まで届けたいイベントに使う
 
-### フロントへの到達経路
-
-```text
-Claude Code (hook 発火)
-  → hook コマンド実行（nc or gozd-cli）
-  → Unix ドメインソケット（HookMessage を含む ClientMessage の JSON）
-  → socketServer → socketMessages（逐次キュー）
-  → webContents.send("rpc:push", "hook", payload)
-  → renderer useTerminalStore handleHookEvent()
-  → ClaudeStatus 更新 → サイドバーバッジ / 吹き出し表示
-```
+状態の解釈は [claude-status.md](claude-status.md)。

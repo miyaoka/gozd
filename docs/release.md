@@ -1,46 +1,51 @@
 # リリースと配布
 
-GitHub Releases（miyaoka/gozd）に tag + tar.gz を積み、mise の github backend でインストールする。
-署名・公証はしない（mise 経由のダウンロードには quarantine 属性が付かず Gatekeeper に
-ブロックされない。Apple Silicon で必須の Mach-O 署名は、Electron 配布バイナリに焼かれた
-linker-signed ad-hoc 署名がそのまま残ることで満たされる。identity が無いため
-electron-builder の署名ステップはスキップされ bundle seal は生成されない — seal を
-作らないことは、channel marker の後書きが署名を壊さない前提でもある）。
-改竄検知は署名の代わりに artifact attestation（`actions/attest-build-provenance`）が担う。
+GitHub Releases に tag と tar.gz を積み、mise の github backend でインストールする。
+
+**署名・公証はしない**。パッケージマネージャ経由で入れたアプリは、追加の操作なしにそのまま起動できる。
+
+未署名で成立する理由は 2 つ。Apple Silicon は実行に最低限の署名を要求するが、これは配布される
+Electron バイナリに元から入っている ad-hoc 署名が残ることで満たされる。また、パッケージマネージャ
+経由のダウンロードには隔離属性が付かないため、初回起動時のブロックも起きない。
+
+**改竄検知は署名ではなく artifact attestation が担う**。
+
+> [!NOTE]
+> 署名しない選択は、ビルド後に channel identity を書き込めることの前提でもある。署名を導入する
+> 場合は、書き込みが署名を壊さない経路を先に用意する必要がある。
 
 ## チャンネル
 
-| チャンネル | トリガー                                               | tag 形式                                   | GitHub Release |
-| ---------- | ------------------------------------------------------ | ------------------------------------------ | -------------- |
-| canary     | main への push（feat / fix があるときだけ）            | `v0.1.1-canary.20260722120641`（UTC 日時） | prerelease     |
-| stable     | workflow_dispatch（事前に人間が package.json を bump） | `v0.1.1`（package.json 一致）              | latest         |
+| チャンネル | トリガー                                    | tag 形式                     | Release    |
+| ---------- | ------------------------------------------- | ---------------------------- | ---------- |
+| canary     | main への push（feat / fix があるときだけ） | `v0.1.1-canary.<UTC 日時>`   | prerelease |
+| stable     | 手動実行（事前に人間が version を bump）    | `v0.1.1`（バージョンと一致） | latest     |
 
-実装は `.github/workflows/release.yml`。decide job（判定・採番）と release job（macOS arm64 で
-build → tar → attest → release）の 2 段で、channel 別の concurrency group により同 channel 内は
-常に直列実行する（canary の日時採番の同刻衝突・時系列逆転をここで防ぐ）。
+判定・採番と、ビルド・添付を別の段階に分ける。**チャンネル別に直列実行を強制する** — canary の
+日時採番で同刻衝突と時系列の逆転を防ぐため。
 
-- **canary の発火判定**: 直近の tag（チャンネル問わず）から HEAD の commit subject に
-  feat / fix（`!` 付き breaking 含む）があればリリース。renovate の commit は全件 scope
-  `(deps)` を持つため `(deps)` scope の除外で落ちる。前提の契約: 人間は scope `deps` を
-  feat / fix で使わない
-- **canary の採番**: 「最新 stable の次 patch + UTC 日時（`YYYYMMDDHHMMSS`）」。semver 順序が
-  stable < canary < 次 stable で単調になり、mise は prerelease フラグだけでチャンネルを選べる。
-  連番でなく日時なのは、GitHub の release 一覧が同日グループ内をタグ名の**文字列比較**で
-  並べるため。数値連番は同日 10 件超で並びが崩れ、API 返却順に依存する mise の latest 解決も
-  誤る。固定幅の日時は文字列比較 = 時系列が常に成立する
-- **stable の検証**: tag 重複（bump し忘れ）と最新 stable からの逆行はエラーで弾く
+- **canary の発火判定**: 直近の tag から HEAD までに feat / fix があればリリースする。
+  **依存更新の commit は scope の除外で落ちる。前提となる契約は「人間は依存更新用の scope を
+  feat / fix で使わない」**（[コミット型の規律](../.claude/rules/commit.md)）
+- **canary の採番**: 「最新 stable の次 patch + UTC 日時」。semver の順序が
+  stable < canary < 次 stable で単調になり、**prerelease フラグだけでチャンネルを選べる**
+  - **タグ名の文字列順が時系列と一致することを保証する**。パッケージマネージャは版を並べ替えず
+    GitHub の返却順をそのまま最新の判定に使うため、文字列順が崩れると更新が最新に追従しなくなる。
+    **連番は同日に一定数を超えると崩れるので採らない**（固定幅の日時なら常に成立する）
+- **stable の検証**: tag の重複（bump し忘れ）と、最新 stable からの逆行はエラーで弾く
 
 ## バージョン管理
 
-`apps/electron/package.json` の version が SSOT で、実バージョンをコミットして管理する
-（GitHub Releases 配布の Electron アプリの標準運用。element-desktop / Signal-Desktop /
-rancher-desktop 等と同型）。
+**バージョンの SSOT はリポジトリにコミットされた値**（GitHub Releases 配布の Electron アプリの
+標準運用）。
 
-- stable: 人間の bump commit が version の唯一の更新点。CI は repo に書き戻さない
-- canary: repo に書き戻さない。CI が採番した tag 由来の version を electron-builder の
-  `extraMetadata.version` でビルドにのみ焼き込む（About パネルで実行中の canary を判別できる）
-- `CFBundleVersion` は version とは別で、全ビルドに commit 日時 + hash が入る
-  （About パネル括弧内の識別と wrapper 同期の比較キー。buildApp.ts）
+- **stable**: 人間の bump commit が唯一の更新点。CI はリポジトリに書き戻さない
+- **canary**: リポジトリに書き戻さない。**CI が採番した tag 由来のバージョンをビルドにだけ焼き込む**
+  （実行中の canary を About パネルで判別できる）
+- **ビルド識別子はバージョンとは別**で、全ビルドに commit の日時と hash が入る。About パネルの
+  括弧内表示と、`~/Applications` 同期の比較キーを兼ねる
+  - **未コミットの変更を含むビルドは hash に印が付き、表示と中身の不一致が自己申告される**
+  - **識別子はパッケージ済みにしか存在しない**。開発中はビルド元でコードが見えるため焼き込まない
 
 ## 配布物
 
@@ -51,16 +56,15 @@ gozd-macos-arm64.tar.gz
 └── Gozd.app/
 ```
 
-- asset 名は mise が `asset_pattern` 設定なしで OS / arch を自動検出できる命名
-- ルートを `bin/` + `Gozd.app/` の 2 エントリにするのは mise 対策。ルートがディレクトリ
-  1 個だけの tar は `strip_components=1` が自動適用され `.app` バンドルが解体される
-- release notes は `--generate-notes` 自動生成。renovate / dependencies は
-  `.github/release.yml` で除外する
-- ノートの範囲: canary は直前リリースとの差分（起点自動決定のまま）、stable は
-  `--notes-start-tag`（前回 stable）起点で canary サイクル全体を含める。起点の自動決定は
-  channel を区別せず直前リリースに倒れるため、stable 側だけ明示が要る
+- asset 名は **mise が設定なしで OS / arch を自動検出できる命名**にする
+- **ルートを 2 エントリにする**のは mise 対策。ルートがディレクトリ 1 個だけの tar は自動で 1 階層
+  剥がされ、`.app` バンドルが解体される
+- release notes は自動生成し、依存更新は除外する
+- **ノートの範囲**: canary は直前リリースとの差分、stable は **前回の stable を起点にして canary
+  サイクル全体を含める**。起点の自動決定はチャンネルを区別せず直前リリースに倒れるため、stable 側
+  だけ明示が要る
 
-## mise インストール
+## インストール
 
 ```toml
 # canary を追う
@@ -75,47 +79,46 @@ version = "latest"
 postinstall = '"$MISE_TOOL_INSTALL_PATH/bin/gozd" sync-app'
 ```
 
-- `postinstall` は README の `mise use` ワンライナー（bracket 構文）で設定される。
-  tool-level postinstall は「そのツールの新バージョンがインストールされた直後」に走り、
-  `MISE_TOOL_INSTALL_PATH` がインストール先を指す（mise の契約）
+**1 ユーザーが追うのはどちらか片方**。同時併用はしない（アプリの identity はどちらも同じ stable
+channel の「Gozd」になるため）。
 
-1 ユーザーが追うのはどちらか片方の前提で、同時併用はしない（アプリ identity はどちらも
-同じ stable channel の「Gozd」）。
+## 更新の反映
 
-## 更新の反映（~/Applications への同期）
+パッケージマネージャの更新は実体を差し替えるだけで、**Dock ピンや Spotlight が指す固定パス
+（`~/Applications/Gozd.app`）は動かない**。
 
-`mise up` は mise 側の実体を差し替えるだけで、Dock ピン / Spotlight が指す固定パスは動かない。
-固定パスへの同期はどちらの経路も wrapper `bin/gozd` の `sync_installed_app`
-（`CFBundleVersion` 比較 + APFS clone `cp -Rc` + mv の atomic 差し替え）を通る冪等な操作で、
-stable channel だけが行う。
+固定パスへの同期は、どちらの経路も **ビルド識別子の比較 + atomic な差し替え**を通る冪等な操作で、
+**stable channel だけが行う**。
 
-- **主経路: mise の postinstall**。`mise up` で新バージョンが入った直後に
-  `"$MISE_TOOL_INSTALL_PATH/bin/gozd" sync-app` が走り、起動動線（Dock / Spotlight /
-  ターミナル）に依存せず更新が伝播する。更新の反映を起動時ではなく更新時に行う
-  Homebrew cask と同じモデル
-- **バックアップ: cold start 同期**。wrapper がターミナル起動の cold start 時に同期する。
-  postinstall 未設定の環境でもターミナル動線なら追従する
-- アプリ稼働中の同期も安全。旧プロセスは開いた inode を掴んだまま動き続け、次回起動から
-  新版になる（cask の upgrade と同じセマンティクス）
-- `sync-app` を stable 以外の channel で呼ぶとエラーで止める（`Gozd Local.app` が
-  `~/Applications/Gozd.app` を乗っ取る事故の防止）
-- Spotlight は `~/Applications` 配下の実体 copy を index する（symlink は index されない。
-  Homebrew cask が symlink 方式を廃止した既知の理由）
+- **主経路: インストール後フック**。新しいバージョンが入った直後に走り、**起動動線（Dock /
+  Spotlight / ターミナル）に依存せず更新が伝播する**。更新の反映を起動時ではなく更新時に行う
+  パッケージマネージャと同じモデル
+- **バックアップ: 起動時の同期**。フック未設定の環境でもターミナル動線なら追従する
+- **アプリ稼働中の同期も安全**。旧プロセスは開いた実体を掴んだまま動き続け、次回起動から新版になる
+- **stable 以外の channel で同期を呼ぶとエラーで止める**（別 identity のアプリが固定パスを乗っ取る
+  事故の防止）
+- **固定パスには実体をコピーする。symlink にしない** — Spotlight は symlink を index しない
 
 ## channel identity
 
-リリースビルドだけが stable identity を名乗れる。判定の SSOT はビルド時に `.app` 内へ
-焼き込む marker ファイル `Contents/Resources/app/channel`（buildApp.ts が書き、main の
-gozdEnv と wrapper `bin/gozd` が読む）。
+**リリースビルドだけが stable identity を名乗れる。** パッケージ済みビルドの channel はビルド時に
+確定し、実行時の状況からは推測しない。
 
-| channel | 生成経路                                  | productName | bundle id 末尾 | socket                 |
-| ------- | ----------------------------------------- | ----------- | -------------- | ---------------------- |
-| stable  | release CI（`GOZD_BUILD_CHANNEL=stable`） | Gozd        | （素）         | `gozd-stable.sock`     |
-| local   | 無指定の `build:app`                      | Gozd Local  | `.local`       | `gozd-local.sock`      |
-| dev     | `pnpm dev`（未パッケージ）                | —           | —              | `gozd-dev-<hash>.sock` |
+| channel | 生成経路                 | アプリ名   | bundle id 末尾 |
+| ------- | ------------------------ | ---------- | -------------- |
+| stable  | リリース CI              | Gozd       | （素）         |
+| local   | 指定なしのローカルビルド | Gozd Local | `.local`       |
+| dev     | 未パッケージ起動         | —          | —              |
 
-- packaged なのに marker が欠落・不正なビルドは起動時エラーで止める（marker 導入前の
-  古いビルドはビルドし直す。静かに local へ倒すと同バンドル内 wrapper と channel 認識が
-  ずれ warm start が壊れるため）
-- 役割分担: 機能検証は `pnpm dev`（HMR）、packaged 検証と merge 前の dogfooding は
-  `Gozd Local`、merge 後は canary を mise で入れて配布経路ごと dogfooding する
+- **channel を確定できないパッケージ済みビルドは起動時エラーで止める**。静かにどれかへ倒すと、
+  同じバンドル内の CLI と channel の認識がずれてアプリ起動中の open が壊れる
+- 揮発リソース（socket / 起動要求 / hooks 設定）の分離は
+  [architecture.md](architecture.md#channel-によるリソース分離)
+
+役割分担:
+
+| 段階                     | 使うもの     |
+| ------------------------ | ------------ |
+| 機能検証                 | 開発起動     |
+| パッケージ検証・merge 前 | `Gozd Local` |
+| merge 後                 | canary       |

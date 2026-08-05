@@ -83,7 +83,7 @@ gozd src/main.ts  # src/ で開き、main.ts を開く
 
 初回起動時はサイドバーが空の状態。フォルダを登録するには:
 
-- サイドバー右上の編集ボタンで編集モードに入り、末尾の `+ Add directory` から開きたいフォルダを選ぶ
+- サイドバーの編集モードに入り、末尾の `Open directory…` から開きたいフォルダを選ぶ
 - もしくはターミナルで `gozd <パス>` を実行する
 
 追加後はサイドバーから worktree を作って作業を始める。
@@ -99,13 +99,13 @@ pnpm run dev
 ```
 
 パッケージした `.app` で検証する場合はソースからビルドする。生成されるのは local channel の
-`Gozd Local.app` で、mise 配布の Gozd とは socket / bundle id が分かれており隣で同時起動できる
+`Gozd Local.app` で、mise 配布の Gozd とはリソースが分かれており隣で同時起動できる
 （[docs/release.md](docs/release.md)）。
 
 ```bash
-pnpm run build:app   # out/mac-arm64/Gozd Local.app をパッケージング
+pnpm run build:app   # local channel の .app をパッケージング
 pnpm run open:app    # 生成した .app を起動
 ```
 
-electron-builder が成果物を `.app` 内へコピーするため、`.app` を更新するにはこの再パッケージが要る
-（root の `pnpm run build:all` は各パッケージの成果物を作るだけで `.app` は更新しない）。
+`.app` を更新するにはこの再パッケージが要る（`pnpm run build:all` は各パッケージの成果物を作る
+だけで `.app` は更新しない）。

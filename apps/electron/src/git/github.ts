@@ -71,9 +71,9 @@ const AVATAR_SIZE = 64;
 // `assignees` / `reviewRequests` は PR picker の filter 機能で参照するため一覧 query に含める。
 //
 // GraphQL の rate limit cost は connection 1 つにつき「親の件数ぶんの request」で積まれ、
-// その合計を 100 で割って算出される。`statusCheckRollup` / `totalCommentsCount` は
-// connection ではないため cost に乗らない。CI 結果を `commits(last: 1)` 経由で取ると
-// connection が 1 つ増えて cost が上がるので、PullRequest 直下の rollup を使う。
+// その合計を 100 で割って算出される。`statusCheckRollup` は connection ではないため cost に
+// 乗らない。CI 結果を `commits(last: 1)` 経由で取ると connection が 1 つ増えて cost が上がる
+// ので、PullRequest 直下の rollup を使う。
 // connection の `totalCount` も `first` / `last` を渡さなければページを 1 枚も要求しないため
 // cost に乗らない。件数系はこの形でだけ取る。
 const PR_QUERY = `

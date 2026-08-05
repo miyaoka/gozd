@@ -4,15 +4,12 @@ and the branch label (in that order).
 
 ## PR インジケータ
 
-PR 番号バッジの後ろに GitHub 相当の 2 つを並べる:
+PR 番号バッジの後ろに CI ドットとコメント数を並べる。何を出さないかの契約は
+[docs/git.md](../../../../../../../docs/git.md) の「PR 一覧が運ぶ情報の範囲」。
 
-- **CI ドット**: head ref の check 総合結果を色で示す
-- **コメント数**: PR に付いた発言のかたまりの数。0 件なら出さない
-
-`checkState` が undefined なのは「check が 1 つも登録されていない commit」であって、失敗でも
+`checkState` が undefined なのは **check が 1 つも登録されていない commit** であって、失敗でも
 取得漏れでもない。CI を持たない repo に加え、push 直後に GitHub が check を作るまでの過渡状態も
-ここに落ちる。この場合はドット自体を出さず、無色のドットで「不明」を表現しない (CI を持たない
-repo で全行に無意味なドットが並ぶため)。
+ここに落ちるため、push のたびにドットが一瞬消えてから復帰する。
 
 値は PR 一覧の polling が運ぶため即時ではない。CI 実行中の PENDING → SUCCESS 遷移は最大
 1 周期ぶん遅れて反映される。

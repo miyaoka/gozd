@@ -21,12 +21,14 @@
 import { onUnmounted, ref } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { useEventLogStore } from "../event-log";
+import { useMyWorkStore } from "../my-work";
 import { useServerStore } from "../server";
 import { channelChipLabel } from "./channel";
 import { useNotificationCenterStore } from "./useNotificationCenterStore";
 import { useTitleContext } from "./useTitleContext";
 import IconLucideActivity from "~icons/lucide/activity";
 import IconLucideBell from "~icons/lucide/bell";
+import IconLucideInbox from "~icons/lucide/inbox";
 import IconLucideServer from "~icons/lucide/server";
 
 /** main の enter/leave-full-screen から届く push。payload 型は購読側が SSOT（docs/rpc.md） */
@@ -38,6 +40,7 @@ const channelChip = channelChipLabel();
 const title = useTitleContext();
 const serverStore = useServerStore();
 const eventLogStore = useEventLogStore();
+const myWorkStore = useMyWorkStore();
 const notificationCenterStore = useNotificationCenterStore();
 
 // fullscreen では macOS が信号機ボタンを消すため pad を畳む。初期値 false は
@@ -86,6 +89,18 @@ onUnmounted(disposeFullscreen);
         @click="serverStore.toggle()"
       >
         <IconLucideServer class="size-3.5" />
+      </button>
+      <button
+        type="button"
+        class="grid size-6 place-items-center rounded-sm hover:bg-element-hover"
+        :class="
+          myWorkStore.isOpen ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
+        "
+        title="My work"
+        aria-label="My work"
+        @click="myWorkStore.toggle()"
+      >
+        <IconLucideInbox class="size-3.5" />
       </button>
       <button
         type="button"

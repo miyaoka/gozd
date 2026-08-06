@@ -7,6 +7,7 @@ import type {
   GitFileChange,
   GitIssue,
   GitPullRequest,
+  GitPullRequestCheckState,
   WorktreeEntry,
 } from "./common";
 
@@ -282,6 +283,59 @@ export interface GitIssueListRequest {
 export interface GitIssueListResponse {
   ok: boolean;
   issues: GitIssue[];
+  errorKind: GhErrorKind;
+  errorDetail: string;
+}
+
+// gitMyWork: 認証ユーザー単位の作業一覧（repo 横断）
+//
+// repo 単位の `GitPrListRequest` / `GitIssueListRequest` と型を共有しない。あちらは
+// worktree 作成の startPoint 解決に使う ref 情報が本体で、こちらは repo をまたいで
+// 「開いて確認する」ためのリンクが本体。取得単位（repo / 認証ユーザー）も違う。
+
+/** PR に対するレビューの総合結果。GitHub GraphQL の `PullRequestReviewDecision` に対応する。
+ * 型は list から導出する（`GIT_PULL_REQUEST_CHECK_STATES` と同流儀）。 */
+export const GIT_PULL_REQUEST_REVIEW_DECISIONS = [
+  "CHANGES_REQUESTED",
+  "APPROVED",
+  "REVIEW_REQUIRED",
+] as const;
+
+export type GitPullRequestReviewDecision = (typeof GIT_PULL_REQUEST_REVIEW_DECISIONS)[number];
+
+/** my work パネルが描く 1 行。PR と issue の双方をこの 1 型で表す。 */
+export interface GitMyWorkItem {
+  kind: "pr" | "issue";
+  /** `owner/name`。repo をまたぐ一覧なので行ごとに帰属先を持つ */
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  authorAvatarUrl: string;
+  /** ISO 8601 */
+  updatedAt: string;
+  /** issue では常に false */
+  isDraft: boolean;
+  /** head ref の CI 総合結果。issue と、check が 1 つも無い commit では undefined */
+  checkState?: GitPullRequestCheckState;
+  /** レビューの総合結果。issue と、レビュー設定の無い PR では undefined */
+  reviewDecision?: GitPullRequestReviewDecision;
+  /** 会話の総量。数え方は `GitPullRequest.commentCount` の doc が SSOT */
+  commentCount: number;
+}
+
+/** 認証ユーザー単位なので repo を指す引数を持たない */
+export type GitMyWorkRequest = EmptyMessage;
+
+export interface GitMyWorkResponse {
+  ok: boolean;
+  /** `is:open is:pr author:@me` */
+  authoredPrs: GitMyWorkItem[];
+  /** `is:open is:pr review-requested:@me`。自分が属する team 宛のレビュー依頼も含む */
+  reviewRequestedPrs: GitMyWorkItem[];
+  /** `is:open is:issue author:@me` */
+  authoredIssues: GitMyWorkItem[];
   errorKind: GhErrorKind;
   errorDetail: string;
 }

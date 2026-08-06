@@ -69,6 +69,7 @@ import type {
   GitLsTreeResponse,
   GitMergeBaseRequest,
   GitMergeBaseResponse,
+  GitMyWorkResponse,
   GitPrDiffFilesRequest,
   GitPrDiffFilesResponse,
   GitPrListRequest,
@@ -194,7 +195,7 @@ import {
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
-import { issueList, prList, repoOwnerName, viewer } from "./git/github";
+import { issueList, myWork, prList, repoOwnerName, viewer } from "./git/github";
 import { submoduleBrowseUrl } from "./git/submodule";
 import { buildPtyEnv } from "./gozdEnv";
 import { buildGozdOpenPayload } from "./openTarget";
@@ -829,6 +830,27 @@ async function handleGitPrList(body: unknown): Promise<unknown> {
   } satisfies GitPrListResponse;
 }
 
+/** 認証ユーザー単位の作業一覧。repo に紐づかないため request は引数を持たない */
+async function handleGitMyWork(): Promise<unknown> {
+  const result = await myWork();
+  if (!result.ok) {
+    return {
+      ok: false,
+      authoredPrs: [],
+      reviewRequestedPrs: [],
+      authoredIssues: [],
+      errorKind: result.error.kind,
+      errorDetail: result.error.detail,
+    } satisfies GitMyWorkResponse;
+  }
+  return {
+    ok: true,
+    ...result.value,
+    errorKind: "ok",
+    errorDetail: "",
+  } satisfies GitMyWorkResponse;
+}
+
 async function handleGitIssueList(body: unknown): Promise<unknown> {
   const req = body as GitIssueListRequest;
   const result = await issueList(req.dir);
@@ -1245,6 +1267,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/worktreeRemove", handleWorktreeRemove],
   ["/git/prList", handleGitPrList],
   ["/git/issueList", handleGitIssueList],
+  ["/git/myWork", handleGitMyWork],
   ["/git/viewer", handleGitViewer],
   ["/git/worktreeList", handleGitWorktreeList],
   ["/git/githubIdentity", handleGitGithubIdentity],

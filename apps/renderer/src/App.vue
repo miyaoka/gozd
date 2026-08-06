@@ -16,6 +16,7 @@ import {
   useRpcListenerErrorBridge,
   useTitleContextSync,
 } from "./features/layout";
+import { MyWorkPanel } from "./features/my-work";
 import { UndockedPreviewLayer } from "./features/preview";
 import { ServerListPanel } from "./features/server";
 import { UndockedLogLayer } from "./features/session-log";
@@ -39,6 +40,7 @@ useTitleContextSync();
 <template>
   <MainLayout />
   <ServerListPanel />
+  <MyWorkPanel />
   <EventLogPanel />
   <UndockedLogLayer />
   <UndockedPreviewLayer />

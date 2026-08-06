@@ -10,10 +10,17 @@
 //   Finder/Dock 起動の最小 PATH には Homebrew の `gh` が存在せず、Apple stub にも救われない
 //   （設計理由は commandResolver.ts 冒頭コメント参照）
 
-import type { GitIssue, GitPullRequest, GitPullRequestCheckState } from "@gozd/rpc";
-import { GIT_PULL_REQUEST_CHECK_STATES } from "@gozd/rpc";
+import type {
+  GitIssue,
+  GitMyWorkItem,
+  GitPullRequest,
+  GitPullRequestCheckState,
+  GitPullRequestReviewDecision,
+} from "@gozd/rpc";
+import { GIT_PULL_REQUEST_CHECK_STATES, GIT_PULL_REQUEST_REVIEW_DECISIONS } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { withResolvedCommand } from "../commandResolver";
 import { GitCommandError, runGit } from "./gitRunner";
@@ -150,7 +157,7 @@ export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullR
       updatedAt: str(getPath(item, "updatedAt")),
       authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
       baseRefOid: str(getPath(item, "baseRefOid")),
-      checkState: checkState(getPath(item, "statusCheckRollup", "state")),
+      checkState: checkState(getPath(item, "statusCheckRollup", "state"), "prList"),
       commentCount: commentCount(item),
     });
   }
@@ -180,6 +187,117 @@ export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
     authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
   }));
   return { ok: true, value: issues };
+}
+
+// 1 グループあたりの取得上限。ページングは持たない（一覧を眺めて状況を掴む用途で、
+// 更新の新しい順に切ったところで足りる）
+const MY_WORK_LIMIT = 50;
+
+/**
+ * 認証ユーザー単位の作業一覧を **1 往復・rate limit cost 1** で取る query。
+ *
+ * GraphQL の cost は「connection が要求したページ数の合計 ÷ 100（切り上げ）」なので、
+ * search を 3 本並べても `first: 50` でも cost は 1 のまま。REST の `/search/issues` を
+ * 3 回叩く形（3 リクエスト + search 専用の分間制限を消費）とはここが決定的に違う。
+ *
+ * `search(type: ISSUE)` の node は `Issue | PullRequest` の union なので、CI / レビュー結果は
+ * PullRequest 側の inline fragment で取る。`statusCheckRollup` は connection ではないため
+ * cost に乗らず、`comments { totalCount }` も `first` / `last` を渡さない限りページを
+ * 要求しないので同じく乗らない（PR_QUERY 冒頭のコメントと同じ規律）。
+ *
+ * `@me` は GraphQL search でもそのまま解決されるため、viewer login を別途取らない。
+ * `review-requested:@me` は自分が属する team 宛のレビュー依頼も含む（GitHub の検索仕様）。
+ * 直接依頼だけに絞りたくなったら `user-review-requested:@me` に替える。
+ */
+const MY_WORK_QUERY = `
+query($limit: Int!) {
+  authoredPrs: search(type: ISSUE, query: "is:open is:pr author:@me archived:false sort:updated-desc", first: $limit) {
+    nodes { ...prFields }
+  }
+  reviewRequestedPrs: search(type: ISSUE, query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", first: $limit) {
+    nodes { ...prFields }
+  }
+  authoredIssues: search(type: ISSUE, query: "is:open is:issue author:@me archived:false sort:updated-desc", first: $limit) {
+    nodes { ...issueFields }
+  }
+}
+
+fragment prFields on PullRequest {
+  number
+  title
+  url
+  isDraft
+  updatedAt
+  repository { nameWithOwner }
+  author { login avatarUrl(size: ${AVATAR_SIZE}) }
+  reviewDecision
+  statusCheckRollup { state }
+  comments { totalCount }
+  reviews { totalCount }
+  reviewThreads { totalCount }
+}
+
+fragment issueFields on Issue {
+  number
+  title
+  url
+  updatedAt
+  repository { nameWithOwner }
+  author { login avatarUrl(size: ${AVATAR_SIZE}) }
+  comments { totalCount }
+}`;
+
+export interface MyWork {
+  authoredPrs: GitMyWorkItem[];
+  reviewRequestedPrs: GitMyWorkItem[];
+  authoredIssues: GitMyWorkItem[];
+}
+
+/**
+ * 認証ユーザー単位の作業一覧（repo 横断）。
+ *
+ * repo に紐づかないため cwd は home を使う。`gh api graphql` は repo 外でも動き、
+ * 認証は gh の global config が持つ。
+ */
+export async function myWork(): Promise<GhResult<MyWork>> {
+  const args = ["api", "graphql", "-F", `limit=${MY_WORK_LIMIT}`, "-f", `query=${MY_WORK_QUERY}`];
+  const raw = await runGhCategorized(args, homedir());
+  if (!raw.ok) return raw;
+
+  const parsed = tryCatch(() => JSON.parse(raw.value) as unknown);
+  if (!parsed.ok) {
+    return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
+  }
+
+  const groups = ["authoredPrs", "reviewRequestedPrs", "authoredIssues"] as const;
+  const result = {} as MyWork;
+  for (const group of groups) {
+    const nodes = getPath(parsed.value, "data", group, "nodes");
+    if (!Array.isArray(nodes)) {
+      return { ok: false, error: { kind: "other", detail: `missing nodes: ${group}` } };
+    }
+    result[group] = parseMyWorkNodes(nodes, group === "authoredIssues" ? "issue" : "pr");
+  }
+  return { ok: true, value: result };
+}
+
+/** my work query の nodes を `GitMyWorkItem` へ変換する pure 関数。3 グループとも
+ * これを経由する SSOT で、snapshot 入力に対する境界の振る舞いをここに閉じる。 */
+export function parseMyWorkNodes(nodes: unknown[], kind: "pr" | "issue"): GitMyWorkItem[] {
+  return nodes.map((item) => ({
+    kind,
+    repo: str(getPath(item, "repository", "nameWithOwner")),
+    number: int(getPath(item, "number")),
+    title: str(getPath(item, "title")),
+    url: str(getPath(item, "url")),
+    author: str(getPath(item, "author", "login")),
+    authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
+    updatedAt: str(getPath(item, "updatedAt")),
+    isDraft: getPath(item, "isDraft") === true,
+    checkState: checkState(getPath(item, "statusCheckRollup", "state"), "myWork"),
+    reviewDecision: reviewDecision(getPath(item, "reviewDecision")),
+    commentCount: commentCount(item),
+  }));
 }
 
 /** `gh api user --jq .login` で認証中ユーザーの login を返す */
@@ -349,11 +467,31 @@ function isCheckState(v: unknown): v is GitPullRequestCheckState {
  * rollup の state を検証する。表示側は undefined を「check が 1 つも無い」と読むため、
  * 値が来たのに未知だった場合はログを残してから undefined にする。黙って倒すと、GitHub が
  * enum を増やした瞬間に「CI 無し」という事実でない主張を polling のたびに出し続ける。
+ *
+ * `tag` は呼び出し元を示す観察ログのタグ。取得経路が複数あるため、どの query の応答で
+ * 未知の enum が来たかを追えるようにする。
  */
-function checkState(v: unknown): GitPullRequestCheckState | undefined {
+function checkState(v: unknown, tag: string): GitPullRequestCheckState | undefined {
   if (v === null || v === undefined) return undefined;
   if (isCheckState(v)) return v;
-  console.error(`[prList] unknown statusCheckRollup.state: ${JSON.stringify(v)}`);
+  console.error(`[${tag}] unknown statusCheckRollup.state: ${JSON.stringify(v)}`);
+  return undefined;
+}
+
+function isReviewDecision(v: unknown): v is GitPullRequestReviewDecision {
+  return (
+    typeof v === "string" && (GIT_PULL_REQUEST_REVIEW_DECISIONS as readonly string[]).includes(v)
+  );
+}
+
+/**
+ * `reviewDecision` を検証する。null は「レビュー設定が無い PR」を意味する正常値で、
+ * 表示側も undefined をそう読む。未知の enum は `checkState` と同じ理由でログに残す。
+ */
+function reviewDecision(v: unknown): GitPullRequestReviewDecision | undefined {
+  if (v === null || v === undefined) return undefined;
+  if (isReviewDecision(v)) return v;
+  console.error(`[myWork] unknown reviewDecision: ${JSON.stringify(v)}`);
   return undefined;
 }
 

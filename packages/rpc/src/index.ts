@@ -116,6 +116,10 @@ export type {
   GitLsTreeResponse,
   GitMergeBaseRequest,
   GitMergeBaseResponse,
+  GitMyWorkItem,
+  GitMyWorkRequest,
+  GitMyWorkResponse,
+  GitPullRequestReviewDecision,
   GitPrDiffFilesRequest,
   GitPrDiffFilesResponse,
   GitPrListRequest,
@@ -144,6 +148,7 @@ export type {
 } from "./gitOps";
 export type { GitStatusRequest, GitStatusResponse } from "./gitStatus";
 export { GIT_PULL_REQUEST_CHECK_STATES } from "./common";
+export { GIT_PULL_REQUEST_REVIEW_DECISIONS } from "./gitOps";
 export { ghRefForIssue, ghRefForPr, ghRefLabel } from "./helpers";
 export type {
   OpenExternalRequest,

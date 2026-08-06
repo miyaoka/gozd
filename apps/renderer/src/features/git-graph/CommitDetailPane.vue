@@ -1,10 +1,13 @@
 <doc lang="md">
-Commit detail pane showing metadata for selected commits in the git graph.
+選択されたコミットのメタデータを並べるペイン。
 
-## Behavior
+**選択が 1 つか範囲かをこのペインは判断しない**。渡されたコミット列をその順に並べるだけで、
+何を選択とみなすかは graph 側が持つ。判断を両側に置くと、選択の意味を変えるたびに描画側も
+追う必要が出る。
 
-- Single selection: shows one commit's full detail
-- Range selection (shift+click): shows all commits in the range as a scrollable list
+- コミットメッセージ中の issue / PR 参照はリンクにする。ただし参照先の repo が特定できない
+  ときは素のテキストのまま出す。誤った宛先のリンクを作るより、リンクにしないほうがよい
+- Working Tree を表す擬似コミットは author も hash も持たないため、メタデータの段ごと出さない
 </doc>
 
 <script setup lang="ts">

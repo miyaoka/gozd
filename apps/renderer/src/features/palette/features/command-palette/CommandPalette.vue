@@ -1,13 +1,17 @@
 <doc lang="md">
-Command palette dialog. Displays a searchable list of registered commands with their keybindings.
+登録済みコマンドを名前で探して実行する入口。
 
-## Behavior
+**候補に出すかどうかの判断は持たない**。何が一覧に載るかは registry の列挙が決め
+（[docs/command.md](../../../../../../../docs/command.md) が SSOT）、ここはその集合を名前で
+絞り込むだけ。ここに条件を足すと、キーからは実行できるのにパレットには出ない（あるいは
+その逆）という非対称が生まれる。
 
-- Opens via `commandPalette.show` command (Cmd+Shift+P)
-- Filters commands by substring match on label
-- Arrow keys navigate the list, Enter executes the selected command
-- Escape or clicking the backdrop closes the dialog
-- Positioned at top-center of the viewport
+- コマンドの実行はダイアログを閉じてから行う。開いたまま走らせると、コマンド自身が開く
+  サーフェスより手前にモーダルが残り、実行結果が見えない
+- 変換確定のためのキー入力は選択操作として扱わない。日本語入力の確定が、そのままコマンド
+  実行になってしまうため
+- 各候補にキー割り当てを併記する。あるコマンドにキーが割り当てられているかを一覧で確認
+  できる唯一の場所でもある
 </doc>
 
 <script setup lang="ts">

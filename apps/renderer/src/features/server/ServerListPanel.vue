@@ -1,5 +1,5 @@
 <doc lang="md">
-実行中サーバー (TCP LISTEN プロセス) の一覧パネル (issue #768)。
+実行中サーバー (TCP LISTEN プロセス) の一覧パネル。
 
 TitleBar の renderer ボタン → `useServerStore.toggle()` で開閉する
 右ドック型オーバーレイ。port 競合調査が主目的なので、各サーバーを **port 単位の行**に展開して

@@ -1,15 +1,10 @@
 <doc lang="md">
-Terminal leaf 群を統括するコンテナ。
+端末群の配置を引き受けるコンテナ。どこにどれを置くかの計算をここに閉じ、外側はこの面を
+置くだけでよい。
 
-leaf の CSS Grid レイアウト・分割リサイズハンドル・可視性制御をカプセル化する。
-MainLayout はこのコンポーネントを配置するだけでよい。
-
-## レイアウト
-
-- 単一 worktree モード（"wt"）: `treeToGridTemplate` で分割ツリーを CSS Grid に変換
-- Claude タイルモード（"claude"）: `tileGridTemplate` で Claude 起動中 leaf を均等タイル配置
-- 各 TerminalLeaf は `grid-area` で配置、非表示 leaf は `v-show:false`
-- 分割リサイズハンドルは absolute overlay
+配置の規約は [docs/terminal.md](../../../../../docs/terminal.md) が SSOT。ここが持つのは、
+その規約を満たす配置定義を組み立てることと、分割の境界にリサイズハンドルを重ねることだけで、
+**どの端末を出すか / どこに置くかの意味論は持たない**。
 </doc>
 
 <script setup lang="ts">

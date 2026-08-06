@@ -1,22 +1,31 @@
 <doc lang="md">
-Full-text search dialog (Find in Files), opened by Cmd+Shift+F.
+worktree 全体を全文検索し、一致した行からその場所を開くダイアログ。
 
-## Behavior
+結果はファイル単位で届いた順に積み、全件が揃うのを待たない。検索は対象が大きいほど時間が
+かかり、完了まで何も出さないと待ちが無反応と区別できない。
 
-- Centered modal `<dialog>`, mirroring FilePickerDialog (Go to File): input at top,
-  scrollable result list below, backdrop click / Escape to close.
-- Results stream in per file from rg. Each file is a non-selectable header row; under it
-  come line rows in file order. Match lines highlight the matched ranges (primary); context
-  lines (surrounding lines) render dimmed with no highlight.
-- Arrow keys navigate line rows only (headers are skipped via `selectableIndices`), Enter
-  opens the selected line. Clicking a line opens it too. Opening closes the dialog and reveals
-  the file in preview at that line (`forceSelect(target, line+1)`, 1-based per Monaco).
+## 描画量の上限
 
-## Accessibility
+**描画する行数には上限があり、超えた分は出さない**。結果を仮想化しないため、一致が数万行に
+達すると描画そのものが破綻する。打ち切りは黙って行わず、絞り込みを促す表示に倒す。件数だけ
+見て「全部出ている」と読まれるほうが危険。
 
-- WAI-ARIA listbox: the result list is `role="listbox"`, line rows are `role="option"` with
-  `aria-selected`. The input is `role="combobox"` pointing at the active option via
-  `aria-activedescendant` so focus stays in the input while arrows move the selection.
+## 行の並びと選択
+
+ファイル見出しと一致行を 1 本の平坦な列として持つ。見出しは選択の対象にならないが、
+キーボード移動に伴うスクロール追従は列の中の位置で決まるため、見出しを列から外すと追従先が
+ずれる。選択できる行だけを別に数えて、移動は見出しを飛ばす。
+
+一致範囲の強調は行を組み立てるときに一度だけ計算する。描画のたびに計算すると、選択が動く
+だけの再描画でも全行分の走査が走る。
+
+一致した行と、その周囲を見せるための行は区別して描く。周囲の行に強調を付けると、どれが
+検索に引っかかった行なのか読めない。
+
+## 支援技術への露出
+
+入力欄にフォーカスを置いたまま矢印キーで選択を動かすため、いま選ばれている行は入力欄からの
+参照として示す。フォーカス自体を行へ移すと、続けて文字を打てなくなる。
 </doc>
 
 <script setup lang="ts">

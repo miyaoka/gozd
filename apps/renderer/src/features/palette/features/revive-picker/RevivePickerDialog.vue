@@ -1,23 +1,15 @@
 <doc lang="md">
-Revive session picker dialog. Lists Claude sessions whose gozd worktree was deleted, so the
-worktree + task can be recreated and the session resumed. Mirrors the PR picker: a table with
-fuzzy filtering, loading / empty states in a persistent live region, and keyboard navigation.
+worktree が失われた Claude セッションを選び、worktree と task を作り直して会話を再開する
+ダイアログ。タイトルとブランチを横断して絞り込める。
 
-## Behavior
+一覧の取得を待たずに開き、解決したら中身を差し替える。取得結果が 0 件のときも空であることを
+明示し、取得が空だったのか絞り込みで消えたのかは書き分ける。状態を伝えるテキストは領域ごと
+出し入れせず中身だけを差し替える。支援技術が変化を読み上げるには、変化する前からその領域が
+存在している必要がある。
 
-- Opens immediately in a loading state, then fills once `reviveList` resolves, showing an empty
-  state on 0 results. Same visible-feedback rationale as the PR picker.
-- The loading / empty text lives in a single persistent `role="status"` region (never `v-if`'d
-  away — only its text is swapped) so screen readers announce the state transitions.
-- Filters sessions by fuzzy match on title and branch.
-- Arrow keys navigate rows, Enter accepts, Escape closes.
-- Each row shows session title / branch / last-activity date (color-coded like the PR list).
-
-## Concurrency
-
-`acceptSelected` calls `close()` before `accept()` so the dialog is removed from the DOM before
-the async accept callback (worktree recreation) starts. This is the primary guard against
-re-entry: keydown / click events stop reaching the closed dialog.
+受理はダイアログを閉じてから走らせる。**閉じること自体が再入への唯一の防壁**で、走っている
+受理を覚えておく仕組みは持たない。worktree の作成は時間がかかるため、開いたままだとその間の
+キー入力とクリックが届き続ける。
 </doc>
 
 <script setup lang="ts">

@@ -1,42 +1,32 @@
 <doc lang="md">
-PR selection dialog. Displays open pull requests in a table layout with fuzzy filtering.
+open な PR を選んで作業先の worktree を開くダイアログ。番号・タイトル・ブランチ・作者を
+横断して絞り込め、自分が assignee / reviewer である PR だけに限定するトグルも持つ。
 
-## Behavior
+## 待ちと空を必ず見せる
 
-- Opens immediately in a loading state, then fills once the gh fetch resolves,
-  showing an empty state on 0 results. This gives visible feedback during the gh
-  GraphQL wait and when there are no open PRs, both of which would otherwise look
-  like nothing happened.
-- The loading / empty text lives in a single persistent `role="status"` region
-  (never `v-if`'d away — only its text is swapped) so screen readers reliably
-  announce the state transitions. A live region must pre-exist in the DOM before
-  its content changes; a conditionally rendered region inserts container + text
-  together, which many screen readers miss.
-- Filters PRs by fuzzy match on title, branch, and author
-- Arrow keys navigate rows, Enter accepts, Escape closes
-- Draft PRs are dimmed (opacity-50)
-- Color scheme follows `gh pr list` (green #number, cyan branch, gray author/date)
-- Rows whose PR already has a task in this repo are tinted (bg-primary-subtle) and
-  marked with a check icon; accepting them switches to the existing task's worktree
-  instead of creating a new one (the branch decision lives in registerPrCommand)
-- Shift+Enter / Shift+Click accepts without closing the dialog, for creating
-  worktrees from multiple PRs consecutively. The command writes the created task
-  back into the picker item on completion, so the row flips to the tinted
-  "task exists" state and re-accepting it routes to the existing-task switch
+一覧の取得を待たずに開き、解決したら中身を差し替える。GitHub への問い合わせには待ちがあり、
+完了まで何も出さないと「コマンドが効かなかった」と区別が付かない。取得結果が 0 件のときも
+同じ理由で、空であることを明示する。取得が空だったのか絞り込みで消えたのかは書き分ける。
 
-## Concurrency
+状態を伝えるテキストは領域ごと出し入れせず、中身だけを差し替える。支援技術が変化を読み上げる
+には、変化する前からその領域が存在している必要がある。領域と文字を同時に挿入すると読み上げが
+落ちる。
 
-For a plain accept, `acceptSelected` calls `close()` before `accept()` so the
-dialog is removed from the DOM before the async accept callback (worktree
-creation) starts; keydown / click events stop reaching the closed dialog.
-In-flight exclusion is owned by the command layer (`useInFlightGhRefs`), not
-this dialog: dialog state is destroyed on close / reopen, so it cannot block
-re-accepting a PR whose plain accept is still running in the background. The
-dialog reads the shared set to block selection and to render a spinner in
-place of the check icon on in-flight rows — the spinner therefore survives
-closing and reopening the picker. Accepts of different rows run in parallel;
-only re-accepting an in-flight row is blocked (it would recreate the same
-`pr.headRef` branch).
+## 受理と、走っている受理
+
+受理はダイアログを閉じてから走らせる。worktree の作成には時間がかかるため、開いたままだと
+その間のキー入力とクリックが、ユーザーにとっては用の済んだダイアログに届き続ける。
+
+**同じ PR を二重に受理させない判断はコマンド層が持つ**。ダイアログの状態は閉じると消えるため、
+裏で走っている作成をダイアログ側では覚えていられない。走っている間は行を選べなくし、進行中で
+あることを行の上に出す。この表示は picker を閉じて開き直しても残る。
+
+止めるのは同じ行の再受理だけで、別の行は並行して受理できる。同じ PR から 2 度作ると同名の
+ブランチを作り直すことになるが、別の PR どうしは競合しない。
+
+修飾キーを併用した受理はダイアログを閉じない。複数の PR から続けて worktree を作る操作を
+1 回の起動で済ませるため。作成が終わった行は「この repo に task がある」表示へ変わり、
+次に選ぶと新規作成ではなく既存 task への切り替えになる。
 </doc>
 
 <script setup lang="ts">

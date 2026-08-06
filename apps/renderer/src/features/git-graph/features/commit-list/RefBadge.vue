@@ -1,6 +1,6 @@
 <doc lang="md">
-Branch ref badge with optional PR link. Displays a PR number badge, its CI / comment indicators,
-and the branch label (in that order).
+ブランチ / タグの ref バッジ。PR を持つ ref では PR 番号と CI 状態、コメント数を先に並べ、
+ブランチ名を続ける。
 
 ## PR インジケータ
 
@@ -11,25 +11,20 @@ PR 番号バッジの後ろに CI ドットとコメント数を並べる。何�
 取得漏れでもない。CI を持たない repo に加え、push 直後に GitHub が check を作るまでの過渡状態も
 ここに落ちるため、push のたびにドットが一瞬消えてから復帰する。
 
-値は PR 一覧の polling が運ぶため即時ではない。CI 実行中の PENDING → SUCCESS 遷移は最大
-1 周期ぶん遅れて反映される。
+値は PR 一覧の取得が運ぶため即時ではない。CI の進行は取得の間隔ぶん遅れて反映される。
 
 ## カラー設計
 
-ref を **current / default / other** の 3 カテゴリで固定色に振り分ける (original PR #170e6b33 と
-同じ構造、Tier 2 semantic token に翻訳しただけ):
+ref は **current / default / それ以外**の 3 段で塗り分ける。**この序列は ref の種別
+(branch / tag) より優先する**。「いまどこに居るか」は種別より先に知りたい情報で、種別を
+優先して色を割ると HEAD が他のブランチに埋もれる。
 
-- `isCurrent` (HEAD branch、最優先): warning solid (`bg-warning text-warning-foreground`)。
-  type に関わらず override
-- `isDefault` (default branch、isCurrent でない): type 色に `ring-1 ring-inset ring-current` を
-  decoration として add
-- 上記いずれでもない (type 別): branch は `bg-success-subtle text-success-text`、tag は
-  `bg-primary-subtle text-primary-text`
+- current は単独で最も強い塗り。種別の色を上書きする
+- default は種別の色を保ったまま囲みだけを足す。種別の情報を落とさずに 1 段だけ持ち上げる
+- それ以外は種別ごとの色
 
-local / remote は **同じ hue で明度差** で区別する:
-
-- local / synced: 上記 token を full
-- remote: 同じ token + `opacity-50` で dim (data-state dim は SKILL Alpha 表の allow-list 用途)
+local と remote は**同じ色相のまま明度だけを変える**。別の色を割り当てると、同じブランチの
+local と remote が無関係な 2 つに見える。
 </doc>
 
 <script setup lang="ts">

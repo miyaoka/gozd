@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { formatRelativeAge, isoToUnixSec } from "./relativeAge";
 
-const nowSec = () => Math.floor(Date.now() / 1000);
+// 時計を固定して帯の境界そのものを踏む（相対入力だと ms の丸めで帯をまたぎフレークになる）
+const NOW = 1_800_000_000;
 const HOUR = 3600;
 const DAY = 24 * HOUR;
+
+const at = (ageSec: number) => formatRelativeAge(NOW - ageSec, NOW);
 
 describe("isoToUnixSec", () => {
   test("ISO 8601 を Unix 秒に変換する", () => {
@@ -19,29 +22,38 @@ describe("isoToUnixSec", () => {
 describe("formatRelativeAge", () => {
   test("日付が分からない項目はテキストを出さない", () => {
     // 呼び出し側に fallback を書かせないため、空文字を関数仕様として固定する
-    expect(formatRelativeAge(0).text).toBe("");
-    expect(formatRelativeAge(-1).text).toBe("");
-    expect(formatRelativeAge(isoToUnixSec("not a date")).text).toBe("");
+    expect(formatRelativeAge(0, NOW).text).toBe("");
+    expect(formatRelativeAge(-1, NOW).text).toBe("");
+    expect(formatRelativeAge(isoToUnixSec("not a date"), NOW).text).toBe("");
   });
 
-  test("経過が短いほど強い色を当てる", () => {
-    expect(formatRelativeAge(nowSec() - 60).color).toBe("text-success-text");
-    expect(formatRelativeAge(nowSec() - 2 * HOUR).color).toBe("text-warning-text");
-    expect(formatRelativeAge(nowSec() - 3 * DAY).color).toBe("text-warning-strong-text");
-    expect(formatRelativeAge(nowSec() - 40 * DAY).color).toBe("text-foreground-low");
+  test("鮮度色の境界は未満", () => {
+    expect(at(HOUR - 1).color).toBe("text-success-text");
+    expect(at(HOUR).color).toBe("text-warning-text");
+    expect(at(DAY - 1).color).toBe("text-warning-text");
+    expect(at(DAY).color).toBe("text-warning-strong-text");
+    expect(at(7 * DAY - 1).color).toBe("text-warning-strong-text");
+    expect(at(7 * DAY).color).toBe("text-foreground-low");
   });
 
-  test("30 日を超えたら相対表記をやめて絶対日付にする", () => {
-    const recent = formatRelativeAge(nowSec() - 20 * DAY);
-    const old = formatRelativeAge(nowSec() - 40 * DAY);
-    expect(recent.text).toContain("ago");
-    expect(old.text).not.toContain("ago");
+  test("30 日ちょうどで相対表記から絶対日付へ切り替わる", () => {
+    expect(at(30 * DAY - 1).text).toContain("ago");
+    expect(at(30 * DAY).text).not.toContain("ago");
+  });
+
+  test("テキストと色は同じ時計から導く", () => {
+    // 注入した時計を text 側が無視して実時刻を読むと、経過が NOW からの距離ぶんずれてこの
+    // 文字列と一致しなくなる。厳密比較にしているのは、`ago` の有無だけを見る形だと
+    // 実行日が NOW を追い越した時点で退行を検出できなくなるため
+    expect(at(2 * HOUR).text).toBe("2h ago");
+    expect(at(2 * HOUR).color).toBe("text-warning-text");
   });
 
   test("未来時刻は負の経過を文字列へ漏らさない", () => {
     // 時計ずれで updatedAt が未来になっても "-3m ago" のような表記を出さない
-    const future = formatRelativeAge(nowSec() + 3 * 60);
+    const future = formatRelativeAge(NOW + 3 * 60, NOW);
     expect(future.text).not.toContain("-");
     expect(future.text).toContain("in");
+    expect(future.color).toBe("text-success-text");
   });
 });

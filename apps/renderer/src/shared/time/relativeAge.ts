@@ -12,6 +12,9 @@
  *
  * 未来時刻（時計ずれ）は `formatRelativeTime` が `in 3m` に倒すため、負の経過が文字列へ
  * 漏れない。
+ *
+ * `nowSec` は既定で現在時刻。帯の境界をテストで踏めるよう注入でき、テキストと色が同じ
+ * 時計から導かれることを保証する（片方だけ現在時刻を読むと境界上でずれる）。
  */
 import { formatCompactDate, formatRelativeTime } from "./relativeTime";
 
@@ -37,11 +40,14 @@ export interface RelativeAgeDisplay {
   color: string;
 }
 
-export function formatRelativeAge(unixSec: number): RelativeAgeDisplay {
+export function formatRelativeAge(
+  unixSec: number,
+  nowSec = Math.floor(Date.now() / 1000),
+): RelativeAgeDisplay {
   if (unixSec <= 0) return { text: "", color: UNKNOWN_COLOR };
-  const ageSec = Math.floor(Date.now() / 1000) - unixSec;
+  const ageSec = nowSec - unixSec;
   return {
-    text: ageSec >= MONTH_SEC ? formatCompactDate(unixSec) : formatRelativeTime(unixSec),
+    text: ageSec >= MONTH_SEC ? formatCompactDate(unixSec) : formatRelativeTime(unixSec, nowSec),
     color: AGE_BANDS.find((band) => ageSec < band.withinSec)?.color ?? STALE_COLOR,
   };
 }

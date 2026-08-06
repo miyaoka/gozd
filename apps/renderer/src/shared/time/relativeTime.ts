@@ -12,15 +12,21 @@
  *
  * 「秒数 → 最適な単位 (s/m/h/d/mo/y) 選択」は Intl が肩代わりしないので自前で残す。
  * 閾値は概算 (30 日 = 1 mo 等)。月跨ぎの厳密性は不要な UI 表示用途のみで使う想定。
+ *
+ * `nowSec` は既定で現在時刻。単位の切り替わる境界をテストで踏めるよう注入できる
+ * (`formatShortAge` が now を引数に取るのと同じ理由)。
  */
 const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat("en", {
   style: "narrow",
   numeric: "always",
 });
 
-export function formatRelativeTime(unixSec: number): string {
+export function formatRelativeTime(
+  unixSec: number,
+  nowSec = Math.floor(Date.now() / 1000),
+): string {
   if (unixSec <= 0) return "";
-  const diffSec = Math.floor(Date.now() / 1000) - unixSec;
+  const diffSec = nowSec - unixSec;
   // 過去を負号、未来を正号として Intl に渡す慣習。
   // RTF は負号 = "ago"、正号 = "in" を locale-correct に解決する。
   const sign = diffSec >= 0 ? -1 : 1;

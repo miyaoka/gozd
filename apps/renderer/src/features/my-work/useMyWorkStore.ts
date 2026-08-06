@@ -4,7 +4,7 @@ import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { logEvent } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
-import { ghErrorMessage } from "../github-item";
+import { ghErrorLogDetail, ghErrorMessage } from "../github-item";
 import { rpcGitMyWork } from "./rpc";
 
 /**
@@ -91,14 +91,14 @@ export const useMyWorkStore = defineStore("myWork", () => {
       try {
         const result = await tryCatch(rpcGitMyWork({}));
         if (!result.ok) {
-          logEvent("my-work", "error", "", "rpc failed");
+          logEvent("my-work", "error", "", String(result.error));
           lastError.value = FETCH_FAILED_MESSAGE;
           notify.error(FETCH_FAILED_MESSAGE, result.error);
           return;
         }
         const res = result.value;
         if (!res.ok) {
-          logEvent("my-work", "error", "", res.errorKind);
+          logEvent("my-work", "error", "", ghErrorLogDetail(res.errorKind, res.errorDetail));
           const message = ghErrorMessage(res.errorKind, FETCH_FAILED_MESSAGE);
           lastError.value = message;
           notify.error(message, res.errorDetail || undefined);

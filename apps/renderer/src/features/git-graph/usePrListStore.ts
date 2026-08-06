@@ -5,7 +5,7 @@ import { computed, ref } from "vue";
 import { logEvent } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
-import { ghErrorMessage } from "../github-item";
+import { ghErrorLogDetail, ghErrorMessage } from "../github-item";
 import { rpcGitPrList } from "../palette";
 
 /**
@@ -86,13 +86,18 @@ export const usePrListStore = defineStore("prList", () => {
       try {
         const result = await tryCatch(rpcGitPrList({ dir }));
         if (!result.ok) {
-          logEvent("pr-poll", "error", repoName(rootDir), "rpc failed");
+          logEvent("pr-poll", "error", repoName(rootDir), String(result.error));
           notify.error("Failed to load pull requests", result.error);
           return;
         }
         const res = result.value;
         if (!res.ok) {
-          logEvent("pr-poll", "error", repoName(rootDir), res.errorKind);
+          logEvent(
+            "pr-poll",
+            "error",
+            repoName(rootDir),
+            ghErrorLogDetail(res.errorKind, res.errorDetail),
+          );
           notify.error(
             ghErrorMessage(res.errorKind, "Failed to load pull requests"),
             res.errorDetail || undefined,

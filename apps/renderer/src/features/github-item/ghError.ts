@@ -19,3 +19,11 @@ const GH_ERROR_TEXT: Record<GhErrorKind, string> = {
 export function ghErrorMessage(kind: GhErrorKind, action: string): string {
   return `${action}: ${GH_ERROR_TEXT[kind]}`;
 }
+
+/**
+ * 観察ログに載せる gh 失敗の要約。トースト向けの文言と別なのは、こちらが原因の特定に使う
+ * 記録で stderr を要するため。分類だけでは `other` に落ちた失敗を区別できない。
+ */
+export function ghErrorLogDetail(kind: GhErrorKind, detail: string): string {
+  return detail === "" ? kind : `${kind}: ${detail}`;
+}

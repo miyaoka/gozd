@@ -169,7 +169,7 @@ macOS 専用（`bin/gozd` ラッパー、zsh init チェーン、`open` 経由�
 
 ### 観察ログ (stderr) の書式
 
-dispatcher / store / hook ハンドラの ad-hoc 観察ログは `console.error` で `[tag] message` 形式に統一する。
+main の dispatcher / store / hook ハンドラの ad-hoc 観察ログは `console.error` で `[tag] message` 形式に統一する。
 
 ```typescript
 console.error(
@@ -179,3 +179,4 @@ console.error(
 
 - tag は handler 関数名（`handlePtySpawn`）または store / module 名（`TaskStore`）
 - silent drop 禁止: 握りつぶす失敗経路には必ず観察ログを残す（1 度の取りこぼしで UI 状態が永続的にずれる push 経路が典型）
+- 分類だけでなく原因も残す。「失敗した」ことだけを記録して例外や stderr を捨てると、後から何が起きたかを再構築できない

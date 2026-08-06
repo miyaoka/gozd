@@ -20,7 +20,7 @@ my work パネルの 1 ペイン（review requested / my PRs / my issues）。
 <script setup lang="ts">
 import type { GitMyWorkGroup } from "@gozd/rpc";
 import { computed } from "vue";
-import { activateExternalLink } from "../git-graph";
+import { activateExternalLink } from "../github-item";
 import MyWorkRow from "./MyWorkRow.vue";
 import IconLucideExternalLink from "~icons/lucide/external-link";
 

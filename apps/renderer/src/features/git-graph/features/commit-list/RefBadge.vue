@@ -35,8 +35,7 @@ local / remote は **同じ hue で明度差** で区別する:
 <script setup lang="ts">
 import type { GitPullRequest } from "@gozd/rpc";
 import { computed } from "vue";
-import { CHECK_STATE_DISPLAY } from "../../checkStateDisplay";
-import { activateExternalLink } from "../../externalLink";
+import { activateExternalLink, CHECK_STATE_DISPLAY } from "../../../github-item";
 import type { DisplayRef } from "./displayRef";
 import IconLucideGitPullRequest from "~icons/lucide/git-pull-request";
 import IconLucideLink from "~icons/lucide/link";

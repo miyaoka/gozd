@@ -9,7 +9,7 @@ Issue picker の1行分。Issue 番号・タイトル・author・更新日時を
 <script setup lang="ts">
 import type { GitIssue } from "@gozd/rpc";
 import { computed } from "vue";
-import { formatRelativeDate } from "../../formatRelativeDate";
+import { formatRelativeAge, isoToUnixSec } from "../../../../shared/time";
 import IconLucideCheck from "~icons/lucide/check";
 import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 import IconLucideUser from "~icons/lucide/user";
@@ -20,7 +20,7 @@ const props = defineProps<{
   creating: boolean;
 }>();
 
-const dateDisplay = computed(() => formatRelativeDate(props.issue.updatedAt));
+const dateDisplay = computed(() => formatRelativeAge(isoToUnixSec(props.issue.updatedAt)));
 </script>
 
 <template>

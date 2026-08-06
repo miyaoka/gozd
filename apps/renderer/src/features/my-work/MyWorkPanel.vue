@@ -45,7 +45,7 @@ URL は取得の成否に依存しないため失敗応答からも得られる�
 import { useIntervalFn, useWindowFocus } from "@vueuse/core";
 import { computed, useTemplateRef, watch } from "vue";
 import { useSurface } from "../../shared/surface";
-import { activateExternalLink } from "../git-graph";
+import { activateExternalLink } from "../github-item";
 import MyWorkSection from "./MyWorkSection.vue";
 import { MY_WORK_FRESH_MS, useMyWorkStore } from "./useMyWorkStore";
 import IconLucideInbox from "~icons/lucide/inbox";

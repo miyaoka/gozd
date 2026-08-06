@@ -7,17 +7,16 @@ revive picker の1行分。セッションの title・branch・ログサイズ�
 <script setup lang="ts">
 import type { ReviveSessionInfo } from "@gozd/rpc";
 import { computed } from "vue";
-import { formatRelativeDate } from "../../formatRelativeDate";
+import { formatRelativeAge } from "../../../../shared/time";
 import IconLucideGitBranch from "~icons/lucide/git-branch";
 
 const props = defineProps<{
   session: ReviveSessionInfo;
 }>();
 
-// lastActivity は Unix ミリ秒。formatRelativeDate は ISO 文字列を取るので変換する
-// (PR 行と同じ相対日時 + 色分けに揃える)。
+// lastActivity は Unix ミリ秒。相対日時は秒で扱う (PR 行と同じ表示に揃える)。
 const dateDisplay = computed(() =>
-  formatRelativeDate(new Date(props.session.lastActivity).toISOString()),
+  formatRelativeAge(Math.floor(props.session.lastActivity / 1000)),
 );
 const title = computed(() =>
   props.session.title !== "" ? props.session.title : props.session.branch,

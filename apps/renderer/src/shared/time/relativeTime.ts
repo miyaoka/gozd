@@ -90,6 +90,18 @@ export function formatCompactTime(unixSec: number): string {
 }
 
 /**
+ * 年月日だけの絶対日付に整形する。`unixSec <= 0` は空文字。
+ *
+ * 相対表記が薄まった古い項目に添える用途。同年でも時刻を出さないのは、経過が月単位に
+ * なった時点で時分の解像度が意味を持たず、狭い行では雑音にしかならないため
+ * （`formatCompactTime` が同年に時刻を出すのは、日単位の新しさが意味を持つ用途向け）。
+ */
+export function formatCompactDate(unixSec: number): string {
+  if (unixSec <= 0) return "";
+  return COMPACT_DATE_FORMATTER.format(new Date(unixSec * 1000));
+}
+
+/**
  * 詳細な絶対時刻文字列（年・月・日・時・分・秒）に整形する。`unixSec <= 0` は空文字。
  *
  * git-graph の commit 詳細ペインのような、省略せず全フィールドを見せる用途。

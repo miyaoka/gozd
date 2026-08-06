@@ -5,7 +5,8 @@ import { computed, ref } from "vue";
 import { logEvent } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
-import { ghErrorMessage, rpcGitPrList } from "../palette";
+import { ghErrorMessage } from "../github-item";
+import { rpcGitPrList } from "../palette";
 
 /**
  * PR 一覧の SSOT + 取得マネージャ。`gh pr list` は repo 単位で結果が同じなので、**repo

@@ -1,3 +1,4 @@
+export { formatRelativeAge, isoToUnixSec } from "./relativeAge";
 export {
   formatAbsoluteTime,
   formatCompactTime,

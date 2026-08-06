@@ -4,7 +4,7 @@ import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { logEvent } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
-import { ghErrorMessage } from "../palette";
+import { ghErrorMessage } from "../github-item";
 import { rpcGitMyWork } from "./rpc";
 
 /**

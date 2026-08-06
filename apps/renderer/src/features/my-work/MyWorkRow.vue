@@ -16,25 +16,15 @@ my work パネルの 1 行。PR と issue を同じ行フォーマットで描�
 </doc>
 
 <script setup lang="ts">
-import type { GitMyWorkItem, GitPullRequestReviewDecision } from "@gozd/rpc";
+import type { GitMyWorkItem } from "@gozd/rpc";
 import { computed, type FunctionalComponent, type SVGAttributes } from "vue";
-import { formatRelativeTime } from "../../shared/time";
-import { activateExternalLink, CHECK_STATE_DISPLAY } from "../git-graph";
+import { formatRelativeAge, isoToUnixSec } from "../../shared/time";
+import { activateExternalLink, CHECK_STATE_DISPLAY, REVIEW_DECISION_DISPLAY } from "../github-item";
 import IconLucideCircleDot from "~icons/lucide/circle-dot";
 import IconLucideGitPullRequest from "~icons/lucide/git-pull-request";
 import IconLucideMessageSquare from "~icons/lucide/message-square";
 
 const props = defineProps<{ item: GitMyWorkItem }>();
-
-/** レビュー総合結果 → ラベルと色。設定の無い PR / issue は undefined で、行に何も出さない */
-const REVIEW_DECISION_DISPLAY: Record<
-  GitPullRequestReviewDecision,
-  { label: string; class: string }
-> = {
-  APPROVED: { label: "approved", class: "text-success-text" },
-  CHANGES_REQUESTED: { label: "changes requested", class: "text-destructive-text" },
-  REVIEW_REQUIRED: { label: "review required", class: "text-foreground-muted" },
-};
 
 const KIND_ICON: Record<GitMyWorkItem["kind"], FunctionalComponent<SVGAttributes>> = {
   pr: IconLucideGitPullRequest,
@@ -51,27 +41,7 @@ const reviewDecision = computed(() => {
   return decision === undefined ? undefined : REVIEW_DECISION_DISPLAY[decision];
 });
 
-// 経過が長いほど注意を引かない配色にする。放置された項目を警告色で塗り続けても行動は変わらず、
-// 直近動いたものを見つけにくくするだけ
-const RELATIVE_AGE_CLASS = [
-  { withinSec: 3600, class: "text-success-text" },
-  { withinSec: 86400, class: "text-warning-text" },
-  { withinSec: 86400 * 7, class: "text-warning-strong-text" },
-] as const;
-
-/** ISO 8601 → Unix 秒。parse 不能なら 0（`formatRelativeTime` が空文字を返す） */
-const updatedAtSec = computed(() => {
-  const ms = Date.parse(props.item.updatedAt);
-  return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
-});
-
-const relativeText = computed(() => formatRelativeTime(updatedAtSec.value));
-
-const relativeClass = computed(() => {
-  if (updatedAtSec.value <= 0) return "text-foreground-muted";
-  const ageSec = Math.floor(Date.now() / 1000) - updatedAtSec.value;
-  return RELATIVE_AGE_CLASS.find((band) => ageSec < band.withinSec)?.class ?? "text-foreground-low";
-});
+const dateDisplay = computed(() => formatRelativeAge(isoToUnixSec(props.item.updatedAt)));
 </script>
 
 <template>
@@ -88,7 +58,7 @@ const relativeClass = computed(() => {
         :class="item.isDraft ? 'text-foreground-muted' : 'text-success-text'"
       />
       <span class="min-w-0 flex-1 truncate text-foreground">{{ item.title }}</span>
-      <span class="shrink-0 tabular-nums" :class="relativeClass">{{ relativeText }}</span>
+      <span class="shrink-0 tabular-nums" :class="dateDisplay.color">{{ dateDisplay.text }}</span>
     </div>
 
     <div class="flex items-center gap-2 text-[10px] text-foreground-low">

@@ -13,8 +13,7 @@ import { createListPicker } from "../../createListPicker";
 export interface IssuePickerItem {
   issue: GitIssue;
   existingTask?: Task;
-  /** rootDir + ghRef の排他キー (`inFlightKey`)。コマンド層が accept 実行中の排他に、
-   * dialog が行スピナー表示と受理のブロックに使う。 */
+  /** rootDir + ghRef の排他キー (`inFlightKey`)。用途は inFlightGhRefs.ts の module doc。 */
   refKey: string;
 }
 

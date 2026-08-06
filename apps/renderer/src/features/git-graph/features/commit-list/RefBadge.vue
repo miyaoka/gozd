@@ -5,7 +5,7 @@
 ## PR インジケータ
 
 PR 番号バッジの後ろに CI ドットとコメント数を並べる。何を出さないかの契約は
-[docs/git.md](../../../../../../../docs/git.md) の「PR 一覧が運ぶ情報の範囲」。
+docs/git.md の「PR 一覧が運ぶ情報の範囲」。
 
 `checkState` が undefined なのは **check が 1 つも登録されていない commit** であって、失敗でも
 取得漏れでもない。CI を持たない repo に加え、push 直後に GitHub が check を作るまでの過渡状態も

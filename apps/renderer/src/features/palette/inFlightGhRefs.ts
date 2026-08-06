@@ -1,7 +1,8 @@
 /**
  * accept 実行中 (worktree / task の作成・切り替え) の対象キー集合を保持する module singleton。
  * 排他の SSOT はコマンド層 (registerPrCommand / registerIssueCommand) の add / remove で、
- * dialog はこの集合から行スピナー表示と受理のブロックを導出する。
+ * dialog はこの集合から行スピナー表示と受理のブロックを導出する。止めるのは受理だけで、
+ * 実行中の行も選択とハイライトは通常どおり動く。
  *
  * dialog ローカルの状態にしないのは、通常選択 (close 後の fire-and-forget 実行) や picker の
  * 開き直しで dialog 状態が破棄され、実行中の同一対象を再実行できてしまうため。picker

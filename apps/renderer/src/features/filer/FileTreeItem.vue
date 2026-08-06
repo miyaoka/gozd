@@ -21,7 +21,7 @@
 ## symlink
 
 表示 2 軸（バッジ / 名前の色）と色の優先順位、右クリック項目の切り分けは
-[docs/filer.md](../../../../../docs/filer.md#symlink-の表示) が SSOT。本 component 固有の点だけ:
+docs/filer.md の「symlink の表示」が SSOT。本 component 固有の点だけ:
 
 - バッジは行の hover / 選択色に追従せず自前の面を持つ。実体の種別でアイコン自体が決まる
   （dir symlink はフォルダアイコン）ため、link であることは重ね表示でしか表現できず、背景に

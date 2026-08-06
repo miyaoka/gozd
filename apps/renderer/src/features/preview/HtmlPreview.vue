@@ -53,7 +53,7 @@ PR diff / 実体なし）では consumer が target を渡さず source 表示�
 
 ## 外側のポインタ操作を奪わない
 
-契約は [docs/preview.md](../../../../../docs/preview.md) の HTML ビュー。ここには判定をこの面に
+契約は docs/preview.md の HTML ビュー。ここには判定をこの面に
 置いた理由と、このコンポーネントの都合から来る制約だけを書く。
 
 cross-origin の frame を跨いでイベントが届くのは pointer capture を持つドラッグだけで、

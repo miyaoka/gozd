@@ -2,8 +2,7 @@
 open な PR を選んで作業先の worktree を開くダイアログ。番号・タイトル・ブランチ・作者を
 横断して絞り込め、自分が assignee / reviewer である PR だけに限定するトグルも持つ。
 
-一覧が空のとき、**取得結果が空だったのか絞り込みで消えたのかを書き分ける**。対象が本当に
-無いのか、語を変えれば届くのかで、次にすることが変わる。
+一覧が空のとき、取得結果が空だったのか絞り込みで消えたのかを書き分ける。
 
 ## 受理
 
@@ -41,8 +40,7 @@ const { items: prItems, viewer, status, showSignal, hideSignal, accept } = usePr
 const query = ref("");
 const filterAssignee = ref(false);
 const filterReviewer = ref(false);
-/** accept 実行中キーの共有集合。設計理由は inFlightGhRefs.ts の module doc が SSOT。
- * 実行中の行は受理のブロック + スピナー表示に使う（選択とハイライトは止めない） */
+/** accept 実行中キーの共有集合。設計理由と用途は inFlightGhRefs.ts の module doc が SSOT。 */
 const inFlightGhRefs = useInFlightGhRefs();
 
 /** 検索対象テキストを生成（title, branch, author を結合） */

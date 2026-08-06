@@ -7,7 +7,7 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - ResizeHandle で上下の比率をリサイズ可能
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealRequest を内部で購読しているため props 経由不要
-- FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）
+- FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（docs/preview.md の決定表を参照）
 - Filer ヘッダーの状態表示は `headerStatus` 1 つの computed に集約する。snapshot mode（`gitGraphStore.selectedHash` が `UNCOMMITTED_HASH` 以外）では選択中コミットの日時（`formatCompactTime` の狭幅向け compact 表示、tooltip に `formatAbsoluteTime` の絶対時刻）、working tree mode では固定テキスト `"(now)"` を同じ span で描画する。working tree mode を時刻でなく固定ラベルにするのは、"Now" ボタン（FilerPane がツリー右上に float 表示。設計意図はそちらの doc 参照）を押した遷移先が何であるかを明示するため（変更ファイルの mtime を出すと「今」であることが伝わりにくい）
 
 ## 右クリックメニュー
@@ -157,7 +157,7 @@ const pendingOpen = ref<PendingOpen | null>(null);
  *   状態遷移を pointerup のみで完結させる現設計を維持すること
  * - keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火しないため
  *   menu は開かない。本 PR の責務外で、将来 keyboard ショートカット要件が発生したら別経路
- *   ([docs/keybinding.md](../../../../../docs/keybinding.md)) で menu を開く
+ *   (docs/keybinding.md) で menu を開く
  *
  * `useEventListener` を setup 直下で呼ぶことで effect scope に紐付き、unmount / HMR で自動 cleanup
  * される (handler 内で呼ぶと scope に登録されず leak する)。

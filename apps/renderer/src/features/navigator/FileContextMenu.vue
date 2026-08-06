@@ -9,13 +9,13 @@ FileActionMenuItems の doc を参照 (openable prop に反転して渡す)。
 
 ## 実体向けの項目 (実体がツリー上のパスと違う行のみ)
 
-項目の一覧と可視条件は [docs/filer.md](../../../../../docs/filer.md#実体を対象にする右クリック項目) が
+項目の一覧と可視条件は docs/filer.md の「実体を対象にする右クリック項目」が
 SSOT。本 component 固有の点だけ:
 
 - 共通の `FileActionMenuItems` には入れない。共有先の preview ヘッダ ⋮ メニューは実体情報を持たず、
   これらは filer の symlink 経路に固有 (共有するのは「どの入口でも同じ意味を持つ項目」に限る)
 - file 実体は navigation 意味の経路なので `requestSelect` ではなく `forceSelect` を使う (同一 path でも
-  トグル close させない。[docs/preview.md](../../../../../docs/preview.md) の決定表)
+  トグル close させない。docs/preview.md の決定表)
 - directory 実体は preview がディレクトリを表示できないため `worktreeStore.revealRelPath` で
   **ツリーだけ**移動する (selection は動かさないので開いている preview は保たれる)
 - 実体向け項目は context の `dir` snapshot ではなく現在の store 基準で解決するため、dir 切替では

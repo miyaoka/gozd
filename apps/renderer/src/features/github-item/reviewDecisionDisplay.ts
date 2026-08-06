@@ -4,8 +4,8 @@ import type { GitPullRequestReviewDecision } from "@gozd/rpc";
 /**
  * レビュー総合結果 → ラベルと色。
  *
- * 表示側は undefined を「レビューの設定が無い PR」と読み、何も描かない。issue も同じ
- * undefined に落ちる。「不明」を表す専用の見た目は持たない。
+ * undefined はレビューの設定が無い PR を表し、issue も同じ undefined に落ちる。
+ * その扱いは [docs/git.md](../../../../../docs/git.md) の「得られなかった要約は描かない」。
  */
 export const REVIEW_DECISION_DISPLAY: Record<
   GitPullRequestReviewDecision,

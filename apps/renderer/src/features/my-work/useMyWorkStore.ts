@@ -102,6 +102,14 @@ export const useMyWorkStore = defineStore("myWork", () => {
           const message = ghErrorMessage(res.errorKind, FETCH_FAILED_MESSAGE);
           lastError.value = message;
           notify.error(message, res.errorDetail || undefined);
+          // URL は取得の成否に依存しない静的な導出物。失敗応答からも取り込み、一覧が
+          // 出せない間も GitHub 側で確認する導線を残す（件数と行はキャッシュを保つ）
+          reviewRequestedPrs.value = {
+            ...reviewRequestedPrs.value,
+            webUrl: res.reviewRequestedPrs.webUrl,
+          };
+          authoredPrs.value = { ...authoredPrs.value, webUrl: res.authoredPrs.webUrl };
+          authoredIssues.value = { ...authoredIssues.value, webUrl: res.authoredIssues.webUrl };
           return;
         }
         reviewRequestedPrs.value = res.reviewRequestedPrs;

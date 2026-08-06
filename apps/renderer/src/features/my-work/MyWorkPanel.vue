@@ -32,6 +32,9 @@ lock のせいで開き直しても撃たないため、無説明の画面が固
 取得済みで直近の取得が失敗しているときは、表示が stale であることをヘッダーに出す。トーストは
 流れて消えるので、それだけでは失敗が画面から失われる。
 
+失敗表示には GitHub 上の一覧への導線を残す。gh が使えない状態こそ GitHub 側で確認したい場面で、
+URL は取得の成否に依存しないため失敗応答からも得られる。
+
 ## repo に紐づかない
 
 一覧は認証ユーザー単位なので、active repo / worktree の切替では何も起きない。gozd で開いて
@@ -42,6 +45,7 @@ lock のせいで開き直しても撃たないため、無説明の画面が固
 import { useIntervalFn, useWindowFocus } from "@vueuse/core";
 import { computed, useTemplateRef, watch } from "vue";
 import { useSurface } from "../../shared/surface";
+import { activateExternalLink } from "../git-graph";
 import MyWorkSection from "./MyWorkSection.vue";
 import { MY_WORK_FRESH_MS, useMyWorkStore } from "./useMyWorkStore";
 import IconLucideInbox from "~icons/lucide/inbox";
@@ -67,6 +71,23 @@ useIntervalFn(
   },
   MY_WORK_FRESH_MS,
   { immediateCallback: false },
+);
+
+/** 軸のラベルと GitHub 上の一覧 URL。ペインの見出しと同じ組。 */
+const AXES = [
+  { title: "Review requested", group: () => myWorkStore.reviewRequestedPrs },
+  { title: "My pull requests", group: () => myWorkStore.authoredPrs },
+  { title: "My issues", group: () => myWorkStore.authoredIssues },
+];
+
+/**
+ * 一覧を出せないときに残す GitHub への導線。URL は取得の成否に依存しないが、main から
+ * 一度も応答が届いていなければ手元に無いので、その軸は出さない（描けないものを描かない）。
+ */
+const failureLinks = computed(() =>
+  AXES.map((axis) => ({ title: axis.title, webUrl: axis.group().webUrl })).filter(
+    (link) => link.webUrl !== "",
+  ),
 );
 
 const panelRef = useTemplateRef<HTMLElement>("panel");
@@ -137,6 +158,19 @@ const { raise } = useSurface(panelRef, {
         >
           Retry
         </button>
+        <!-- 一覧が出せない間の逃げ道。gh が使えない状態こそ GitHub 側で見たい -->
+        <div v-if="failureLinks.length > 0" class="flex flex-wrap justify-center gap-3">
+          <a
+            v-for="link in failureLinks"
+            :key="link.webUrl"
+            :href="link.webUrl"
+            class="text-primary-text underline"
+            @click="activateExternalLink($event, link.webUrl)"
+            @auxclick="activateExternalLink($event, link.webUrl)"
+          >
+            {{ link.title }}
+          </a>
+        </div>
       </template>
     </div>
 

@@ -234,11 +234,20 @@ const MY_WORK_SEARCHES = [
     query: "is:open is:issue author:@me archived:false sort:updated-desc",
   },
 ] as const satisfies readonly {
-  key: keyof MyWork;
+  key: string;
   kind: "pr" | "issue";
   webType: "pullrequests" | "issues";
   query: string;
 }[];
+
+/**
+ * 軸の集合は `MY_WORK_SEARCHES` から導出する。手書きで並べると、軸を足したときに
+ * テーブルと型の両方を直す必要が生じ、片方だけ直した状態を作れてしまう。
+ *
+ * ワイヤ型（`GitMyWorkResponse`）との整合は routes 側の `satisfies` が見る。軸の削除や
+ * 改名はそこで compile error になる。
+ */
+export type MyWork = Record<(typeof MY_WORK_SEARCHES)[number]["key"], GitMyWorkGroup>;
 
 /** 同じ検索条件を GitHub の検索ページで開く URL */
 function myWorkWebUrl(search: (typeof MY_WORK_SEARCHES)[number]): string {
@@ -265,21 +274,19 @@ function myWorkWebUrl(search: (typeof MY_WORK_SEARCHES)[number]): string {
  *
  * 検索条件は変数で渡す。query 文字列に埋め込むと、条件に引用符が入った瞬間に GraphQL の
  * 構文を壊す。
+ *
+ * 軸ごとの変数宣言と search エイリアスは `MY_WORK_SEARCHES` から組み立てる。手書きで並べると
+ * 軸の一覧が 2 箇所に存在し、片方だけ足した状態を作れてしまう（未宣言の変数はサーバー側で
+ * 無視されるため、取得は「その軸が応答に無い」形で落ちる）。
  */
 const MY_WORK_QUERY = `
-query($limit: Int!, $reviewRequestedPrs: String!, $authoredPrs: String!, $authoredIssues: String!) {
-  reviewRequestedPrs: search(type: ISSUE, query: $reviewRequestedPrs, first: $limit) {
+query($limit: Int!, ${MY_WORK_SEARCHES.map((s) => `$${s.key}: String!`).join(", ")}) {
+${MY_WORK_SEARCHES.map(
+  (s) => `  ${s.key}: search(type: ISSUE, query: $${s.key}, first: $limit) {
     issueCount
-    nodes { ...prFields }
-  }
-  authoredPrs: search(type: ISSUE, query: $authoredPrs, first: $limit) {
-    issueCount
-    nodes { ...prFields }
-  }
-  authoredIssues: search(type: ISSUE, query: $authoredIssues, first: $limit) {
-    issueCount
-    nodes { ...issueFields }
-  }
+    nodes { ...${s.kind}Fields }
+  }`,
+).join("\n")}
 }
 
 fragment prFields on PullRequest {
@@ -306,12 +313,6 @@ fragment issueFields on Issue {
   author { login avatarUrl(size: ${AVATAR_SIZE}) }
   comments { totalCount }
 }`;
-
-export interface MyWork {
-  reviewRequestedPrs: GitMyWorkGroup;
-  authoredPrs: GitMyWorkGroup;
-  authoredIssues: GitMyWorkGroup;
-}
 
 /**
  * 認証ユーザー単位の作業一覧（repo 横断）。

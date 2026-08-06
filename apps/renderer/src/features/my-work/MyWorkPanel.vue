@@ -73,7 +73,10 @@ useIntervalFn(
   { immediateCallback: false },
 );
 
-/** 軸のラベルと GitHub 上の一覧 URL。ペインの見出しと同じ組。 */
+/**
+ * 軸のラベルと並び。ペインと失敗表示のリンクはどちらもこれを回す。手書きで並べると
+ * ラベルや並びが 2 箇所に存在し、片方だけ直した状態を作れてしまう。
+ */
 const AXES = [
   { title: "Review requested", group: () => myWorkStore.reviewRequestedPrs },
   { title: "My pull requests", group: () => myWorkStore.authoredPrs },
@@ -175,9 +178,12 @@ const { raise } = useSurface(panelRef, {
     </div>
 
     <div v-else class="flex min-h-0 flex-1">
-      <MyWorkSection title="Review requested" :group="myWorkStore.reviewRequestedPrs" />
-      <MyWorkSection title="My pull requests" :group="myWorkStore.authoredPrs" />
-      <MyWorkSection title="My issues" :group="myWorkStore.authoredIssues" />
+      <MyWorkSection
+        v-for="axis in AXES"
+        :key="axis.title"
+        :title="axis.title"
+        :group="axis.group()"
+      />
     </div>
   </div>
 </template>

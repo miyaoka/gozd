@@ -259,8 +259,8 @@ function myWorkWebUrl(search: (typeof MY_WORK_SEARCHES)[number]): string {
  * 認証ユーザー単位の作業一覧を **1 往復・rate limit cost 1** で取る query。
  *
  * GraphQL の cost は「各 connection を満たすのに必要なリクエスト数の合計を 100 で割って
- * 四捨五入し、最小 1」なので、search を 3 本並べても `first: 50` でも 3 リクエスト相当に
- * しかならず cost 1 に収まる。REST の `/search/issues` を 3 回叩く形（3 リクエスト +
+ * 四捨五入し、最小 1」なので、search を 3 本並べても `first` を上限まで上げても 3 リクエスト
+ * 相当にしかならず cost 1 に収まる。REST の `/search/issues` を 3 回叩く形（3 リクエスト +
  * search 専用の分間制限を消費）とはここが決定的に違う。
  *
  * `search(type: ISSUE)` の node は `Issue | PullRequest` の union なので、CI / レビュー結果は

@@ -156,8 +156,7 @@ const pendingOpen = ref<PendingOpen | null>(null);
  *   来ると pending を即消去してしまい、本来意図した次の pointerup での消化が起きなくなる。
  *   状態遷移を pointerup のみで完結させる現設計を維持すること
  * - keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火しないため
- *   menu は開かない。本 PR の責務外で、将来 keyboard ショートカット要件が発生したら別経路
- *   (docs/keybinding.md) で menu を開く
+ *   menu は開かない。必要になったら keybinding システム (docs/keybinding.md) 経由で開く
  *
  * `useEventListener` を setup 直下で呼ぶことで effect scope に紐付き、unmount / HMR で自動 cleanup
  * される (handler 内で呼ぶと scope に登録されず leak する)。

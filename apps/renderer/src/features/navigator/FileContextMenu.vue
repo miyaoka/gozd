@@ -9,8 +9,8 @@ FileActionMenuItems の doc を参照 (openable prop に反転して渡す)。
 
 ## 実体向けの項目 (実体がツリー上のパスと違う行のみ)
 
-項目の一覧と可視条件は docs/filer.md の「実体を対象にする右クリック項目」が
-SSOT。本 component 固有の点だけ:
+項目の一覧と可視条件は docs/filer.md の「実体を対象にする右クリック項目」が SSOT。
+本 component 固有の点だけ:
 
 - 共通の `FileActionMenuItems` には入れない。共有先の preview ヘッダ ⋮ メニューは実体情報を持たず、
   これらは filer の symlink 経路に固有 (共有するのは「どの入口でも同じ意味を持つ項目」に限る)

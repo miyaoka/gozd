@@ -25,8 +25,8 @@
  * 倒す。`{ capture: true }` を外したり pointerdown / mousedown 経路に変えてはならない。
  *
  * 副作用: keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火
- * しないため menu を開かない。本 PR の責務外で、将来 keyboard ショートカット要件が発生したら
- * keybinding システム ([docs/keybinding.md](../../../../docs/keybinding.md)) 経由で別途用意する。
+ * しないため menu を開かない。必要になったら keybinding システム (docs/keybinding.md) 経由で
+ * 別途用意する。
  *
  * 開く直前に anchor 元 component が unmount された (dir 切替・`:key="dir"` 再マウント) ケースは
  * `anchorEl.isConnected` で検出し、debug log を残して open を skip する。

@@ -110,8 +110,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
    *
    * **scope**: dir 切替のみ。「ファイル選択 + preview を開く」副作用は呼び出し側が
    * `usePreviewStore.forceSelect` / `requestSelect` を明示的に呼ぶ契約に集約してある
-   * （docs/preview.md の決定表を参照）。setOpen 自体には
-   * preview の開閉責務を持たせない。
+   * （docs/preview.md の決定表を参照）。setOpen 自体には preview の開閉責務を持たせない。
    */
   function setOpen(newDir: string) {
     repoStore.selectDir(newDir);

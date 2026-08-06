@@ -1,8 +1,5 @@
 <doc lang="md">
-1 つの repo を表すサイドバーセクション。
-
-ヘッダ (repo アイコン + repo 名 + 展開時のみ 2 行目に GitHub owner + chevron + 編集モード時の ✕) と、
-配下の WtCard 列 (main wt 先頭固定、その後 worktrees 配列順) + `+ New worktree`。
+1 つの repo を表すサイドバーセクション。repo の識別を示すヘッダと、配下の worktree カード列を持つ。
 
 ## 背景 fetch の可視スコープ報告
 

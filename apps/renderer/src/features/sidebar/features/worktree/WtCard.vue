@@ -18,7 +18,7 @@ claude state icon だけに限定することで、worktree identity (branch 名
 を角丸にし、row の hover 背景がカードの角丸境界とぶつからないようにする。
 
 server port バッジは、その worktree の端末で LISTEN 中の dev server の port を表示する
-(live な worktree のみ)。詳細は [docs/server.md](../../../../../../../docs/server.md)。
+(live なサーバーのみ)。詳細は [docs/server.md](../../../../../../../docs/server.md)。
 
 Task は PR/issue picker や手動操作で永続的に作られ、Claude session は
 `task.sessionId` に attach する短命属性として扱う。session 未紐付けの task

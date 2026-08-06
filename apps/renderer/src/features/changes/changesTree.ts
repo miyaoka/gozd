@@ -65,7 +65,8 @@ export function flattenChangesTree(tree: readonly ChangesTreeNode[]): GitFileCha
   return out;
 }
 
-/** GitFileChange[] から表示用ツリーを組み立てる。子が単一フォルダのみのフォルダは親と連結する。 */
+/** GitFileChange[] から表示用ツリーを組み立てる。子が単一フォルダのみのフォルダは親と連結する。
+ * 段を分けても中身の無い行が積み上がるだけで、パスの深さが情報にならないため。 */
 export function buildChangesTree(changes: readonly GitFileChange[]): ChangesTreeNode[] {
   const root: RawFolder = { kind: "folder", name: "", fullPath: "", childMap: new Map() };
 

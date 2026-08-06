@@ -7,7 +7,7 @@
 フォルダは既定で開いた状態にする。変更の一覧は「何が変わったか」を一度に見るためのもので、
 開く操作を挟ませると目的に届くまでの手数が増える。
 
-## データ源
+## 取得元
 
 ファイル一覧の決定ロジックと RPC fetch は `useChangesStore` が SSOT。ChangesPane は store の
 `tree` (描画用) と `orderedFileChanges` (件数表示・空判定・View all ボタンの disabled 制御) を

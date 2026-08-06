@@ -1,5 +1,12 @@
 <doc lang="md">
-Recursive tree node for the changes pane. Renders folders (with collapse/expand) and file leaves with git change badges.
+変更ファイルツリーの再帰ノード。フォルダ行とファイル行を同じ形で描く。
+
+折りたたみ状態を自分で持たず、閉じているフォルダの集合を受け取って描画し、切り替えは要求として
+親へ返す。ノードは再帰的に増えるため、状態を各ノードに散らすとツリー全体の状態がどこにも
+存在しなくなる。
+
+変更の種別は色と記号の 2 軸で示す。色だけに載せると、色の区別が付かない環境で追加と削除が
+同じ行に見える。
 </doc>
 
 <script setup lang="ts">

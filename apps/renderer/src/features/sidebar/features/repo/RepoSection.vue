@@ -1,8 +1,5 @@
 <doc lang="md">
-1 つの repo を表すサイドバーセクション。
-
-ヘッダ (repo アイコン + repo 名 + 展開時のみ 2 行目に GitHub owner + chevron + 編集モード時の ✕) と、
-配下の WtCard 列 (main wt 先頭固定、その後 worktrees 配列順) + `+ New worktree`。
+1 つの repo を表すサイドバーセクション。repo の識別を示すヘッダと、配下の worktree カード列を持つ。
 
 ## 背景 fetch の可視スコープ報告
 
@@ -13,9 +10,7 @@ section の viewport 可視 (`useElementVisibility`) と「展開表示中」(`b
 
 ## 並び順
 
-1. main wt
-2. その他 wt: repoStore.worktrees の append 順を維持 (= git worktree list の順)
-3. `+ New worktree` ボタン
+main worktree を先頭に固定し、以降は git が返した順のまま並べ、末尾に新規作成の導線を置く。
 
 state による並び替えは行わない。Claude 起動 / 状態遷移でカード位置が動くと
 「どこに何があるか」を覚えていられないため、位置は静的に保ち、状態は state

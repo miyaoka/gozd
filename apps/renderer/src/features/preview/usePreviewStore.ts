@@ -24,7 +24,7 @@ import { useUnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
  * 「ファイル選択 → preview を開く / 閉じる」の意思決定はこの store に集約する。
  * 入口ごとに `requestSelect` / `forceSelect` を使い分けることで、新規 entry point
  * 追加時に「同一パス再選択でトグルすべきか / 常に開くべきか」の判断漏れが構造的に
- * 発生しないようにする（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）。
+ * 発生しないようにする（docs/preview.md の決定表を参照）。
  *
  * - `requestSelect(target)`: user-initiated select（filer / changes / terminal link）。
  *   現在 selection と同一 path かつ preview 開なら close（summary 表示中は summary を抜ける）。

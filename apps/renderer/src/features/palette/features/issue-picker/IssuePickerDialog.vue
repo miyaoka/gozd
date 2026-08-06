@@ -1,42 +1,20 @@
 <doc lang="md">
-Issue selection dialog. Displays open issues in a table layout with fuzzy filtering.
+open な issue を選んで作業先の worktree を開くダイアログ。番号・タイトル・作者を横断して
+絞り込め、自分が assignee である issue だけに限定するトグルも持つ。
 
-## Behavior
+一覧が空のとき、取得結果が空だったのか絞り込みで消えたのかを書き分ける。
 
-- Opens immediately in a loading state, then fills once the gh fetch resolves,
-  showing an empty state on 0 results. This gives visible feedback during the gh
-  GraphQL wait and when there are no open issues, both of which would otherwise
-  look like nothing happened.
-- The loading / empty text lives in a single persistent `role="status"` region
-  (never `v-if`'d away — only its text is swapped) so screen readers reliably
-  announce the state transitions. A live region must pre-exist in the DOM before
-  its content changes; a conditionally rendered region inserts container + text
-  together, which many screen readers miss.
-- Filters issues by fuzzy match on number, title, and author
-- Arrow keys navigate rows, Enter accepts, Escape closes
-- Color scheme follows `gh issue list` (green #number, gray author/date)
-- Rows whose issue already has a task in this repo are tinted (bg-primary-subtle) and
-  marked with a check icon; accepting them switches to the existing task's worktree
-  instead of creating a new one (the branch decision lives in registerIssueCommand)
-- Shift+Enter / Shift+Click accepts without closing the dialog, for creating
-  worktrees from multiple issues consecutively. The command writes the created task
-  back into the picker item on completion, so the row flips to the tinted
-  "task exists" state and re-accepting it routes to the existing-task switch
+## 受理
 
-## Concurrency
+**通常の受理はダイアログを閉じてから走らせる**。worktree の作成には時間がかかるため、開いた
+ままだとその間のキー入力とクリックが、ユーザーにとっては用の済んだダイアログに届き続ける。
 
-For a plain accept, `acceptSelected` calls `close()` before `accept()` so the
-dialog is removed from the DOM before the async accept callback (worktree
-creation) starts; keydown / click events stop reaching the closed dialog.
-In-flight exclusion is owned by the command layer (`useInFlightGhRefs`), not
-this dialog: dialog state is destroyed on close / reopen, so it cannot block
-re-accepting an issue whose plain accept is still running in the background
-(which would create a duplicate worktree for the same issue). The dialog reads
-the shared set to block selection and to render a spinner in place of the
-check icon on in-flight rows — the spinner therefore survives closing and
-reopening the picker. Accepts of different rows run in parallel; same-second
-timestamp branch collisions cannot happen (`generateTimestamp` is unique per
-process).
+**修飾キーを併用した受理だけは閉じずに走らせる**。複数の issue から続けて worktree を作る操作
+を 1 回の起動で済ませるためで、ダイアログはユーザーが閉じるまで残る。作成が終わった行は「この
+repo に task がある」表示へ変わり、次に選ぶと既存 task への切り替えになる。
+
+受理が走っている間、その行は**受理できない**（選択とハイライトは止めない）。進行中であることを
+行の上に出し、この表示は picker を閉じて開き直しても残る。
 </doc>
 
 <script setup lang="ts">
@@ -61,8 +39,7 @@ const { items: issueItems, viewer, status, showSignal, hideSignal, accept } = us
 
 const query = ref("");
 const filterAssignee = ref(false);
-/** accept 実行中キーの共有集合。設計理由は inFlightGhRefs.ts の module doc が SSOT。
- * 実行中の行は選択ブロック + スピナー表示に使う */
+/** accept 実行中キーの共有集合。設計理由と用途は inFlightGhRefs.ts の module doc が SSOT。 */
 const inFlightGhRefs = useInFlightGhRefs();
 
 /** 検索対象テキストを生成（number, title, author を結合） */
@@ -106,9 +83,7 @@ const emptyMessage = computed(() =>
 
 /**
  * 常設 live region に出す status テキスト。一覧表示中は空文字。
- * region を v-if で出し入れせずテキストだけ差し替えることで、AT が状態遷移
- * (loading→empty / loading→list) を確実に読み上げる（live region は「先在する
- * region の内容変化」を監視する仕様。同時挿入は取りこぼす）。
+ * region を v-if で出し入れせずテキストだけ差し替える（PrPickerDialog と同じ理由）。
  */
 const statusMessage = computed(() => {
   if (status.value === "loading") return "Loading issues...";

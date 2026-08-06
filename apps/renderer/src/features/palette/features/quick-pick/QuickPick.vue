@@ -1,14 +1,13 @@
 <doc lang="md">
-Reusable quick pick dialog for selecting an item from a filterable list.
+候補から 1 つ選ばせる汎用ダイアログ。何を選ばせるかの意味論は呼び出し側が持ち、ここは
+候補列の絞り込みと選択だけを引き受ける。
 
-## Behavior
-
-- Opened via `useQuickPick().show()` (module singleton composable)
-- Filters items by substring match on label (separators are included if adjacent selectable items match)
-- Arrow keys navigate selectable items (separators are skipped), Enter accepts, Escape cancels
-- `onHighlight` fires with 200ms debounce for live preview
-- `onAccept` fires on Enter/click, `onCancel` on Escape/backdrop
-- Positioned at top-center of the viewport (same as CommandPalette)
+- 候補列には見出しを混ぜられる。見出しは選択の対象にならず、**絞り込み中は見出しごと消える**
+- 選択位置が動くたび、いま指している候補を呼び出し側に知らせる。呼び出し側はこれを使って
+  選択に追従するプレビューを描ける。移動を押しっぱなしにしたとき、通過しただけの候補では
+  発火せず、動きが落ち着いてから知らせる
+- 開くときの初期選択は呼び出し側が指定できる。絞り込み結果が変わるたびに選択は先頭へ戻るが、
+  開いた直後のこのリセットは初期選択を潰さない
 </doc>
 
 <script setup lang="ts">

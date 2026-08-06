@@ -1,16 +1,13 @@
 <doc lang="md">
-Changed files tree. Shows HEAD vs working directory by default, or a selected commit's changes from the git graph.
+変更ファイルの一覧。既定では working tree と HEAD の差を出し、graph でコミットが選ばれている
+間はそのコミットの変更に切り替わる。
 
-## Display
+## 表示
 
-- Files are rendered as a directory tree, GitHub PR diff style
-- A folder whose only child is another folder is concatenated with the child (e.g. `.github/workflows`).
-  Concatenation stops as soon as a folder contains a file or more than one entry
-- Folders default to expanded; clicking a folder row toggles collapse. State is kept in `Set<string>` keyed by full path
-- Each file row shows a material-icon-theme icon, the file name colored by change type, and the change type
-  badge (M/A/D/R/U) at the trailing edge
+フォルダは既定で開いた状態にする。変更の一覧は「何が変わったか」を一度に見るためのもので、
+開く操作を挟ませると目的に届くまでの手数が増える。
 
-## Data source
+## 取得元
 
 ファイル一覧の決定ロジックと RPC fetch は `useChangesStore` が SSOT。ChangesPane は store の
 `tree` (描画用) と `orderedFileChanges` (件数表示・空判定・View all ボタンの disabled 制御) を

@@ -1,6 +1,7 @@
 <doc lang="md">
-複数行文字列設定用テキストエリア。改行をそのまま保持する（stringArray と違い分割しない）。
-StringWidget と同じく blur (@change) で確定し、per-keystroke の保存 RPC を避ける。
+複数行文字列設定用テキストエリア。改行を含む 1 つの文字列として扱い、行に分割しない。
+
+入力の確定はフォーカスが外れた時点で行う（単行入力と同じ理由）。
 </doc>
 
 <script setup lang="ts">

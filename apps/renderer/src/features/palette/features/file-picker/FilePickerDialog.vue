@@ -1,25 +1,17 @@
 <doc lang="md">
-File picker（Go to File）dialog。worktree 内の全ファイルをあいまい検索して preview で開く。
+worktree 内のファイルを名前で探して開くダイアログ。
 
-## Behavior
+一覧が空のとき、取得結果が空だったのか絞り込みで消えたのかを書き分ける。
 
-- コマンド側が loading 状態で即時 open し、`git ls-files` の解決後に一覧が埋まる
-  （待ち時間の無反応と 0 件時の silent 終了を防ぐ。PR picker と同じ状態機械）
-- フィルタは fzf ライクの fuzzy マッチ + スコア降順。描画は上位 100 件で打ち切る
-  （filterFiles が SSOT）。ファイル一覧は開くたびに取り直し、開いている間は再取得しない
-  （VS Code / orca と同じ「開くたび列挙、監視での無効化はしない」割り切り）
-- フィルタは全件をメインスレッドで同期スキャンする設計上限を持つ（debounce / worker /
-  事前 index なし）。数万ファイル規模で入力が引っかかる場合はここが再検討ポイント
-- Arrow keys navigate, Enter accepts, Escape closes
-- 選択で `usePreviewStore().forceSelect`（同一 path でも必ず開く）
+## 絞り込みは全件を一度に走査する
 
-## Accessibility
+入力のたびに全件を同期で走査し、間引きも事前索引も持たない。**ここが扱える規模の上限を決めて
+いる**ため、大きな repo で入力が詰まるならこの前提から見直すことになる。
 
-- loading / empty のテキストは常設 `role="status"` region の差し替えで通知する
-  （PrPickerDialog と同じ理由: live region は先在が前提）
-- WAI-ARIA combobox パターン: input が `role="combobox"` + `aria-activedescendant` で
-  選択行を指し、リストは `listbox` / `option` + `aria-selected`。フォーカスを input に
-  留めたまま矢印移動を SR に読ませるための配線
+## 支援技術への露出
+
+入力欄にフォーカスを置いたまま矢印キーで選択を動かす配線は `SearchDialog` と同型で、理由も
+そちらが持つ。
 </doc>
 
 <script setup lang="ts">

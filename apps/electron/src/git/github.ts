@@ -10,10 +10,18 @@
 //   Finder/Dock 起動の最小 PATH には Homebrew の `gh` が存在せず、Apple stub にも救われない
 //   （設計理由は commandResolver.ts 冒頭コメント参照）
 
-import type { GitIssue, GitPullRequest, GitPullRequestCheckState } from "@gozd/rpc";
-import { GIT_PULL_REQUEST_CHECK_STATES } from "@gozd/rpc";
+import type {
+  GitIssue,
+  GitMyWorkGroup,
+  GitMyWorkItem,
+  GitPullRequest,
+  GitPullRequestCheckState,
+  GitPullRequestReviewDecision,
+} from "@gozd/rpc";
+import { GIT_PULL_REQUEST_CHECK_STATES, GIT_PULL_REQUEST_REVIEW_DECISIONS } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { withResolvedCommand } from "../commandResolver";
 import { GitCommandError, runGit } from "./gitRunner";
@@ -150,7 +158,7 @@ export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullR
       updatedAt: str(getPath(item, "updatedAt")),
       authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
       baseRefOid: str(getPath(item, "baseRefOid")),
-      checkState: checkState(getPath(item, "statusCheckRollup", "state")),
+      checkState: checkState(getPath(item, "statusCheckRollup", "state"), "prList"),
       commentCount: commentCount(item),
     });
   }
@@ -180,6 +188,218 @@ export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
     authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
   }));
   return { ok: true, value: issues };
+}
+
+// 1 グループあたりの取得上限。`search` connection が 1 回で返せる上限そのもので、これを
+// 超えると `EXCESSIVE_PAGINATION` になる。3 軸すべてを上限で取っても cost は 1 のままなので
+// 絞る理由が無い。
+//
+// ここから先はカーソルを辿る往復が要る。ページングは持たず、切れているかどうかを
+// `issueCount` で示して GitHub 上の同じ検索へ送る。
+const MY_WORK_LIMIT = 100;
+
+/**
+ * 軸ごとの検索条件。**GraphQL の取得と GitHub 上の一覧 URL は同じ定義から導出する** —
+ * 別々に書くと、リンク先が一覧と違う母集合を出すようになる。
+ *
+ * `webType` は GitHub の検索ページの種別。PR と issue でタブが分かれており、issue の
+ * 検索は `is:pr` を受け付けない。
+ *
+ * `@me` は GraphQL search でも GitHub の検索ページでもそのまま解決されるため、viewer
+ * login を別途取らない。`review-requested:@me` は自分が属する team 宛のレビュー依頼も
+ * 含む（GitHub の検索仕様）。直接依頼だけに絞るなら `user-review-requested:@me`。
+ *
+ * > [!NOTE]
+ * > issue の検索ページは `archived` を「サポート外」と警告するが、実際には適用される
+ * > （警告を出しつつ除外後の件数を返す）。除外の有無で件数が変わることを実測で確認して
+ * > いるため、警告に合わせて条件を落とさない。落とすとリンク先だけ母集合が広がる。
+ */
+const MY_WORK_SEARCHES = [
+  {
+    key: "reviewRequestedPrs",
+    kind: "pr",
+    webType: "pullrequests",
+    query: "is:open is:pr review-requested:@me archived:false sort:updated-desc",
+  },
+  {
+    key: "authoredPrs",
+    kind: "pr",
+    webType: "pullrequests",
+    query: "is:open is:pr author:@me archived:false sort:updated-desc",
+  },
+  {
+    key: "authoredIssues",
+    kind: "issue",
+    webType: "issues",
+    query: "is:open is:issue author:@me archived:false sort:updated-desc",
+  },
+] as const satisfies readonly {
+  key: string;
+  kind: "pr" | "issue";
+  webType: "pullrequests" | "issues";
+  query: string;
+}[];
+
+/**
+ * 軸の集合は `MY_WORK_SEARCHES` から導出する。手書きで並べると、軸を足したときに
+ * テーブルと型の両方を直す必要が生じ、片方だけ直した状態を作れてしまう。
+ *
+ * ワイヤ型（`GitMyWorkResponse`）との整合は routes 側の `satisfies` が見る。軸の削除や
+ * 改名はそこで compile error になる。
+ */
+export type MyWork = Record<(typeof MY_WORK_SEARCHES)[number]["key"], GitMyWorkGroup>;
+
+/** 同じ検索条件を GitHub の検索ページで開く URL */
+function myWorkWebUrl(search: (typeof MY_WORK_SEARCHES)[number]): string {
+  const params = new URLSearchParams({ q: search.query, type: search.webType });
+  return `https://github.com/search?${params.toString()}`;
+}
+
+/**
+ * 認証ユーザー単位の作業一覧を **1 往復・rate limit cost 1** で取る query。
+ *
+ * GraphQL の cost は「各 connection を満たすのに必要なリクエスト数の合計を 100 で割って
+ * 四捨五入し、最小 1」なので、search を 3 本並べても `first` を上限まで上げても 3 リクエスト
+ * 相当にしかならず cost 1 に収まる。REST の `/search/issues` を 3 回叩く形（3 リクエスト +
+ * search 専用の分間制限を消費）とはここが決定的に違う。
+ *
+ * `search(type: ISSUE)` の node は `Issue | PullRequest` の union なので、CI / レビュー結果は
+ * PullRequest 側の named fragment で取る。`statusCheckRollup` は connection ではないため
+ * cost に乗らず、`comments { totalCount }` も `first` / `last` を渡さない限りページを
+ * 要求しないので同じく乗らない（PR_QUERY 冒頭のコメントと同じ規律）。`issueCount` も同様。
+ *
+ * 取得上限で切れているかどうかを示すのに `pageInfo { hasNextPage }` を併載しないのは、
+ * `issueCount` と取得件数の比較で同じ事実が得られ、境界に同じ事実の表現を 2 つ持たせない
+ * ため。
+ *
+ * 検索条件は変数で渡す。query 文字列に埋め込むと、条件に引用符が入った瞬間に GraphQL の
+ * 構文を壊す。
+ *
+ * 軸ごとの変数宣言と search エイリアスは `MY_WORK_SEARCHES` から組み立てる。手書きで並べると
+ * 軸の一覧が 2 箇所に存在し、片方だけ足した状態を作れてしまう（未宣言の変数はサーバー側で
+ * 無視されるため、取得は「その軸が応答に無い」形で落ちる）。
+ */
+const MY_WORK_QUERY = `
+query($limit: Int!, ${MY_WORK_SEARCHES.map((s) => `$${s.key}: String!`).join(", ")}) {
+${MY_WORK_SEARCHES.map(
+  (s) => `  ${s.key}: search(type: ISSUE, query: $${s.key}, first: $limit) {
+    issueCount
+    nodes { ...${s.kind}Fields }
+  }`,
+).join("\n")}
+}
+
+fragment prFields on PullRequest {
+  number
+  title
+  url
+  isDraft
+  updatedAt
+  repository { nameWithOwner }
+  author { login avatarUrl(size: ${AVATAR_SIZE}) }
+  reviewDecision
+  statusCheckRollup { state }
+  comments { totalCount }
+  reviews { totalCount }
+  reviewThreads { totalCount }
+}
+
+fragment issueFields on Issue {
+  number
+  title
+  url
+  updatedAt
+  repository { nameWithOwner }
+  author { login avatarUrl(size: ${AVATAR_SIZE}) }
+  comments { totalCount }
+}`;
+
+/**
+ * 認証ユーザー単位の作業一覧（repo 横断）。
+ *
+ * repo に紐づかないため cwd は home を使う。`gh api graphql` は repo 外でも動き、
+ * 認証は gh の global config が持つ。
+ */
+export async function myWork(): Promise<GhResult<MyWork>> {
+  const args = [
+    "api",
+    "graphql",
+    "-F",
+    `limit=${MY_WORK_LIMIT}`,
+    ...MY_WORK_SEARCHES.flatMap((search) => ["-f", `${search.key}=${search.query}`]),
+    "-f",
+    `query=${MY_WORK_QUERY}`,
+  ];
+  const raw = await runGhCategorized(args, homedir());
+  if (!raw.ok) return raw;
+
+  const parsed = tryCatch(() => JSON.parse(raw.value) as unknown);
+  if (!parsed.ok) {
+    return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
+  }
+  return parseMyWorkResponse(parsed.value);
+}
+
+/**
+ * my work query の応答（parse 済み JSON）を `MyWork` へ変換する pure 関数。取得経路は
+ * これを経由する SSOT で、応答 shape に対する境界の振る舞いをここに閉じる。
+ *
+ * `nodes` と `issueCount` は同じ 1 応答から来る同格の必須フィールドなので、どちらの欠落も
+ * 応答 shape エラーにする。`issueCount` を 0 に倒すと「行が並んでいるのに総件数 0」という
+ * 事実でない要約が描かれる。
+ */
+export function parseMyWorkResponse(response: unknown): GhResult<MyWork> {
+  const result = {} as MyWork;
+  for (const search of MY_WORK_SEARCHES) {
+    const nodes = getPath(response, "data", search.key, "nodes");
+    if (!Array.isArray(nodes)) {
+      return { ok: false, error: { kind: "other", detail: `missing nodes: ${search.key}` } };
+    }
+    const totalCount = getPath(response, "data", search.key, "issueCount");
+    if (typeof totalCount !== "number") {
+      return { ok: false, error: { kind: "other", detail: `missing issueCount: ${search.key}` } };
+    }
+    result[search.key] = {
+      items: parseMyWorkNodes(nodes, search.kind),
+      totalCount,
+      webUrl: myWorkWebUrl(search),
+    };
+  }
+  return { ok: true, value: result };
+}
+
+/**
+ * 取得失敗時に返す空の一覧。`webUrl` は取得の成否に依存しないので埋める（失敗中でも
+ * GitHub 上で確認する導線は残る）。
+ *
+ * 呼び出しごとに新しいオブジェクトを作る。1 つを 3 軸で使い回すと、いずれかに in-place
+ * 変更が入った瞬間に 3 軸が同時に動く。
+ */
+export function emptyMyWork(): MyWork {
+  const result = {} as MyWork;
+  for (const search of MY_WORK_SEARCHES) {
+    result[search.key] = { items: [], totalCount: 0, webUrl: myWorkWebUrl(search) };
+  }
+  return result;
+}
+
+/** my work query の nodes を `GitMyWorkItem` へ変換する pure 関数。3 グループとも
+ * これを経由する SSOT で、snapshot 入力に対する境界の振る舞いをここに閉じる。 */
+export function parseMyWorkNodes(nodes: unknown[], kind: "pr" | "issue"): GitMyWorkItem[] {
+  return nodes.map((item) => ({
+    kind,
+    repo: str(getPath(item, "repository", "nameWithOwner")),
+    number: int(getPath(item, "number")),
+    title: str(getPath(item, "title")),
+    url: str(getPath(item, "url")),
+    author: str(getPath(item, "author", "login")),
+    authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
+    updatedAt: str(getPath(item, "updatedAt")),
+    isDraft: getPath(item, "isDraft") === true,
+    checkState: checkState(getPath(item, "statusCheckRollup", "state"), "myWork"),
+    reviewDecision: reviewDecision(getPath(item, "reviewDecision")),
+    commentCount: commentCount(item),
+  }));
 }
 
 /** `gh api user --jq .login` で認証中ユーザーの login を返す */
@@ -349,11 +569,31 @@ function isCheckState(v: unknown): v is GitPullRequestCheckState {
  * rollup の state を検証する。表示側は undefined を「check が 1 つも無い」と読むため、
  * 値が来たのに未知だった場合はログを残してから undefined にする。黙って倒すと、GitHub が
  * enum を増やした瞬間に「CI 無し」という事実でない主張を polling のたびに出し続ける。
+ *
+ * `tag` は呼び出し元を示す観察ログのタグ。取得経路が複数あるため、どの query の応答で
+ * 未知の enum が来たかを追えるようにする。
  */
-function checkState(v: unknown): GitPullRequestCheckState | undefined {
+function checkState(v: unknown, tag: string): GitPullRequestCheckState | undefined {
   if (v === null || v === undefined) return undefined;
   if (isCheckState(v)) return v;
-  console.error(`[prList] unknown statusCheckRollup.state: ${JSON.stringify(v)}`);
+  console.error(`[${tag}] unknown statusCheckRollup.state: ${JSON.stringify(v)}`);
+  return undefined;
+}
+
+function isReviewDecision(v: unknown): v is GitPullRequestReviewDecision {
+  return (
+    typeof v === "string" && (GIT_PULL_REQUEST_REVIEW_DECISIONS as readonly string[]).includes(v)
+  );
+}
+
+/**
+ * `reviewDecision` を検証する。null は「レビュー設定が無い PR」を意味する正常値で、
+ * 表示側も undefined をそう読む。未知の enum は `checkState` と同じ理由でログに残す。
+ */
+function reviewDecision(v: unknown): GitPullRequestReviewDecision | undefined {
+  if (v === null || v === undefined) return undefined;
+  if (isReviewDecision(v)) return v;
+  console.error(`[myWork] unknown reviewDecision: ${JSON.stringify(v)}`);
   return undefined;
 }
 

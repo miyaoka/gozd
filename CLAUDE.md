@@ -89,16 +89,19 @@ renderer の `src/` は **feature** と **shared** の 2 層で構成する。
 
 ### レイヤー
 
-| レイヤー | パス              | 役割                                                                |
-| -------- | ----------------- | ------------------------------------------------------------------- |
-| feature  | `src/features/*/` | UI 機能単位。コンポーネント・composable・store をまとめる           |
-| shared   | `src/shared/*/`   | feature に依存しない非 UI 基盤モジュール（RPC、コマンドシステム等） |
+| レイヤー | パス              | 役割                                                                                             |
+| -------- | ----------------- | ------------------------------------------------------------------------------------------------ |
+| feature  | `src/features/*/` | UI 機能単位。コンポーネント・composable・store をまとめる                                        |
+| shared   | `src/shared/*/`   | feature に依存しない基盤モジュール（RPC、コマンドシステム、複数 feature が共有する表示語彙など） |
 
 依存方向: **feature → shared は許可、shared → feature は禁止**。下位層が上位層に依存してはいけない。
 
 shared の制約:
 
 - shared 間の依存は禁止（`barrel-import` ルールの scope 設定で強制）。各モジュールは独立して閉じる
+- コンポーネントは置かない。UI を描く材料（design token を指す class 名など）は、**どの feature
+  にも属さず複数 feature が同じ値を見る必要があるときだけ**置く。特定の機能に属する語彙は
+  feature 側が持つ
 
 ### バレルファイル（index.ts）
 
@@ -166,7 +169,7 @@ macOS 専用（`bin/gozd` ラッパー、zsh init チェーン、`open` 経由�
 
 ### 観察ログ (stderr) の書式
 
-dispatcher / store / hook ハンドラの ad-hoc 観察ログは `console.error` で `[tag] message` 形式に統一する。
+main の dispatcher / store / hook ハンドラの ad-hoc 観察ログは `console.error` で `[tag] message` 形式に統一する。
 
 ```typescript
 console.error(
@@ -176,3 +179,4 @@ console.error(
 
 - tag は handler 関数名（`handlePtySpawn`）または store / module 名（`TaskStore`）
 - silent drop 禁止: 握りつぶす失敗経路には必ず観察ログを残す（1 度の取りこぼしで UI 状態が永続的にずれる push 経路が典型）
+- 分類だけでなく原因も残す。「失敗した」ことだけを記録して例外や stderr を捨てると、後から何が起きたかを再構築できない

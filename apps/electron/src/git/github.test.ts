@@ -1,5 +1,11 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { parseGitHubOwnerRepo, parsePullRequestNodes } from "./github";
+import {
+  emptyMyWork,
+  parseGitHubOwnerRepo,
+  parseMyWorkNodes,
+  parseMyWorkResponse,
+  parsePullRequestNodes,
+} from "./github";
 
 describe("parseGitHubOwnerRepo", () => {
   test("https 形式", () => {
@@ -121,5 +127,180 @@ describe("parsePullRequestNodes", () => {
   test("既知の state はそのまま通す", () => {
     const nodes = [prNode({ statusCheckRollup: { state: "PENDING" } })];
     expect(parsePullRequestNodes(nodes, OWNER)[0].checkState).toBe("PENDING");
+  });
+});
+
+/** my work の PR node snapshot。実応答（`search(type: ISSUE)` の PullRequest 側）に合わせる */
+function myWorkPrNode(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    number: 7846,
+    title: "ci: pin oasdiff install",
+    url: "https://github.com/miyaoka/gozd/pull/7846",
+    isDraft: false,
+    updatedAt: "2026-08-05T11:07:03Z",
+    repository: { nameWithOwner: "miyaoka/gozd" },
+    author: { login: "miyaoka", avatarUrl: "https://example.invalid/a.png" },
+    reviewDecision: "REVIEW_REQUIRED",
+    statusCheckRollup: { state: "SUCCESS" },
+    comments: { totalCount: 1 },
+    reviews: { totalCount: 5 },
+    reviewThreads: { totalCount: 2 },
+    ...overrides,
+  };
+}
+
+describe("parseMyWorkNodes", () => {
+  test("repo をまたぐ一覧なので帰属先 repo を行ごとに持つ", () => {
+    const nodes = [
+      myWorkPrNode({ repository: { nameWithOwner: "miyaoka/gozd" } }),
+      myWorkPrNode({ repository: { nameWithOwner: "other-org/other-repo" } }),
+    ];
+    expect(parseMyWorkNodes(nodes, "pr").map((item) => item.repo)).toEqual([
+      "miyaoka/gozd",
+      "other-org/other-repo",
+    ]);
+  });
+
+  test("fork PR を除外しない（worktree の startPoint 解決に使わないため）", () => {
+    // repo 単位の `parsePullRequestNodes` は fork PR を落とすが、my work は開いて確認する
+    // ための一覧なので head の所在に関係なく全件出す
+    const nodes = [myWorkPrNode({ repository: { nameWithOwner: "someone-else/fork" } })];
+    expect(parseMyWorkNodes(nodes, "pr")).toHaveLength(1);
+  });
+
+  test("commentCount は会話コメント + レビュー送信 + インラインスレッドの和", () => {
+    const [item] = parseMyWorkNodes([myWorkPrNode()], "pr");
+    expect(item.commentCount).toBe(8);
+  });
+
+  test("issue は kind=issue になり、PR 固有の要約を持たない", () => {
+    const issueNode = {
+      number: 17232,
+      title: "dev:proxy が dev-docker の管理領域に直接書き込む",
+      url: "https://github.com/miyaoka/gozd/issues/17232",
+      updatedAt: "2026-08-05T05:39:22Z",
+      repository: { nameWithOwner: "miyaoka/gozd" },
+      author: { login: "miyaoka", avatarUrl: "https://example.invalid/a.png" },
+      comments: { totalCount: 3 },
+    };
+    const [item] = parseMyWorkNodes([issueNode], "issue");
+    expect(item.kind).toBe("issue");
+    expect(item.isDraft).toBe(false);
+    expect(item.checkState).toBeUndefined();
+    expect(item.reviewDecision).toBeUndefined();
+    expect(item.commentCount).toBe(3);
+  });
+
+  test("レビュー設定の無い PR は reviewDecision が undefined（ログは出さない）", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const [item] = parseMyWorkNodes([myWorkPrNode({ reviewDecision: null })], "pr");
+      expect(item.reviewDecision).toBeUndefined();
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("未知の reviewDecision は undefined に倒し、観察ログを残す", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const [item] = parseMyWorkNodes([myWorkPrNode({ reviewDecision: "FUTURE_DECISION" })], "pr");
+      expect(item.reviewDecision).toBeUndefined();
+      expect(spy).toHaveBeenCalledWith('[myWork] unknown reviewDecision: "FUTURE_DECISION"');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("未知の checkState は myWork タグでログを残す", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const nodes = [myWorkPrNode({ statusCheckRollup: { state: "FUTURE_STATE" } })];
+      expect(parseMyWorkNodes(nodes, "pr")[0].checkState).toBeUndefined();
+      expect(spy).toHaveBeenCalledWith('[myWork] unknown statusCheckRollup.state: "FUTURE_STATE"');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+/** my work query の応答 snapshot。個々のテストは検証したい軸だけ上書きする */
+function myWorkResponse(overrides: Record<string, unknown> = {}): unknown {
+  const group = (nodes: unknown[], issueCount: number) => ({ nodes, issueCount });
+  return {
+    data: {
+      reviewRequestedPrs: group([myWorkPrNode()], 1),
+      authoredPrs: group([myWorkPrNode()], 1),
+      authoredIssues: group([], 0),
+      ...overrides,
+    },
+  };
+}
+
+describe("parseMyWorkResponse", () => {
+  test("軸ごとに GitHub 上の同じ検索を開く URL を持つ", () => {
+    const result = parseMyWorkResponse(myWorkResponse());
+    if (!result.ok) throw new Error("expected ok");
+    const param = (webUrl: string, key: string) => new URL(webUrl).searchParams.get(key);
+
+    // PR と issue で検索ページの種別が分かれる（issue の検索は is:pr を受け付けない）
+    expect(param(result.value.authoredPrs.webUrl, "type")).toBe("pullrequests");
+    expect(param(result.value.reviewRequestedPrs.webUrl, "type")).toBe("pullrequests");
+    expect(param(result.value.authoredIssues.webUrl, "type")).toBe("issues");
+
+    // 一覧の条件がそのまま URL に載る（リンク先と一覧の母集合を一致させる契約）
+    expect(param(result.value.authoredIssues.webUrl, "q")).toBe(
+      "is:open is:issue author:@me archived:false sort:updated-desc",
+    );
+    expect(param(result.value.reviewRequestedPrs.webUrl, "q")).toBe(
+      "is:open is:pr review-requested:@me archived:false sort:updated-desc",
+    );
+  });
+
+  test("総件数が取得件数を上回るときは切れていると判定できる", () => {
+    const result = parseMyWorkResponse(
+      myWorkResponse({ authoredIssues: { nodes: [], issueCount: 87 } }),
+    );
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.value.authoredIssues.totalCount).toBe(87);
+  });
+
+  test("nodes が無い軸は応答 shape エラーにする", () => {
+    const result = parseMyWorkResponse(myWorkResponse({ authoredPrs: { issueCount: 3 } }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.detail).toBe("missing nodes: authoredPrs");
+  });
+
+  test("issueCount が無い軸は 0 に倒さず応答 shape エラーにする", () => {
+    const result = parseMyWorkResponse(myWorkResponse({ authoredIssues: { nodes: [] } }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.detail).toBe("missing issueCount: authoredIssues");
+  });
+
+  test("issueCount が数値でなければ応答 shape エラーにする", () => {
+    const result = parseMyWorkResponse(
+      myWorkResponse({ authoredIssues: { nodes: [], issueCount: "87" } }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.detail).toBe("missing issueCount: authoredIssues");
+  });
+});
+
+describe("emptyMyWork", () => {
+  test("失敗時でも GitHub 上で確認する導線を残す", () => {
+    const empty = emptyMyWork();
+    expect(empty.authoredIssues.items).toEqual([]);
+    expect(empty.authoredIssues.totalCount).toBe(0);
+    expect(empty.authoredIssues.webUrl).toContain("https://github.com/search?");
+  });
+
+  test("軸ごとに別オブジェクトを返す", () => {
+    const empty = emptyMyWork();
+    expect(empty.authoredPrs).not.toBe(empty.authoredIssues);
+    expect(empty.authoredPrs.items).not.toBe(empty.authoredIssues.items);
   });
 });

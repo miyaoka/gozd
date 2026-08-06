@@ -1,5 +1,5 @@
 import { defineComponent, h, type PropType } from "vue";
-import { activateExternalLink } from "./externalLink";
+import { activateExternalLink } from "../github-item";
 import type { CommitMessageSegment } from "./linkifyCommitMessage";
 
 /** `linkifyCommitMessage` の戻り値 (`CommitMessageSegment[]`) を render する dumb component。

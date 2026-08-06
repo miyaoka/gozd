@@ -14,7 +14,7 @@
  */
 import { tryCatch } from "@gozd/shared";
 import { useNotificationStore } from "../../../../shared/notification";
-import { ghErrorMessage } from "./ghError";
+import { ghErrorMessage } from "../../../github-item";
 import { rpcGitViewer } from "./rpc";
 
 let cached: string | undefined;

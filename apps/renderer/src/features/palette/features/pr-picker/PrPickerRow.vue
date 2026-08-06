@@ -9,7 +9,7 @@ PR picker の1行分。PR 番号・タイトル・ブランチ・author・更新
 <script setup lang="ts">
 import type { GitPullRequest } from "@gozd/rpc";
 import { computed } from "vue";
-import { formatRelativeDate } from "../../formatRelativeDate";
+import { formatRelativeAge, isoToUnixSec } from "../../../../shared/time";
 import IconLucideCheck from "~icons/lucide/check";
 import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 import IconLucideUser from "~icons/lucide/user";
@@ -20,7 +20,7 @@ const props = defineProps<{
   creating: boolean;
 }>();
 
-const dateDisplay = computed(() => formatRelativeDate(props.pr.updatedAt));
+const dateDisplay = computed(() => formatRelativeAge(isoToUnixSec(props.pr.updatedAt)));
 </script>
 
 <template>

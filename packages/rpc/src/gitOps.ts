@@ -7,6 +7,7 @@ import type {
   GitFileChange,
   GitIssue,
   GitPullRequest,
+  GitPullRequestCheckState,
   WorktreeEntry,
 } from "./common";
 
@@ -282,6 +283,77 @@ export interface GitIssueListRequest {
 export interface GitIssueListResponse {
   ok: boolean;
   issues: GitIssue[];
+  errorKind: GhErrorKind;
+  errorDetail: string;
+}
+
+// gitMyWork: 認証ユーザー単位の作業一覧（repo 横断）
+//
+// repo 単位の `GitPrListRequest` / `GitIssueListRequest` と型を共有しない。あちらは
+// worktree 作成の startPoint 解決に使う ref 情報が本体で、こちらは repo をまたいで
+// 「開いて確認する」ためのリンクが本体。取得単位（repo / 認証ユーザー）も違う。
+
+/** PR に対するレビューの総合結果。GitHub GraphQL の `PullRequestReviewDecision` に対応する。
+ * 型は list から導出する（`GIT_PULL_REQUEST_CHECK_STATES` と同流儀）。 */
+export const GIT_PULL_REQUEST_REVIEW_DECISIONS = [
+  "CHANGES_REQUESTED",
+  "APPROVED",
+  "REVIEW_REQUIRED",
+] as const;
+
+export type GitPullRequestReviewDecision = (typeof GIT_PULL_REQUEST_REVIEW_DECISIONS)[number];
+
+/** my work パネルが描く 1 行。PR と issue の双方をこの 1 型で表す。 */
+export interface GitMyWorkItem {
+  kind: "pr" | "issue";
+  /** `owner/name`。repo をまたぐ一覧なので行ごとに帰属先を持つ */
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  authorAvatarUrl: string;
+  /** ISO 8601 */
+  updatedAt: string;
+  /** issue では常に false */
+  isDraft: boolean;
+  /** head ref の CI 総合結果。issue と、check が 1 つも無い commit では undefined */
+  checkState?: GitPullRequestCheckState;
+  /** レビューの総合結果。issue と、レビュー設定の無い PR では undefined */
+  reviewDecision?: GitPullRequestReviewDecision;
+  /** 会話の総量。数え方は `GitPullRequest.commentCount` の doc が SSOT */
+  commentCount: number;
+}
+
+/**
+ * 1 つの軸の取得結果。
+ *
+ * `totalCount` は検索条件に一致する総件数で、`items` は取得上限で切られるため両者は一致
+ * するとは限らない。「上限ちょうどで止まっている」のか「たまたま同数」なのかは件数だけでは
+ * 区別できないため、総件数を別に運ぶ。
+ *
+ * 「続きがあるか」は `totalCount > items.length` で導出する。真偽値を別フィールドで運ぶと
+ * 同じ事実の表現が 2 つになり、片方だけずれた状態を作れてしまう。
+ */
+export interface GitMyWorkGroup {
+  items: GitMyWorkItem[];
+  totalCount: number;
+  /** 同じ検索条件を GitHub 上で開く URL。上限で切れた残りへ到達する導線であり、
+   * 一覧と同じ条件から導出されるため両者の母集合は一致する */
+  webUrl: string;
+}
+
+/** 認証ユーザー単位なので repo を指す引数を持たない */
+export type GitMyWorkRequest = EmptyMessage;
+
+export interface GitMyWorkResponse {
+  ok: boolean;
+  /** `is:open is:pr review-requested:@me`。自分が属する team 宛のレビュー依頼も含む */
+  reviewRequestedPrs: GitMyWorkGroup;
+  /** `is:open is:pr author:@me` */
+  authoredPrs: GitMyWorkGroup;
+  /** `is:open is:issue author:@me` */
+  authoredIssues: GitMyWorkGroup;
   errorKind: GhErrorKind;
   errorDetail: string;
 }

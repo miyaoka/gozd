@@ -14,7 +14,7 @@ export interface IssuePickerItem {
   issue: GitIssue;
   existingTask?: Task;
   /** rootDir + ghRef の排他キー (`inFlightKey`)。コマンド層が accept 実行中の排他に、
-   * dialog が行スピナー表示と選択ブロックに使う。 */
+   * dialog が行スピナー表示と受理のブロックに使う。 */
   refKey: string;
 }
 

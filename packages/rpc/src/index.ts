@@ -116,6 +116,7 @@ export type {
   GitLsTreeResponse,
   GitMergeBaseRequest,
   GitMergeBaseResponse,
+  GitMyWorkGroup,
   GitMyWorkItem,
   GitMyWorkRequest,
   GitMyWorkResponse,

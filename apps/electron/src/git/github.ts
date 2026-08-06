@@ -12,6 +12,7 @@
 
 import type {
   GitIssue,
+  GitMyWorkGroup,
   GitMyWorkItem,
   GitPullRequest,
   GitPullRequestCheckState,
@@ -190,7 +191,7 @@ export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
 }
 
 // 1 グループあたりの取得上限。ページングは持たない（一覧を眺めて状況を掴む用途で、
-// 更新の新しい順に切ったところで足りる）
+// 更新の新しい順に切ったところで足りる）。切れているかどうかは `issueCount` で示す
 const MY_WORK_LIMIT = 50;
 
 /**
@@ -208,16 +209,23 @@ const MY_WORK_LIMIT = 50;
  * `@me` は GraphQL search でもそのまま解決されるため、viewer login を別途取らない。
  * `review-requested:@me` は自分が属する team 宛のレビュー依頼も含む（GitHub の検索仕様）。
  * 直接依頼だけに絞りたくなったら `user-review-requested:@me` に替える。
+ *
+ * `issueCount` は connection のページを要求しないため cost に乗らない。取得上限で切れて
+ * いるかどうかを示すのに `pageInfo { hasNextPage }` を併載しないのは、`issueCount` と
+ * 取得件数の比較で同じ事実が得られ、境界に同じ事実の表現を 2 つ持たせないため。
  */
 const MY_WORK_QUERY = `
 query($limit: Int!) {
-  authoredPrs: search(type: ISSUE, query: "is:open is:pr author:@me archived:false sort:updated-desc", first: $limit) {
+  reviewRequestedPrs: search(type: ISSUE, query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", first: $limit) {
+    issueCount
     nodes { ...prFields }
   }
-  reviewRequestedPrs: search(type: ISSUE, query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", first: $limit) {
+  authoredPrs: search(type: ISSUE, query: "is:open is:pr author:@me archived:false sort:updated-desc", first: $limit) {
+    issueCount
     nodes { ...prFields }
   }
   authoredIssues: search(type: ISSUE, query: "is:open is:issue author:@me archived:false sort:updated-desc", first: $limit) {
+    issueCount
     nodes { ...issueFields }
   }
 }
@@ -248,10 +256,17 @@ fragment issueFields on Issue {
 }`;
 
 export interface MyWork {
-  authoredPrs: GitMyWorkItem[];
-  reviewRequestedPrs: GitMyWorkItem[];
-  authoredIssues: GitMyWorkItem[];
+  reviewRequestedPrs: GitMyWorkGroup;
+  authoredPrs: GitMyWorkGroup;
+  authoredIssues: GitMyWorkGroup;
 }
+
+/** 軸の名前 → node の種別。node 型は search の query 文字列（`is:pr` / `is:issue`）で決まる */
+const MY_WORK_GROUP_KIND: Record<keyof MyWork, "pr" | "issue"> = {
+  reviewRequestedPrs: "pr",
+  authoredPrs: "pr",
+  authoredIssues: "issue",
+};
 
 /**
  * 認証ユーザー単位の作業一覧（repo 横断）。
@@ -269,14 +284,19 @@ export async function myWork(): Promise<GhResult<MyWork>> {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
   }
 
-  const groups = ["authoredPrs", "reviewRequestedPrs", "authoredIssues"] as const;
   const result = {} as MyWork;
-  for (const group of groups) {
+  for (const [group, kind] of Object.entries(MY_WORK_GROUP_KIND) as [
+    keyof MyWork,
+    "pr" | "issue",
+  ][]) {
     const nodes = getPath(parsed.value, "data", group, "nodes");
     if (!Array.isArray(nodes)) {
       return { ok: false, error: { kind: "other", detail: `missing nodes: ${group}` } };
     }
-    result[group] = parseMyWorkNodes(nodes, group === "authoredIssues" ? "issue" : "pr");
+    result[group] = {
+      items: parseMyWorkNodes(nodes, kind),
+      totalCount: int(getPath(parsed.value, "data", group, "issueCount")),
+    };
   }
   return { ok: true, value: result };
 }

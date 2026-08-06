@@ -325,17 +325,32 @@ export interface GitMyWorkItem {
   commentCount: number;
 }
 
+/**
+ * 1 つの軸の取得結果。
+ *
+ * `totalCount` は検索条件に一致する総件数で、`items` は取得上限で切られるため両者は一致
+ * するとは限らない。「上限ちょうどで止まっている」のか「たまたま同数」なのかは件数だけでは
+ * 区別できないため、総件数を別に運ぶ。
+ *
+ * 「続きがあるか」は `totalCount > items.length` で導出する。真偽値を別フィールドで運ぶと
+ * 同じ事実の表現が 2 つになり、片方だけずれた状態を作れてしまう。
+ */
+export interface GitMyWorkGroup {
+  items: GitMyWorkItem[];
+  totalCount: number;
+}
+
 /** 認証ユーザー単位なので repo を指す引数を持たない */
 export type GitMyWorkRequest = EmptyMessage;
 
 export interface GitMyWorkResponse {
   ok: boolean;
-  /** `is:open is:pr author:@me` */
-  authoredPrs: GitMyWorkItem[];
   /** `is:open is:pr review-requested:@me`。自分が属する team 宛のレビュー依頼も含む */
-  reviewRequestedPrs: GitMyWorkItem[];
+  reviewRequestedPrs: GitMyWorkGroup;
+  /** `is:open is:pr author:@me` */
+  authoredPrs: GitMyWorkGroup;
   /** `is:open is:issue author:@me` */
-  authoredIssues: GitMyWorkItem[];
+  authoredIssues: GitMyWorkGroup;
   errorKind: GhErrorKind;
   errorDetail: string;
 }

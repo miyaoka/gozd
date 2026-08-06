@@ -1,4 +1,4 @@
-import type { GitMyWorkItem } from "@gozd/rpc";
+import type { GitMyWorkGroup } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
@@ -49,9 +49,11 @@ export const useMyWorkStore = defineStore("myWork", () => {
   const notify = useNotificationStore();
 
   const isOpen = ref(false);
-  const authoredPrs = ref<GitMyWorkItem[]>([]);
-  const reviewRequestedPrs = ref<GitMyWorkItem[]>([]);
-  const authoredIssues = ref<GitMyWorkItem[]>([]);
+
+  const EMPTY_GROUP: GitMyWorkGroup = { items: [], totalCount: 0 };
+  const reviewRequestedPrs = ref<GitMyWorkGroup>(EMPTY_GROUP);
+  const authoredPrs = ref<GitMyWorkGroup>(EMPTY_GROUP);
+  const authoredIssues = ref<GitMyWorkGroup>(EMPTY_GROUP);
 
   /** 一度でも取得が完了したか。初回ロード中と「作業が 1 件も無い」の区別に使う。 */
   const hasLoaded = ref(false);
@@ -62,8 +64,12 @@ export const useMyWorkStore = defineStore("myWork", () => {
   /** in-flight な取得 (並列発射の dedup) */
   let inFlight: Promise<void> | undefined;
 
-  const totalCount = computed(
-    () => authoredPrs.value.length + reviewRequestedPrs.value.length + authoredIssues.value.length,
+  /** 観察ログ用の取得件数。表示件数であって総件数ではない */
+  const loadedCount = computed(
+    () =>
+      reviewRequestedPrs.value.items.length +
+      authoredPrs.value.items.length +
+      authoredIssues.value.items.length,
   );
 
   function runFetch(): Promise<void> {
@@ -87,11 +93,11 @@ export const useMyWorkStore = defineStore("myWork", () => {
           );
           return;
         }
-        authoredPrs.value = res.authoredPrs;
         reviewRequestedPrs.value = res.reviewRequestedPrs;
+        authoredPrs.value = res.authoredPrs;
         authoredIssues.value = res.authoredIssues;
         hasLoaded.value = true;
-        logEvent("my-work", "done", `${totalCount.value} items`);
+        logEvent("my-work", "done", `${loadedCount.value} items`);
       } finally {
         // lock は成否問わず張る（GitHub 障害中に開閉を繰り返しても撃ち続けないため）
         nextAllowedAt = Date.now() + MY_WORK_FRESH_MS;
@@ -136,12 +142,11 @@ export const useMyWorkStore = defineStore("myWork", () => {
 
   return {
     isOpen,
-    authoredPrs,
     reviewRequestedPrs,
+    authoredPrs,
     authoredIssues,
     hasLoaded,
     isLoading,
-    totalCount,
     fetchIfDue,
     refresh,
     open,

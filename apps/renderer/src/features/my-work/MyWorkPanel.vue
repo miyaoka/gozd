@@ -103,9 +103,9 @@ const { raise } = useSurface(panelRef, {
     </p>
 
     <div v-else class="flex min-h-0 flex-1">
-      <MyWorkSection title="Review requested" :items="myWorkStore.reviewRequestedPrs" />
-      <MyWorkSection title="My pull requests" :items="myWorkStore.authoredPrs" />
-      <MyWorkSection title="My issues" :items="myWorkStore.authoredIssues" />
+      <MyWorkSection title="Review requested" :group="myWorkStore.reviewRequestedPrs" />
+      <MyWorkSection title="My pull requests" :group="myWorkStore.authoredPrs" />
+      <MyWorkSection title="My issues" :group="myWorkStore.authoredIssues" />
     </div>
   </div>
 </template>

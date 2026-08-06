@@ -834,11 +834,12 @@ async function handleGitPrList(body: unknown): Promise<unknown> {
 async function handleGitMyWork(): Promise<unknown> {
   const result = await myWork();
   if (!result.ok) {
+    const empty = { items: [], totalCount: 0 };
     return {
       ok: false,
-      authoredPrs: [],
-      reviewRequestedPrs: [],
-      authoredIssues: [],
+      reviewRequestedPrs: empty,
+      authoredPrs: empty,
+      authoredIssues: empty,
       errorKind: result.error.kind,
       errorDetail: result.error.detail,
     } satisfies GitMyWorkResponse;

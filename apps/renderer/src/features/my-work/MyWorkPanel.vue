@@ -23,6 +23,15 @@ focus 専用の発火トリガは持たない（`GitGraphPane` の PR poll と�
 lock（60 秒）は store が持つため、閉じて開き直しても 60 秒未満なら撃たずキャッシュを出す。
 blur 中に対象から外れるのは、見ていない間に GitHub API を消費し失敗トーストを溜めないため。
 
+## 本文の 3 状態
+
+「未取得で取得中」「未取得で失敗」「取得済み」を描き分ける。取得済みかどうかの 1 bit だけで
+分岐すると、初回取得が失敗したときに進行中の取得が無いまま `Loading…` が残り続け、しかも
+lock のせいで開き直しても撃たないため、無説明の画面が固着する。
+
+取得済みで直近の取得が失敗しているときは、表示が stale であることをヘッダーに出す。トーストは
+流れて消えるので、それだけでは失敗が画面から失われる。
+
 ## repo に紐づかない
 
 一覧は認証ユーザー単位なので、active repo / worktree の切替では何も起きない。gozd で開いて
@@ -37,6 +46,7 @@ import MyWorkSection from "./MyWorkSection.vue";
 import { MY_WORK_FRESH_MS, useMyWorkStore } from "./useMyWorkStore";
 import IconLucideInbox from "~icons/lucide/inbox";
 import IconLucideRefreshCw from "~icons/lucide/refresh-cw";
+import IconLucideTriangleAlert from "~icons/lucide/triangle-alert";
 import IconLucideX from "~icons/lucide/x";
 
 const myWorkStore = useMyWorkStore();
@@ -77,7 +87,17 @@ const { raise } = useSurface(panelRef, {
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">
       <IconLucideInbox class="size-4 text-foreground-low" />
-      <h2 class="flex-1 text-sm font-medium text-foreground">My work</h2>
+      <h2 class="text-sm font-medium text-foreground">My work</h2>
+      <!-- キャッシュを出しつつ直近の取得が失敗している状態。トーストは消えるのでここに残す -->
+      <span
+        v-if="myWorkStore.hasLoaded && myWorkStore.lastError !== undefined"
+        class="flex min-w-0 flex-1 items-center gap-1 text-xs text-warning-text"
+        :title="myWorkStore.lastError"
+      >
+        <IconLucideTriangleAlert class="size-3.5 shrink-0" />
+        <span class="truncate">Showing stale data</span>
+      </span>
+      <span v-else class="flex-1"></span>
       <button
         type="button"
         aria-label="Refresh"
@@ -98,9 +118,27 @@ const { raise } = useSurface(panelRef, {
       </button>
     </header>
 
-    <p v-if="!myWorkStore.hasLoaded" class="px-3 py-8 text-center text-xs text-foreground-low">
-      Loading…
-    </p>
+    <!-- 未取得。失敗しているならその理由を出す（進行中でないのに Loading を出さない） -->
+    <div
+      v-if="!myWorkStore.hasLoaded"
+      class="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-xs"
+    >
+      <template v-if="myWorkStore.lastError === undefined">
+        <span class="text-foreground-low">Loading…</span>
+      </template>
+      <template v-else>
+        <IconLucideTriangleAlert class="size-6 text-destructive-text" />
+        <span class="text-foreground">{{ myWorkStore.lastError }}</span>
+        <button
+          type="button"
+          :disabled="myWorkStore.isLoading"
+          class="rounded-sm bg-element px-3 py-1 text-foreground not-disabled:cursor-pointer not-disabled:hover:bg-element-hover disabled:text-foreground-muted"
+          @click="myWorkStore.refresh()"
+        >
+          Retry
+        </button>
+      </template>
+    </div>
 
     <div v-else class="flex min-h-0 flex-1">
       <MyWorkSection title="Review requested" :group="myWorkStore.reviewRequestedPrs" />

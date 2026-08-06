@@ -338,6 +338,9 @@ export interface GitMyWorkItem {
 export interface GitMyWorkGroup {
   items: GitMyWorkItem[];
   totalCount: number;
+  /** 同じ検索条件を GitHub 上で開く URL。上限で切れた残りへ到達する導線であり、
+   * 一覧と同じ条件から導出されるため両者の母集合は一致する */
+  webUrl: string;
 }
 
 /** 認証ユーザー単位なので repo を指す引数を持たない */

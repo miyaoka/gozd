@@ -195,7 +195,7 @@ import {
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
-import { issueList, myWork, prList, repoOwnerName, viewer } from "./git/github";
+import { emptyMyWork, issueList, myWork, prList, repoOwnerName, viewer } from "./git/github";
 import { submoduleBrowseUrl } from "./git/submodule";
 import { buildPtyEnv } from "./gozdEnv";
 import { buildGozdOpenPayload } from "./openTarget";
@@ -834,12 +834,9 @@ async function handleGitPrList(body: unknown): Promise<unknown> {
 async function handleGitMyWork(): Promise<unknown> {
   const result = await myWork();
   if (!result.ok) {
-    const empty = { items: [], totalCount: 0 };
     return {
       ok: false,
-      reviewRequestedPrs: empty,
-      authoredPrs: empty,
-      authoredIssues: empty,
+      ...emptyMyWork(),
       errorKind: result.error.kind,
       errorDetail: result.error.detail,
     } satisfies GitMyWorkResponse;

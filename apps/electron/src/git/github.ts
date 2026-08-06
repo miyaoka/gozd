@@ -190,41 +190,93 @@ export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
   return { ok: true, value: issues };
 }
 
-// 1 グループあたりの取得上限。ページングは持たない（一覧を眺めて状況を掴む用途で、
-// 更新の新しい順に切ったところで足りる）。切れているかどうかは `issueCount` で示す
-const MY_WORK_LIMIT = 50;
+// 1 グループあたりの取得上限。`search` connection が 1 回で返せる上限そのもので、これを
+// 超えると `EXCESSIVE_PAGINATION` になる。3 軸すべてを上限で取っても cost は 1 のままなので
+// 絞る理由が無い。
+//
+// ここから先はカーソルを辿る往復が要る。ページングは持たず、切れているかどうかを
+// `issueCount` で示して GitHub 上の同じ検索へ送る。
+const MY_WORK_LIMIT = 100;
+
+/**
+ * 軸ごとの検索条件。**GraphQL の取得と GitHub 上の一覧 URL は同じ定義から導出する** —
+ * 別々に書くと、リンク先が一覧と違う母集合を出すようになる。
+ *
+ * `webType` は GitHub の検索ページの種別。PR と issue でタブが分かれており、issue の
+ * 検索は `is:pr` を受け付けない。
+ *
+ * `@me` は GraphQL search でも GitHub の検索ページでもそのまま解決されるため、viewer
+ * login を別途取らない。`review-requested:@me` は自分が属する team 宛のレビュー依頼も
+ * 含む（GitHub の検索仕様）。直接依頼だけに絞るなら `user-review-requested:@me`。
+ *
+ * > [!NOTE]
+ * > issue の検索ページは `archived` を「サポート外」と警告するが、実際には適用される
+ * > （警告を出しつつ除外後の件数を返す）。除外の有無で件数が変わることを実測で確認して
+ * > いるため、警告に合わせて条件を落とさない。落とすとリンク先だけ母集合が広がる。
+ */
+const MY_WORK_SEARCHES = [
+  {
+    key: "reviewRequestedPrs",
+    kind: "pr",
+    webType: "pullrequests",
+    query: "is:open is:pr review-requested:@me archived:false sort:updated-desc",
+  },
+  {
+    key: "authoredPrs",
+    kind: "pr",
+    webType: "pullrequests",
+    query: "is:open is:pr author:@me archived:false sort:updated-desc",
+  },
+  {
+    key: "authoredIssues",
+    kind: "issue",
+    webType: "issues",
+    query: "is:open is:issue author:@me archived:false sort:updated-desc",
+  },
+] as const satisfies readonly {
+  key: keyof MyWork;
+  kind: "pr" | "issue";
+  webType: "pullrequests" | "issues";
+  query: string;
+}[];
+
+/** 同じ検索条件を GitHub の検索ページで開く URL */
+function myWorkWebUrl(search: (typeof MY_WORK_SEARCHES)[number]): string {
+  const params = new URLSearchParams({ q: search.query, type: search.webType });
+  return `https://github.com/search?${params.toString()}`;
+}
 
 /**
  * 認証ユーザー単位の作業一覧を **1 往復・rate limit cost 1** で取る query。
  *
- * GraphQL の cost は「connection が要求したページ数の合計 ÷ 100（切り上げ）」なので、
- * search を 3 本並べても `first: 50` でも cost は 1 のまま。REST の `/search/issues` を
- * 3 回叩く形（3 リクエスト + search 専用の分間制限を消費）とはここが決定的に違う。
+ * GraphQL の cost は「各 connection を満たすのに必要なリクエスト数の合計を 100 で割って
+ * 四捨五入し、最小 1」なので、search を 3 本並べても `first: 50` でも 3 リクエスト相当に
+ * しかならず cost 1 に収まる。REST の `/search/issues` を 3 回叩く形（3 リクエスト +
+ * search 専用の分間制限を消費）とはここが決定的に違う。
  *
  * `search(type: ISSUE)` の node は `Issue | PullRequest` の union なので、CI / レビュー結果は
- * PullRequest 側の inline fragment で取る。`statusCheckRollup` は connection ではないため
+ * PullRequest 側の named fragment で取る。`statusCheckRollup` は connection ではないため
  * cost に乗らず、`comments { totalCount }` も `first` / `last` を渡さない限りページを
- * 要求しないので同じく乗らない（PR_QUERY 冒頭のコメントと同じ規律）。
+ * 要求しないので同じく乗らない（PR_QUERY 冒頭のコメントと同じ規律）。`issueCount` も同様。
  *
- * `@me` は GraphQL search でもそのまま解決されるため、viewer login を別途取らない。
- * `review-requested:@me` は自分が属する team 宛のレビュー依頼も含む（GitHub の検索仕様）。
- * 直接依頼だけに絞りたくなったら `user-review-requested:@me` に替える。
+ * 取得上限で切れているかどうかを示すのに `pageInfo { hasNextPage }` を併載しないのは、
+ * `issueCount` と取得件数の比較で同じ事実が得られ、境界に同じ事実の表現を 2 つ持たせない
+ * ため。
  *
- * `issueCount` は connection のページを要求しないため cost に乗らない。取得上限で切れて
- * いるかどうかを示すのに `pageInfo { hasNextPage }` を併載しないのは、`issueCount` と
- * 取得件数の比較で同じ事実が得られ、境界に同じ事実の表現を 2 つ持たせないため。
+ * 検索条件は変数で渡す。query 文字列に埋め込むと、条件に引用符が入った瞬間に GraphQL の
+ * 構文を壊す。
  */
 const MY_WORK_QUERY = `
-query($limit: Int!) {
-  reviewRequestedPrs: search(type: ISSUE, query: "is:open is:pr review-requested:@me archived:false sort:updated-desc", first: $limit) {
+query($limit: Int!, $reviewRequestedPrs: String!, $authoredPrs: String!, $authoredIssues: String!) {
+  reviewRequestedPrs: search(type: ISSUE, query: $reviewRequestedPrs, first: $limit) {
     issueCount
     nodes { ...prFields }
   }
-  authoredPrs: search(type: ISSUE, query: "is:open is:pr author:@me archived:false sort:updated-desc", first: $limit) {
+  authoredPrs: search(type: ISSUE, query: $authoredPrs, first: $limit) {
     issueCount
     nodes { ...prFields }
   }
-  authoredIssues: search(type: ISSUE, query: "is:open is:issue author:@me archived:false sort:updated-desc", first: $limit) {
+  authoredIssues: search(type: ISSUE, query: $authoredIssues, first: $limit) {
     issueCount
     nodes { ...issueFields }
   }
@@ -261,13 +313,6 @@ export interface MyWork {
   authoredIssues: GitMyWorkGroup;
 }
 
-/** 軸の名前 → node の種別。node 型は search の query 文字列（`is:pr` / `is:issue`）で決まる */
-const MY_WORK_GROUP_KIND: Record<keyof MyWork, "pr" | "issue"> = {
-  reviewRequestedPrs: "pr",
-  authoredPrs: "pr",
-  authoredIssues: "issue",
-};
-
 /**
  * 認証ユーザー単位の作業一覧（repo 横断）。
  *
@@ -275,7 +320,15 @@ const MY_WORK_GROUP_KIND: Record<keyof MyWork, "pr" | "issue"> = {
  * 認証は gh の global config が持つ。
  */
 export async function myWork(): Promise<GhResult<MyWork>> {
-  const args = ["api", "graphql", "-F", `limit=${MY_WORK_LIMIT}`, "-f", `query=${MY_WORK_QUERY}`];
+  const args = [
+    "api",
+    "graphql",
+    "-F",
+    `limit=${MY_WORK_LIMIT}`,
+    ...MY_WORK_SEARCHES.flatMap((search) => ["-f", `${search.key}=${search.query}`]),
+    "-f",
+    `query=${MY_WORK_QUERY}`,
+  ];
   const raw = await runGhCategorized(args, homedir());
   if (!raw.ok) return raw;
 
@@ -283,22 +336,50 @@ export async function myWork(): Promise<GhResult<MyWork>> {
   if (!parsed.ok) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
   }
+  return parseMyWorkResponse(parsed.value);
+}
 
+/**
+ * my work query の応答（parse 済み JSON）を `MyWork` へ変換する pure 関数。取得経路は
+ * これを経由する SSOT で、応答 shape に対する境界の振る舞いをここに閉じる。
+ *
+ * `nodes` と `issueCount` は同じ 1 応答から来る同格の必須フィールドなので、どちらの欠落も
+ * 応答 shape エラーにする。`issueCount` を 0 に倒すと「行が並んでいるのに総件数 0」という
+ * 事実でない要約が描かれる。
+ */
+export function parseMyWorkResponse(response: unknown): GhResult<MyWork> {
   const result = {} as MyWork;
-  for (const [group, kind] of Object.entries(MY_WORK_GROUP_KIND) as [
-    keyof MyWork,
-    "pr" | "issue",
-  ][]) {
-    const nodes = getPath(parsed.value, "data", group, "nodes");
+  for (const search of MY_WORK_SEARCHES) {
+    const nodes = getPath(response, "data", search.key, "nodes");
     if (!Array.isArray(nodes)) {
-      return { ok: false, error: { kind: "other", detail: `missing nodes: ${group}` } };
+      return { ok: false, error: { kind: "other", detail: `missing nodes: ${search.key}` } };
     }
-    result[group] = {
-      items: parseMyWorkNodes(nodes, kind),
-      totalCount: int(getPath(parsed.value, "data", group, "issueCount")),
+    const totalCount = getPath(response, "data", search.key, "issueCount");
+    if (typeof totalCount !== "number") {
+      return { ok: false, error: { kind: "other", detail: `missing issueCount: ${search.key}` } };
+    }
+    result[search.key] = {
+      items: parseMyWorkNodes(nodes, search.kind),
+      totalCount,
+      webUrl: myWorkWebUrl(search),
     };
   }
   return { ok: true, value: result };
+}
+
+/**
+ * 取得失敗時に返す空の一覧。`webUrl` は取得の成否に依存しないので埋める（失敗中でも
+ * GitHub 上で確認する導線は残る）。
+ *
+ * 呼び出しごとに新しいオブジェクトを作る。1 つを 3 軸で使い回すと、いずれかに in-place
+ * 変更が入った瞬間に 3 軸が同時に動く。
+ */
+export function emptyMyWork(): MyWork {
+  const result = {} as MyWork;
+  for (const search of MY_WORK_SEARCHES) {
+    result[search.key] = { items: [], totalCount: 0, webUrl: myWorkWebUrl(search) };
+  }
+  return result;
 }
 
 /** my work query の nodes を `GitMyWorkItem` へ変換する pure 関数。3 グループとも

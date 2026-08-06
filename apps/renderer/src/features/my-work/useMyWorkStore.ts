@@ -27,14 +27,21 @@ import { rpcGitMyWork } from "./rpc";
  * の両方が 1 つの入口で成り立つ。`usePrListStore` と同じ規律で、focus 専用の発火トリガは
  * 持たない（blur は「対象が消える」ものとして呼び出し側が扱う）。
  *
- * ## 失敗時にキャッシュを消さない
+ * ## 取れなかったことを画面に残す
  *
- * 取得失敗は `notify.error` で告知し、前回のキャッシュは保持する。空にすると「作業が無い」と
- * 「取れなかった」が画面上で区別できなくなる。
+ * 取得失敗でキャッシュは消さない。空にすると「作業が無い」と「取れなかった」が画面上で
+ * 区別できなくなる。
+ *
+ * トーストは流れて消えるため、それだけでは失敗が画面から失われる。最後の取得の帰結を
+ * `lastError` として保持し、パネルが 3 状態（未取得で取得中 / 未取得で失敗 / 取得済み）
+ * を描けるようにする。キャッシュがある状態の失敗は stale として描く材料になる。
  */
 
 /** 成否を問わずこの間は再取得しない (freshness lock)。polling interval と同値。 */
 export const MY_WORK_FRESH_MS = 60_000;
+
+/** 失敗の見出し。トーストとパネル内表示が同じ文言を指すよう 1 箇所に置く。 */
+const FETCH_FAILED_MESSAGE = "Failed to load my work";
 
 /**
  * 「いま取得すべきか」を決める純関数。lock (`allowedAt`) が未来なら抑制期間中。
@@ -50,14 +57,18 @@ export const useMyWorkStore = defineStore("myWork", () => {
 
   const isOpen = ref(false);
 
-  const EMPTY_GROUP: GitMyWorkGroup = { items: [], totalCount: 0 };
-  const reviewRequestedPrs = ref<GitMyWorkGroup>(EMPTY_GROUP);
-  const authoredPrs = ref<GitMyWorkGroup>(EMPTY_GROUP);
-  const authoredIssues = ref<GitMyWorkGroup>(EMPTY_GROUP);
+  // 初回取得までの place holder。`webUrl` はこの時点では未知だが、パネルは取得が
+  // 済むまで一覧を描かないため表示に出ない。軸ごとに別オブジェクトを作る
+  const emptyGroup = (): GitMyWorkGroup => ({ items: [], totalCount: 0, webUrl: "" });
+  const reviewRequestedPrs = ref<GitMyWorkGroup>(emptyGroup());
+  const authoredPrs = ref<GitMyWorkGroup>(emptyGroup());
+  const authoredIssues = ref<GitMyWorkGroup>(emptyGroup());
 
-  /** 一度でも取得が完了したか。初回ロード中と「作業が 1 件も無い」の区別に使う。 */
+  /** 一度でも取得が成功したか。初回ロード中と「作業が 1 件も無い」の区別に使う。 */
   const hasLoaded = ref(false);
   const isLoading = ref(false);
+  /** 最後の取得が失敗していればその文言。成功すると undefined に戻る。 */
+  const lastError = ref<string | undefined>();
 
   /** この時刻まで再取得を抑制する deadline (ms epoch) */
   let nextAllowedAt: number | undefined;
@@ -80,24 +91,25 @@ export const useMyWorkStore = defineStore("myWork", () => {
       try {
         const result = await tryCatch(rpcGitMyWork({}));
         if (!result.ok) {
-          logEvent("my-work", "error", "rpc failed");
-          notify.error("Failed to load my work", result.error);
+          logEvent("my-work", "error", "", "rpc failed");
+          lastError.value = FETCH_FAILED_MESSAGE;
+          notify.error(FETCH_FAILED_MESSAGE, result.error);
           return;
         }
         const res = result.value;
         if (!res.ok) {
-          logEvent("my-work", "error", res.errorKind);
-          notify.error(
-            ghErrorMessage(res.errorKind, "Failed to load my work"),
-            res.errorDetail || undefined,
-          );
+          logEvent("my-work", "error", "", res.errorKind);
+          const message = ghErrorMessage(res.errorKind, FETCH_FAILED_MESSAGE);
+          lastError.value = message;
+          notify.error(message, res.errorDetail || undefined);
           return;
         }
         reviewRequestedPrs.value = res.reviewRequestedPrs;
         authoredPrs.value = res.authoredPrs;
         authoredIssues.value = res.authoredIssues;
         hasLoaded.value = true;
-        logEvent("my-work", "done", `${loadedCount.value} items`);
+        lastError.value = undefined;
+        logEvent("my-work", "done", "", `${loadedCount.value} items`);
       } finally {
         // lock は成否問わず張る（GitHub 障害中に開閉を繰り返しても撃ち続けないため）
         nextAllowedAt = Date.now() + MY_WORK_FRESH_MS;
@@ -147,6 +159,7 @@ export const useMyWorkStore = defineStore("myWork", () => {
     authoredIssues,
     hasLoaded,
     isLoading,
+    lastError,
     fetchIfDue,
     refresh,
     open,

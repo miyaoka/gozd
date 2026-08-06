@@ -11,13 +11,15 @@ my work パネルの 1 行。PR と issue を同じ行フォーマットで描�
 - `checkState` が undefined なのは **check が 1 つも登録されていない PR** であって取得漏れ
   ではない。issue も同じ undefined に落ちるため、ドットごと出さない（欠けた要約を
   「不明」として描かない契約は [docs/git.md](../../../../../docs/git.md)）
+- CI ドットは装飾ではなく状態を運ぶ図形なので、支援技術にも露出させる（`RefBadge` の
+  同じドットと同じ扱い）
 </doc>
 
 <script setup lang="ts">
 import type { GitMyWorkItem, GitPullRequestReviewDecision } from "@gozd/rpc";
-import { computed } from "vue";
+import { computed, type FunctionalComponent, type SVGAttributes } from "vue";
+import { formatRelativeTime } from "../../shared/time";
 import { activateExternalLink, CHECK_STATE_DISPLAY } from "../git-graph";
-import { formatRelativeDate } from "../palette";
 import IconLucideCircleDot from "~icons/lucide/circle-dot";
 import IconLucideGitPullRequest from "~icons/lucide/git-pull-request";
 import IconLucideMessageSquare from "~icons/lucide/message-square";
@@ -34,9 +36,10 @@ const REVIEW_DECISION_DISPLAY: Record<
   REVIEW_REQUIRED: { label: "review required", class: "text-foreground-muted" },
 };
 
-const kindIcon = computed(() =>
-  props.item.kind === "pr" ? IconLucideGitPullRequest : IconLucideCircleDot,
-);
+const KIND_ICON: Record<GitMyWorkItem["kind"], FunctionalComponent<SVGAttributes>> = {
+  pr: IconLucideGitPullRequest,
+  issue: IconLucideCircleDot,
+};
 
 const checkDot = computed(() => {
   const state = props.item.checkState;
@@ -48,7 +51,27 @@ const reviewDecision = computed(() => {
   return decision === undefined ? undefined : REVIEW_DECISION_DISPLAY[decision];
 });
 
-const relativeDate = computed(() => formatRelativeDate(props.item.updatedAt));
+// 経過が長いほど注意を引かない配色にする。放置された項目を警告色で塗り続けても行動は変わらず、
+// 直近動いたものを見つけにくくするだけ
+const RELATIVE_AGE_CLASS = [
+  { withinSec: 3600, class: "text-success-text" },
+  { withinSec: 86400, class: "text-warning-text" },
+  { withinSec: 86400 * 7, class: "text-warning-strong-text" },
+] as const;
+
+/** ISO 8601 → Unix 秒。parse 不能なら 0（`formatRelativeTime` が空文字を返す） */
+const updatedAtSec = computed(() => {
+  const ms = Date.parse(props.item.updatedAt);
+  return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
+});
+
+const relativeText = computed(() => formatRelativeTime(updatedAtSec.value));
+
+const relativeClass = computed(() => {
+  if (updatedAtSec.value <= 0) return "text-foreground-muted";
+  const ageSec = Math.floor(Date.now() / 1000) - updatedAtSec.value;
+  return RELATIVE_AGE_CLASS.find((band) => ageSec < band.withinSec)?.class ?? "text-foreground-low";
+});
 </script>
 
 <template>
@@ -60,12 +83,12 @@ const relativeDate = computed(() => formatRelativeDate(props.item.updatedAt));
   >
     <div class="flex items-start gap-2">
       <component
-        :is="kindIcon"
+        :is="KIND_ICON[item.kind]"
         class="size-3.5 shrink-0 translate-y-px"
         :class="item.isDraft ? 'text-foreground-muted' : 'text-success-text'"
       />
       <span class="min-w-0 flex-1 truncate text-foreground">{{ item.title }}</span>
-      <span class="shrink-0 tabular-nums" :class="relativeDate.color">{{ relativeDate.text }}</span>
+      <span class="shrink-0 tabular-nums" :class="relativeClass">{{ relativeText }}</span>
     </div>
 
     <div class="flex items-center gap-2 text-[10px] text-foreground-low">
@@ -81,11 +104,17 @@ const relativeDate = computed(() => formatRelativeDate(props.item.updatedAt));
       <span class="flex flex-1 items-center justify-end gap-2">
         <span
           v-if="checkDot !== undefined"
+          role="img"
           class="size-1.5 shrink-0 rounded-full"
           :class="checkDot.class"
           :title="checkDot.title"
+          :aria-label="checkDot.title"
         ></span>
-        <span v-if="item.commentCount > 0" class="flex shrink-0 items-center gap-0.5 tabular-nums">
+        <span
+          v-if="item.commentCount > 0"
+          class="flex shrink-0 items-center gap-0.5 tabular-nums"
+          :title="`Comments: ${item.commentCount}`"
+        >
           <IconLucideMessageSquare class="size-2.5" />
           {{ item.commentCount }}
         </span>

@@ -7,6 +7,8 @@ my work パネルの 1 ペイン（review requested / my PRs / my issues）。
   出すと「上限ちょうどで止まっている」のか「たまたま同数」なのかが区別できない
 - 切れているときだけ `表示件数 / 総件数` の形にする。切れていないときに常に併記すると、
   同じ数字が 2 つ並ぶだけで読む側の負荷が増える
+- GitHub を開く導線は**見出し右端の独立したボタン**にする。上限で切れた残りへ到達する唯一の
+  経路なので、数字のような「読むための要素」に隠さず、押せるものとして見える形で置く
 - 見出しを scroll コンテナの**外**に置く。ペインが独立して縦スクロールするため、見出しは
   スクロールの影響を受けない位置に固定されていればよく、sticky で追従させる必要がない
 - 件数が 0 のペインも枠ごと残す。消すとペインの並び順と幅が状況で変わり、「レビュー依頼が
@@ -18,7 +20,9 @@ my work パネルの 1 ペイン（review requested / my PRs / my issues）。
 <script setup lang="ts">
 import type { GitMyWorkGroup } from "@gozd/rpc";
 import { computed } from "vue";
+import { activateExternalLink } from "../git-graph";
 import MyWorkRow from "./MyWorkRow.vue";
+import IconLucideExternalLink from "~icons/lucide/external-link";
 
 const props = defineProps<{ title: string; group: GitMyWorkGroup }>();
 
@@ -33,9 +37,11 @@ const countLabel = computed(() =>
 
 const countTitle = computed(() =>
   isTruncated.value
-    ? `Showing ${props.group.items.length} of ${props.group.totalCount} (most recently updated)`
+    ? `Showing the ${props.group.items.length} most recently updated of ${props.group.totalCount}`
     : `${props.group.totalCount} total`,
 );
+
+const linkTitle = computed(() => `Open "${props.title}" on GitHub`);
 </script>
 
 <template>
@@ -43,14 +49,27 @@ const countTitle = computed(() =>
     <h3
       class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 text-[10px] font-medium tracking-wide text-foreground-low uppercase"
     >
-      <span class="min-w-0 truncate">{{ title }}</span>
-      <span
-        class="shrink-0 tabular-nums"
-        :class="isTruncated ? 'text-warning-text' : 'text-foreground-muted'"
-        :title="countTitle"
-      >
-        {{ countLabel }}
+      <!-- 見出しと件数を 1 つの伸びる箱に入れ、リンクを右端へ押し出す（margin を使わない） -->
+      <span class="flex min-w-0 flex-1 items-center gap-2">
+        <span class="min-w-0 truncate">{{ title }}</span>
+        <span
+          class="shrink-0 tabular-nums"
+          :class="isTruncated ? 'text-warning-text' : 'text-foreground-muted'"
+          :title="countTitle"
+        >
+          {{ countLabel }}
+        </span>
       </span>
+      <a
+        :href="group.webUrl"
+        class="grid size-5 shrink-0 place-items-center rounded-sm text-foreground-muted no-underline hover:bg-element-hover hover:text-foreground"
+        :title="linkTitle"
+        :aria-label="linkTitle"
+        @click="activateExternalLink($event, group.webUrl)"
+        @auxclick="activateExternalLink($event, group.webUrl)"
+      >
+        <IconLucideExternalLink class="size-3.5" />
+      </a>
     </h3>
 
     <div class="min-h-0 flex-1 overflow-y-auto">

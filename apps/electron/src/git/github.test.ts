@@ -1,5 +1,11 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { parseGitHubOwnerRepo, parseMyWorkNodes, parsePullRequestNodes } from "./github";
+import {
+  emptyMyWork,
+  parseGitHubOwnerRepo,
+  parseMyWorkNodes,
+  parseMyWorkResponse,
+  parsePullRequestNodes,
+} from "./github";
 
 describe("parseGitHubOwnerRepo", () => {
   test("https 形式", () => {
@@ -216,5 +222,85 @@ describe("parseMyWorkNodes", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+/** my work query の応答 snapshot。個々のテストは検証したい軸だけ上書きする */
+function myWorkResponse(overrides: Record<string, unknown> = {}): unknown {
+  const group = (nodes: unknown[], issueCount: number) => ({ nodes, issueCount });
+  return {
+    data: {
+      reviewRequestedPrs: group([myWorkPrNode()], 1),
+      authoredPrs: group([myWorkPrNode()], 1),
+      authoredIssues: group([], 0),
+      ...overrides,
+    },
+  };
+}
+
+describe("parseMyWorkResponse", () => {
+  test("軸ごとに GitHub 上の同じ検索を開く URL を持つ", () => {
+    const result = parseMyWorkResponse(myWorkResponse());
+    if (!result.ok) throw new Error("expected ok");
+    const param = (webUrl: string, key: string) => new URL(webUrl).searchParams.get(key);
+
+    // PR と issue で検索ページの種別が分かれる（issue の検索は is:pr を受け付けない）
+    expect(param(result.value.authoredPrs.webUrl, "type")).toBe("pullrequests");
+    expect(param(result.value.reviewRequestedPrs.webUrl, "type")).toBe("pullrequests");
+    expect(param(result.value.authoredIssues.webUrl, "type")).toBe("issues");
+
+    // 一覧の条件がそのまま URL に載る（リンク先と一覧の母集合を一致させる契約）
+    expect(param(result.value.authoredIssues.webUrl, "q")).toBe(
+      "is:open is:issue author:@me archived:false sort:updated-desc",
+    );
+    expect(param(result.value.reviewRequestedPrs.webUrl, "q")).toBe(
+      "is:open is:pr review-requested:@me archived:false sort:updated-desc",
+    );
+  });
+
+  test("総件数が取得件数を上回るときは切れていると判定できる", () => {
+    const result = parseMyWorkResponse(
+      myWorkResponse({ authoredIssues: { nodes: [], issueCount: 87 } }),
+    );
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.value.authoredIssues.totalCount).toBe(87);
+  });
+
+  test("nodes が無い軸は応答 shape エラーにする", () => {
+    const result = parseMyWorkResponse(myWorkResponse({ authoredPrs: { issueCount: 3 } }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.detail).toBe("missing nodes: authoredPrs");
+  });
+
+  test("issueCount が無い軸は 0 に倒さず応答 shape エラーにする", () => {
+    const result = parseMyWorkResponse(myWorkResponse({ authoredIssues: { nodes: [] } }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.detail).toBe("missing issueCount: authoredIssues");
+  });
+
+  test("issueCount が数値でなければ応答 shape エラーにする", () => {
+    const result = parseMyWorkResponse(
+      myWorkResponse({ authoredIssues: { nodes: [], issueCount: "87" } }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.detail).toBe("missing issueCount: authoredIssues");
+  });
+});
+
+describe("emptyMyWork", () => {
+  test("失敗時でも GitHub 上で確認する導線を残す", () => {
+    const empty = emptyMyWork();
+    expect(empty.authoredIssues.items).toEqual([]);
+    expect(empty.authoredIssues.totalCount).toBe(0);
+    expect(empty.authoredIssues.webUrl).toContain("https://github.com/search?");
+  });
+
+  test("軸ごとに別オブジェクトを返す", () => {
+    const empty = emptyMyWork();
+    expect(empty.authoredPrs).not.toBe(empty.authoredIssues);
+    expect(empty.authoredPrs.items).not.toBe(empty.authoredIssues.items);
   });
 });

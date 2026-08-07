@@ -303,12 +303,12 @@ export const GIT_PULL_REQUEST_REVIEW_DECISIONS = [
 
 export type GitPullRequestReviewDecision = (typeof GIT_PULL_REQUEST_REVIEW_DECISIONS)[number];
 
-/** my work が扱う項目の種別。行とリンクが同じ集合を指す。 */
-export type GitMyWorkKind = "pr" | "issue";
+/** GitHub 項目の種別。my work の行・リンクと、種別を描く表示語彙が同じ集合を指す。 */
+export type GitItemKind = "pr" | "issue";
 
 /** my work パネルが描く 1 行。PR と issue の双方をこの 1 型で表す。 */
 export interface GitMyWorkItem {
-  kind: GitMyWorkKind;
+  kind: GitItemKind;
   /** `owner/name`。repo をまたぐ一覧なので行ごとに帰属先を持つ */
   repo: string;
   number: number;
@@ -334,7 +334,7 @@ export interface GitMyWorkItem {
  * 一覧の母集合と一致する。
  */
 export interface GitMyWorkWebLink {
-  kind: GitMyWorkKind;
+  kind: GitItemKind;
   url: string;
 }
 

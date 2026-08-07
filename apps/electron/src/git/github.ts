@@ -12,6 +12,7 @@
 
 import type {
   GitIssue,
+  GitItemKind,
   GitMyWorkGroup,
   GitMyWorkItem,
   GitMyWorkWebLink,
@@ -210,14 +211,14 @@ const MY_WORK_LIMIT = 100;
  * `mentions:@me` は PR と issue の両方に一致する（kind: "mixed"）。本文・コメントの直接
  * メンションのみで、team 宛メンション（`@org/team`）は含まない（あちらは `team:` qualifier）。
  *
+ * 並びは表示順（MyWorkPanel の AXES）に合わせる。ここでの順序は取得に影響しないが、
+ * 軸の一覧を読む場所ごとに順が違うと対応付けに手間が要る。
+ *
  * > [!NOTE]
  * > issue の検索ページは `archived` を「サポート外」と警告するが、実際には適用される
  * > （警告を出しつつ除外後の件数を返す）。除外の有無で件数が変わることを実測で確認して
  * > いるため、警告に合わせて条件を落とさない。落とすとリンク先だけ母集合が広がる。
  */
-// 並びは表示順（MyWorkPanel の AXES / docs/git.md の軸テーブルと同順）:
-// 自分が作ったもの（issue → PR）→ 自分に向けられたもの（メンション → レビュー依頼）。
-// issue → PR の順は GitHub web の種別並び（Issues / Pull requests）に合わせる。
 const MY_WORK_SEARCHES = [
   {
     key: "authoredIssues",
@@ -241,7 +242,7 @@ const MY_WORK_SEARCHES = [
   },
 ] as const satisfies readonly {
   key: string;
-  kind: "pr" | "issue" | "mixed";
+  kind: GitItemKind | "mixed";
   query: string;
 }[];
 
@@ -414,7 +415,7 @@ export function emptyMyWork(): MyWork {
  * mixed 軸の行種別。`search(type: ISSUE)` の union は `Issue | PullRequest` の 2 型。
  * 未知の型名は観察ログを残し、フィールドが両型の共通部分である issue に倒す。
  */
-function mixedNodeKind(item: unknown): "pr" | "issue" {
+function mixedNodeKind(item: unknown): GitItemKind {
   const typename = getPath(item, "__typename");
   if (typename === "PullRequest") return "pr";
   if (typename !== "Issue") {
@@ -425,10 +426,7 @@ function mixedNodeKind(item: unknown): "pr" | "issue" {
 
 /** my work query の nodes を `GitMyWorkItem` へ変換する pure 関数。全グループとも
  * これを経由する SSOT で、snapshot 入力に対する境界の振る舞いをここに閉じる。 */
-export function parseMyWorkNodes(
-  nodes: unknown[],
-  kind: "pr" | "issue" | "mixed",
-): GitMyWorkItem[] {
+export function parseMyWorkNodes(nodes: unknown[], kind: GitItemKind | "mixed"): GitMyWorkItem[] {
   return nodes.map((item) => ({
     kind: kind === "mixed" ? mixedNodeKind(item) : kind,
     repo: str(getPath(item, "repository", "nameWithOwner")),

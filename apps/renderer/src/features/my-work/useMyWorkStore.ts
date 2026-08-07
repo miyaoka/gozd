@@ -57,10 +57,11 @@ export const useMyWorkStore = defineStore("myWork", () => {
 
   const isOpen = ref(false);
 
-  // 初回取得までの place holder。`webUrl` はこの時点では未知だが、パネルは取得が
+  // 初回取得までの place holder。`webLinks` はこの時点では未知だが、パネルは取得が
   // 済むまで一覧を描かないため表示に出ない。軸ごとに別オブジェクトを作る
-  const emptyGroup = (): GitMyWorkGroup => ({ items: [], totalCount: 0, webUrl: "" });
+  const emptyGroup = (): GitMyWorkGroup => ({ items: [], totalCount: 0, webLinks: [] });
   const reviewRequestedPrs = ref<GitMyWorkGroup>(emptyGroup());
+  const mentioned = ref<GitMyWorkGroup>(emptyGroup());
   const authoredPrs = ref<GitMyWorkGroup>(emptyGroup());
   const authoredIssues = ref<GitMyWorkGroup>(emptyGroup());
 
@@ -79,6 +80,7 @@ export const useMyWorkStore = defineStore("myWork", () => {
   const loadedCount = computed(
     () =>
       reviewRequestedPrs.value.items.length +
+      mentioned.value.items.length +
       authoredPrs.value.items.length +
       authoredIssues.value.items.length,
   );
@@ -106,13 +108,15 @@ export const useMyWorkStore = defineStore("myWork", () => {
           // 出せない間も GitHub 側で確認する導線を残す（件数と行はキャッシュを保つ）
           reviewRequestedPrs.value = {
             ...reviewRequestedPrs.value,
-            webUrl: res.reviewRequestedPrs.webUrl,
+            webLinks: res.reviewRequestedPrs.webLinks,
           };
-          authoredPrs.value = { ...authoredPrs.value, webUrl: res.authoredPrs.webUrl };
-          authoredIssues.value = { ...authoredIssues.value, webUrl: res.authoredIssues.webUrl };
+          mentioned.value = { ...mentioned.value, webLinks: res.mentioned.webLinks };
+          authoredPrs.value = { ...authoredPrs.value, webLinks: res.authoredPrs.webLinks };
+          authoredIssues.value = { ...authoredIssues.value, webLinks: res.authoredIssues.webLinks };
           return;
         }
         reviewRequestedPrs.value = res.reviewRequestedPrs;
+        mentioned.value = res.mentioned;
         authoredPrs.value = res.authoredPrs;
         authoredIssues.value = res.authoredIssues;
         hasLoaded.value = true;
@@ -163,6 +167,7 @@ export const useMyWorkStore = defineStore("myWork", () => {
   return {
     isOpen,
     reviewRequestedPrs,
+    mentioned,
     authoredPrs,
     authoredIssues,
     hasLoaded,

@@ -14,6 +14,7 @@ import type {
   GitIssue,
   GitMyWorkGroup,
   GitMyWorkItem,
+  GitMyWorkWebLink,
   GitPullRequest,
   GitPullRequestCheckState,
   GitPullRequestReviewDecision,
@@ -202,12 +203,12 @@ const MY_WORK_LIMIT = 100;
  * 軸ごとの検索条件。**GraphQL の取得と GitHub 上の一覧 URL は同じ定義から導出する** —
  * 別々に書くと、リンク先が一覧と違う母集合を出すようになる。
  *
- * `webType` は GitHub の検索ページの種別。PR と issue でタブが分かれており、issue の
- * 検索は `is:pr` を受け付けない。
- *
  * `@me` は GraphQL search でも GitHub の検索ページでもそのまま解決されるため、viewer
  * login を別途取らない。`review-requested:@me` は自分が属する team 宛のレビュー依頼も
  * 含む（GitHub の検索仕様）。直接依頼だけに絞るなら `user-review-requested:@me`。
+ *
+ * `mentions:@me` は PR と issue の両方に一致する（kind: "mixed"）。本文・コメントの直接
+ * メンションのみで、team 宛メンション（`@org/team`）は含まない（あちらは `team:` qualifier）。
  *
  * > [!NOTE]
  * > issue の検索ページは `archived` を「サポート外」と警告するが、実際には適用される
@@ -218,27 +219,38 @@ const MY_WORK_SEARCHES = [
   {
     key: "reviewRequestedPrs",
     kind: "pr",
-    webType: "pullrequests",
     query: "is:open is:pr review-requested:@me archived:false sort:updated-desc",
+  },
+  {
+    key: "mentioned",
+    kind: "mixed",
+    query: "is:open mentions:@me archived:false sort:updated-desc",
   },
   {
     key: "authoredPrs",
     kind: "pr",
-    webType: "pullrequests",
     query: "is:open is:pr author:@me archived:false sort:updated-desc",
   },
   {
     key: "authoredIssues",
     kind: "issue",
-    webType: "issues",
     query: "is:open is:issue author:@me archived:false sort:updated-desc",
   },
 ] as const satisfies readonly {
   key: string;
-  kind: "pr" | "issue";
-  webType: "pullrequests" | "issues";
+  kind: "pr" | "issue" | "mixed";
   query: string;
 }[];
+
+/**
+ * kind → `nodes` に展開する selection。mixed は union（`Issue | PullRequest`）の両型を受け、
+ * 行の種別を `__typename` で判定するため mixed だけがそれを要求する。
+ */
+const MY_WORK_NODE_SELECTIONS = {
+  pr: "...prFields",
+  issue: "...issueFields",
+  mixed: "__typename ...prFields ...issueFields",
+} as const;
 
 /**
  * 軸の集合は `MY_WORK_SEARCHES` から導出する。手書きで並べると、軸を足したときに
@@ -249,10 +261,22 @@ const MY_WORK_SEARCHES = [
  */
 export type MyWork = Record<(typeof MY_WORK_SEARCHES)[number]["key"], GitMyWorkGroup>;
 
-/** 同じ検索条件を GitHub の検索ページで開く URL */
-function myWorkWebUrl(search: (typeof MY_WORK_SEARCHES)[number]): string {
-  const params = new URLSearchParams({ q: search.query, type: search.webType });
-  return `https://github.com/search?${params.toString()}`;
+/** GitHub の検索ページの種別。PR と issue でタブが分かれており、issue の検索は
+ * `is:pr` を受け付けない */
+const KIND_WEB_TYPE = { pr: "pullrequests", issue: "issues" } as const;
+
+/**
+ * 同じ検索条件を GitHub の検索ページで開くリンク。検索ページには混在を 1 ページに出す
+ * 種別が無いため、mixed 軸は種別タブごとに 1 本ずつ出す。query は共通なので、全リンクの
+ * 母集合の和が一覧の母集合と一致する。
+ */
+function myWorkWebLinks(search: (typeof MY_WORK_SEARCHES)[number]): GitMyWorkWebLink[] {
+  // issue → pr の順は GitHub web の種別並び（Issues / Pull requests）に合わせる
+  const kinds = search.kind === "mixed" ? (["issue", "pr"] as const) : [search.kind];
+  return kinds.map((kind) => ({
+    kind,
+    url: `https://github.com/search?${new URLSearchParams({ q: search.query, type: KIND_WEB_TYPE[kind] }).toString()}`,
+  }));
 }
 
 /**
@@ -284,7 +308,7 @@ query($limit: Int!, ${MY_WORK_SEARCHES.map((s) => `$${s.key}: String!`).join(", 
 ${MY_WORK_SEARCHES.map(
   (s) => `  ${s.key}: search(type: ISSUE, query: $${s.key}, first: $limit) {
     issueCount
-    nodes { ...${s.kind}Fields }
+    nodes { ${MY_WORK_NODE_SELECTIONS[s.kind]} }
   }`,
 ).join("\n")}
 }
@@ -362,32 +386,48 @@ export function parseMyWorkResponse(response: unknown): GhResult<MyWork> {
     result[search.key] = {
       items: parseMyWorkNodes(nodes, search.kind),
       totalCount,
-      webUrl: myWorkWebUrl(search),
+      webLinks: myWorkWebLinks(search),
     };
   }
   return { ok: true, value: result };
 }
 
 /**
- * 取得失敗時に返す空の一覧。`webUrl` は取得の成否に依存しないので埋める（失敗中でも
+ * 取得失敗時に返す空の一覧。`webLinks` は取得の成否に依存しないので埋める（失敗中でも
  * GitHub 上で確認する導線は残る）。
  *
- * 呼び出しごとに新しいオブジェクトを作る。1 つを 3 軸で使い回すと、いずれかに in-place
- * 変更が入った瞬間に 3 軸が同時に動く。
+ * 呼び出しごとに新しいオブジェクトを作る。1 つを全軸で使い回すと、いずれかに in-place
+ * 変更が入った瞬間に全軸が同時に動く。
  */
 export function emptyMyWork(): MyWork {
   const result = {} as MyWork;
   for (const search of MY_WORK_SEARCHES) {
-    result[search.key] = { items: [], totalCount: 0, webUrl: myWorkWebUrl(search) };
+    result[search.key] = { items: [], totalCount: 0, webLinks: myWorkWebLinks(search) };
   }
   return result;
 }
 
-/** my work query の nodes を `GitMyWorkItem` へ変換する pure 関数。3 グループとも
+/**
+ * mixed 軸の行種別。`search(type: ISSUE)` の union は `Issue | PullRequest` の 2 型。
+ * 未知の型名は観察ログを残し、フィールドが両型の共通部分である issue に倒す。
+ */
+function mixedNodeKind(item: unknown): "pr" | "issue" {
+  const typename = getPath(item, "__typename");
+  if (typename === "PullRequest") return "pr";
+  if (typename !== "Issue") {
+    console.error(`[myWork] unknown __typename: ${JSON.stringify(typename)}`);
+  }
+  return "issue";
+}
+
+/** my work query の nodes を `GitMyWorkItem` へ変換する pure 関数。全グループとも
  * これを経由する SSOT で、snapshot 入力に対する境界の振る舞いをここに閉じる。 */
-export function parseMyWorkNodes(nodes: unknown[], kind: "pr" | "issue"): GitMyWorkItem[] {
+export function parseMyWorkNodes(
+  nodes: unknown[],
+  kind: "pr" | "issue" | "mixed",
+): GitMyWorkItem[] {
   return nodes.map((item) => ({
-    kind,
+    kind: kind === "mixed" ? mixedNodeKind(item) : kind,
     repo: str(getPath(item, "repository", "nameWithOwner")),
     number: int(getPath(item, "number")),
     title: str(getPath(item, "title")),

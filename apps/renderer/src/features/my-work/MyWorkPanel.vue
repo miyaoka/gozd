@@ -1,13 +1,13 @@
 <doc lang="md">
-認証ユーザー単位の作業一覧（自分の PR / レビュー依頼 / 自分の issue）を repo 横断で出す
-右ドック型パネル。TitleBar のボタン → `useMyWorkStore.toggle()` で開閉する。
+認証ユーザー単位の作業一覧（自分の issue / 自分の PR / 自分へのメンション / レビュー依頼）を
+repo 横断で出す右ドック型パネル。TitleBar のボタン → `useMyWorkStore.toggle()` で開閉する。
 
 ServerListPanel / EventLogPanel と同じ top layer サーフェス 1 枚（`shared/surface`）。開閉の
 SSOT は store の `isOpen` で、popover DOM へのミラーは要素を所有する本 component が担う。
 
-## 3 ペイン構成
+## 軸ごとのペイン構成
 
-3 つの軸を横並びのペインに分け、**ペインごとに独立して縦スクロール**させる。1 つの scroll に
+軸を横並びのペインに分け、**ペインごとに独立して縦スクロール**させる。1 つの scroll に
 積むと、件数の多い軸（レビュー依頼が数十件になる）が他の軸を画面外へ押し出し、どの軸に何件
 あるかを掴むのにスクロールが要る。
 
@@ -76,21 +76,32 @@ useIntervalFn(
 /**
  * 軸のラベルと並び。ペインと失敗表示のリンクはどちらもこれを回す。手書きで並べると
  * ラベルや並びが 2 箇所に存在し、片方だけ直した状態を作れてしまう。
+ *
+ * issue → PR の順は GitHub web の種別並び（Issues / Pull requests）に合わせる。
  */
 const AXES = [
-  { title: "Review requested", group: () => myWorkStore.reviewRequestedPrs },
-  { title: "My pull requests", group: () => myWorkStore.authoredPrs },
   { title: "My issues", group: () => myWorkStore.authoredIssues },
+  { title: "My pull requests", group: () => myWorkStore.authoredPrs },
+  { title: "Mentioned", group: () => myWorkStore.mentioned },
+  { title: "Review requested", group: () => myWorkStore.reviewRequestedPrs },
 ];
 
 /**
  * 一覧を出せないときに残す GitHub への導線。URL は取得の成否に依存しないが、main から
- * 一度も応答が届いていなければ手元に無いので、その軸は出さない（描けないものを描かない）。
+ * 一度も応答が届いていなければ手元に無い（webLinks が空）ので、その軸は出さない
+ * （描けないものを描かない）。混在軸はリンクが種別ごとに分かれるため、軸名に種別を添える。
  */
 const failureLinks = computed(() =>
-  AXES.map((axis) => ({ title: axis.title, webUrl: axis.group().webUrl })).filter(
-    (link) => link.webUrl !== "",
-  ),
+  AXES.flatMap((axis) => {
+    const webLinks = axis.group().webLinks;
+    return webLinks.map((link) => ({
+      label:
+        webLinks.length === 1
+          ? axis.title
+          : `${axis.title} (${link.kind === "pr" ? "PRs" : "issues"})`,
+      url: link.url,
+    }));
+  }),
 );
 
 const panelRef = useTemplateRef<HTMLElement>("panel");
@@ -106,7 +117,7 @@ const { raise } = useSurface(panelRef, {
     ref="panel"
     popover="manual"
     tabindex="-1"
-    class="_my-work-popover w-[min(1080px,100vw)] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
+    class="_my-work-popover w-[min(1440px,100vw)] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
     @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -165,13 +176,13 @@ const { raise } = useSurface(panelRef, {
         <div v-if="failureLinks.length > 0" class="flex flex-wrap justify-center gap-3">
           <a
             v-for="link in failureLinks"
-            :key="link.webUrl"
-            :href="link.webUrl"
+            :key="link.url"
+            :href="link.url"
             class="text-primary-text underline"
-            @click="activateExternalLink($event, link.webUrl)"
-            @auxclick="activateExternalLink($event, link.webUrl)"
+            @click="activateExternalLink($event, link.url)"
+            @auxclick="activateExternalLink($event, link.url)"
           >
-            {{ link.title }}
+            {{ link.label }}
           </a>
         </div>
       </template>

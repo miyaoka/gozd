@@ -326,6 +326,16 @@ export interface GitMyWorkItem {
 }
 
 /**
+ * 軸の検索条件を GitHub 上で開くリンク。検索ページは PR / issue が別種別で混在を
+ * 1 ページに出せないため、軸が含む種別ごとに 1 本持つ。全リンクの母集合の和が
+ * 一覧の母集合と一致する。
+ */
+export interface GitMyWorkWebLink {
+  kind: "pr" | "issue";
+  url: string;
+}
+
+/**
  * 1 つの軸の取得結果。
  *
  * `totalCount` は検索条件に一致する総件数で、`items` は取得上限で切られるため両者は一致
@@ -338,9 +348,9 @@ export interface GitMyWorkItem {
 export interface GitMyWorkGroup {
   items: GitMyWorkItem[];
   totalCount: number;
-  /** 同じ検索条件を GitHub 上で開く URL。上限で切れた残りへ到達する導線であり、
+  /** 同じ検索条件を GitHub 上で開くリンク。上限で切れた残りへ到達する導線であり、
    * 一覧と同じ条件から導出されるため両者の母集合は一致する */
-  webUrl: string;
+  webLinks: GitMyWorkWebLink[];
 }
 
 /** 認証ユーザー単位なので repo を指す引数を持たない */
@@ -350,6 +360,9 @@ export interface GitMyWorkResponse {
   ok: boolean;
   /** `is:open is:pr review-requested:@me`。自分が属する team 宛のレビュー依頼も含む */
   reviewRequestedPrs: GitMyWorkGroup;
+  /** `is:open mentions:@me`。PR と issue が混在する。本文・コメントの直接メンションのみで、
+   * team 宛メンション（`@org/team`）は含まない */
+  mentioned: GitMyWorkGroup;
   /** `is:open is:pr author:@me` */
   authoredPrs: GitMyWorkGroup;
   /** `is:open is:issue author:@me` */

@@ -120,6 +120,7 @@ export type {
   GitMyWorkItem,
   GitMyWorkRequest,
   GitMyWorkResponse,
+  GitMyWorkWebLink,
   GitPullRequestReviewDecision,
   GitPrDiffFilesRequest,
   GitPrDiffFilesResponse,

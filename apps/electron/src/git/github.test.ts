@@ -223,6 +223,34 @@ describe("parseMyWorkNodes", () => {
       spy.mockRestore();
     }
   });
+
+  test("mixed 軸は __typename で行の種別を判定する", () => {
+    const nodes = [
+      myWorkPrNode({ __typename: "PullRequest" }),
+      {
+        __typename: "Issue",
+        number: 17232,
+        title: "dev:proxy が dev-docker の管理領域に直接書き込む",
+        url: "https://github.com/miyaoka/gozd/issues/17232",
+        updatedAt: "2026-08-05T05:39:22Z",
+        repository: { nameWithOwner: "miyaoka/gozd" },
+        author: { login: "miyaoka", avatarUrl: "https://example.invalid/a.png" },
+        comments: { totalCount: 3 },
+      },
+    ];
+    expect(parseMyWorkNodes(nodes, "mixed").map((item) => item.kind)).toEqual(["pr", "issue"]);
+  });
+
+  test("mixed 軸の未知の __typename は issue に倒し、観察ログを残す", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const nodes = [myWorkPrNode({ __typename: "FutureType" })];
+      expect(parseMyWorkNodes(nodes, "mixed")[0].kind).toBe("issue");
+      expect(spy).toHaveBeenCalledWith('[myWork] unknown __typename: "FutureType"');
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 /** my work query の応答 snapshot。個々のテストは検証したい軸だけ上書きする */
@@ -231,6 +259,7 @@ function myWorkResponse(overrides: Record<string, unknown> = {}): unknown {
   return {
     data: {
       reviewRequestedPrs: group([myWorkPrNode()], 1),
+      mentioned: group([myWorkPrNode({ __typename: "PullRequest" })], 1),
       authoredPrs: group([myWorkPrNode()], 1),
       authoredIssues: group([], 0),
       ...overrides,
@@ -239,23 +268,41 @@ function myWorkResponse(overrides: Record<string, unknown> = {}): unknown {
 }
 
 describe("parseMyWorkResponse", () => {
-  test("軸ごとに GitHub 上の同じ検索を開く URL を持つ", () => {
+  test("軸ごとに GitHub 上の同じ検索を開くリンクを持つ", () => {
     const result = parseMyWorkResponse(myWorkResponse());
     if (!result.ok) throw new Error("expected ok");
-    const param = (webUrl: string, key: string) => new URL(webUrl).searchParams.get(key);
+    const param = (url: string, key: string) => new URL(url).searchParams.get(key);
 
     // PR と issue で検索ページの種別が分かれる（issue の検索は is:pr を受け付けない）
-    expect(param(result.value.authoredPrs.webUrl, "type")).toBe("pullrequests");
-    expect(param(result.value.reviewRequestedPrs.webUrl, "type")).toBe("pullrequests");
-    expect(param(result.value.authoredIssues.webUrl, "type")).toBe("issues");
+    expect(result.value.authoredPrs.webLinks.map((l) => l.kind)).toEqual(["pr"]);
+    expect(param(result.value.authoredPrs.webLinks[0].url, "type")).toBe("pullrequests");
+    expect(param(result.value.reviewRequestedPrs.webLinks[0].url, "type")).toBe("pullrequests");
+    expect(param(result.value.authoredIssues.webLinks[0].url, "type")).toBe("issues");
 
     // 一覧の条件がそのまま URL に載る（リンク先と一覧の母集合を一致させる契約）
-    expect(param(result.value.authoredIssues.webUrl, "q")).toBe(
+    expect(param(result.value.authoredIssues.webLinks[0].url, "q")).toBe(
       "is:open is:issue author:@me archived:false sort:updated-desc",
     );
-    expect(param(result.value.reviewRequestedPrs.webUrl, "q")).toBe(
+    expect(param(result.value.reviewRequestedPrs.webLinks[0].url, "q")).toBe(
       "is:open is:pr review-requested:@me archived:false sort:updated-desc",
     );
+  });
+
+  test("混在軸は種別タブごとにリンクを持ち、query は共通", () => {
+    const result = parseMyWorkResponse(myWorkResponse());
+    if (!result.ok) throw new Error("expected ok");
+    const links = result.value.mentioned.webLinks;
+
+    // 検索ページには混在を 1 ページに出す種別が無い。種別ごとの 2 本で母集合の和を一覧に
+    // 一致させる
+    expect(links.map((l) => l.kind)).toEqual(["issue", "pr"]);
+    const types = links.map((l) => new URL(l.url).searchParams.get("type"));
+    expect(types).toEqual(["issues", "pullrequests"]);
+    for (const link of links) {
+      expect(new URL(link.url).searchParams.get("q")).toBe(
+        "is:open mentions:@me archived:false sort:updated-desc",
+      );
+    }
   });
 
   test("総件数が取得件数を上回るときは切れていると判定できる", () => {
@@ -295,7 +342,8 @@ describe("emptyMyWork", () => {
     const empty = emptyMyWork();
     expect(empty.authoredIssues.items).toEqual([]);
     expect(empty.authoredIssues.totalCount).toBe(0);
-    expect(empty.authoredIssues.webUrl).toContain("https://github.com/search?");
+    expect(empty.authoredIssues.webLinks[0].url).toContain("https://github.com/search?");
+    expect(empty.mentioned.webLinks).toHaveLength(2);
   });
 
   test("軸ごとに別オブジェクトを返す", () => {

@@ -13,6 +13,7 @@
 import type {
   GitIssue,
   GitItemKind,
+  GitMyWorkAxisKey,
   GitMyWorkGroup,
   GitMyWorkItem,
   GitMyWorkWebLink,
@@ -211,7 +212,7 @@ const MY_WORK_LIMIT = 100;
  * `mentions:@me` は PR と issue の両方に一致する（kind: "mixed"）。本文・コメントの直接
  * メンションのみで、team 宛メンション（`@org/team`）は含まない（あちらは `team:` qualifier）。
  *
- * 並びは表示順（MyWorkPanel の AXES）に合わせる。ここでの順序は取得に影響しないが、
+ * 並びは表示順（`GIT_MY_WORK_AXIS_KEYS`）に合わせる。ここでの順序は取得に影響しないが、
  * 軸の一覧を読む場所ごとに順が違うと対応付けに手間が要る。
  *
  * > [!NOTE]
@@ -241,7 +242,7 @@ const MY_WORK_SEARCHES = [
     query: "is:open is:pr review-requested:@me archived:false sort:updated-desc",
   },
 ] as const satisfies readonly {
-  key: string;
+  key: GitMyWorkAxisKey;
   kind: GitItemKind | "mixed";
   query: string;
 }[];
@@ -260,8 +261,9 @@ const MY_WORK_NODE_SELECTIONS = {
  * 軸の集合は `MY_WORK_SEARCHES` から導出する。手書きで並べると、軸を足したときに
  * テーブルと型の両方を直す必要が生じ、片方だけ直した状態を作れてしまう。
  *
- * ワイヤ型（`GitMyWorkResponse`）との整合は routes 側の `satisfies` が見る。軸の削除や
- * 改名はそこで compile error になる。
+ * ワイヤ型との整合は 2 段で落ちる: テーブルの `key` は `GitMyWorkAxisKey` に縛られるため
+ * 改名・未知キーはテーブル自身が compile error になり、軸の削除は `MyWork` が Record の
+ * 必須キーを欠くため routes 側の `satisfies` が compile error になる。
  */
 export type MyWork = Record<(typeof MY_WORK_SEARCHES)[number]["key"], GitMyWorkGroup>;
 

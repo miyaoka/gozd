@@ -359,17 +359,24 @@ export interface GitMyWorkGroup {
 /** 認証ユーザー単位なので repo を指す引数を持たない */
 export type GitMyWorkRequest = EmptyMessage;
 
+/**
+ * my work の軸キー。型は list から導出する（`GIT_PULL_REQUEST_CHECK_STATES` と同流儀）。
+ * list の並びは表示順で、パネルのペイン順と main 側の軸定義がこれに合わせる。
+ *
+ * 各軸の検索条件は取得側の軸定義が SSOT。ここは軸の集合と並びだけを持つ。
+ */
+export const GIT_MY_WORK_AXIS_KEYS = [
+  "authoredIssues",
+  "authoredPrs",
+  "mentioned",
+  "reviewRequestedPrs",
+] as const;
+
+export type GitMyWorkAxisKey = (typeof GIT_MY_WORK_AXIS_KEYS)[number];
+
 export interface GitMyWorkResponse {
   ok: boolean;
-  /** `is:open is:issue author:@me` */
-  authoredIssues: GitMyWorkGroup;
-  /** `is:open is:pr author:@me` */
-  authoredPrs: GitMyWorkGroup;
-  /** `is:open mentions:@me`。PR と issue が混在する。本文・コメントの直接メンションのみで、
-   * team 宛メンション（`@org/team`）は含まない */
-  mentioned: GitMyWorkGroup;
-  /** `is:open is:pr review-requested:@me`。自分が属する team 宛のレビュー依頼も含む */
-  reviewRequestedPrs: GitMyWorkGroup;
+  groups: Record<GitMyWorkAxisKey, GitMyWorkGroup>;
   errorKind: GhErrorKind;
   errorDetail: string;
 }

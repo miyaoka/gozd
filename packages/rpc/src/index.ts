@@ -117,6 +117,7 @@ export type {
   GitMergeBaseRequest,
   GitMergeBaseResponse,
   GitItemKind,
+  GitMyWorkAxisKey,
   GitMyWorkGroup,
   GitMyWorkItem,
   GitMyWorkRequest,
@@ -151,7 +152,7 @@ export type {
 } from "./gitOps";
 export type { GitStatusRequest, GitStatusResponse } from "./gitStatus";
 export { GIT_PULL_REQUEST_CHECK_STATES } from "./common";
-export { GIT_PULL_REQUEST_REVIEW_DECISIONS } from "./gitOps";
+export { GIT_MY_WORK_AXIS_KEYS, GIT_PULL_REQUEST_REVIEW_DECISIONS } from "./gitOps";
 export { ghRefForIssue, ghRefForPr, ghRefLabel } from "./helpers";
 export type {
   OpenExternalRequest,

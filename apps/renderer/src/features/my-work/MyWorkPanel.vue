@@ -42,6 +42,8 @@ URL は取得の成否に依存しないため失敗応答からも得られる�
 </doc>
 
 <script setup lang="ts">
+import type { GitMyWorkAxisKey } from "@gozd/rpc";
+import { GIT_MY_WORK_AXIS_KEYS } from "@gozd/rpc";
 import { useIntervalFn, useWindowFocus } from "@vueuse/core";
 import { computed, useTemplateRef, watch } from "vue";
 import { useSurface } from "../../shared/surface";
@@ -74,19 +76,27 @@ useIntervalFn(
 );
 
 /**
- * 軸のラベルと並び。ペインと失敗表示のリンクはどちらもこれを回す。手書きで並べると
- * ラベルや並びが 2 箇所に存在し、片方だけ直した状態を作れてしまう。
- *
- * 並びは、自分が作ったもの（issue → PR）→ 自分に向けられたもの（メンション →
- * レビュー依頼）。issue → PR の順は GitHub web の種別並び（Issues / Pull requests）に
- * 合わせる。
+ * 軸キー → ペインの見出しラベル。Record で鍵付けするため、軸の増減はここが compile error で
+ * 追従を要求する。
  */
-const AXES = [
-  { title: "My issues", group: () => myWorkStore.authoredIssues },
-  { title: "My pull requests", group: () => myWorkStore.authoredPrs },
-  { title: "Mentioned", group: () => myWorkStore.mentioned },
-  { title: "Review requested", group: () => myWorkStore.reviewRequestedPrs },
-];
+const AXIS_TITLES: Record<GitMyWorkAxisKey, string> = {
+  authoredIssues: "My issues",
+  authoredPrs: "My pull requests",
+  mentioned: "Mentioned",
+  reviewRequestedPrs: "Review requested",
+};
+
+/**
+ * ペインと失敗表示のリンクはどちらもこれを回す。軸の集合と並びは `GIT_MY_WORK_AXIS_KEYS` から
+ * 導出し、ここはラベルを与えるだけ。並びは、自分が作ったもの（issue → PR）→ 自分に
+ * 向けられたもの（メンション → レビュー依頼）。issue → PR の順は GitHub web の種別並び
+ * （Issues / Pull requests）に合わせる。
+ */
+const AXES = GIT_MY_WORK_AXIS_KEYS.map((key) => ({
+  key,
+  title: AXIS_TITLES[key],
+  group: () => myWorkStore.groups[key],
+}));
 
 /**
  * 一覧を出せないときに残す GitHub への導線。URL は取得の成否に依存しないが、main から
@@ -193,7 +203,7 @@ const { raise } = useSurface(panelRef, {
     <div v-else class="flex min-h-0 flex-1">
       <MyWorkSection
         v-for="axis in AXES"
-        :key="axis.title"
+        :key="axis.key"
         :title="axis.title"
         :group="axis.group()"
       />

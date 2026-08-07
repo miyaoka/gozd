@@ -1,5 +1,6 @@
 <doc lang="md">
-my work パネルの 1 ペイン。軸の一覧は MyWorkPanel の `AXES` が持つ。
+my work パネルの 1 ペイン。軸の集合と並びはワイヤの軸キー list から導出され、ラベルは
+MyWorkPanel が与える。
 
 ## 設計判断
 

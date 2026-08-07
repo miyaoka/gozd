@@ -92,11 +92,13 @@ const AXIS_TITLES: Record<GitMyWorkAxisKey, string> = {
  * 向けられたもの（メンション → レビュー依頼）。issue → PR の順は GitHub web の種別並び
  * （Issues / Pull requests）に合わせる。
  */
-const AXES = GIT_MY_WORK_AXIS_KEYS.map((key) => ({
-  key,
-  title: AXIS_TITLES[key],
-  group: () => myWorkStore.groups[key],
-}));
+const AXES = computed(() =>
+  GIT_MY_WORK_AXIS_KEYS.map((key) => ({
+    key,
+    title: AXIS_TITLES[key],
+    group: myWorkStore.groups[key],
+  })),
+);
 
 /**
  * 一覧を出せないときに残す GitHub への導線。URL は取得の成否に依存しないが、main から
@@ -104,8 +106,8 @@ const AXES = GIT_MY_WORK_AXIS_KEYS.map((key) => ({
  * （描けないものを描かない）。混在軸はリンクが種別ごとに分かれるため、軸名に種別を添える。
  */
 const failureLinks = computed(() =>
-  AXES.flatMap((axis) => {
-    const webLinks = axis.group().webLinks;
+  AXES.value.flatMap((axis) => {
+    const webLinks = axis.group.webLinks;
     return webLinks.map((link) => ({
       label:
         webLinks.length === 1
@@ -201,12 +203,7 @@ const { raise } = useSurface(panelRef, {
     </div>
 
     <div v-else class="flex min-h-0 flex-1">
-      <MyWorkSection
-        v-for="axis in AXES"
-        :key="axis.key"
-        :title="axis.title"
-        :group="axis.group()"
-      />
+      <MyWorkSection v-for="axis in AXES" :key="axis.key" :title="axis.title" :group="axis.group" />
     </div>
   </div>
 </template>

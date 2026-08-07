@@ -21,7 +21,11 @@ import type {
   GitPullRequestCheckState,
   GitPullRequestReviewDecision,
 } from "@gozd/rpc";
-import { GIT_PULL_REQUEST_CHECK_STATES, GIT_PULL_REQUEST_REVIEW_DECISIONS } from "@gozd/rpc";
+import {
+  GIT_MY_WORK_AXIS_KEYS,
+  GIT_PULL_REQUEST_CHECK_STATES,
+  GIT_PULL_REQUEST_REVIEW_DECISIONS,
+} from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
@@ -201,9 +205,18 @@ export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
 // `issueCount` で示して GitHub 上の同じ検索へ送る。
 const MY_WORK_LIMIT = 100;
 
+interface MyWorkSearch {
+  kind: GitItemKind | "mixed";
+  query: string;
+}
+
 /**
  * 軸ごとの検索条件。**GraphQL の取得と GitHub 上の一覧 URL は同じ定義から導出する** —
  * 別々に書くと、リンク先が一覧と違う母集合を出すようになる。
+ *
+ * 軸の集合と並びは `GIT_MY_WORK_AXIS_KEYS` が持ち、ここは軸ごとの検索条件だけを持つ。
+ * Record の鍵付けにより、軸の増減・改名・キー重複はここが compile error で追従を要求する。
+ * 走査は list 側で行うため、この Record の記述順は何にも影響しない。
  *
  * `@me` は GraphQL search でも GitHub の検索ページでもそのまま解決されるため、viewer
  * login を別途取らない。`review-requested:@me` は自分が属する team 宛のレビュー依頼も
@@ -212,40 +225,29 @@ const MY_WORK_LIMIT = 100;
  * `mentions:@me` は PR と issue の両方に一致する（kind: "mixed"）。本文・コメントの直接
  * メンションのみで、team 宛メンション（`@org/team`）は含まない（あちらは `team:` qualifier）。
  *
- * 並びは表示順（`GIT_MY_WORK_AXIS_KEYS`）に合わせる。ここでの順序は取得に影響しないが、
- * 軸の一覧を読む場所ごとに順が違うと対応付けに手間が要る。
- *
  * > [!NOTE]
  * > issue の検索ページは `archived` を「サポート外」と警告するが、実際には適用される
  * > （警告を出しつつ除外後の件数を返す）。除外の有無で件数が変わることを実測で確認して
  * > いるため、警告に合わせて条件を落とさない。落とすとリンク先だけ母集合が広がる。
  */
-const MY_WORK_SEARCHES = [
-  {
-    key: "authoredIssues",
+const MY_WORK_SEARCHES: Record<GitMyWorkAxisKey, MyWorkSearch> = {
+  authoredIssues: {
     kind: "issue",
     query: "is:open is:issue author:@me archived:false sort:updated-desc",
   },
-  {
-    key: "authoredPrs",
+  authoredPrs: {
     kind: "pr",
     query: "is:open is:pr author:@me archived:false sort:updated-desc",
   },
-  {
-    key: "mentioned",
+  mentioned: {
     kind: "mixed",
     query: "is:open mentions:@me archived:false sort:updated-desc",
   },
-  {
-    key: "reviewRequestedPrs",
+  reviewRequestedPrs: {
     kind: "pr",
     query: "is:open is:pr review-requested:@me archived:false sort:updated-desc",
   },
-] as const satisfies readonly {
-  key: GitMyWorkAxisKey;
-  kind: GitItemKind | "mixed";
-  query: string;
-}[];
+};
 
 /**
  * kind → `nodes` に展開する selection。mixed は union（`Issue | PullRequest`）の両型を受け、
@@ -257,15 +259,9 @@ const MY_WORK_NODE_SELECTIONS = {
   mixed: "__typename ...prFields ...issueFields",
 } as const;
 
-/**
- * 軸の集合は `MY_WORK_SEARCHES` から導出する。手書きで並べると、軸を足したときに
- * テーブルと型の両方を直す必要が生じ、片方だけ直した状態を作れてしまう。
- *
- * ワイヤ型との整合は 2 段で落ちる: テーブルの `key` は `GitMyWorkAxisKey` に縛られるため
- * 改名・未知キーはテーブル自身が compile error になり、軸の削除は `MyWork` が Record の
- * 必須キーを欠くため routes 側の `satisfies` が compile error になる。
- */
-export type MyWork = Record<(typeof MY_WORK_SEARCHES)[number]["key"], GitMyWorkGroup>;
+/** 軸キー → 取得結果。ワイヤの `groups` と同型で、軸の網羅は `MY_WORK_SEARCHES` の
+ * Record 鍵付けが compile error で保証する。 */
+export type MyWork = Record<GitMyWorkAxisKey, GitMyWorkGroup>;
 
 /** GitHub の検索ページの種別。PR と issue でタブが分かれており、issue の検索は
  * `is:pr` を受け付けない */
@@ -276,7 +272,7 @@ const KIND_WEB_TYPE = { pr: "pullrequests", issue: "issues" } as const;
  * 種別が無いため、mixed 軸は種別タブごとに 1 本ずつ出す。query は共通なので、全リンクの
  * 母集合の和が一覧の母集合と一致する。
  */
-function myWorkWebLinks(search: (typeof MY_WORK_SEARCHES)[number]): GitMyWorkWebLink[] {
+function myWorkWebLinks(search: MyWorkSearch): GitMyWorkWebLink[] {
   // issue → pr の順は GitHub web の種別並び（Issues / Pull requests）に合わせる
   const kinds = search.kind === "mixed" ? (["issue", "pr"] as const) : [search.kind];
   return kinds.map((kind) => ({
@@ -305,16 +301,16 @@ function myWorkWebLinks(search: (typeof MY_WORK_SEARCHES)[number]): GitMyWorkWeb
  * 検索条件は変数で渡す。query 文字列に埋め込むと、条件に引用符が入った瞬間に GraphQL の
  * 構文を壊す。
  *
- * 軸ごとの変数宣言と search エイリアスは `MY_WORK_SEARCHES` から組み立てる。手書きで並べると
- * 軸の一覧が 2 箇所に存在し、片方だけ足した状態を作れてしまう（未宣言の変数はサーバー側で
- * 無視されるため、取得は「その軸が応答に無い」形で落ちる）。
+ * 軸ごとの変数宣言と search エイリアスは `GIT_MY_WORK_AXIS_KEYS` の走査で組み立てる。
+ * 手書きで並べると軸の一覧が 2 箇所に存在し、片方だけ足した状態を作れてしまう（未宣言の
+ * 変数はサーバー側で無視されるため、取得は「その軸が応答に無い」形で落ちる）。
  */
 export const MY_WORK_QUERY = `
-query($limit: Int!, ${MY_WORK_SEARCHES.map((s) => `$${s.key}: String!`).join(", ")}) {
-${MY_WORK_SEARCHES.map(
-  (s) => `  ${s.key}: search(type: ISSUE, query: $${s.key}, first: $limit) {
+query($limit: Int!, ${GIT_MY_WORK_AXIS_KEYS.map((key) => `$${key}: String!`).join(", ")}) {
+${GIT_MY_WORK_AXIS_KEYS.map(
+  (key) => `  ${key}: search(type: ISSUE, query: $${key}, first: $limit) {
     issueCount
-    nodes { ${MY_WORK_NODE_SELECTIONS[s.kind]} }
+    nodes { ${MY_WORK_NODE_SELECTIONS[MY_WORK_SEARCHES[key].kind]} }
   }`,
 ).join("\n")}
 }
@@ -356,7 +352,7 @@ export async function myWork(): Promise<GhResult<MyWork>> {
     "graphql",
     "-F",
     `limit=${MY_WORK_LIMIT}`,
-    ...MY_WORK_SEARCHES.flatMap((search) => ["-f", `${search.key}=${search.query}`]),
+    ...GIT_MY_WORK_AXIS_KEYS.flatMap((key) => ["-f", `${key}=${MY_WORK_SEARCHES[key].query}`]),
     "-f",
     `query=${MY_WORK_QUERY}`,
   ];
@@ -380,19 +376,19 @@ export async function myWork(): Promise<GhResult<MyWork>> {
  */
 export function parseMyWorkResponse(response: unknown): GhResult<MyWork> {
   const result = {} as MyWork;
-  for (const search of MY_WORK_SEARCHES) {
-    const nodes = getPath(response, "data", search.key, "nodes");
+  for (const key of GIT_MY_WORK_AXIS_KEYS) {
+    const nodes = getPath(response, "data", key, "nodes");
     if (!Array.isArray(nodes)) {
-      return { ok: false, error: { kind: "other", detail: `missing nodes: ${search.key}` } };
+      return { ok: false, error: { kind: "other", detail: `missing nodes: ${key}` } };
     }
-    const totalCount = getPath(response, "data", search.key, "issueCount");
+    const totalCount = getPath(response, "data", key, "issueCount");
     if (typeof totalCount !== "number") {
-      return { ok: false, error: { kind: "other", detail: `missing issueCount: ${search.key}` } };
+      return { ok: false, error: { kind: "other", detail: `missing issueCount: ${key}` } };
     }
-    result[search.key] = {
-      items: parseMyWorkNodes(nodes, search.kind),
+    result[key] = {
+      items: parseMyWorkNodes(nodes, MY_WORK_SEARCHES[key].kind),
       totalCount,
-      webLinks: myWorkWebLinks(search),
+      webLinks: myWorkWebLinks(MY_WORK_SEARCHES[key]),
     };
   }
   return { ok: true, value: result };
@@ -407,8 +403,8 @@ export function parseMyWorkResponse(response: unknown): GhResult<MyWork> {
  */
 export function emptyMyWork(): MyWork {
   const result = {} as MyWork;
-  for (const search of MY_WORK_SEARCHES) {
-    result[search.key] = { items: [], totalCount: 0, webLinks: myWorkWebLinks(search) };
+  for (const key of GIT_MY_WORK_AXIS_KEYS) {
+    result[key] = { items: [], totalCount: 0, webLinks: myWorkWebLinks(MY_WORK_SEARCHES[key]) };
   }
   return result;
 }

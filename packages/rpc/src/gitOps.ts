@@ -361,7 +361,8 @@ export type GitMyWorkRequest = EmptyMessage;
 
 /**
  * my work の軸キー。型は list から導出する（`GIT_PULL_REQUEST_CHECK_STATES` と同流儀）。
- * list の並びは表示順で、パネルのペイン順と main 側の軸定義がこれに合わせる。
+ * list の並びは表示順で、消費側（パネルのペイン、main の query 組み立て）はこの list の
+ * 走査から順序を導出する。
  *
  * 各軸の検索条件は取得側の軸定義が SSOT。ここは軸の集合と並びだけを持つ。
  */

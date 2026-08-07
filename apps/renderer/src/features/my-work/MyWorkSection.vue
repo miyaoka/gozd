@@ -20,35 +20,23 @@ my work パネルの 1 ペイン。軸の一覧は MyWorkPanel の `AXES` が持
 </doc>
 
 <script setup lang="ts">
-import type { GitMyWorkGroup, GitMyWorkWebLink } from "@gozd/rpc";
-import { computed, type FunctionalComponent, type SVGAttributes } from "vue";
-import { activateExternalLink } from "../github-item";
+import type { GitMyWorkGroup } from "@gozd/rpc";
+import { computed } from "vue";
+import { activateExternalLink, ITEM_KIND_DISPLAY } from "../github-item";
 import MyWorkRow from "./MyWorkRow.vue";
-import IconLucideCircleDot from "~icons/lucide/circle-dot";
 import IconLucideExternalLink from "~icons/lucide/external-link";
-import IconLucideGitPullRequest from "~icons/lucide/git-pull-request";
 
 const props = defineProps<{ title: string; group: GitMyWorkGroup }>();
-
-const KIND_LINK_ICON: Record<GitMyWorkWebLink["kind"], FunctionalComponent<SVGAttributes>> = {
-  pr: IconLucideGitPullRequest,
-  issue: IconLucideCircleDot,
-};
-
-const KIND_LINK_LABEL: Record<GitMyWorkWebLink["kind"], string> = {
-  pr: "pull requests",
-  issue: "issues",
-};
 
 /** 見出し右端のリンク。1 本なら軸名で足りるが、複数本は種別で区別する */
 const links = computed(() => {
   const isSingle = props.group.webLinks.length === 1;
   return props.group.webLinks.map((link) => ({
     url: link.url,
-    icon: isSingle ? IconLucideExternalLink : KIND_LINK_ICON[link.kind],
+    icon: isSingle ? IconLucideExternalLink : ITEM_KIND_DISPLAY[link.kind].icon,
     title: isSingle
       ? `Open "${props.title}" on GitHub`
-      : `Open "${props.title}" ${KIND_LINK_LABEL[link.kind]} on GitHub`,
+      : `Open "${props.title}" ${ITEM_KIND_DISPLAY[link.kind].label} on GitHub`,
   }));
 });
 

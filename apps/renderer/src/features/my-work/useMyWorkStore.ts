@@ -60,10 +60,10 @@ export const useMyWorkStore = defineStore("myWork", () => {
   // 初回取得までの place holder。`webLinks` はこの時点では未知だが、パネルは取得が
   // 済むまで一覧を描かないため表示に出ない。軸ごとに別オブジェクトを作る
   const emptyGroup = (): GitMyWorkGroup => ({ items: [], totalCount: 0, webLinks: [] });
-  const reviewRequestedPrs = ref<GitMyWorkGroup>(emptyGroup());
-  const mentioned = ref<GitMyWorkGroup>(emptyGroup());
-  const authoredPrs = ref<GitMyWorkGroup>(emptyGroup());
   const authoredIssues = ref<GitMyWorkGroup>(emptyGroup());
+  const authoredPrs = ref<GitMyWorkGroup>(emptyGroup());
+  const mentioned = ref<GitMyWorkGroup>(emptyGroup());
+  const reviewRequestedPrs = ref<GitMyWorkGroup>(emptyGroup());
 
   /** 一度でも取得が成功したか。初回ロード中と「作業が 1 件も無い」の区別に使う。 */
   const hasLoaded = ref(false);
@@ -79,10 +79,10 @@ export const useMyWorkStore = defineStore("myWork", () => {
   /** 観察ログ用の取得件数。表示件数であって総件数ではない */
   const loadedCount = computed(
     () =>
-      reviewRequestedPrs.value.items.length +
-      mentioned.value.items.length +
+      authoredIssues.value.items.length +
       authoredPrs.value.items.length +
-      authoredIssues.value.items.length,
+      mentioned.value.items.length +
+      reviewRequestedPrs.value.items.length,
   );
 
   function runFetch(): Promise<void> {
@@ -106,19 +106,19 @@ export const useMyWorkStore = defineStore("myWork", () => {
           notify.error(message, res.errorDetail || undefined);
           // URL は取得の成否に依存しない静的な導出物。失敗応答からも取り込み、一覧が
           // 出せない間も GitHub 側で確認する導線を残す（件数と行はキャッシュを保つ）
+          authoredIssues.value = { ...authoredIssues.value, webLinks: res.authoredIssues.webLinks };
+          authoredPrs.value = { ...authoredPrs.value, webLinks: res.authoredPrs.webLinks };
+          mentioned.value = { ...mentioned.value, webLinks: res.mentioned.webLinks };
           reviewRequestedPrs.value = {
             ...reviewRequestedPrs.value,
             webLinks: res.reviewRequestedPrs.webLinks,
           };
-          mentioned.value = { ...mentioned.value, webLinks: res.mentioned.webLinks };
-          authoredPrs.value = { ...authoredPrs.value, webLinks: res.authoredPrs.webLinks };
-          authoredIssues.value = { ...authoredIssues.value, webLinks: res.authoredIssues.webLinks };
           return;
         }
-        reviewRequestedPrs.value = res.reviewRequestedPrs;
-        mentioned.value = res.mentioned;
-        authoredPrs.value = res.authoredPrs;
         authoredIssues.value = res.authoredIssues;
+        authoredPrs.value = res.authoredPrs;
+        mentioned.value = res.mentioned;
+        reviewRequestedPrs.value = res.reviewRequestedPrs;
         hasLoaded.value = true;
         lastError.value = undefined;
         logEvent("my-work", "done", "", `${loadedCount.value} items`);
@@ -166,10 +166,10 @@ export const useMyWorkStore = defineStore("myWork", () => {
 
   return {
     isOpen,
-    reviewRequestedPrs,
-    mentioned,
-    authoredPrs,
     authoredIssues,
+    authoredPrs,
+    mentioned,
+    reviewRequestedPrs,
     hasLoaded,
     isLoading,
     lastError,

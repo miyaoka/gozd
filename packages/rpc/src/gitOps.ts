@@ -303,9 +303,12 @@ export const GIT_PULL_REQUEST_REVIEW_DECISIONS = [
 
 export type GitPullRequestReviewDecision = (typeof GIT_PULL_REQUEST_REVIEW_DECISIONS)[number];
 
+/** my work が扱う項目の種別。行とリンクが同じ集合を指す。 */
+export type GitMyWorkKind = "pr" | "issue";
+
 /** my work パネルが描く 1 行。PR と issue の双方をこの 1 型で表す。 */
 export interface GitMyWorkItem {
-  kind: "pr" | "issue";
+  kind: GitMyWorkKind;
   /** `owner/name`。repo をまたぐ一覧なので行ごとに帰属先を持つ */
   repo: string;
   number: number;
@@ -331,7 +334,7 @@ export interface GitMyWorkItem {
  * 一覧の母集合と一致する。
  */
 export interface GitMyWorkWebLink {
-  kind: "pr" | "issue";
+  kind: GitMyWorkKind;
   url: string;
 }
 
@@ -358,15 +361,15 @@ export type GitMyWorkRequest = EmptyMessage;
 
 export interface GitMyWorkResponse {
   ok: boolean;
-  /** `is:open is:pr review-requested:@me`。自分が属する team 宛のレビュー依頼も含む */
-  reviewRequestedPrs: GitMyWorkGroup;
+  /** `is:open is:issue author:@me` */
+  authoredIssues: GitMyWorkGroup;
+  /** `is:open is:pr author:@me` */
+  authoredPrs: GitMyWorkGroup;
   /** `is:open mentions:@me`。PR と issue が混在する。本文・コメントの直接メンションのみで、
    * team 宛メンション（`@org/team`）は含まない */
   mentioned: GitMyWorkGroup;
-  /** `is:open is:pr author:@me` */
-  authoredPrs: GitMyWorkGroup;
-  /** `is:open is:issue author:@me` */
-  authoredIssues: GitMyWorkGroup;
+  /** `is:open is:pr review-requested:@me`。自分が属する team 宛のレビュー依頼も含む */
+  reviewRequestedPrs: GitMyWorkGroup;
   errorKind: GhErrorKind;
   errorDetail: string;
 }

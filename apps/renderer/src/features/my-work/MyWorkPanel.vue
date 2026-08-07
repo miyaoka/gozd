@@ -45,7 +45,7 @@ URL は取得の成否に依存しないため失敗応答からも得られる�
 import { useIntervalFn, useWindowFocus } from "@vueuse/core";
 import { computed, useTemplateRef, watch } from "vue";
 import { useSurface } from "../../shared/surface";
-import { activateExternalLink } from "../github-item";
+import { activateExternalLink, ITEM_KIND_DISPLAY } from "../github-item";
 import MyWorkSection from "./MyWorkSection.vue";
 import { MY_WORK_FRESH_MS, useMyWorkStore } from "./useMyWorkStore";
 import IconLucideInbox from "~icons/lucide/inbox";
@@ -77,7 +77,9 @@ useIntervalFn(
  * 軸のラベルと並び。ペインと失敗表示のリンクはどちらもこれを回す。手書きで並べると
  * ラベルや並びが 2 箇所に存在し、片方だけ直した状態を作れてしまう。
  *
- * issue → PR の順は GitHub web の種別並び（Issues / Pull requests）に合わせる。
+ * 並びは、自分が作ったもの（issue → PR）→ 自分に向けられたもの（メンション →
+ * レビュー依頼）。issue → PR の順は GitHub web の種別並び（Issues / Pull requests）に
+ * 合わせる。
  */
 const AXES = [
   { title: "My issues", group: () => myWorkStore.authoredIssues },
@@ -98,7 +100,7 @@ const failureLinks = computed(() =>
       label:
         webLinks.length === 1
           ? axis.title
-          : `${axis.title} (${link.kind === "pr" ? "PRs" : "issues"})`,
+          : `${axis.title} (${ITEM_KIND_DISPLAY[link.kind].label})`,
       url: link.url,
     }));
   }),

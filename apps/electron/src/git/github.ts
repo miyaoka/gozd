@@ -192,7 +192,7 @@ export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
 }
 
 // 1 グループあたりの取得上限。`search` connection が 1 回で返せる上限そのもので、これを
-// 超えると `EXCESSIVE_PAGINATION` になる。3 軸すべてを上限で取っても cost は 1 のままなので
+// 超えると `EXCESSIVE_PAGINATION` になる。全軸を上限で取っても cost は 1 のままなので
 // 絞る理由が無い。
 //
 // ここから先はカーソルを辿る往復が要る。ページングは持たず、切れているかどうかを
@@ -215,16 +215,14 @@ const MY_WORK_LIMIT = 100;
  * > （警告を出しつつ除外後の件数を返す）。除外の有無で件数が変わることを実測で確認して
  * > いるため、警告に合わせて条件を落とさない。落とすとリンク先だけ母集合が広がる。
  */
+// 並びは表示順（MyWorkPanel の AXES / docs/git.md の軸テーブルと同順）:
+// 自分が作ったもの（issue → PR）→ 自分に向けられたもの（メンション → レビュー依頼）。
+// issue → PR の順は GitHub web の種別並び（Issues / Pull requests）に合わせる。
 const MY_WORK_SEARCHES = [
   {
-    key: "reviewRequestedPrs",
-    kind: "pr",
-    query: "is:open is:pr review-requested:@me archived:false sort:updated-desc",
-  },
-  {
-    key: "mentioned",
-    kind: "mixed",
-    query: "is:open mentions:@me archived:false sort:updated-desc",
+    key: "authoredIssues",
+    kind: "issue",
+    query: "is:open is:issue author:@me archived:false sort:updated-desc",
   },
   {
     key: "authoredPrs",
@@ -232,9 +230,14 @@ const MY_WORK_SEARCHES = [
     query: "is:open is:pr author:@me archived:false sort:updated-desc",
   },
   {
-    key: "authoredIssues",
-    kind: "issue",
-    query: "is:open is:issue author:@me archived:false sort:updated-desc",
+    key: "mentioned",
+    kind: "mixed",
+    query: "is:open mentions:@me archived:false sort:updated-desc",
+  },
+  {
+    key: "reviewRequestedPrs",
+    kind: "pr",
+    query: "is:open is:pr review-requested:@me archived:false sort:updated-desc",
   },
 ] as const satisfies readonly {
   key: string;
@@ -283,9 +286,9 @@ function myWorkWebLinks(search: (typeof MY_WORK_SEARCHES)[number]): GitMyWorkWeb
  * 認証ユーザー単位の作業一覧を **1 往復・rate limit cost 1** で取る query。
  *
  * GraphQL の cost は「各 connection を満たすのに必要なリクエスト数の合計を 100 で割って
- * 四捨五入し、最小 1」なので、search を 3 本並べても `first` を上限まで上げても 3 リクエスト
- * 相当にしかならず cost 1 に収まる。REST の `/search/issues` を 3 回叩く形（3 リクエスト +
- * search 専用の分間制限を消費）とはここが決定的に違う。
+ * 四捨五入し、最小 1」なので、search を軸の数だけ並べて `first` を上限まで上げても
+ * 軸数ぶんのリクエスト相当にしかならず cost 1 に収まる。REST の `/search/issues` を軸ごとに
+ * 叩く形（軸数ぶんのリクエスト + search 専用の分間制限を消費）とはここが決定的に違う。
  *
  * `search(type: ISSUE)` の node は `Issue | PullRequest` の union なので、CI / レビュー結果は
  * PullRequest 側の named fragment で取る。`statusCheckRollup` は connection ではないため
@@ -303,7 +306,7 @@ function myWorkWebLinks(search: (typeof MY_WORK_SEARCHES)[number]): GitMyWorkWeb
  * 軸の一覧が 2 箇所に存在し、片方だけ足した状態を作れてしまう（未宣言の変数はサーバー側で
  * 無視されるため、取得は「その軸が応答に無い」形で落ちる）。
  */
-const MY_WORK_QUERY = `
+export const MY_WORK_QUERY = `
 query($limit: Int!, ${MY_WORK_SEARCHES.map((s) => `$${s.key}: String!`).join(", ")}) {
 ${MY_WORK_SEARCHES.map(
   (s) => `  ${s.key}: search(type: ISSUE, query: $${s.key}, first: $limit) {

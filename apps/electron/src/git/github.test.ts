@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import {
   emptyMyWork,
+  MY_WORK_QUERY,
   parseGitHubOwnerRepo,
   parseMyWorkNodes,
   parseMyWorkResponse,
@@ -250,6 +251,14 @@ describe("parseMyWorkNodes", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("MY_WORK_QUERY", () => {
+  test("mixed 軸の nodes selection は __typename を要求する", () => {
+    // fixture は __typename を直接持つため、query 側の selection から落ちても他のテストは
+    // 落ちない。mixedNodeKind が依存する結合点をここで固定する
+    expect(MY_WORK_QUERY).toContain("nodes { __typename ...prFields ...issueFields }");
   });
 });
 

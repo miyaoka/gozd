@@ -118,6 +118,7 @@ export type {
   GitMergeBaseResponse,
   GitMyWorkGroup,
   GitMyWorkItem,
+  GitMyWorkKind,
   GitMyWorkRequest,
   GitMyWorkResponse,
   GitMyWorkWebLink,

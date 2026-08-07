@@ -17,19 +17,17 @@ my work パネルの 1 行。PR と issue を同じ行フォーマットで描�
 
 <script setup lang="ts">
 import type { GitMyWorkItem } from "@gozd/rpc";
-import { computed, type FunctionalComponent, type SVGAttributes } from "vue";
+import { computed } from "vue";
 import { formatRelativeAge, isoToUnixSec } from "../../shared/time";
-import { activateExternalLink, CHECK_STATE_DISPLAY, REVIEW_DECISION_DISPLAY } from "../github-item";
-import IconLucideCircleDot from "~icons/lucide/circle-dot";
-import IconLucideGitPullRequest from "~icons/lucide/git-pull-request";
+import {
+  activateExternalLink,
+  CHECK_STATE_DISPLAY,
+  ITEM_KIND_DISPLAY,
+  REVIEW_DECISION_DISPLAY,
+} from "../github-item";
 import IconLucideMessageSquare from "~icons/lucide/message-square";
 
 const props = defineProps<{ item: GitMyWorkItem }>();
-
-const KIND_ICON: Record<GitMyWorkItem["kind"], FunctionalComponent<SVGAttributes>> = {
-  pr: IconLucideGitPullRequest,
-  issue: IconLucideCircleDot,
-};
 
 const checkDot = computed(() => {
   const state = props.item.checkState;
@@ -53,7 +51,7 @@ const dateDisplay = computed(() => formatRelativeAge(isoToUnixSec(props.item.upd
   >
     <div class="flex items-start gap-2">
       <component
-        :is="KIND_ICON[item.kind]"
+        :is="ITEM_KIND_DISPLAY[item.kind].icon"
         class="size-3.5 shrink-0 translate-y-px"
         :class="item.isDraft ? 'text-foreground-muted' : 'text-success-text'"
       />

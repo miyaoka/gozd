@@ -1,4 +1,5 @@
-import type { GitMyWorkGroup } from "@gozd/rpc";
+import type { GitMyWorkAxisKey, GitMyWorkGroup } from "@gozd/rpc";
+import { GIT_MY_WORK_AXIS_KEYS } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
@@ -57,12 +58,16 @@ export const useMyWorkStore = defineStore("myWork", () => {
 
   const isOpen = ref(false);
 
-  // 初回取得までの place holder。`webUrl` はこの時点では未知だが、パネルは取得が
+  // 初回取得までの place holder。`webLinks` はこの時点では未知だが、パネルは取得が
   // 済むまで一覧を描かないため表示に出ない。軸ごとに別オブジェクトを作る
-  const emptyGroup = (): GitMyWorkGroup => ({ items: [], totalCount: 0, webUrl: "" });
-  const reviewRequestedPrs = ref<GitMyWorkGroup>(emptyGroup());
-  const authoredPrs = ref<GitMyWorkGroup>(emptyGroup());
-  const authoredIssues = ref<GitMyWorkGroup>(emptyGroup());
+  const emptyGroups = (): Record<GitMyWorkAxisKey, GitMyWorkGroup> => {
+    const result = {} as Record<GitMyWorkAxisKey, GitMyWorkGroup>;
+    for (const key of GIT_MY_WORK_AXIS_KEYS) {
+      result[key] = { items: [], totalCount: 0, webLinks: [] };
+    }
+    return result;
+  };
+  const groups = ref<Record<GitMyWorkAxisKey, GitMyWorkGroup>>(emptyGroups());
 
   /** 一度でも取得が成功したか。初回ロード中と「作業が 1 件も無い」の区別に使う。 */
   const hasLoaded = ref(false);
@@ -76,11 +81,8 @@ export const useMyWorkStore = defineStore("myWork", () => {
   let inFlight: Promise<void> | undefined;
 
   /** 観察ログ用の取得件数。表示件数であって総件数ではない */
-  const loadedCount = computed(
-    () =>
-      reviewRequestedPrs.value.items.length +
-      authoredPrs.value.items.length +
-      authoredIssues.value.items.length,
+  const loadedCount = computed(() =>
+    Object.values(groups.value).reduce((sum, group) => sum + group.items.length, 0),
   );
 
   function runFetch(): Promise<void> {
@@ -104,17 +106,12 @@ export const useMyWorkStore = defineStore("myWork", () => {
           notify.error(message, res.errorDetail || undefined);
           // URL は取得の成否に依存しない静的な導出物。失敗応答からも取り込み、一覧が
           // 出せない間も GitHub 側で確認する導線を残す（件数と行はキャッシュを保つ）
-          reviewRequestedPrs.value = {
-            ...reviewRequestedPrs.value,
-            webUrl: res.reviewRequestedPrs.webUrl,
-          };
-          authoredPrs.value = { ...authoredPrs.value, webUrl: res.authoredPrs.webUrl };
-          authoredIssues.value = { ...authoredIssues.value, webUrl: res.authoredIssues.webUrl };
+          for (const key of GIT_MY_WORK_AXIS_KEYS) {
+            groups.value[key] = { ...groups.value[key], webLinks: res.groups[key].webLinks };
+          }
           return;
         }
-        reviewRequestedPrs.value = res.reviewRequestedPrs;
-        authoredPrs.value = res.authoredPrs;
-        authoredIssues.value = res.authoredIssues;
+        groups.value = res.groups;
         hasLoaded.value = true;
         lastError.value = undefined;
         logEvent("my-work", "done", "", `${loadedCount.value} items`);
@@ -162,9 +159,7 @@ export const useMyWorkStore = defineStore("myWork", () => {
 
   return {
     isOpen,
-    reviewRequestedPrs,
-    authoredPrs,
-    authoredIssues,
+    groups,
     hasLoaded,
     isLoading,
     lastError,

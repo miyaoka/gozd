@@ -1,13 +1,13 @@
 <doc lang="md">
-認証ユーザー単位の作業一覧（自分の PR / レビュー依頼 / 自分の issue）を repo 横断で出す
-右ドック型パネル。TitleBar のボタン → `useMyWorkStore.toggle()` で開閉する。
+認証ユーザー単位の作業一覧（自分の issue / 自分の PR / 自分へのメンション / レビュー依頼）を
+repo 横断で出す右ドック型パネル。TitleBar のボタン → `useMyWorkStore.toggle()` で開閉する。
 
 ServerListPanel / EventLogPanel と同じ top layer サーフェス 1 枚（`shared/surface`）。開閉の
 SSOT は store の `isOpen` で、popover DOM へのミラーは要素を所有する本 component が担う。
 
-## 3 ペイン構成
+## 軸ごとのペイン構成
 
-3 つの軸を横並びのペインに分け、**ペインごとに独立して縦スクロール**させる。1 つの scroll に
+軸を横並びのペインに分け、**ペインごとに独立して縦スクロール**させる。1 つの scroll に
 積むと、件数の多い軸（レビュー依頼が数十件になる）が他の軸を画面外へ押し出し、どの軸に何件
 あるかを掴むのにスクロールが要る。
 
@@ -42,10 +42,12 @@ URL は取得の成否に依存しないため失敗応答からも得られる�
 </doc>
 
 <script setup lang="ts">
+import type { GitMyWorkAxisKey } from "@gozd/rpc";
+import { GIT_MY_WORK_AXIS_KEYS } from "@gozd/rpc";
 import { useIntervalFn, useWindowFocus } from "@vueuse/core";
 import { computed, useTemplateRef, watch } from "vue";
 import { useSurface } from "../../shared/surface";
-import { activateExternalLink } from "../github-item";
+import { activateExternalLink, ITEM_KIND_DISPLAY } from "../github-item";
 import MyWorkSection from "./MyWorkSection.vue";
 import { MY_WORK_FRESH_MS, useMyWorkStore } from "./useMyWorkStore";
 import IconLucideInbox from "~icons/lucide/inbox";
@@ -74,23 +76,46 @@ useIntervalFn(
 );
 
 /**
- * 軸のラベルと並び。ペインと失敗表示のリンクはどちらもこれを回す。手書きで並べると
- * ラベルや並びが 2 箇所に存在し、片方だけ直した状態を作れてしまう。
+ * 軸キー → ペインの見出しラベル。Record で鍵付けするため、軸の増減はここが compile error で
+ * 追従を要求する。
  */
-const AXES = [
-  { title: "Review requested", group: () => myWorkStore.reviewRequestedPrs },
-  { title: "My pull requests", group: () => myWorkStore.authoredPrs },
-  { title: "My issues", group: () => myWorkStore.authoredIssues },
-];
+const AXIS_TITLES: Record<GitMyWorkAxisKey, string> = {
+  authoredIssues: "My issues",
+  authoredPrs: "My pull requests",
+  mentioned: "Mentioned",
+  reviewRequestedPrs: "Review requested",
+};
+
+/**
+ * ペインと失敗表示のリンクはどちらもこれを回す。軸の集合と並びは `GIT_MY_WORK_AXIS_KEYS` から
+ * 導出し、ここはラベルを与えるだけ。並びは、自分が作ったもの（issue → PR）→ 自分に
+ * 向けられたもの（メンション → レビュー依頼）。issue → PR の順は GitHub web の種別並び
+ * （Issues / Pull requests）に合わせる。
+ */
+const AXES = computed(() =>
+  GIT_MY_WORK_AXIS_KEYS.map((key) => ({
+    key,
+    title: AXIS_TITLES[key],
+    group: myWorkStore.groups[key],
+  })),
+);
 
 /**
  * 一覧を出せないときに残す GitHub への導線。URL は取得の成否に依存しないが、main から
- * 一度も応答が届いていなければ手元に無いので、その軸は出さない（描けないものを描かない）。
+ * 一度も応答が届いていなければ手元に無い（webLinks が空）ので、その軸は出さない
+ * （描けないものを描かない）。混在軸はリンクが種別ごとに分かれるため、軸名に種別を添える。
  */
 const failureLinks = computed(() =>
-  AXES.map((axis) => ({ title: axis.title, webUrl: axis.group().webUrl })).filter(
-    (link) => link.webUrl !== "",
-  ),
+  AXES.value.flatMap((axis) => {
+    const webLinks = axis.group.webLinks;
+    return webLinks.map((link) => ({
+      label:
+        webLinks.length === 1
+          ? axis.title
+          : `${axis.title} (${ITEM_KIND_DISPLAY[link.kind].label})`,
+      url: link.url,
+    }));
+  }),
 );
 
 const panelRef = useTemplateRef<HTMLElement>("panel");
@@ -106,7 +131,7 @@ const { raise } = useSurface(panelRef, {
     ref="panel"
     popover="manual"
     tabindex="-1"
-    class="_my-work-popover w-[min(1080px,100vw)] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
+    class="_my-work-popover w-[min(1440px,100vw)] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
     @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -165,25 +190,20 @@ const { raise } = useSurface(panelRef, {
         <div v-if="failureLinks.length > 0" class="flex flex-wrap justify-center gap-3">
           <a
             v-for="link in failureLinks"
-            :key="link.webUrl"
-            :href="link.webUrl"
+            :key="link.url"
+            :href="link.url"
             class="text-primary-text underline"
-            @click="activateExternalLink($event, link.webUrl)"
-            @auxclick="activateExternalLink($event, link.webUrl)"
+            @click="activateExternalLink($event, link.url)"
+            @auxclick="activateExternalLink($event, link.url)"
           >
-            {{ link.title }}
+            {{ link.label }}
           </a>
         </div>
       </template>
     </div>
 
     <div v-else class="flex min-h-0 flex-1">
-      <MyWorkSection
-        v-for="axis in AXES"
-        :key="axis.title"
-        :title="axis.title"
-        :group="axis.group()"
-      />
+      <MyWorkSection v-for="axis in AXES" :key="axis.key" :title="axis.title" :group="axis.group" />
     </div>
   </div>
 </template>

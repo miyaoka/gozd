@@ -1,5 +1,5 @@
 <doc lang="md">
-my work パネルの 1 ペイン（review requested / my PRs / my issues）。
+my work パネルの 1 ペイン。描くのは与えられた 1 軸ぶんで、軸の選定と並びは親が決める。
 
 ## 設計判断
 
@@ -9,6 +9,8 @@ my work パネルの 1 ペイン（review requested / my PRs / my issues）。
   同じ数字が 2 つ並ぶだけで読む側の負荷が増える
 - GitHub を開く導線は**見出し右端の独立したボタン**にする。上限で切れた残りへ到達する唯一の
   経路なので、数字のような「読むための要素」に隠さず、押せるものとして見える形で置く
+- リンクが 1 本の軸は external-link アイコン、複数本（混在軸）は行と同じ種別アイコンで描く。
+  同じアイコンを 2 つ並べると押し分けられない
 - 見出しを scroll コンテナの**外**に置く。ペインが独立して縦スクロールするため、見出しは
   スクロールの影響を受けない位置に固定されていればよく、sticky で追従させる必要がない
 - 件数が 0 のペインも枠ごと残す。消すとペインの並び順と幅が状況で変わり、「レビュー依頼が
@@ -20,11 +22,23 @@ my work パネルの 1 ペイン（review requested / my PRs / my issues）。
 <script setup lang="ts">
 import type { GitMyWorkGroup } from "@gozd/rpc";
 import { computed } from "vue";
-import { activateExternalLink } from "../github-item";
+import { activateExternalLink, ITEM_KIND_DISPLAY } from "../github-item";
 import MyWorkRow from "./MyWorkRow.vue";
 import IconLucideExternalLink from "~icons/lucide/external-link";
 
 const props = defineProps<{ title: string; group: GitMyWorkGroup }>();
+
+/** 見出し右端のリンク。1 本なら軸名で足りるが、複数本は種別で区別する */
+const links = computed(() => {
+  const isSingle = props.group.webLinks.length === 1;
+  return props.group.webLinks.map((link) => ({
+    url: link.url,
+    icon: isSingle ? IconLucideExternalLink : ITEM_KIND_DISPLAY[link.kind].icon,
+    title: isSingle
+      ? `Open "${props.title}" on GitHub`
+      : `Open "${props.title}" ${ITEM_KIND_DISPLAY[link.kind].label} on GitHub`,
+  }));
+});
 
 /** 取得上限で切れているか。真偽値を境界で運ばず、総件数と表示件数の比較で導出する */
 const isTruncated = computed(() => props.group.totalCount > props.group.items.length);
@@ -40,8 +54,6 @@ const countTitle = computed(() =>
     ? `Showing the ${props.group.items.length} most recently updated of ${props.group.totalCount}`
     : `${props.group.totalCount} total`,
 );
-
-const linkTitle = computed(() => `Open "${props.title}" on GitHub`);
 </script>
 
 <template>
@@ -61,14 +73,16 @@ const linkTitle = computed(() => `Open "${props.title}" on GitHub`);
         </span>
       </span>
       <a
-        :href="group.webUrl"
+        v-for="link in links"
+        :key="link.url"
+        :href="link.url"
         class="grid size-5 shrink-0 place-items-center rounded-sm text-foreground-muted no-underline hover:bg-element-hover hover:text-foreground"
-        :title="linkTitle"
-        :aria-label="linkTitle"
-        @click="activateExternalLink($event, group.webUrl)"
-        @auxclick="activateExternalLink($event, group.webUrl)"
+        :title="link.title"
+        :aria-label="link.title"
+        @click="activateExternalLink($event, link.url)"
+        @auxclick="activateExternalLink($event, link.url)"
       >
-        <IconLucideExternalLink class="size-3.5" />
+        <component :is="link.icon" class="size-3.5" />
       </a>
     </h3>
 

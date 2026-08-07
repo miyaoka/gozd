@@ -303,9 +303,12 @@ export const GIT_PULL_REQUEST_REVIEW_DECISIONS = [
 
 export type GitPullRequestReviewDecision = (typeof GIT_PULL_REQUEST_REVIEW_DECISIONS)[number];
 
+/** GitHub 項目の種別。my work の行・リンクと、種別を描く表示語彙が同じ集合を指す。 */
+export type GitItemKind = "pr" | "issue";
+
 /** my work パネルが描く 1 行。PR と issue の双方をこの 1 型で表す。 */
 export interface GitMyWorkItem {
-  kind: "pr" | "issue";
+  kind: GitItemKind;
   /** `owner/name`。repo をまたぐ一覧なので行ごとに帰属先を持つ */
   repo: string;
   number: number;
@@ -326,6 +329,16 @@ export interface GitMyWorkItem {
 }
 
 /**
+ * 軸の検索条件を GitHub 上で開くリンク。検索ページは PR / issue が別種別で混在を
+ * 1 ページに出せないため、軸が含む種別ごとに 1 本持つ。全リンクの母集合の和が
+ * 一覧の母集合と一致する。
+ */
+export interface GitMyWorkWebLink {
+  kind: GitItemKind;
+  url: string;
+}
+
+/**
  * 1 つの軸の取得結果。
  *
  * `totalCount` は検索条件に一致する総件数で、`items` は取得上限で切られるため両者は一致
@@ -338,22 +351,33 @@ export interface GitMyWorkItem {
 export interface GitMyWorkGroup {
   items: GitMyWorkItem[];
   totalCount: number;
-  /** 同じ検索条件を GitHub 上で開く URL。上限で切れた残りへ到達する導線であり、
+  /** 同じ検索条件を GitHub 上で開くリンク。上限で切れた残りへ到達する導線であり、
    * 一覧と同じ条件から導出されるため両者の母集合は一致する */
-  webUrl: string;
+  webLinks: GitMyWorkWebLink[];
 }
 
 /** 認証ユーザー単位なので repo を指す引数を持たない */
 export type GitMyWorkRequest = EmptyMessage;
 
+/**
+ * my work の軸キー。型は list から導出する（`GIT_PULL_REQUEST_CHECK_STATES` と同流儀）。
+ * list の並びは表示順で、消費側（パネルのペイン、main の query 組み立て）はこの list の
+ * 走査から順序を導出する。
+ *
+ * 各軸の検索条件は取得側の軸定義が SSOT。ここは軸の集合と並びだけを持つ。
+ */
+export const GIT_MY_WORK_AXIS_KEYS = [
+  "authoredIssues",
+  "authoredPrs",
+  "mentioned",
+  "reviewRequestedPrs",
+] as const;
+
+export type GitMyWorkAxisKey = (typeof GIT_MY_WORK_AXIS_KEYS)[number];
+
 export interface GitMyWorkResponse {
   ok: boolean;
-  /** `is:open is:pr review-requested:@me`。自分が属する team 宛のレビュー依頼も含む */
-  reviewRequestedPrs: GitMyWorkGroup;
-  /** `is:open is:pr author:@me` */
-  authoredPrs: GitMyWorkGroup;
-  /** `is:open is:issue author:@me` */
-  authoredIssues: GitMyWorkGroup;
+  groups: Record<GitMyWorkAxisKey, GitMyWorkGroup>;
   errorKind: GhErrorKind;
   errorDetail: string;
 }

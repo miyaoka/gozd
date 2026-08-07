@@ -836,14 +836,14 @@ async function handleGitMyWork(): Promise<unknown> {
   if (!result.ok) {
     return {
       ok: false,
-      ...emptyMyWork(),
+      groups: emptyMyWork(),
       errorKind: result.error.kind,
       errorDetail: result.error.detail,
     } satisfies GitMyWorkResponse;
   }
   return {
     ok: true,
-    ...result.value,
+    groups: result.value,
     errorKind: "ok",
     errorDetail: "",
   } satisfies GitMyWorkResponse;

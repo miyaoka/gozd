@@ -72,13 +72,11 @@ export function registerPrCommand(): () => void {
         // 色を変え、選択時は新規作成ではなく既存 task の worktree 表示に倒す。
         const owningRepo = repoStore.findRepoOwning(dir);
         const taskByGhRef = buildTaskIndexByGhRef(owningRepo?.worktrees ?? []);
-        const items = prsRes.prs.map(
-          (pr): PrPickerItem => ({
-            pr,
-            existingTask: taskByGhRef.get(ghRefKey(ghRefForPr(pr.number))),
-            refKey: inFlightKey(owningRepo?.rootDir ?? dir, ghRefForPr(pr.number)),
-          }),
-        );
+        const items = prsRes.prs.map((pr): PrPickerItem => ({
+          pr,
+          existingTask: taskByGhRef.get(ghRefKey(ghRefForPr(pr.number))),
+          refKey: inFlightKey(owningRepo?.rootDir ?? dir, ghRefForPr(pr.number)),
+        }));
 
         // accept の実体。失敗はすべて notify 済みで resolve する (throw しない) 契約。
         // 完了時に item.existingTask へ task を書き戻す (item は dialog が picker.items

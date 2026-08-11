@@ -25,7 +25,7 @@ Tier 3 (element defaults, @layer base)    ← renderer main.css
 SSOT:
 
 - Tier 1 primitives: `@gozd/design-tokens` package が prepare 時に `dist/tokens.generated.css` を生成。**手書き禁止**。brand を変えたいときは `packages/design-tokens/src/generateTokens.ts` の `BRAND` を編集して `pnpm install` (prepare で自動再生成)
-- Tier 1 brand-fixed (例外): theme 追従しない固定 brand 色 (LINE 配色等) は `main.css` の `:root` に手書きで定義する。命名規約 `--<scope>-<role>-primitive` で識別。Adobe Leonardo 生成パイプラインは theme 追従が前提なので、固定 brand 色はその射程外として隔離する。例: `chat-incoming-primitive` 等
+- Tier 1 brand-fixed (例外): 固定値の置き場は**検証の有無**で分かれる。生成値との知覚不変条件を検証する必要がある設計値 (age scale 等) は `packages/design-tokens` の generator が持つ。検証を伴わない、theme 追従しない固定 brand 色 (LINE 配色等) は `main.css` の `:root` に手書きし、命名規約 `--<scope>-<role>-primitive` で識別する。例: `chat-incoming-primitive` 等
 - Tier 2/3: `apps/renderer/src/assets/main.css` (`@theme inline` semantic alias + `@layer base` element default)
 
 semantic alias / element default は `@theme inline` / `@layer base` 内。不足したら raw に逃げず token を追加する。
@@ -74,10 +74,12 @@ element-hover gray-4、ΔL 0.05) は人間に判別できない。**同一 scale
 VS Code が list 専用色 (`list.activeSelectionBackground` / `list.hoverBackground`) を別立てする
 理由でもある。
 
-- **keyboard カーソル行**: `bg-selection` (accent step 4)。上に乗せてよい text は contrast で
-  決める: `text-foreground` 約 9.3:1、`text-foreground-low` / `text-<intent>-text` 約 5.3:1 は
-  AA (4.5:1) を満たす。**`text-foreground-muted` は約 3.0:1 で AA を割るため、選択行に載る
-  セルには使わない** (foreground-low を下限にする)。step 5 は step-11 系 text が約 4.4:1 で
+- **keyboard カーソル行**: `bg-selection` (accent step 4)。この面はリスト行に text が載る
+  3 面 (panel / hover 行 / カーソル行) のうち最も contrast が厳しく、ここで AA (4.5:1) を
+  満たせば他 2 面も満たす。**載せる text token は計算で AA を確認してから使う**。
+  現行の最小は `text-age-week` 約 4.6:1、`text-foreground` 約 9.3:1、
+  `text-foreground-low` / `text-<intent>-text` 約 5.3:1。**`text-foreground-muted` は
+  約 3.0:1 で AA を割るため載せない**。step 5 は step-11 系 text が約 4.4:1 で
   AA をわずかに割るため使わない
 - **hover 行**: `hover:bg-element-hover` (無彩色 solid)。選択と色相で分かれるため薄める必要はなく、
   alpha modifier での希釈は Alpha 規律違反
@@ -156,6 +158,44 @@ chip と banner の使い分け: 本文が短く intent 色で塗っても可読
 > [!CAUTION]
 > 「subtle chip = `bg-<intent>/15 text-<intent>-text`」は alpha hack で **廃止**。任意 bg 上で contrast が崩れる ([Improta 3 大禁忌](https://designtokens.substack.com/p/transparency-in-color-tokens) の 1 つ)。`<intent>-subtle` (= step 3 solid) を使う ([Radix canonical pattern](https://www.radix-ui.com/colors/docs/overview/aliasing) と一致)。
 
+### 視覚デザインは候補を出してから人間が決める
+
+配色・階調など見た目の最適解は AI が単独で吟味できない。いきなり実装せず、設計軸
+（メタファ・順序の向き・色を使う範囲）を変えた候補を多数モック HTML で並べ、人間が
+選んでから実装する。モックは実寸の文字サイズ・実際に載る背景（選択カーソル行を含む）・
+実データ近似で作り、各候補に ΔE と WCAG コントラストを添える。要件（帯数・境界・
+区別対象）は振らず、自由変数（色の割り当て）だけを振る。
+
+### 文字色で段階 / カテゴリを区別するときの知覚下限
+
+背景色（大面積）ならなめらかな勾配でも段階を認識できるが、文字は細いストロークで彩度・
+微小明度の知覚が潰れる（small-field effect）。文字色で段階を運ぶときは:
+
+- 同時に画面へ並びうる全ペアを「別の色名」で呼べる hue 分離にする。下限はペア ΔE ≥ 15
+  （OKLab ×100。知覚定数でなく本プロジェクトの下限値 — 判別不能だった実例は 6.4 と 0）。
+  グレー階調・彩度差・微小明度差だけの段分けは知覚不能
+- hue だけに頼らない。hue は二色覚で潰れるチャネルなので、可能なら明度も帯の順に単調に
+  動かし、二色覚シミュレーションでも全ペアを確認する（文字自体が値を語る冗長符号化が
+  あるなら弱いペアを許容できる）
+- step 11 どうしは明度がほぼ同一（Leonardo の contrast 均一化）で hue 差しか残らない。
+  amber-11 / orange-11（hue 差 23°）のような近傍 hue ペアを段階に使わない
+- 検証は計算で行い、載る背景（selection 行まで）込みで確認する
+
+### Age scale (`age-*`, text-only)
+
+相対日時の鮮度 4 段階（`age-hour` / `age-day` / `age-week` / `age-date`、帯名は表示単位）。
+帯の境界と token の対応は `relativeAge.ts`、色値と各帯の意味は `main.css` の定義コメントが
+SSOT。
+
+- 鮮度を塗る一覧はすべてこのスケールを使う。intent（success / warning 等）を鮮度に
+  流用しない（経過時間はデータエンコーディングであって状態の意味ではない）
+- 値（生成 primitive `--age-<role>`）と scale 内不変条件（全ペア ΔE ≥ 15）の SSOT は
+  `packages/design-tokens` の generator。違反は生成時にビルドが失敗する。載る面での
+  AA は利用側の知識のため機械検証を持たず、面や値の変更時に本 skill の規律で
+  設計時に計算検証する（CSS-first では検証入力のデータ化が成立しないため。
+  実地調査では token ペア検証の実例は Primer 1 件で、全 token を data 化した
+  構造が前提だった）
+
 ### Overlay / Focus ring
 
 | 用途                                | utility      |
@@ -192,8 +232,8 @@ chip と banner の使い分け: 本文が短く intent 色で塗っても可読
 | info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge / tag ref / 識別子        |
 | success        | 完了 / 成功 / 既存 ref                 | added file / untracked file / branch ref (local/synced/remote) / user message bubble |
 | destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                                           |
-| warning        | 進行中 / 一般的な注意 / HEAD 強調      | Claude `working` / `〜時間前` (recent stale) / modified file / current branch (HEAD) |
-| warning-strong | 要対応 / 強い注意                      | Claude `asking` / `〜日前` (older stale) / subagent badge                            |
+| warning        | 進行中 / 一般的な注意 / HEAD 強調      | Claude `working` / modified file / current branch (HEAD)                             |
+| warning-strong | 要対応 / 強い注意                      | Claude `asking`                                                                      |
 
 primary と info は同じ青系だが意味階層が異なる。同一 toolbar 内で「mode tab = primary、補助 toggle = info」のように要素の階層で分ける。「目立たせたいから primary」「ちょっと目立たせたいから info」のような曖昧基準は使わない。
 

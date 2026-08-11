@@ -25,14 +25,18 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime(-1)).toBe("");
   });
 
-  test("過去: 秒 / 分 / 時 / 日 / 月 / 年の境界", () => {
+  test("過去: 秒 / 分 / 時 / 日 / 週 / 月 / 年の境界", () => {
     freezeNow();
     // Intl.RelativeTimeFormat({ style: "narrow", numeric: "always", locale: "en" }) の
-    // 出力を pin。narrow style は単位の短縮表記 (s/m/h/d/mo/y) と "ago" suffix を返す。
+    // 出力を pin。narrow style は単位の短縮表記 (s/m/h/d/w/mo/y) と "ago" suffix を返す。
     expect(formatRelativeTime(FIXED_NOW_SEC - 30)).toBe("30s ago");
     expect(formatRelativeTime(FIXED_NOW_SEC - 5 * 60)).toBe("5m ago");
     expect(formatRelativeTime(FIXED_NOW_SEC - 2 * 3600)).toBe("2h ago");
     expect(formatRelativeTime(FIXED_NOW_SEC - 3 * 86400)).toBe("3d ago");
+    expect(formatRelativeTime(FIXED_NOW_SEC - 6 * 86400)).toBe("6d ago");
+    expect(formatRelativeTime(FIXED_NOW_SEC - 7 * 86400)).toBe("1w ago");
+    expect(formatRelativeTime(FIXED_NOW_SEC - 29 * 86400)).toBe("4w ago");
+    expect(formatRelativeTime(FIXED_NOW_SEC - 30 * 86400)).toBe("1mo ago");
     expect(formatRelativeTime(FIXED_NOW_SEC - 60 * 86400)).toBe("2mo ago");
     expect(formatRelativeTime(FIXED_NOW_SEC - 3 * 365 * 86400)).toBe("3y ago");
   });

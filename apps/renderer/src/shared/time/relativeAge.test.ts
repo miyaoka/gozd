@@ -23,22 +23,23 @@ describe("formatRelativeAge", () => {
   test("日付が分からない項目はテキストを出さない", () => {
     // 呼び出し側に fallback を書かせないため、空文字を関数仕様として固定する
     expect(formatRelativeAge(0, NOW).text).toBe("");
+    expect(formatRelativeAge(0, NOW).color).toBe("text-foreground-muted");
     expect(formatRelativeAge(-1, NOW).text).toBe("");
     expect(formatRelativeAge(isoToUnixSec("not a date"), NOW).text).toBe("");
   });
 
   test("鮮度色の境界は未満", () => {
-    expect(at(HOUR - 1).color).toBe("text-success-text");
-    expect(at(HOUR).color).toBe("text-warning-text");
-    expect(at(DAY - 1).color).toBe("text-warning-text");
-    expect(at(DAY).color).toBe("text-warning-strong-text");
-    expect(at(7 * DAY - 1).color).toBe("text-warning-strong-text");
-    expect(at(7 * DAY).color).toBe("text-foreground-low");
+    expect(at(DAY - 1).color).toBe("text-age-hour");
+    expect(at(DAY).color).toBe("text-age-day");
+    expect(at(7 * DAY - 1).color).toBe("text-age-day");
+    expect(at(7 * DAY).color).toBe("text-age-week");
+    expect(at(28 * DAY - 1).color).toBe("text-age-week");
+    expect(at(28 * DAY).color).toBe("text-age-date");
   });
 
-  test("30 日ちょうどで相対表記から絶対日付へ切り替わる", () => {
-    expect(at(30 * DAY - 1).text).toContain("ago");
-    expect(at(30 * DAY).text).not.toContain("ago");
+  test("4 週間ちょうどで相対表記から絶対日付へ切り替わる", () => {
+    expect(at(28 * DAY - 1).text).toContain("ago");
+    expect(at(28 * DAY).text).not.toContain("ago");
   });
 
   test("テキストと色は同じ時計から導く", () => {
@@ -46,7 +47,7 @@ describe("formatRelativeAge", () => {
     // 文字列と一致しなくなる。厳密比較にしているのは、`ago` の有無だけを見る形だと
     // 実行日が NOW を追い越した時点で退行を検出できなくなるため
     expect(at(2 * HOUR).text).toBe("2h ago");
-    expect(at(2 * HOUR).color).toBe("text-warning-text");
+    expect(at(2 * HOUR).color).toBe("text-age-hour");
   });
 
   test("未来時刻は負の経過を文字列へ漏らさない", () => {
@@ -54,6 +55,6 @@ describe("formatRelativeAge", () => {
     const future = formatRelativeAge(NOW + 3 * 60, NOW);
     expect(future.text).not.toContain("-");
     expect(future.text).toContain("in");
-    expect(future.color).toBe("text-success-text");
+    expect(future.color).toBe("text-age-hour");
   });
 });

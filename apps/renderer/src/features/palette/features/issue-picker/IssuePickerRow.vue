@@ -1,6 +1,6 @@
 <doc lang="md">
-Issue picker の1行分。Issue 番号・タイトル・author・更新日時を色分け表示する
-（配色を `gh` に合わせる理由は PrPickerRow）。
+Issue picker の1行分。Issue 番号・タイトル・author・更新日時を色分け表示する。
+更新日時は `formatRelativeAge` の age-\* スケールで鮮度を塗る。
 `hasTask` (repo 内に同 issue の task が既に存在する) の行は番号横にチェックアイコンを出し、
 選択が新規作成ではなく既存 task への切り替えになることを示す。
 `creating` (accept 実行中) はチェックマークと同じ位置にスピナーを出す。実行中判定は

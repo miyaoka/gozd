@@ -1,7 +1,7 @@
 <doc lang="md">
 PR picker の1行分。PR 番号・タイトル・ブランチ・author・更新日時を色分け表示する。
 
-更新日時は `formatRelativeAge` の age-\* スケールで鮮度を塗る。issue 側の行も同じ。
+更新日時は `formatRelativeAge` の age-\* スケールで鮮度を塗る。
 
 `hasTask` (repo 内に同 PR の task が既に存在する) の行は番号横にチェックアイコンを出し、
 選択が新規作成ではなく既存 task への切り替えになることを示す。

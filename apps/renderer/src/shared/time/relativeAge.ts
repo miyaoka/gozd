@@ -25,7 +25,7 @@ import { DAY_SEC, formatCompactDate, formatRelativeTime, WEEK_SEC } from "./rela
 const FOUR_WEEKS_SEC = 4 * WEEK_SEC;
 
 /** 鮮度 4 段階。最初に一致した帯を採る（境界は未満）。
- * 帯名は表示単位（hour = 分・時間表記、day = 日、week = 週、date = 絶対日付）。
+ * 帯名は表示単位（hour = 秒・分・時間表記、day = 日、week = 週、date = 絶対日付）。
  * 各帯の意味と色は main.css の age-* token 定義コメントが SSOT。 */
 const AGE_BANDS = [
   { withinSec: DAY_SEC, color: "text-age-hour" },

@@ -173,7 +173,7 @@
   --color-channel-dev-foreground: var(--gray-12);
 
   /* age scale (text-only): 一覧の相対日時が示す鮮度の 4 段階。帯名は表示単位
-     (hour = 分・時間表記、day = 日、week = 週、date = 絶対日付) で、色帯の境界と
+     (hour = 秒・分・時間表記、day = 日、week = 週、date = 絶対日付) で、色帯の境界と
      表示単位の切り替わりが一致する。帯の境界と token の対応は shared/time の
      formatRelativeAge が SSOT。経過時間はデータエンコーディングであって intent
      (成功 / 警告) ではないため、intent token を借りず独立 role を持つ。散在する小さい

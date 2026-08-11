@@ -627,6 +627,11 @@ export const useTerminalStore = defineStore("terminal", () => {
    * paneRegistry の不整合で、到達すると「クリックしたのに何も起きない」に見えるため
    * エラートーストで通知する。不変条件の記述と通知文言をここに一元化し、
    * 呼び出し側ごとの解決 + 失敗処理の複製を作らない。
+   *
+   * 渡す ptyId は renderer の live マップ (claudeStatus の sessionId → ptyId) から引いた
+   * ものに限る。main のポーリング snapshot 由来の ptyId (server list) は pane close 後
+   * 最大 1 スキャン分 stale になりうるため、この関数に寄せると正常系で誤トーストになる。
+   * dir は通知の診断情報にのみ使う (dir による絞り込みは行わない)。
    */
   function focusPaneByPtyId(ptyId: number, dir: string): void {
     const leafId = leafIdByPtyId.value.get(ptyId);

@@ -1,5 +1,5 @@
 /**
- * Task ダッシュボードを開くコマンド。Cmd+K / コマンドパレットから開き、入力へ focus する。
+ * Task ダッシュボードを開くコマンド。Cmd+T / コマンドパレットから開き、入力へ focus する。
  * task は repo プール全体から集めるため precondition を持たない (revive picker と同じ理由:
  * 選択中 repo の状態に依存しない)。
  */
@@ -14,7 +14,7 @@ export function registerDashboardCommand(): () => void {
 
   return registry.register("workspace.dashboard", {
     label: "Workspace: Task Dashboard",
-    keybinding: { key: "cmd+k" },
+    keybinding: { key: "cmd+t" },
     handler: () => {
       // 開いている間の再押下は no-op (file-picker と同流儀)
       if (contextKeys.get("dashboardVisible")) return true;

@@ -12,7 +12,7 @@
 直前に行が入れ替わり、意図しない task を確定する事故が起きる。開いたときに並び順
 (task.id 列) を確定し、行の中身だけを live 更新する。開いている間に増えた task
 (起動直後は repo fetch の順次完了で行が流入する) は末尾に追記し、既存行の位置は
-動かさない。
+動かさない。絞り込み中も同じ規律で、score 順は query 変更時にだけ確定する。
 
 受理はダイアログを閉じてから走らせる。閉じること自体が再入への唯一の防壁
 (RevivePickerDialog と同じ理由)。
@@ -75,20 +75,50 @@ const orderedRows = computed((): DashboardRow[] => {
   });
 });
 
+// owner (org) は UI 表示しないが絞り込み対象には含める
+function searchText(row: DashboardRow): string {
+  return `${row.title} ${row.repoName} ${row.branch} ${row.owner ?? ""}`;
+}
+
+// 絞り込み結果の score 順スナップショット。score の入力 (タイトル / owner) は live に
+// 変わるため、query 変更時にだけ順序を確定する (open 時の凍結と同じパターンを絞り込み段
+// にも適用する。live のまま score でソートすると絞り込み中に行が入れ替わる)
+const filteredOrder = ref<string[]>([]);
+
+function scoreOrder(q: string): string[] {
+  const scored: Array<{ id: string; score: number }> = [];
+  for (const row of orderedRows.value) {
+    const result = fuzzyMatch(searchText(row), q);
+    if (result) {
+      scored.push({ id: row.task.id, score: result.score });
+    }
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.id);
+}
+
 const filteredRows = computed((): DashboardRow[] => {
   const q = query.value;
   if (q === "") return orderedRows.value;
 
-  const scored: Array<{ row: DashboardRow; score: number }> = [];
+  // 一致集合は live に判定し、順序はスナップショットが決める。後から一致に転じた行は
+  // 末尾に追記する (orderedRows 順 = 凍結順)
+  const matching = new Map<string, DashboardRow>();
   for (const row of orderedRows.value) {
-    // owner (org) は UI 表示しないが絞り込み対象には含める
-    const result = fuzzyMatch(`${row.title} ${row.repoName} ${row.branch} ${row.owner ?? ""}`, q);
-    if (result) {
-      scored.push({ row, score: result.score });
+    if (fuzzyMatch(searchText(row), q)) {
+      matching.set(row.task.id, row);
     }
   }
-  scored.sort((a, b) => b.score - a.score);
-  return scored.map((s) => s.row);
+  const out: DashboardRow[] = [];
+  for (const id of filteredOrder.value) {
+    const row = matching.get(id);
+    if (row !== undefined) {
+      out.push(row);
+      matching.delete(id);
+    }
+  }
+  out.push(...matching.values());
+  return out;
 });
 
 const itemCount = computed(() => filteredRows.value.length);
@@ -111,7 +141,8 @@ const statusMessage = computed(() => {
   return rows.value.length === 0 ? "No tasks" : "No matching tasks";
 });
 
-watch(query, () => {
+watch(query, (q) => {
+  filteredOrder.value = q === "" ? [] : scoreOrder(q);
   reset();
 });
 
@@ -235,8 +266,9 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             - fit-content (intrinsic track) は fr より先に幅を確保する仕様のため、最重要
               カラムのタイトルは minmax の最小値で幅を保証する
             - 縮まないトラックの合計 (gutter 8 + icon 20 + title 下限 200 + age 88 + gap 48
-              = 364px) は、最小ウィンドウ (716px) 時の list ペイン幅 372px 以下に保つ。
-              超えると横溢れになり右端の列が切れる
+              = 364px) は、最小ウィンドウ時の list ペイン幅 372px 以下に保つ。372px の根拠は
+              MIN_WINDOW_WIDTH (@gozd/shared windowChrome) 716 − dialog 余白 64 − 詳細ペイン
+              確保 280。超えると横溢れになり右端の列が切れる
           -->
           <div
             v-if="filteredRows.length > 0"

@@ -1,10 +1,9 @@
 <doc lang="md">
 PR picker の1行分。PR 番号・タイトル・ブランチ・author・更新日時を色分け表示する。
 
-番号・ブランチ・author の色分けは `gh` の一覧表示に合わせる。同じ PR 一覧を CLI と gozd の
-両方で見るため、別々の配色にすると同じものだと気づけない。更新日時は例外で、`gh` は日付を
-一律グレーで出すのに対し、gozd は鮮度スケール（`formatRelativeAge` の age-\* token）で塗る。
-issue 側の行も同じ規律に従う。
+番号の色は `gh` の一覧表示に合わせる（同じ PR 一覧を CLI と gozd の両方で見るため）。
+ブランチ・author・更新日時は gozd 側の語彙で、`gh` との対応は無い。更新日時は
+`formatRelativeAge` の age-\* スケールで鮮度を塗る。issue 側の行も同じ規律に従う。
 
 `hasTask` (repo 内に同 PR の task が既に存在する) の行は番号横にチェックアイコンを出し、
 選択が新規作成ではなく既存 task への切り替えになることを示す。

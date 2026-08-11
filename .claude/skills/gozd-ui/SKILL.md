@@ -25,7 +25,7 @@ Tier 3 (element defaults, @layer base)    ← renderer main.css
 SSOT:
 
 - Tier 1 primitives: `@gozd/design-tokens` package が prepare 時に `dist/tokens.generated.css` を生成。**手書き禁止**。brand を変えたいときは `packages/design-tokens/src/generateTokens.ts` の `BRAND` を編集して `pnpm install` (prepare で自動再生成)
-- Tier 1 brand-fixed (例外): theme 追従しない固定 brand 色 (LINE 配色等) は `main.css` の `:root` に手書きで定義する。命名規約 `--<scope>-<role>-primitive` で識別。Adobe Leonardo 生成パイプラインは theme 追従が前提なので、固定 brand 色はその射程外として隔離する。例: `chat-incoming-primitive` 等
+- Tier 1 brand-fixed (例外): Leonardo 生成パイプラインに載らない固定値 — theme 追従しない brand 色 (LINE 配色等) と、contrast 目標から導出しない個別設計値 (age scale 等) — は `main.css` の `:root` に手書きで定義する。命名規約 `--<scope>-<role>-primitive` で識別。例: `chat-incoming-primitive` / `age-week-primitive`
 - Tier 2/3: `apps/renderer/src/assets/main.css` (`@theme inline` semantic alias + `@layer base` element default)
 
 semantic alias / element default は `@theme inline` / `@layer base` 内。不足したら raw に逃げず token を追加する。
@@ -169,8 +169,12 @@ chip と banner の使い分け: 本文が短く intent 色で塗っても可読
 背景色（大面積）ならなめらかな勾配でも段階を認識できるが、文字は細いストロークで彩度・
 微小明度の知覚が潰れる（small-field effect）。文字色で段階を運ぶときは:
 
-- 隣接区分は「別の色名」で呼べる hue 分離にする。下限は隣接 ΔE ≥ 15（OKLab ×100）。
+- 同時に画面へ並びうる全ペアを「別の色名」で呼べる hue 分離にする。下限はペア ΔE ≥ 15
+  （OKLab ×100。知覚定数でなく本プロジェクトの下限値 — 判別不能だった実例は 6.4 と 0）。
   グレー階調・彩度差・微小明度差だけの段分けは知覚不能
+- hue だけに頼らない。hue は二色覚で潰れるチャネルなので、可能なら明度も帯の順に単調に
+  動かし、二色覚シミュレーションでも全ペアを確認する（文字自体が値を語る冗長符号化が
+  あるなら弱いペアを許容できる）
 - step 11 どうしは明度がほぼ同一（Leonardo の contrast 均一化）で hue 差しか残らない。
   amber-11 / orange-11（hue 差 23°）のような近傍 hue ペアを段階に使わない
 - 検証は計算で行い、載る背景（selection 行まで）込みで確認する
@@ -184,7 +188,7 @@ SSOT。
 - 鮮度を塗る一覧はすべてこのスケールを使う。intent（success / warning 等）を鮮度に
   流用しない（経過時間はデータエンコーディングであって状態の意味ではない）
 - 生成 palette に無い値は brand-fixed primitive（`--age-<role>-primitive`）として
-  `main.css` の `:root` に置く（Leonardo の hue × 12-step 生成に乗らない個別設計値）
+  `main.css` の `:root` に置く（分類の定義は「3-tier token system」の brand-fixed 節）
 
 ### Overlay / Focus ring
 
@@ -223,7 +227,7 @@ SSOT。
 | success        | 完了 / 成功 / 既存 ref                 | added file / untracked file / branch ref (local/synced/remote) / user message bubble |
 | destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                                           |
 | warning        | 進行中 / 一般的な注意 / HEAD 強調      | Claude `working` / modified file / current branch (HEAD)                             |
-| warning-strong | 要対応 / 強い注意                      | Claude `asking` / subagent badge                                                     |
+| warning-strong | 要対応 / 強い注意                      | Claude `asking`                                                                      |
 
 primary と info は同じ青系だが意味階層が異なる。同一 toolbar 内で「mode tab = primary、補助 toggle = info」のように要素の階層で分ける。「目立たせたいから primary」「ちょっと目立たせたいから info」のような曖昧基準は使わない。
 

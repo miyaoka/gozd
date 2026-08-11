@@ -34,10 +34,12 @@
   --scroll-pill-foreground-primitive: oklch(1 0 0);
 
   /* age scale (相対日時の鮮度 4 段階のうち、生成 palette に無い 2 色)。
-     Leonardo pipeline は hue × 12-step の contrast 均一 scale を生成するが、age scale は
-     帯ごとに明度・彩度を個別設計した色名スケールでありその形に乗らない。全値は
-     選択カーソル行 (blue-4) 上で WCAG AA (4.5:1) を満たす明度帯域に収める。
-     hour 帯 (green-11) と date 帯 (gray-11) は生成 primitive を Tier 2 が直接参照する */
+     帯ごとに人間が候補比較で選んだ個別の色値であり、contrast 目標から scale を導く
+     Leonardo 生成では再現しないためここに置く。light theme 追加時は .light scope の
+     生成に乗らないので、この 2 値は再設計が必要。全値は選択カーソル行 (blue-4) 上で
+     不透明表示時に WCAG AA (4.5:1) を満たす明度帯域に収める (draft 行等の data state
+     dim は対象外)。hour 帯 (green-11) と date 帯 (gray-11) は生成 primitive を
+     Tier 2 が直接参照する */
   --age-day-primitive: oklch(0.87 0.155 97);
   --age-week-primitive: oklch(0.74 0.15 52);
 }
@@ -178,10 +180,10 @@
      文字を凡例なしで見分ける絶対識別のため、隣接帯は「別の色名」(隣接 ΔE ≥ 15、
      OKLab ×100) になるよう hue で分離する。グレー階調や彩度差だけの段分けは小サイズ
      文字で知覚できない (small-field effect) ため使わない。全段が選択カーソル行
-     (bg-selection) 上で AA (4.5:1) を満たす。 */
-  /* フレッシュ (今日動いている)。green-11 と同値だが success (完了) とは独立した role */
+     (bg-selection) 上で不透明表示時に AA (4.5:1) を満たす。 */
+  /* フレッシュ (24 時間以内に動いた)。green-11 と同値だが success (完了) とは独立した role */
   --color-age-hour: var(--green-11);
-  /* 少し古い (今週の動き) */
+  /* 少し古い (7 日以内の動き) */
   --color-age-day: var(--age-day-primitive);
   /* stale (1 週間以上動いていない) */
   --color-age-week: var(--age-week-primitive);

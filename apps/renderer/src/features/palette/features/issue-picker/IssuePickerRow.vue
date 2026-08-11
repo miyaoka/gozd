@@ -1,6 +1,6 @@
 <doc lang="md">
 Issue picker の1行分。Issue 番号・タイトル・author・更新日時を色分け表示する
-（番号の配色と更新日時の鮮度スケールの規律は PrPickerRow と同じ）。
+（更新日時の鮮度スケールは PrPickerRow と同じ）。
 `hasTask` (repo 内に同 issue の task が既に存在する) の行は番号横にチェックアイコンを出し、
 選択が新規作成ではなく既存 task への切り替えになることを示す。
 `creating` (accept 実行中) はチェックマークと同じ位置にスピナーを出す。実行中判定は

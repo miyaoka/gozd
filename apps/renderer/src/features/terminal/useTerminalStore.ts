@@ -347,9 +347,6 @@ export const useTerminalStore = defineStore("terminal", () => {
    *  - claude ビュー中に split で素 PTY を増やしても、新 pane が見える wt として描画
    *  - Claude セッション全終了で空タイル（真っ黒）にならない
    *  - 各コマンド handler / store watch で「if claude then wt」を書く必要がない
-   * setter は `userViewMode` への代入を転送し、既存の `terminalStore.viewMode = "wt"`
-   * のような呼び出し（SidebarPane / useWorktreeActions / register*Command 等）を
-   * 改変なしで動かす。
    */
   const viewMode = computed<ViewMode>({
     get: () => {

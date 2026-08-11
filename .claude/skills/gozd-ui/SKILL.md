@@ -74,14 +74,20 @@ element-hover gray-4、ΔL 0.05) は人間に判別できない。**同一 scale
 VS Code が list 専用色 (`list.activeSelectionBackground` / `list.hoverBackground`) を別立てする
 理由でもある。
 
-- **keyboard カーソル行**: `bg-selection` (accent step 5)。低輝度 accent なので上に乗る text 系
-  token (foreground / -low / -muted / intent-text / 鮮度色) がすべて可読のまま
-  (VS Code dark の `list.activeSelectionBackground` #04395E と同輝度帯)
+- **keyboard カーソル行**: `bg-selection` (accent step 5。surface step のうち primary-subtle 系の
+  step 3/4 と衝突しない位置)。上に乗せてよい text は contrast で決める:
+  `text-foreground` 約 8:1 / `text-foreground-low` 約 4.4:1 は可読、
+  **`text-foreground-muted` は約 2.5:1 で AA (4.5:1) も非テキスト 3:1 も割るため、選択行に
+  載るセルには使わない** (foreground-low を下限にする)
 - **hover 行**: `hover:bg-element-hover` (無彩色 solid)。選択と色相で分かれるため薄める必要はなく、
   alpha modifier での希釈は Alpha 規律違反
 - **`bg-primary` (step 9 solid) をリスト選択に使わない**。solid accent 戦略は「子孫の全テキスト色を
-  on-accent 色へ強制上書きする」(VS Code light / macOS native の流儀) とセットでのみ成立する。
+  on-accent 色へ強制上書きする」(VS Code / macOS の流儀。VS Code は dark でも
+  `list.activeSelectionForeground: white` を背景と組で定義する) とセットでのみ成立する。
   列ごとに意味を持つ色 (branch / 鮮度) を載せる gozd の行では情報が死ぬため不採用
+- **カーソル行と同一色相の subtle 面を同じリストに常設しない**。`bg-selection` (blue-5) と
+  `bg-primary-subtle(-hover)` (blue-3/4) が同時に並ぶと、この節が禁じた「同一 scale の
+  隣接 step の同時対比」が blue 側で再発する。行の属性表示は icon / text チャネルへ逃がす
 - **keyboard focus を持たない常設面の選択** (sidebar の active row 等) は従来どおり
   `bg-<intent>-subtle` (+ `hover:bg-<intent>-subtle-hover`)。VS Code の
   `list.inactiveSelectionBackground` (フォーカス外の弱い選択) に対応する層で、focused list の
@@ -121,6 +127,9 @@ VS Code が list 専用色 (`list.activeSelectionBackground` / `list.hoverBackgr
 | `<intent>-subtle-emphasis` | subtle bg 上の静的な強調面 (step 5、destructive / success のみ提供) | `bg-success-subtle-emphasis` (diff 行内変更範囲) |
 | `<intent>-text`            | low-contrast text on neutral / subtle bg (step 11)                  | `text-primary-text`, `text-destructive-text`     |
 | `<intent>-foreground`      | text on `<intent>` solid bg                                         | `text-primary-foreground` (on `bg-primary`)      |
+
+primary の step 5 は surface role `selection` が占有している。`primary-subtle-emphasis` を
+追加すると同値・別名の token が並ぶため作らない。
 
 `-subtle-hover` は active row の hover で必要になった `primary` のみ提供。`-subtle-emphasis` は diff の行内 (文字単位) 変更範囲の強調で必要になった `destructive` / `success` のみ提供 (subtle より暗い側での差別化は dark パレットの低 step 圧縮により知覚不能なため、強調は明るい側で取る)。交互作用状態ではない静的な強調面なので `-active` を使わない (`element-active` 等の `-active` は押下 / 選択状態を指す)。他 intent は use case が出た時点で追加する (YAGNI)。`warning-strong-subtle` も同様に未利用のため未定義 (subtle banner として warning と区別する用途が無い)。
 

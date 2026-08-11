@@ -74,10 +74,9 @@
   --color-element-hover: var(--gray-4);
   --color-element-active: var(--gray-5);
   /* keyboard カーソル行 (picker / list の選択)。無彩色の hover (element-hover) と色相で
-     分離するための低輝度 accent 面。VS Code list.activeSelectionBackground (#04395E) と
-     同輝度帯。step 5 なので上に乗る text 系 token (foreground / -low / -muted / intent-text)
-     が全て可読のまま — step 9 solid (primary) は CTA 用で、リスト選択に使うと低 contrast
-     text が破綻する */
+     分離するための低輝度 accent 面。上に乗せる text は foreground (約 8:1) /
+     foreground-low (約 4.4:1) まで — foreground-muted (約 2.5:1) は載せない。
+     step 9 solid (primary) は前景色の全上書きとセットの戦略なのでリスト選択に使わない */
   --color-selection: var(--blue-5);
 
   /* borders (6-8 step roles) */

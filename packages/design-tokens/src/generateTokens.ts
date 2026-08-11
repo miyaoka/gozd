@@ -1,22 +1,7 @@
 /*
- * gozd design tokens Tier 1 (primitives) を Adobe Leonardo の contrast-driven
- * algorithm で生成し、CSS file (dist/tokens.generated.css) として出力する。
- *
- * Tailwind v4 の `@theme inline` semantic alias 層は consumer 側 (renderer の
- * main.css) が定義する。この package は primitive 層のみを責任範囲とする:
- *   - gray 12-step solid + 12-step alpha (overlay 用)
- *   - intent hues (blue/red/green/amber/orange) 各 12-step solid
- *
- * Radix step → role 写像に揃えた WCAG2 contrast ratios:
- *   1     bg 自身
- *   2-5   bg / component bg (rest/hover/active)        ← subtle chip / active row
- *   6-8   border (subtle/interactive/strong)
- *   9-10  solid bg (rest/hover)                         ← CTA / badge 本体
- *   11    low-contrast text (WCAG2 8.0+)
- *   12    high-contrast text (WCAG2 14.0+)
- *
- * 再生成: pnpm install (prepare で自動) または pnpm --filter @gozd/design-tokens
- *         build。brand identity を変えたいときは BRAND を編集して再生成。
+ * Tier 1 primitives を Adobe Leonardo の contrast-driven algorithm で生成し、
+ * dist/tokens.generated.css として出力する。package の契約 (責務 / 利用側への要求 /
+ * age scale の検証) は README.md。
  *
  * ## Leonardo の使い方 — colorKeys に複数 anchor を渡す
  *
@@ -43,6 +28,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Color, BackgroundColor, Theme } from "@adobe/leonardo-contrast-colors";
 import chroma from "chroma-js";
+import { deltaEOk, type Oklch } from "./colorMath";
 
 const OUTPUT_FILE = path.resolve(import.meta.dir, "../dist/tokens.generated.css");
 
@@ -55,8 +41,30 @@ const BRAND = {
   orange: "#f97316",
 } as const;
 
+/* bg に対する WCAG2 目標コントラスト比。Radix step → role 写像
+ * (1 = bg 自身、2-5 = component bg rest/hover/active、6-8 = border、
+ *  9-10 = solid bg、11 = low text、12 = high text) に揃えた値で、
+ * step 11 / 12 のコントラスト保証はこの目標値から来る。
+ * BG 側は step 1 が bg 自身のため ratios は 11 点 */
 const STEP_RATIOS_BG = [1.1, 1.3, 1.5, 1.8, 2.2, 2.8, 3.5, 4.5, 5.5, 8, 14];
 const STEP_RATIOS_INTENT = [1.05, 1.15, 1.3, 1.5, 1.8, 2.2, 2.8, 3.5, 4.5, 5.5, 8, 14];
+
+/* age scale (相対日時の鮮度 4 帯) の個別設計値。hour / date 帯は生成 scale の step
+ * (green 11 / gray 11) と同値で、day / week は人間が候補比較で選んだ値。
+ * 帯の境界と表示単位は renderer の shared/time、role の意味は main.css が持ち、
+ * 値と知覚検証はここが SSOT。
+ *
+ * day / week は dark UI 前提の手選び値。light theme を追加するときは .light scope の
+ * 生成に乗らないため、この 2 値は再設計が必要。 */
+const AGE_DAY: Oklch = [0.87, 0.155, 97];
+const AGE_WEEK: Oklch = [0.74, 0.15, 52];
+
+/* age scale の scale 内不変条件 (gozd-ui skill「文字色で段階 / カテゴリを区別するときの
+ * 知覚下限」)。散在する小さい文字の絶対識別に必要な色名分離の下限で、違反は生成失敗 =
+ * ビルド失敗として現れる (Leonardo の contrast-driven 生成と同じ by-construction 方針)。
+ * 載る面での AA は利用側 (Tier 2 の配置) の知識であり、ここでは検証しない。面や値を
+ * 変えるときは skill の規律に従い設計時に計算で検証する。 */
+const AGE_MIN_PAIR_DELTA_E = 15;
 
 /* BackgroundColor scale 上で bg が位置する % (dark UI のため低い値) */
 const DARK_LIGHTNESS = 11;
@@ -80,13 +88,23 @@ function oklchOf(hex: string): [number, number, number] {
   return chromaApi(hex).oklch();
 }
 
-function toOklch(hex: string): string {
+/* 出力と同じ丸めの OKLCH triple。知覚検証は出荷される丸め後の値に対して行う */
+function roundedOklchOf(hex: string): Oklch {
   const [l, c, h] = oklchOf(hex);
-  const lr = (Math.round(l * 1000) / 1000).toString();
-  const cr = (Math.round(c * 1000) / 1000).toString();
-  /* chroma=0 (pure gray) は NaN hue を 0 に正規化 */
-  const hr = Number.isNaN(h) ? "0" : (Math.round(h * 10) / 10).toString();
-  return `oklch(${lr} ${cr} ${hr})`;
+  return [
+    Math.round(l * 1000) / 1000,
+    Math.round(c * 1000) / 1000,
+    /* chroma=0 (pure gray) は NaN hue を 0 に正規化 */
+    Number.isNaN(h) ? 0 : Math.round(h * 10) / 10,
+  ];
+}
+
+function oklchToCss([l, c, h]: Oklch): string {
+  return `oklch(${l} ${c} ${h})`;
+}
+
+function toOklch(hex: string): string {
+  return oklchToCss(roundedOklchOf(hex));
 }
 
 /* brand hex の hue を保ったまま L/C を差し替えた anchor hex を生成。
@@ -172,16 +190,46 @@ for (let i = 0; i < grayHexes.length; i++) {
   lines.push(`  --gray-a${i + 1}: ${alphaForGray(grayHexes[i], grayHexes[0])};`);
 }
 
+let greenHexes: string[] | undefined;
 for (const intent of intents) {
   const group = groups.find((g) => g.name === intent.name);
   if (group === undefined) throw new Error(`missing ${intent.name} group`);
   const hexes = group.values.map((v) => v.value);
   if (hexes.length !== 12) throw new Error(`expected 12 ${intent.name} steps, got ${hexes.length}`);
+  if (intent.name === "green") greenHexes = hexes;
   lines.push(``);
   lines.push(`  /* ${intent.name}: 12-step solid */`);
   for (let i = 0; i < hexes.length; i++) {
     lines.push(`  --${intent.name}-${i + 1}: ${toOklch(hexes[i])};`);
   }
+}
+
+/* age 帯の値を組み立て、scale 内不変条件を検証してから primitive として出力する */
+if (greenHexes === undefined) {
+  throw new Error("green scale missing for age bands");
+}
+const ageBands: Record<string, Oklch> = {
+  hour: roundedOklchOf(greenHexes[10]),
+  day: AGE_DAY,
+  week: AGE_WEEK,
+  date: roundedOklchOf(grayHexes[10]),
+};
+const bandEntries = Object.entries(ageBands);
+for (const [i, [nameA, a]] of bandEntries.entries()) {
+  for (const [nameB, b] of bandEntries.slice(i + 1)) {
+    const d = deltaEOk(a, b);
+    if (d < AGE_MIN_PAIR_DELTA_E) {
+      throw new Error(
+        `age scale: ${nameA}/${nameB} pair ΔE ${d.toFixed(1)} < ${AGE_MIN_PAIR_DELTA_E}`,
+      );
+    }
+  }
+}
+lines.push(``);
+lines.push(`  /* age scale: 相対日時の鮮度 4 帯 (hour = green-11、date = gray-11 と同値)。`);
+lines.push(`     全ペア ΔE >= ${AGE_MIN_PAIR_DELTA_E} を生成時に検証済み */`);
+for (const [name, triple] of bandEntries) {
+  lines.push(`  --age-${name}: ${oklchToCss(triple)};`);
 }
 
 lines.push(`}`);

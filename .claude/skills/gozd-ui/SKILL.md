@@ -25,7 +25,7 @@ Tier 3 (element defaults, @layer base)    ← renderer main.css
 SSOT:
 
 - Tier 1 primitives: `@gozd/design-tokens` package が prepare 時に `dist/tokens.generated.css` を生成。**手書き禁止**。brand を変えたいときは `packages/design-tokens/src/generateTokens.ts` の `BRAND` を編集して `pnpm install` (prepare で自動再生成)
-- Tier 1 brand-fixed (例外): Leonardo 生成パイプラインに載らない固定値 — theme 追従しない brand 色 (LINE 配色等) と、contrast 目標から導出しない個別設計値 (age scale 等) — は `main.css` の `:root` に手書きで定義する。命名規約 `--<scope>-<role>-primitive` で識別。例: `chat-incoming-primitive` / `age-week-primitive`
+- Tier 1 brand-fixed (例外): 固定値の置き場は**検証の有無**で分かれる。生成値との知覚不変条件を検証する必要がある設計値 (age scale 等) は `packages/design-tokens` の generator が持つ。検証を伴わない、theme 追従しない固定 brand 色 (LINE 配色等) は `main.css` の `:root` に手書きし、命名規約 `--<scope>-<role>-primitive` で識別する。例: `chat-incoming-primitive` 等
 - Tier 2/3: `apps/renderer/src/assets/main.css` (`@theme inline` semantic alias + `@layer base` element default)
 
 semantic alias / element default は `@theme inline` / `@layer base` 内。不足したら raw に逃げず token を追加する。
@@ -74,10 +74,12 @@ element-hover gray-4、ΔL 0.05) は人間に判別できない。**同一 scale
 VS Code が list 専用色 (`list.activeSelectionBackground` / `list.hoverBackground`) を別立てする
 理由でもある。
 
-- **keyboard カーソル行**: `bg-selection` (accent step 4)。上に乗せてよい text は contrast で
-  決める: `text-foreground` 約 9.3:1、`text-foreground-low` / `text-<intent>-text` 約 5.3:1 は
-  AA (4.5:1) を満たす。**`text-foreground-muted` は約 3.0:1 で AA を割るため、選択行に載る
-  セルには使わない** (foreground-low を下限にする)。step 5 は step-11 系 text が約 4.4:1 で
+- **keyboard カーソル行**: `bg-selection` (accent step 4)。この面はリスト行に text が載る
+  3 面 (panel / hover 行 / カーソル行) のうち最も contrast が厳しく、ここで AA (4.5:1) を
+  満たせば他 2 面も満たす。**載せる text token は計算で AA を確認してから使う**。
+  現行の最小は `text-age-week` 約 4.6:1、`text-foreground` 約 9.3:1、
+  `text-foreground-low` / `text-<intent>-text` 約 5.3:1。**`text-foreground-muted` は
+  約 3.0:1 で AA を割るため載せない**。step 5 は step-11 系 text が約 4.4:1 で
   AA をわずかに割るため使わない
 - **hover 行**: `hover:bg-element-hover` (無彩色 solid)。選択と色相で分かれるため薄める必要はなく、
   alpha modifier での希釈は Alpha 規律違反
@@ -187,8 +189,12 @@ SSOT。
 
 - 鮮度を塗る一覧はすべてこのスケールを使う。intent（success / warning 等）を鮮度に
   流用しない（経過時間はデータエンコーディングであって状態の意味ではない）
-- 生成 palette に無い値は brand-fixed primitive（`--age-<role>-primitive`）として
-  `main.css` の `:root` に置く（分類の定義は「3-tier token system」の brand-fixed 節）
+- 値（生成 primitive `--age-<role>`）と scale 内不変条件（全ペア ΔE ≥ 15）の SSOT は
+  `packages/design-tokens` の generator。違反は生成時にビルドが失敗する。載る面での
+  AA は利用側の知識のため機械検証を持たず、面や値の変更時に本 skill の規律で
+  設計時に計算検証する（CSS-first では検証入力のデータ化が成立しないため。
+  実地調査では token ペア検証の実例は Primer 1 件で、全 token を data 化した
+  構造が前提だった）
 
 ### Overlay / Focus ring
 

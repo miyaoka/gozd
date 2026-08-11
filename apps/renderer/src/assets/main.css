@@ -6,13 +6,12 @@
  * packages/design-tokens/src/generateTokens.ts を編集して pnpm install */
 @import "@gozd/design-tokens/tokens.css";
 
-/* Tier 1 (brand-fixed primitives): theme 追従しない固定 brand 色を独立 layer に隔離する。
+/* Tier 1 (brand-fixed primitives): 生成パイプラインに乗せない固定 brand 色の layer。
  *
- * 主 Tier 1 は `@gozd/design-tokens` package が Adobe Leonardo で theme 追従可能な形
- * (gray / intent × 12-step) として生成するが、LINE のブランド配色のように
- * 「dark/light theme に追従させたくない固定色」はその生成パイプラインに合わない。
- * design-tokens package に brand 固定 slot を増やす案もあるが、本 layer に集約する方が
- * 「theme 追従するか否か」の境界を一目で読める。
+ * 固定値の置き場は知覚検証の有無で分かれる (判定基準の SSOT は gozd-ui skill)。
+ * 生成値との知覚不変条件を検証する必要がある設計値 (age scale) は
+ * `@gozd/design-tokens` の generator が持ち、検証を伴わない theme 非追従の
+ * 固定 brand 色 (LINE 配色等) だけを本 layer に手書きする。
  *
  * 命名規約: `--<scope>-<role>-primitive`。Tier 2 (@theme inline) の semantic alias から
  * `var(--<scope>-<role>-primitive)` で参照される SSOT。
@@ -32,16 +31,6 @@
   --scroll-pill-primitive: oklch(0.48 0.11 250);
   --scroll-pill-hover-primitive: oklch(0.53 0.11 250);
   --scroll-pill-foreground-primitive: oklch(1 0 0);
-
-  /* age scale (相対日時の鮮度 4 段階のうち、生成 palette に無い 2 色)。
-     帯ごとに人間が候補比較で選んだ個別の色値であり、contrast 目標から scale を導く
-     Leonardo 生成では再現しないためここに置く。light theme 追加時は .light scope の
-     生成に乗らないので、この 2 値は再設計が必要。全値は選択カーソル行 (blue-4) 上で
-     不透明表示時に WCAG AA (4.5:1) を満たす明度帯域に収める (draft 行等の data state
-     dim は対象外)。hour 帯 (green-11) と date 帯 (gray-11) は生成 primitive を
-     Tier 2 が直接参照する */
-  --age-day-primitive: oklch(0.87 0.155 97);
-  --age-week-primitive: oklch(0.74 0.15 52);
 }
 
 /* layout 定数: カスタムタイトルバー（TitleBar.vue）の高さ。
@@ -84,8 +73,10 @@
   --color-element-hover: var(--gray-4);
   --color-element-active: var(--gray-5);
   /* keyboard カーソル行 (picker / list の選択)。無彩色の hover (element-hover) と色相で
-     分離するための低輝度 accent 面。上に乗せる text は foreground (約 9.3:1) /
-     foreground-low・intent-text (約 5.3:1) まで — foreground-muted (約 3.0:1) は載せない。
+     分離するための低輝度 accent 面。リスト行に text が載る 3 面 (panel / hover 行 /
+     カーソル行) のうち最も contrast が厳しく、ここで AA (4.5:1) を満たせば他 2 面も満たす。
+     上に乗せる text token は計算で AA を確認してから使う (現行の最小は age-week
+     約 4.6:1。foreground-muted 約 3.0:1 は AA を割るため載せない)。
      primary-subtle-hover と同値だが役割は別 (あちらは active row の hover で、focused list の
      カーソル行と同一リストに並ばない)。step 9 solid (primary) は前景色の全上書きとセットの
      戦略なのでリスト選択に使わない */
@@ -176,20 +167,19 @@
      (hour = 秒・分・時間表記、day = 日、week = 週、date = 絶対日付) で、色帯の境界と
      表示単位の切り替わりが一致する。帯の境界と token の対応は shared/time の
      formatRelativeAge が SSOT。経過時間はデータエンコーディングであって intent
-     (成功 / 警告) ではないため、intent token を借りず独立 role を持つ。散在する小さい
-     文字を凡例なしで見分ける絶対識別のため、同時に画面へ並びうる全ペアが「別の色名」
-     (ペア ΔE ≥ 15、OKLab ×100) になるよう hue で分離する。グレー階調や彩度差だけの
-     段分けは小サイズ文字で知覚できない (small-field effect) ため使わない。全段が
-     選択カーソル行 (bg-selection) 上で不透明表示時に AA (4.5:1) を満たす。 */
-  /* フレッシュ (24 時間未満)。green-11 と同値だが success (完了) とは独立した role */
-  --color-age-hour: var(--green-11);
+     (成功 / 警告) ではないため、intent token を借りず独立 role を持つ
+     (hour は green-11、date は gray-11 と同値だが、success / text 階層の restyle に
+     鮮度表示が追従しないよう primitive から独立)。値と全ペア ΔE 検証の SSOT は
+     @gozd/design-tokens の generator で、違反は生成時にビルドが失敗する。載る面での
+     AA は面の規律 (bg-selection 節) に従い設計時に計算で検証する。 */
+  /* フレッシュ (24 時間未満) */
+  --color-age-hour: var(--age-hour);
   /* 少し古い (24 時間〜7 日) */
-  --color-age-day: var(--age-day-primitive);
+  --color-age-day: var(--age-day);
   /* stale (7 日〜4 週間) */
-  --color-age-week: var(--age-week-primitive);
-  /* 陳腐化 (4 週間以上。絶対日付表記に切り替わった帯)。foreground-low と同値だが
-     独立 role (text 階層の restyle に鮮度表示が追従しないよう分離) */
-  --color-age-date: var(--gray-11);
+  --color-age-week: var(--age-week);
+  /* 陳腐化 (4 週間以上。絶対日付表記に切り替わった帯) */
+  --color-age-date: var(--age-date);
 
   /* chat (Tier 2 semantic alias): brand 固定 primitive (`:root` 配下) を `var()` で
      参照する。値の直書きは Tier 1 に集約し、Tier 2 は role 名のマッピングだけ持つ。 */

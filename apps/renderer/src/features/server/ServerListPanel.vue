@@ -118,6 +118,9 @@ function onRowClick(row: ServerRow): void {
   if (!row.openable) return;
   activateDir(row.worktreePath);
   // live なら該当端末ペインへフォーカスする (ptyId は帰属先 PTY)。
+  // focusPaneByPtyId には寄せない: この ptyId は main のポーリング snapshot 由来で、
+  // pane close 後も最大 1 スキャン分 stale に残る。解決失敗は不整合ではなく正常系なので
+  // silent skip が正しい (worktree の選択自体は成立しておりクリックは無反応にならない)。
   if (row.ptyId > 0) {
     const leafId = terminalStore.getLeafIdByPtyId(row.ptyId);
     if (leafId !== undefined) terminalStore.focusPane(leafId);

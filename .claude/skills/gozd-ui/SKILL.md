@@ -156,6 +156,35 @@ chip と banner の使い分け: 本文が短く intent 色で塗っても可読
 > [!CAUTION]
 > 「subtle chip = `bg-<intent>/15 text-<intent>-text`」は alpha hack で **廃止**。任意 bg 上で contrast が崩れる ([Improta 3 大禁忌](https://designtokens.substack.com/p/transparency-in-color-tokens) の 1 つ)。`<intent>-subtle` (= step 3 solid) を使う ([Radix canonical pattern](https://www.radix-ui.com/colors/docs/overview/aliasing) と一致)。
 
+### 視覚デザインは候補を出してから人間が決める
+
+配色・階調など見た目の最適解は AI が単独で吟味できない。いきなり実装せず、設計軸
+（メタファ・順序の向き・色を使う範囲）を変えた候補を多数モック HTML で並べ、人間が
+選んでから実装する。モックは実寸の文字サイズ・実際に載る背景（選択カーソル行を含む）・
+実データ近似で作り、各候補に ΔE と WCAG コントラストを添える。要件（帯数・境界・
+区別対象）は振らず、自由変数（色の割り当て）だけを振る。
+
+### 文字色で段階 / カテゴリを区別するときの知覚下限
+
+背景色（大面積）ならなめらかな勾配でも段階を認識できるが、文字は細いストロークで彩度・
+微小明度の知覚が潰れる（small-field effect）。文字色で段階を運ぶときは:
+
+- 隣接区分は「別の色名」で呼べる hue 分離にする。下限は隣接 ΔE ≥ 15（OKLab ×100）。
+  グレー階調・彩度差・微小明度差だけの段分けは知覚不能
+- step 11 どうしは明度がほぼ同一（Leonardo の contrast 均一化）で hue 差しか残らない。
+  amber-11 / orange-11（hue 差 23°）のような近傍 hue ペアを段階に使わない
+- 検証は計算で行い、載る背景（selection 行まで）込みで確認する
+
+### Age scale (`age-*`, text-only)
+
+相対日時の鮮度 4 段階（`age-day` / `age-week` / `age-month` / `age-date`）。帯の境界と
+token の対応は `relativeAge.ts`、色値と各帯の意味は `main.css` の定義コメントが SSOT。
+
+- 鮮度を塗る一覧はすべてこのスケールを使う。intent（success / warning 等）を鮮度に
+  流用しない（経過時間はデータエンコーディングであって状態の意味ではない）
+- 生成 palette に無い値は brand-fixed primitive（`--age-<role>-primitive`）として
+  `main.css` の `:root` に置く（Leonardo の hue × 12-step 生成に乗らない個別設計値）
+
 ### Overlay / Focus ring
 
 | 用途                                | utility      |
@@ -192,8 +221,8 @@ chip と banner の使い分け: 本文が短く intent 色で塗っても可読
 | info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge / tag ref / 識別子        |
 | success        | 完了 / 成功 / 既存 ref                 | added file / untracked file / branch ref (local/synced/remote) / user message bubble |
 | destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                                           |
-| warning        | 進行中 / 一般的な注意 / HEAD 強調      | Claude `working` / `〜時間前` (recent stale) / modified file / current branch (HEAD) |
-| warning-strong | 要対応 / 強い注意                      | Claude `asking` / `〜日前` (older stale) / subagent badge                            |
+| warning        | 進行中 / 一般的な注意 / HEAD 強調      | Claude `working` / modified file / current branch (HEAD)                             |
+| warning-strong | 要対応 / 強い注意                      | Claude `asking` / subagent badge                                                     |
 
 primary と info は同じ青系だが意味階層が異なる。同一 toolbar 内で「mode tab = primary、補助 toggle = info」のように要素の階層で分ける。「目立たせたいから primary」「ちょっと目立たせたいから info」のような曖昧基準は使わない。
 

@@ -23,15 +23,16 @@ const DAY_SEC = 24 * HOUR_SEC;
 const WEEK_SEC = 7 * DAY_SEC;
 const MONTH_SEC = 30 * DAY_SEC;
 
-/** 経過が短いほど強い色を当てる。最初に一致した帯を採る（境界は未満）。 */
+/** 鮮度 4 段階。最初に一致した帯を採る（境界は未満）。
+ * 各帯の意味と色は main.css の age-* token 定義コメントが SSOT。 */
 const AGE_BANDS = [
-  { withinSec: HOUR_SEC, color: "text-success-text" },
-  { withinSec: DAY_SEC, color: "text-warning-text" },
-  { withinSec: WEEK_SEC, color: "text-warning-strong-text" },
+  { withinSec: DAY_SEC, color: "text-age-day" },
+  { withinSec: WEEK_SEC, color: "text-age-week" },
+  { withinSec: MONTH_SEC, color: "text-age-month" },
 ] as const;
 
-/** どの帯にも入らない古い項目 */
-const STALE_COLOR = "text-foreground-low";
+/** どの帯にも入らない古い項目。絶対日付への表記切り替えと同じ MONTH_SEC 境界で落ちる */
+const DATE_COLOR = "text-age-date";
 /** 日付が分からない項目。テキストが空になるので色は最も弱いものにする */
 const UNKNOWN_COLOR = "text-foreground-muted";
 
@@ -48,7 +49,7 @@ export function formatRelativeAge(
   const ageSec = nowSec - unixSec;
   return {
     text: ageSec >= MONTH_SEC ? formatCompactDate(unixSec) : formatRelativeTime(unixSec, nowSec),
-    color: AGE_BANDS.find((band) => ageSec < band.withinSec)?.color ?? STALE_COLOR,
+    color: AGE_BANDS.find((band) => ageSec < band.withinSec)?.color ?? DATE_COLOR,
   };
 }
 

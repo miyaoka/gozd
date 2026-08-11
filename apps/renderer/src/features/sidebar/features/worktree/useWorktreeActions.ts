@@ -4,7 +4,8 @@ import { ref } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import { useTerminalStore } from "../../../terminal";
-import { generateTimestamp, useWorktreeStore } from "../../../worktree";
+import { generateTimestamp } from "../../../worktree";
+import { selectDir } from "../../openTaskSession";
 import { rpcCreateWorktree, rpcGitDefaultBranch, rpcGitWorktreeRemove } from "../../rpc";
 import { worktreeDisplayName } from "../../utils";
 
@@ -20,23 +21,10 @@ interface UseWorktreeActionsOptions {
  */
 export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
   const notify = useNotificationStore();
-  const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
   const repoStore = useRepoStore();
 
   const creatingRootDirs = ref(new Set<string>());
-
-  /**
-   * viewMode を wt に倒し setOpen で selectedDir を切り替える選択プリミティブ。
-   * dir を active にする全選択経路が共有する SSOT
-   * (特定 caller を列挙するとドリフトの源になるため数えない)。
-   * setOpen は冪等で、同一 dir の再選択でも selectionVersion が発火し
-   * useTerminalStore 側の watch が done を消化する。
-   */
-  function selectDir(dir: string) {
-    terminalStore.viewMode = "wt";
-    worktreeStore.setOpen(dir);
-  }
 
   function handleWorktreeSelect(wt: WorktreeEntry) {
     selectDir(wt.path);

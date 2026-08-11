@@ -109,6 +109,8 @@ export interface ContextMap {
   issuePickerVisible: boolean;
   /** Revive ピッカーが開いている */
   revivePickerVisible: boolean;
+  /** Task ダッシュボードが開いている */
+  dashboardVisible: boolean;
   /** keydown を受けた document のフォーカスが input / textarea / contenteditable にある */
   inputFocused: boolean;
   /** 選択中の repo が git 管理下 */

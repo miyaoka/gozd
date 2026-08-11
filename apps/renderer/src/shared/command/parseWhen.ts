@@ -31,6 +31,7 @@ const KNOWN_KEYS = new Set<string>(
     prPickerVisible: true,
     issuePickerVisible: true,
     revivePickerVisible: true,
+    dashboardVisible: true,
     inputFocused: true,
     isGitRepo: true,
   } satisfies ContextMap),

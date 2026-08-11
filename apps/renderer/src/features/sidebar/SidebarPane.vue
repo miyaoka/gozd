@@ -82,6 +82,7 @@ import { useWorktreeActions } from "./features/worktree";
 import ListEditDialog from "./ListEditDialog.vue";
 import ListMenu from "./ListMenu.vue";
 import ListRow from "./ListRow.vue";
+import { openTaskSession } from "./openTaskSession";
 import RepoMenu from "./RepoMenu.vue";
 import { rpcTaskRemove, rpcTaskRemoveByWorktree } from "./rpc";
 import SidebarClock from "./SidebarClock.vue";
@@ -168,33 +169,8 @@ function onSelectRoot(rootDir: string) {
 
 function onSelectTask(wt: WorktreeEntry, task: Task) {
   // wt を active にしたうえで、task に対応する leaf へフォーカスする。
-  // 分岐:
-  //  - task.sessionId 空 (PR/issue 由来で未起動 / SessionEnd で切り離し済み):
-  //    新規に素の claude を起動する。SessionStart hook が attachSession で
-  //    sessionId をこの task に結びつける (sessionId 空の最新 task を選択するため、
-  //    同 wt に複数の未紐付け task があると最新が選ばれる仕様)。
-  //  - live PTY あり: 該当 leaf を focus
-  //  - resumable (sessionId あり、live PTY 無し): `claude --resume` を仕込んで起動
-  if (task.sessionId === "") {
-    terminalStore.requestNewClaudeSession(wt.path);
-    handleWorktreeSelect(wt);
-    return;
-  }
-  const ptyId = terminalStore.getPtyIdBySessionId(task.sessionId);
-  if (ptyId === undefined) {
-    terminalStore.requestResumeSession(wt.path, task.sessionId);
-    handleWorktreeSelect(wt);
-    return;
-  }
-  handleWorktreeSelect(wt);
-  const leafId = terminalStore.getLeafIdByPtyId(ptyId);
-  if (leafId === undefined) {
-    // live PTY があるのに leaf が引けないのは paneRegistry の不整合。到達すると
-    // 「クリックしたのに何も起きない」だけになり痕跡が残らないため観察ログを残す
-    console.error(`[onSelectTask] no leaf for pty ptyId=${ptyId} dir=${wt.path}`);
-    return;
-  }
-  terminalStore.focusPane(leafId);
+  // 起動 / resume / focus の分岐はダッシュボードと共有の openTaskSession が SSOT
+  openTaskSession(wt.path, task);
 }
 
 // --- 下段（active session ペイン）の選択 ---

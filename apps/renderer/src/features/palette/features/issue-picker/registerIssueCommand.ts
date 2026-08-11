@@ -15,6 +15,7 @@ import {
   rpcCreateWorktree,
   rpcGitDefaultBranch,
   rpcTaskAdd,
+  selectDir,
 } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
@@ -93,8 +94,7 @@ export function registerIssueCommand(): () => void {
               errorLabel: "Failed to revive task for issue",
             });
             if (revived !== undefined) item.existingTask = revived;
-            terminalStore.viewMode = "wt";
-            worktreeStore.setOpen(existing.worktreeDir);
+            selectDir(existing.worktreeDir);
             return;
           }
           // 新規 worktree は default branch を起点に作る。main 側で `origin/HEAD` を
@@ -165,8 +165,7 @@ export function registerIssueCommand(): () => void {
           // issue URL を prefill で渡し、claude の入力欄に事前挿入する (送信はされない)。
           terminalStore.requestNewClaudeSession(result.value.dir, issue.url);
           terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
-          terminalStore.viewMode = "wt";
-          worktreeStore.setOpen(result.value.dir);
+          selectDir(result.value.dir);
         };
 
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI

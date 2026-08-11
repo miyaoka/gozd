@@ -4,6 +4,8 @@ import { useWorktreeStore } from "../worktree";
 
 /**
  * viewMode を wt に倒し setOpen で selectedDir を切り替える選択プリミティブ。
+ * dir を active にする選択はこの関数を経由し、viewMode / setOpen の 2 行を直書きしない
+ * (setOpen を伴わない viewMode 単独の切替 — terminal の split 系 — は別の操作で対象外)。
  * setOpen は冪等で、同一 dir の再選択でも selectionVersion が発火し
  * useTerminalStore 側の watch が done を消化する。
  */

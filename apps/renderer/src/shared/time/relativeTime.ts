@@ -21,6 +21,11 @@ const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat("en", {
   numeric: "always",
 });
 
+/** 表示単位の切り替え閾値（秒）。鮮度色帯（relativeAge の AGE_BANDS）が同じ定数を参照し、
+ * 色帯の境界と表示単位の切り替わりが単一の値から導かれる。 */
+export const DAY_SEC = 86400;
+export const WEEK_SEC = 7 * DAY_SEC;
+
 export function formatRelativeTime(
   unixSec: number,
   nowSec = Math.floor(Date.now() / 1000),
@@ -34,22 +39,22 @@ export function formatRelativeTime(
   if (absSec < 60) return RELATIVE_TIME_FORMATTER.format(sign * absSec, "second");
   if (absSec < 3600)
     return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 60), "minute");
-  if (absSec < 86400) {
+  if (absSec < DAY_SEC) {
     return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 3600), "hour");
   }
-  if (absSec < 86400 * 7) {
-    return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 86400), "day");
+  if (absSec < WEEK_SEC) {
+    return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / DAY_SEC), "day");
   }
   // 週は 30 日未満まで。28〜29 日は「4w ago」になる（月に繰り上げると floor(28/30)=0 で
   // 「0mo」が生まれる。GitHub の relative-time-element も weeks>=4 を月へ丸める側だが、
   // gozd の鮮度表示は 4 週間で絶対日付に切り替わるためこの帯を通らない）
-  if (absSec < 86400 * 30) {
-    return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 86400 / 7), "week");
+  if (absSec < 30 * DAY_SEC) {
+    return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / WEEK_SEC), "week");
   }
-  if (absSec < 86400 * 365) {
-    return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 86400 / 30), "month");
+  if (absSec < 365 * DAY_SEC) {
+    return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / DAY_SEC / 30), "month");
   }
-  return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 86400 / 365), "year");
+  return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / DAY_SEC / 365), "year");
 }
 
 /** Unix 秒を locale 依存の絶対時刻文字列に整形する。

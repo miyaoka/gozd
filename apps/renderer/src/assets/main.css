@@ -177,18 +177,18 @@
      表示単位の切り替わりが一致する。帯の境界と token の対応は shared/time の
      formatRelativeAge が SSOT。経過時間はデータエンコーディングであって intent
      (成功 / 警告) ではないため、intent token を借りず独立 role を持つ。散在する小さい
-     文字を凡例なしで見分ける絶対識別のため、隣接帯は「別の色名」(隣接 ΔE ≥ 15、
-     OKLab ×100) になるよう hue で分離する。グレー階調や彩度差だけの段分けは小サイズ
-     文字で知覚できない (small-field effect) ため使わない。全段が選択カーソル行
-     (bg-selection) 上で不透明表示時に AA (4.5:1) を満たす。 */
-  /* フレッシュ (24 時間以内に動いた)。green-11 と同値だが success (完了) とは独立した role */
+     文字を凡例なしで見分ける絶対識別のため、同時に画面へ並びうる全ペアが「別の色名」
+     (ペア ΔE ≥ 15、OKLab ×100) になるよう hue で分離する。グレー階調や彩度差だけの
+     段分けは小サイズ文字で知覚できない (small-field effect) ため使わない。全段が
+     選択カーソル行 (bg-selection) 上で不透明表示時に AA (4.5:1) を満たす。 */
+  /* フレッシュ (24 時間未満)。green-11 と同値だが success (完了) とは独立した role */
   --color-age-hour: var(--green-11);
-  /* 少し古い (7 日以内の動き) */
+  /* 少し古い (24 時間〜7 日) */
   --color-age-day: var(--age-day-primitive);
-  /* stale (1 週間以上動いていない) */
+  /* stale (7 日〜4 週間) */
   --color-age-week: var(--age-week-primitive);
-  /* 陳腐化 (4 週間以上動きがなく、絶対日付表記に切り替わった帯)。foreground-low と
-     同値だが独立 role (text 階層の restyle に鮮度表示が追従しないよう分離) */
+  /* 陳腐化 (4 週間以上。絶対日付表記に切り替わった帯)。foreground-low と同値だが
+     独立 role (text 階層の restyle に鮮度表示が追従しないよう分離) */
   --color-age-date: var(--gray-11);
 
   /* chat (Tier 2 semantic alias): brand 固定 primitive (`:root` 配下) を `var()` で

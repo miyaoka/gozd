@@ -383,11 +383,12 @@ function onDragEnd(event: DragEndEvent) {
 // list 切り替え / expand（store 変更→再レンダー）と scroll の間で別途必要なため残す。
 const scrollContainer = useTemplateRef<HTMLElement>("scrollContainer");
 
-// 駆動信号は selectionVersion (setOpen ごとに bump される wt 選択イベント)。dir の値を
-// watch すると同一 dir の再選択 (ダッシュボード等の別経路からの確定) で発火せず、
-// list 切り替え / expand の追従が走らない。
+// 駆動信号は「選択操作 (selectionVersion)」と「選択値 (dir)」の両方。selectionVersion は
+// setOpen 冪等呼び出し (同一 dir の再確定) を拾い、dir は setOpen を経由しない fallback
+// (orphaned wt の rootDir 退避 / repo 削除。useRepoStore の直書き経路) を拾う。片方だけだと
+// もう一方の経路で list 切り替え / expand / スクロールの追従が走らない。
 watch(
-  () => worktreeStore.selectionVersion,
+  [() => worktreeStore.selectionVersion, () => worktreeStore.dir],
   async () => {
     const dir = worktreeStore.dir;
     if (dir === undefined) return;

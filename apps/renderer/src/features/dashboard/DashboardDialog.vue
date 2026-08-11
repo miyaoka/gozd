@@ -10,8 +10,9 @@
 
 一覧の中身は hooks の状態変化でライブ再計算されるが、並びまで live にするとクリック
 直前に行が入れ替わり、意図しない task を確定する事故が起きる。開いたときに並び順
-(task.id 列) を確定し、行の中身だけを live 更新する。開いている間に増えた task は
-次回 open で現れる。
+(task.id 列) を確定し、行の中身だけを live 更新する。開いている間に増えた task
+(起動直後は repo fetch の順次完了で行が流入する) は末尾に追記し、既存行の位置は
+動かさない。
 
 受理はダイアログを閉じてから走らせる。閉じること自体が再入への唯一の防壁
 (RevivePickerDialog と同じ理由)。
@@ -54,8 +55,17 @@ const rows = computed((): DashboardRow[] =>
     : [],
 );
 
-// 開いている間の並び順の凍結 (doc ブロック参照)。open 時の task.id 列が並びの SSOT
+// 開いている間の並び順の凍結 (doc ブロック参照)。task.id 列が並びの SSOT
 const frozenOrder = ref<string[]>([]);
+
+// open 後に流入した task (起動直後の repo fetch 順次完了など) は末尾に追記する。
+// 既存行の位置は動かさないので、凍結の目的 (クリック直前の入れ替わり防止) は保たれる
+watch(rows, (next) => {
+  if (!isOpen.value) return;
+  const known = new Set(frozenOrder.value);
+  const fresh = next.filter((row) => !known.has(row.task.id)).map((row) => row.task.id);
+  if (fresh.length > 0) frozenOrder.value = [...frozenOrder.value, ...fresh];
+});
 
 const orderedRows = computed((): DashboardRow[] => {
   const byId = new Map(rows.value.map((row) => [row.task.id, row]));
@@ -224,6 +234,9 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
               水平 padding を持たせない (subgrid 行の padding は端トラックの内容領域を侵食する)
             - fit-content (intrinsic track) は fr より先に幅を確保する仕様のため、最重要
               カラムのタイトルは minmax の最小値で幅を保証する
+            - 縮まないトラックの合計 (gutter 8 + icon 20 + title 下限 200 + age 88 + gap 48
+              = 364px) は、最小ウィンドウ (716px) 時の list ペイン幅 372px 以下に保つ。
+              超えると横溢れになり右端の列が切れる
           -->
           <div
             v-if="filteredRows.length > 0"
@@ -234,8 +247,8 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             class="grid flex-1 content-start gap-x-2 overflow-y-auto py-1"
             style="
               grid-template-columns:
-                4px 20px minmax(450px, 1fr) fit-content(140px)
-                fit-content(140px) 88px 4px;
+                4px 20px minmax(200px, 1fr) fit-content(120px)
+                fit-content(120px) 88px 4px;
             "
           >
             <div

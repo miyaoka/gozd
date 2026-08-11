@@ -1,4 +1,5 @@
 import type { Task } from "@gozd/rpc";
+import { useNotificationStore } from "../../shared/notification";
 import { useTerminalStore } from "../terminal";
 import { activateDir } from "./activateDir";
 
@@ -31,8 +32,12 @@ export function openTaskSession(dir: string, task: Task): void {
   const leafId = terminalStore.getLeafIdByPtyId(ptyId);
   if (leafId === undefined) {
     // live PTY があるのに leaf が引けないのは paneRegistry の不整合。到達すると
-    // 「クリックしたのに何も起きない」だけになり痕跡が残らないため観察ログを残す
-    console.error(`[openTaskSession] no leaf for pty ptyId=${ptyId} dir=${dir}`);
+    // 「クリックしたのに何も起きない」になるため、ユーザーにも見える形で通知する
+    // (notification store が console への出力も担う)
+    useNotificationStore().error(
+      "Failed to focus session terminal",
+      new Error(`no leaf for pty ptyId=${ptyId} dir=${dir}`),
+    );
     return;
   }
   terminalStore.focusPane(leafId);

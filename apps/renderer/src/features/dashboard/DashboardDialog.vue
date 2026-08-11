@@ -1,10 +1,17 @@
 <doc lang="md">
-全 repo 横断の task を最終活動の新しい順に並べる中央ダイアログ。並列セッションの
+全 repo 横断の task を新しい順に並べる中央ダイアログ。並列セッションの
 「次にどこへ注意を向けるか」を選ぶ受信箱で、行の確定は該当 worktree を選択して
 セッションを開く / resume / focus する (openTaskSession)。
 
-タイトルと repo ラベルを横断して絞り込める。一覧が空のとき、task が無いのか絞り込みで
-消えたのかを書き分ける。
+タイトル・repo 名・ブランチ名・GitHub owner を横断して絞り込める (owner はカラムに
+表示しないが検索対象に含める)。
+
+## 並び順は開いている間凍結する
+
+一覧の中身は hooks の状態変化でライブ再計算されるが、並びまで live にするとクリック
+直前に行が入れ替わり、意図しない task を確定する事故が起きる。開いたときに並び順
+(task.id 列) を確定し、行の中身だけを live 更新する。開いている間に増えた task は
+次回 open で現れる。
 
 受理はダイアログを閉じてから走らせる。閉じること自体が再入への唯一の防壁
 (RevivePickerDialog と同じ理由)。
@@ -35,22 +42,35 @@ const { showSignal } = useDashboard();
 
 const query = ref("");
 
-// 詳細ペインの取得 (RPC + fs watch) を閉じている間に走らせないための開閉状態。
-// dialog.open は非リアクティブなので自前で持つ
-const isOpen = ref(false);
+// 開閉状態は context key を SSOT に導出する (picker 一家と同じ運用。dialog.open は非リアクティブ)
+const isOpen = computed(() => contextKeys.get("dashboardVisible"));
 
+// 閉じている間は空にして、hooks イベントごとの全 repo 走査と詳細ペインの取得を止める
 const rows = computed((): DashboardRow[] =>
-  collectDashboardRows(repoStore.poolDirs, repoStore.repos, (sessionId) =>
-    terminalStore.getClaudeStatusBySessionId(sessionId),
-  ),
+  isOpen.value
+    ? collectDashboardRows(repoStore.poolDirs, repoStore.repos, (sessionId) =>
+        terminalStore.getClaudeStatusBySessionId(sessionId),
+      )
+    : [],
 );
+
+// 開いている間の並び順の凍結 (doc ブロック参照)。open 時の task.id 列が並びの SSOT
+const frozenOrder = ref<string[]>([]);
+
+const orderedRows = computed((): DashboardRow[] => {
+  const byId = new Map(rows.value.map((row) => [row.task.id, row]));
+  return frozenOrder.value.flatMap((id) => {
+    const row = byId.get(id);
+    return row === undefined ? [] : [row];
+  });
+});
 
 const filteredRows = computed((): DashboardRow[] => {
   const q = query.value;
-  if (q === "") return rows.value;
+  if (q === "") return orderedRows.value;
 
   const scored: Array<{ row: DashboardRow; score: number }> = [];
-  for (const row of rows.value) {
+  for (const row of orderedRows.value) {
     // owner (org) は UI 表示しないが絞り込み対象には含める
     const result = fuzzyMatch(`${row.title} ${row.repoName} ${row.branch} ${row.owner ?? ""}`, q);
     if (result) {
@@ -71,39 +91,33 @@ const selectedRow = computed((): DashboardRow | undefined =>
   isOpen.value ? filteredRows.value[selectedIndex.value] : undefined,
 );
 
-/** task 自体が無いか、フィルタで 0 件になったかで文言を分ける。 */
-const emptyMessage = computed(() => (rows.value.length === 0 ? "No tasks" : "No matching tasks"));
+/**
+ * 常設 live region に出す status テキスト。一覧表示中は空文字。
+ * region を v-if で出し入れせずテキストだけ差し替えることで、AT が list → empty の
+ * 状態遷移を確実に読み上げる (RevivePickerDialog と同じ理由)。
+ */
+const statusMessage = computed(() => {
+  if (filteredRows.value.length > 0) return "";
+  return rows.value.length === 0 ? "No tasks" : "No matching tasks";
+});
 
-// filteredRows はライブデータ (repo fetch の順次完了 / hooks の状態変化) でも再計算される。
-// revive picker と違い「一覧が変わった = 絞り込みが変わった」ではないので、無条件 reset に
-// すると起動直後のデータ流入のたびに選択が先頭へ戻る。query 変更のときだけ reset し、
-// データ由来の変化では選択中の task.id を新しい配列で探して選択位置を追従させる。
-let lastQuery = "";
-watch(filteredRows, (next, prev) => {
-  if (query.value !== lastQuery) {
-    lastQuery = query.value;
-    reset();
-    return;
-  }
-  const selected = prev[selectedIndex.value];
-  if (selected === undefined) return;
-  const index = next.findIndex((row) => row.task.id === selected.task.id);
-  if (index !== -1) {
-    selectedIndex.value = index;
-    return;
-  }
-  // 選択していた行が消えた: 位置を維持しつつ末尾に clamp する
-  selectedIndex.value = Math.min(selectedIndex.value, Math.max(0, next.length - 1));
+watch(query, () => {
+  reset();
+});
+
+// 行の削除 (task remove / worktree 削除) で選択が末尾からはみ出したときだけ clamp する
+watch(itemCount, (count) => {
+  if (selectedIndex.value >= count) selectedIndex.value = Math.max(0, count - 1);
 });
 
 watch(showSignal, () => {
   const dialog = dialogRef.value;
   if (!dialog || dialog.open) return;
   query.value = "";
+  contextKeys.set("dashboardVisible", true);
+  frozenOrder.value = rows.value.map((row) => row.task.id);
   reset();
   dialog.showModal();
-  isOpen.value = true;
-  contextKeys.set("dashboardVisible", true);
   nextTick(() => {
     inputRef.value?.focus();
     scrollToSelected();
@@ -112,7 +126,6 @@ watch(showSignal, () => {
 
 // Escape (UA 既定) 経由の close もここを通る
 function onDialogClose() {
-  isOpen.value = false;
   contextKeys.set("dashboardVisible", false);
 }
 
@@ -125,10 +138,6 @@ function acceptSelected() {
   const row = filteredRows.value[selectedIndex.value];
   if (!row) return;
   close();
-  // 非アクティブ repo list / 折り畳み repo の worktree でもサイドバー表示が追従するよう、
-  // 選択の前に list と折り畳みを開く
-  repoStore.activateRepoListContaining(row.rootDir);
-  repoStore.expand(row.rootDir);
   openTaskSession(row.dir, row.task);
 }
 
@@ -183,33 +192,45 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           type="text"
           placeholder="Filter tasks..."
           aria-label="Filter tasks"
+          role="combobox"
+          aria-controls="dashboard-listbox"
+          :aria-expanded="filteredRows.length > 0"
+          :aria-activedescendant="
+            filteredRows.length > 0 ? `dashboard-option-${selectedIndex}` : undefined
+          "
           class="min-w-0 flex-1 bg-transparent px-2 py-1 text-sm text-foreground outline-none placeholder:text-foreground-low"
         />
       </div>
       <div class="flex h-[min(640px,70vh)]">
-        <div class="flex w-[820px] shrink-0 flex-col border-r border-border">
+        <!-- 幅の下限保証: 狭いウィンドウでは list 側が縮み、詳細ペインに最低 280px を残す -->
+        <div class="flex w-[min(820px,calc(100%-280px))] shrink-0 flex-col border-r border-border">
           <div
-            v-if="filteredRows.length === 0"
             role="status"
-            class="flex flex-1 items-center justify-center px-3 py-8 text-sm text-foreground-low"
+            aria-live="polite"
+            aria-atomic="true"
+            :class="
+              statusMessage
+                ? 'flex flex-1 items-center justify-center px-3 py-8 text-sm text-foreground-low'
+                : ''
+            "
           >
-            {{ emptyMessage }}
+            {{ statusMessage }}
           </div>
           <!--
             カラム定義は親 grid が 1 回だけ持ち、各行は subgrid でトラックを継承する
             (行間のカラム整列と内容ベースのカラム幅を両立する CSS 構造)。
 
-            - 両端の 4px は gutter トラック (gap 8px と合わせて左右 12px の余白)。行自身は
-              水平 padding を持たない (subgrid 行の padding は端トラックの内容領域を侵食する)
+            - 両端の 4px は gutter トラック (gap 8px と合わせて左右 12px の余白)。行自身に
+              水平 padding を持たせない (subgrid 行の padding は端トラックの内容領域を侵食する)
             - fit-content (intrinsic track) は fr より先に幅を確保する仕様のため、最重要
               カラムのタイトルは minmax の最小値で幅を保証する
-
-            実データ幅の Chrome 実測で [icon 20, title 450, repo 103, branch 103, age 88]
-            に解決することを検証済み。
           -->
           <div
-            v-else
+            v-if="filteredRows.length > 0"
+            id="dashboard-listbox"
             ref="list"
+            role="listbox"
+            aria-label="Tasks"
             class="grid flex-1 content-start gap-x-2 overflow-y-auto py-1"
             style="
               grid-template-columns:
@@ -219,7 +240,10 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           >
             <div
               v-for="(row, i) in filteredRows"
+              :id="`dashboard-option-${i}`"
               :key="row.task.id"
+              role="option"
+              :aria-selected="i === selectedIndex"
               class="col-span-full grid cursor-pointer grid-cols-subgrid items-center py-1 text-sm"
               :class="
                 i === selectedIndex

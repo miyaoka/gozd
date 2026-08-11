@@ -383,9 +383,13 @@ function onDragEnd(event: DragEndEvent) {
 // list 切り替え / expand（store 変更→再レンダー）と scroll の間で別途必要なため残す。
 const scrollContainer = useTemplateRef<HTMLElement>("scrollContainer");
 
+// 駆動信号は selectionVersion (setOpen ごとに bump される wt 選択イベント)。dir の値を
+// watch すると同一 dir の再選択 (ダッシュボード等の別経路からの確定) で発火せず、
+// list 切り替え / expand の追従が走らない。
 watch(
-  () => worktreeStore.dir,
-  async (dir) => {
+  () => worktreeStore.selectionVersion,
+  async () => {
+    const dir = worktreeStore.dir;
     if (dir === undefined) return;
     // 編集モード中は全 section が強制 collapse され WtCard が描画されないため、
     // スクロール先が存在しない。list 切り替えも編集対象が足元で変わると混乱するため、

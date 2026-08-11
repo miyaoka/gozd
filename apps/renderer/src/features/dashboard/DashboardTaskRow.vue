@@ -70,8 +70,10 @@ const visual = computed((): StateGlyph => {
       ariaLabel: live.ariaLabel,
     };
   }
+  // muted (gray-9) は選択行の bg-selection 上で contrast 約 2.5:1 まで落ちるため、
+  // 選択行にも載るセルは foreground-low (約 4.4:1) を下限にする
   const idle = TASK_STATE_VISUAL[taskStateKind(props.row)];
-  return { icon: idle.icon, class: ["text-foreground-muted"], ariaLabel: idle.ariaLabel };
+  return { icon: idle.icon, class: ["text-foreground-low"], ariaLabel: idle.ariaLabel };
 });
 
 const age = computed(() => {
@@ -94,7 +96,7 @@ const age = computed(() => {
   <span class="truncate">{{ row.title }}</span>
   <span class="flex items-center gap-1.5 truncate">
     <RepoIcon :name="row.repoName" :owner="row.owner" />
-    <span class="truncate text-foreground-muted">{{ row.repoName }}</span>
+    <span class="truncate text-foreground-low">{{ row.repoName }}</span>
   </span>
   <span class="truncate text-primary-text">{{ row.branch }}</span>
   <span v-if="age" class="truncate text-right tabular-nums" :class="age.color">{{ age.text }}</span>

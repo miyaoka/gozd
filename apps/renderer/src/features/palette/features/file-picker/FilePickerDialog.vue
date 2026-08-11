@@ -185,7 +185,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           class="flex cursor-pointer items-center gap-2 px-3 py-1 text-sm"
           :class="
             i === selectedIndex
-              ? 'bg-element-active text-foreground'
+              ? 'bg-selection text-foreground'
               : 'text-foreground hover:bg-element-hover'
           "
           @click="

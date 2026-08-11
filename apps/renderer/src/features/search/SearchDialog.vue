@@ -341,7 +341,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             role="option"
             :aria-selected="i === selectedIndex"
             class="flex cursor-pointer items-baseline gap-2 px-3 py-0.5 font-mono"
-            :class="i === selectedIndex ? 'bg-element-active' : 'hover:bg-element-hover'"
+            :class="i === selectedIndex ? 'bg-selection' : 'hover:bg-element-hover'"
             @click="
               (e) => {
                 selectedIndex = i;

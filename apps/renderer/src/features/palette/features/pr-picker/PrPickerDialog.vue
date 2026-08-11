@@ -254,7 +254,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           style="grid-template-columns: 70px 1fr 220px 120px 90px"
           :class="[
             i === selectedIndex
-              ? 'bg-element text-foreground'
+              ? 'bg-selection text-foreground'
               : item.existingTask !== undefined
                 ? 'bg-primary-subtle text-foreground hover:bg-primary-subtle-hover'
                 : 'text-foreground hover:bg-element-hover',

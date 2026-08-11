@@ -48,17 +48,44 @@ primitive utility (`bg-gray-3` 等) は Tailwind が utility 化していない 
 
 ## Semantic token reference (Tier 2)
 
-### Surface (gray step 1-5)
+### Surface (gray step 1-5 + selection)
 
-| 用途                             | utility             |
-| -------------------------------- | ------------------- |
-| ページ背景                       | `bg-background`     |
-| 既定 panel / card / dialog 内側  | `bg-panel`          |
-| component bg (rest)              | `bg-element`        |
-| component bg (hover)             | `bg-element-hover`  |
-| component bg (active / selected) | `bg-element-active` |
+| 用途                               | utility             |
+| ---------------------------------- | ------------------- |
+| ページ背景                         | `bg-background`     |
+| 既定 panel / card / dialog 内側    | `bg-panel`          |
+| component bg (rest)                | `bg-element`        |
+| component bg (hover)               | `bg-element-hover`  |
+| component bg (pressed / selected)  | `bg-element-active` |
+| keyboard カーソル行 (focused list) | `bg-selection`      |
 
-`hover:bg-element-hover` は generic hover overlay の正規 pattern (旧 `hover:bg-accent` 相当)。selected / pressed は `bg-element-active` (旧 `bg-accent-strong` 相当)。
+`hover:bg-element-hover` は generic hover overlay の正規 pattern (旧 `hover:bg-accent` 相当)。
+
+element / element-hover / element-active の gray 3/4/5 (Radix rest / hover / active 写像) は
+**単一要素の状態遷移**にだけ使う。rest → hover → active は同一要素上で排他的に起きるので、
+隣接 step の微差で足りる。
+
+#### リスト選択とホバーは色相で分離する (`bg-selection`)
+
+リストでは「keyboard カーソル行」と「マウス hover 行」が**別の行として同時に画面に出る**。
+dark パレットの低 step は圧縮されており、隣接 gray step の同時対比 (element-active gray-5 vs
+element-hover gray-4、ΔL 0.05) は人間に判別できない。**同一 scale の隣接 step に、同時に
+視界へ並ぶ 2 状態を割り当てない**。これは Radix の step 規約 (単一要素の遷移) の適用範囲外で、
+VS Code が list 専用色 (`list.activeSelectionBackground` / `list.hoverBackground`) を別立てする
+理由でもある。
+
+- **keyboard カーソル行**: `bg-selection` (accent step 5)。低輝度 accent なので上に乗る text 系
+  token (foreground / -low / -muted / intent-text / 鮮度色) がすべて可読のまま
+  (VS Code dark の `list.activeSelectionBackground` #04395E と同輝度帯)
+- **hover 行**: `hover:bg-element-hover` (無彩色 solid)。選択と色相で分かれるため薄める必要はなく、
+  alpha modifier での希釈は Alpha 規律違反
+- **`bg-primary` (step 9 solid) をリスト選択に使わない**。solid accent 戦略は「子孫の全テキスト色を
+  on-accent 色へ強制上書きする」(VS Code light / macOS native の流儀) とセットでのみ成立する。
+  列ごとに意味を持つ色 (branch / 鮮度) を載せる gozd の行では情報が死ぬため不採用
+- **keyboard focus を持たない常設面の選択** (sidebar の active row 等) は従来どおり
+  `bg-<intent>-subtle` (+ `hover:bg-<intent>-subtle-hover`)。VS Code の
+  `list.inactiveSelectionBackground` (フォーカス外の弱い選択) に対応する層で、focused list の
+  カーソル行より弱くあるべき
 
 ### Border (gray step 6-8)
 
@@ -106,7 +133,7 @@ primitive utility (`bg-gray-3` 等) は Tailwind が utility 化していない 
 | solid button  | `bg-<intent>` + `text-<intent>-foreground`                   | CTA / 主要 action (submit、destructive confirm)                                                                                      |
 | subtle chip   | `bg-<intent>-subtle` + `text-<intent>-text`                  | branch ref (success-subtle、remote は opacity-50)、tag ref (primary-subtle)、icon-only state chip、diff line bg、user message bubble |
 | subtle banner | `bg-<intent>-subtle` + `border-<intent>` + `text-foreground` | error toast 本文、長文を含む intent 通知 (本文 neutral text + intent 色は border / icon に逃がす)                                    |
-| active row    | `bg-<intent>-subtle` (+ `hover:bg-<intent>-subtle-hover`)    | 選択中の row / commit                                                                                                                |
+| active row    | `bg-<intent>-subtle` (+ `hover:bg-<intent>-subtle-hover`)    | keyboard focus を持たない常設面の選択中 row / commit (focused list のカーソル行は `bg-selection`)                                    |
 | text-only     | `text-<intent>-text`                                         | 状態文言、icon-only badge                                                                                                            |
 
 chip と banner の使い分け: 本文が短く intent 色で塗っても可読性が落ちないなら chip。本文に長文や cause 詳細を載せて neutral 高 contrast text が必要なら banner。

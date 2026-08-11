@@ -193,7 +193,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           style="grid-template-columns: 1fr 220px 70px 90px"
           :class="
             i === selectedIndex
-              ? 'bg-element text-foreground'
+              ? 'bg-selection text-foreground'
               : 'text-foreground hover:bg-element-hover'
           "
           :title="session.cwd"

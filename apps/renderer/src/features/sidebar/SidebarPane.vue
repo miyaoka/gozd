@@ -82,6 +82,7 @@ import { useWorktreeActions } from "./features/worktree";
 import ListEditDialog from "./ListEditDialog.vue";
 import ListMenu from "./ListMenu.vue";
 import ListRow from "./ListRow.vue";
+import { openTaskSession } from "./openTaskSession";
 import RepoMenu from "./RepoMenu.vue";
 import { rpcTaskRemove, rpcTaskRemoveByWorktree } from "./rpc";
 import SidebarClock from "./SidebarClock.vue";
@@ -127,7 +128,7 @@ useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
-const { isCreatingFor, selectDir, handleWorktreeSelect, addWorktree, handleWorktreeRemove } =
+const { isCreatingFor, activateDir, handleWorktreeSelect, addWorktree, handleWorktreeRemove } =
   useWorktreeActions({
     showConfirm,
   });
@@ -163,45 +164,20 @@ function onSelectWt(wt: WorktreeEntry) {
 
 // 非 git project ヘッダ経路。dir 選択プリミティブに委譲して rootDir を active にする。
 function onSelectRoot(rootDir: string) {
-  selectDir(rootDir);
+  activateDir(rootDir);
 }
 
 function onSelectTask(wt: WorktreeEntry, task: Task) {
   // wt を active にしたうえで、task に対応する leaf へフォーカスする。
-  // 分岐:
-  //  - task.sessionId 空 (PR/issue 由来で未起動 / SessionEnd で切り離し済み):
-  //    新規に素の claude を起動する。SessionStart hook が attachSession で
-  //    sessionId をこの task に結びつける (sessionId 空の最新 task を選択するため、
-  //    同 wt に複数の未紐付け task があると最新が選ばれる仕様)。
-  //  - live PTY あり: 該当 leaf を focus
-  //  - resumable (sessionId あり、live PTY 無し): `claude --resume` を仕込んで起動
-  if (task.sessionId === "") {
-    terminalStore.requestNewClaudeSession(wt.path);
-    handleWorktreeSelect(wt);
-    return;
-  }
-  const ptyId = terminalStore.getPtyIdBySessionId(task.sessionId);
-  if (ptyId === undefined) {
-    terminalStore.requestResumeSession(wt.path, task.sessionId);
-    handleWorktreeSelect(wt);
-    return;
-  }
-  handleWorktreeSelect(wt);
-  const leafId = terminalStore.getLeafIdByPtyId(ptyId);
-  if (leafId === undefined) {
-    // live PTY があるのに leaf が引けないのは paneRegistry の不整合。到達すると
-    // 「クリックしたのに何も起きない」だけになり痕跡が残らないため観察ログを残す
-    console.error(`[onSelectTask] no leaf for pty ptyId=${ptyId} dir=${wt.path}`);
-    return;
-  }
-  terminalStore.focusPane(leafId);
+  // 起動 / resume / focus の分岐はダッシュボードと共有の openTaskSession が SSOT
+  openTaskSession(wt.path, task);
 }
 
 // --- 下段（active session ペイン）の選択 ---
 //
 // 上段と違い viewMode を倒さない。下段のクリックは「動いているタイルへ focus を移す」
 // 操作で、docs/terminal.md の「横断ビュー（all / claude）では focus 追従のみ行い viewMode は
-// 変更しない」規律と同じ意味論になる。selectDir（= wt ビューへ移動する）を通すと、claude
+// 変更しない」規律と同じ意味論になる。activateDir（= wt ビューへ移動する）を通すと、claude
 // タイル表示中に下段を触った瞬間にタイルが畳まれ、常設ペインとして使えない。
 //
 // 下段の行は live session を持つ task だけなので（collectActiveSessionGroups が status で
@@ -217,23 +193,19 @@ function onSelectSessionWt(wt: WorktreeEntry) {
 }
 
 // lookup が両方成功するのは下段の不変条件（行は live session を持つ task だけ）だが、
-// 破れると「クリックしたのに何も起きない」だけになり痕跡が残らない。到達しないなら
-// コストは無く、不変条件が破れた瞬間だけ検出できるので観察ログを残す。
+// 破れると「クリックしたのに何も起きない」に見える。上段 (openTaskSession) と同じく
+// エラートーストで通知する。
 function onSelectSessionTask(wt: WorktreeEntry, task: Task) {
   worktreeStore.setOpen(wt.path);
   const ptyId = terminalStore.getPtyIdBySessionId(task.sessionId);
   if (ptyId === undefined) {
-    console.error(
-      `[onSelectSessionTask] no pty for session sessionId=${task.sessionId} dir=${wt.path}`,
+    notify.error(
+      "Failed to focus session terminal",
+      new Error(`no pty for session sessionId=${task.sessionId} dir=${wt.path}`),
     );
     return;
   }
-  const leafId = terminalStore.getLeafIdByPtyId(ptyId);
-  if (leafId === undefined) {
-    console.error(`[onSelectSessionTask] no leaf for pty ptyId=${ptyId} dir=${wt.path}`);
-    return;
-  }
-  terminalStore.focusPane(leafId);
+  terminalStore.focusPaneByPtyId(ptyId, wt.path);
 }
 
 async function handleTaskRemove(rootDir: string, task: Task) {
@@ -407,9 +379,14 @@ function onDragEnd(event: DragEndEvent) {
 // list 切り替え / expand（store 変更→再レンダー）と scroll の間で別途必要なため残す。
 const scrollContainer = useTemplateRef<HTMLElement>("scrollContainer");
 
+// 駆動信号は「選択操作 (selectionVersion)」と「選択値 (dir)」の両方。selectionVersion は
+// setOpen 冪等呼び出し (同一 dir の再確定) を拾い、dir は setOpen を経由しない fallback
+// (orphaned wt の rootDir 退避 / repo 削除。useRepoStore の直書き経路) を拾う。片方だけだと
+// もう一方の経路で list 切り替え / expand / スクロールの追従が走らない。
 watch(
-  () => worktreeStore.dir,
-  async (dir) => {
+  [() => worktreeStore.selectionVersion, () => worktreeStore.dir],
+  async () => {
+    const dir = worktreeStore.dir;
     if (dir === undefined) return;
     // 編集モード中は全 section が強制 collapse され WtCard が描画されないため、
     // スクロール先が存在しない。list 切り替えも編集対象が足元で変わると混乱するため、

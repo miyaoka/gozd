@@ -234,11 +234,11 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           class="grid cursor-pointer gap-x-2 px-3 py-1.5 text-sm"
           style="grid-template-columns: 70px 1fr 120px 90px"
           :class="[
+            // 既存 task 行の tint (bg-primary-subtle) は持たない。カーソル行の bg-selection と
+            // 同一色相の隣接 step になり判別できないため、has-task の表示はチェックアイコンに譲る
             i === selectedIndex
-              ? 'bg-element text-foreground'
-              : item.existingTask !== undefined
-                ? 'bg-primary-subtle text-foreground hover:bg-primary-subtle-hover'
-                : 'text-foreground hover:bg-element-hover',
+              ? 'bg-selection text-foreground'
+              : 'text-foreground hover:bg-element-hover',
           ]"
           @click="
             (e) => {

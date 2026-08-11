@@ -22,8 +22,8 @@ click-to-front、ESC / Cmd+W はフォーカスがあるサーフェスを閉じ
 import { computed, useTemplateRef } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import { useSurface } from "../../shared/surface";
+import { activateDir } from "../sidebar";
 import { useTerminalStore } from "../terminal";
-import { useWorktreeStore } from "../worktree";
 import type { ServerAttributionKind } from "./rpc";
 import { useServerStore } from "./useServerStore";
 import IconLucideServer from "~icons/lucide/server";
@@ -33,7 +33,6 @@ import IconLucideX from "~icons/lucide/x";
 const serverStore = useServerStore();
 const repoStore = useRepoStore();
 const terminalStore = useTerminalStore();
-const worktreeStore = useWorktreeStore();
 
 interface ServerRow {
   key: string;
@@ -117,9 +116,11 @@ const rows = computed<ServerRow[]>(() => {
 function onRowClick(row: ServerRow): void {
   // worktree が解決できない行 (external / 削除済み orphaned) は開けない。
   if (!row.openable) return;
-  terminalStore.viewMode = "wt";
-  worktreeStore.setOpen(row.worktreePath);
+  activateDir(row.worktreePath);
   // live なら該当端末ペインへフォーカスする (ptyId は帰属先 PTY)。
+  // focusPaneByPtyId には寄せない: この ptyId は main のポーリング snapshot 由来で、
+  // pane close 後も最大 1 スキャン分 stale に残る。解決失敗は不整合ではなく正常系なので
+  // silent skip が正しい (worktree の選択自体は成立しておりクリックは無反応にならない)。
   if (row.ptyId > 0) {
     const leafId = terminalStore.getLeafIdByPtyId(row.ptyId);
     if (leafId !== undefined) terminalStore.focusPane(leafId);

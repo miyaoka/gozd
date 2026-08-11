@@ -48,6 +48,7 @@ import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { closeFocusedSurface, hasFocusedSurface, useSurface } from "../../shared/surface";
+import { DashboardDialog, registerDashboardCommand } from "../dashboard";
 import { registerFilerCommands } from "../filer";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
@@ -141,6 +142,7 @@ const disposeIssueCommand = registerIssueCommand();
 const disposeFilePickerCommand = registerFilePickerCommand();
 const disposeSearchCommand = registerSearchCommand();
 const disposeReviveCommand = registerReviveCommand();
+const disposeDashboardCommand = registerDashboardCommand();
 const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 const disposeFilerCommands = registerFilerCommands();
 onUnmounted(disposePreviewToggle);
@@ -154,6 +156,7 @@ onUnmounted(disposeIssueCommand);
 onUnmounted(disposeFilePickerCommand);
 onUnmounted(disposeSearchCommand);
 onUnmounted(disposeReviveCommand);
+onUnmounted(disposeDashboardCommand);
 onUnmounted(disposeMarkdownHistoryCommands);
 onUnmounted(disposeFilerCommands);
 
@@ -341,6 +344,7 @@ const { raise } = useSurface(previewPopoverRef, {
     <PrPickerDialog />
     <IssuePickerDialog />
     <RevivePickerDialog />
+    <DashboardDialog />
     <SettingsModal />
     <BlamePopover />
     <FileHistoryPopover />

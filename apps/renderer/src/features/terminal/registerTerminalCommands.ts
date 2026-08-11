@@ -77,8 +77,10 @@ export function registerTerminalCommands(
         if (active === undefined) return false;
         // split で増える新 pane は素の PTY（Claude 未起動）なので claude タイル対象外。
         // 既存 Claude leaf が残っていると claude ビュー実効値が解除されないため、
-        // ここでユーザー意図を wt へ明示的に切り替える。同 PR 設計上の既存パターン
-        // （useWorktreeActions / register*Command など）と同じ方針。
+        // ここでユーザー意図を wt へ明示的に切り替える（docs/terminal.md の「分割操作は
+        // 意図を wt に戻す」）。activateDir は通さない — ここは選択を動かさず表示意図
+        // だけを倒す操作で、setOpen を伴うと selectionVersion が発火して split のたびに
+        // done バッジが既読消化される。
         terminalStore.viewMode = "wt";
         terminalStore.splitPane(active.dir, "horizontal");
         return true;

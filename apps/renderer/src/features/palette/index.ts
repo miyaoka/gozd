@@ -5,4 +5,5 @@ export { PrPickerDialog, registerPrCommand, rpcGitPrList } from "./features/pr-p
 export { registerReviveCommand, RevivePickerDialog } from "./features/revive-picker";
 export { QuickPick, useDialog, useQuickPick } from "./features/quick-pick";
 export type { QuickPickItem } from "./features/quick-pick";
+export { fuzzyMatch } from "./fuzzyMatch";
 export { useListNavigation } from "./useListNavigation";

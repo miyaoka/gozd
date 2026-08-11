@@ -22,7 +22,7 @@ AI エージェントの並列開発を管理するデスクトップアプリ�
 | [terminal.md](docs/terminal.md)           | ターミナル（分割、worktree 保持、ファイルパスリンク、PTY 管理）             |
 | [command.md](docs/command.md)             | コマンドシステム（レジストリ、context key、when 条件）                      |
 | [keybinding.md](docs/keybinding.md)       | キーバインディング（e.code ベース、設定フォーマット、解決フロー）           |
-| [task.md](docs/task.md)                   | Task 管理（作業計画、worktree 紐づけ、サイドバー UI）                       |
+| [task.md](docs/task.md)                   | Task 管理（作業計画、worktree 紐づけ、サイドバー UI、ダッシュボード）       |
 | [claude-status.md](docs/claude-status.md) | Claude ステータス管理（状態遷移、hooks、interrupt 検知）                    |
 | [server.md](docs/server.md)               | サーバー検出（LISTEN port ポーリング、worktree 帰属、一覧パネル）           |
 | [release.md](docs/release.md)             | リリースと配布（canary / stable、CI、mise、wrapper 同期、channel identity） |

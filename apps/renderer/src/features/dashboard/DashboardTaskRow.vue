@@ -70,8 +70,8 @@ const visual = computed((): StateGlyph => {
       ariaLabel: live.ariaLabel,
     };
   }
-  // muted (gray-9) は選択行の bg-selection 上で contrast 約 2.5:1 まで落ちるため、
-  // 選択行にも載るセルは foreground-low (約 4.4:1) を下限にする
+  // muted (gray-9) は選択行の bg-selection 上で contrast 約 3.0:1 まで落ちるため、
+  // 選択行にも載るセルは foreground-low (約 5.3:1) を下限にする
   const idle = TASK_STATE_VISUAL[taskStateKind(props.row)];
   return { icon: idle.icon, class: ["text-foreground-low"], ariaLabel: idle.ariaLabel };
 });

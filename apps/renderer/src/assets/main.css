@@ -74,10 +74,12 @@
   --color-element-hover: var(--gray-4);
   --color-element-active: var(--gray-5);
   /* keyboard カーソル行 (picker / list の選択)。無彩色の hover (element-hover) と色相で
-     分離するための低輝度 accent 面。上に乗せる text は foreground (約 8:1) /
-     foreground-low (約 4.4:1) まで — foreground-muted (約 2.5:1) は載せない。
-     step 9 solid (primary) は前景色の全上書きとセットの戦略なのでリスト選択に使わない */
-  --color-selection: var(--blue-5);
+     分離するための低輝度 accent 面。上に乗せる text は foreground (約 9.3:1) /
+     foreground-low・intent-text (約 5.3:1) まで — foreground-muted (約 3.0:1) は載せない。
+     primary-subtle-hover と同値だが役割は別 (あちらは active row の hover で、focused list の
+     カーソル行と同一リストに並ばない)。step 9 solid (primary) は前景色の全上書きとセットの
+     戦略なのでリスト選択に使わない */
+  --color-selection: var(--blue-4);
 
   /* borders (6-8 step roles) */
   --color-border-subtle: var(--gray-6);

@@ -37,9 +37,9 @@
      Leonardo pipeline は hue × 12-step の contrast 均一 scale を生成するが、age scale は
      帯ごとに明度・彩度を個別設計した色名スケールでありその形に乗らない。全値は
      選択カーソル行 (blue-4) 上で WCAG AA (4.5:1) を満たす明度帯域に収める。
-     day 帯 (green-11) と date 帯 (gray-11) は生成 primitive を Tier 2 が直接参照する */
-  --age-week-primitive: oklch(0.87 0.155 97);
-  --age-month-primitive: oklch(0.74 0.15 52);
+     hour 帯 (green-11) と date 帯 (gray-11) は生成 primitive を Tier 2 が直接参照する */
+  --age-day-primitive: oklch(0.87 0.155 97);
+  --age-week-primitive: oklch(0.74 0.15 52);
 }
 
 /* layout 定数: カスタムタイトルバー（TitleBar.vue）の高さ。
@@ -170,20 +170,22 @@
   --color-channel-dev-subtle: var(--green-3);
   --color-channel-dev-foreground: var(--gray-12);
 
-  /* age scale (text-only): 一覧の相対日時が示す鮮度の 4 段階 (day / week / month / date)。
-     帯の境界と token の対応は shared/time の formatRelativeAge が SSOT。経過時間は
-     データエンコーディングであって intent (成功 / 警告) ではないため、intent token を
-     借りず独立 role を持つ。散在する小さい文字を凡例なしで見分ける絶対識別のため、
-     隣接帯は「別の色名」(隣接 ΔE ≥ 15、OKLab ×100) になるよう hue で分離する。
-     グレー階調や彩度差だけの段分けは小サイズ文字で知覚できない (small-field effect)
-     ため使わない。全段が選択カーソル行 (bg-selection) 上で AA (4.5:1) を満たす。 */
+  /* age scale (text-only): 一覧の相対日時が示す鮮度の 4 段階。帯名は表示単位
+     (hour = 分・時間表記、day = 日、week = 週、date = 絶対日付) で、色帯の境界と
+     表示単位の切り替わりが一致する。帯の境界と token の対応は shared/time の
+     formatRelativeAge が SSOT。経過時間はデータエンコーディングであって intent
+     (成功 / 警告) ではないため、intent token を借りず独立 role を持つ。散在する小さい
+     文字を凡例なしで見分ける絶対識別のため、隣接帯は「別の色名」(隣接 ΔE ≥ 15、
+     OKLab ×100) になるよう hue で分離する。グレー階調や彩度差だけの段分けは小サイズ
+     文字で知覚できない (small-field effect) ため使わない。全段が選択カーソル行
+     (bg-selection) 上で AA (4.5:1) を満たす。 */
   /* フレッシュ (今日動いている)。green-11 と同値だが success (完了) とは独立した role */
-  --color-age-day: var(--green-11);
+  --color-age-hour: var(--green-11);
   /* 少し古い (今週の動き) */
-  --color-age-week: var(--age-week-primitive);
+  --color-age-day: var(--age-day-primitive);
   /* stale (1 週間以上動いていない) */
-  --color-age-month: var(--age-month-primitive);
-  /* 陳腐化 (30 日以上動きがなく、絶対日付表記に切り替わった段)。foreground-low と
+  --color-age-week: var(--age-week-primitive);
+  /* 陳腐化 (4 週間以上動きがなく、絶対日付表記に切り替わった帯)。foreground-low と
      同値だが独立 role (text 階層の restyle に鮮度表示が追従しないよう分離) */
   --color-age-date: var(--gray-11);
 

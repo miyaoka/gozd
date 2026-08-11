@@ -177,8 +177,9 @@ chip と banner の使い分け: 本文が短く intent 色で塗っても可読
 
 ### Age scale (`age-*`, text-only)
 
-相対日時の鮮度 4 段階（`age-day` / `age-week` / `age-month` / `age-date`）。帯の境界と
-token の対応は `relativeAge.ts`、色値と各帯の意味は `main.css` の定義コメントが SSOT。
+相対日時の鮮度 4 段階（`age-hour` / `age-day` / `age-week` / `age-date`、帯名は表示単位）。
+帯の境界と token の対応は `relativeAge.ts`、色値と各帯の意味は `main.css` の定義コメントが
+SSOT。
 
 - 鮮度を塗る一覧はすべてこのスケールを使う。intent（success / warning 等）を鮮度に
   流用しない（経過時間はデータエンコーディングであって状態の意味ではない）

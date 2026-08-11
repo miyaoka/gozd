@@ -490,8 +490,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     // 後で requestResumeSession に入る経路では focus を呼ばないため、ここで focus に倒す。
     const livePtyId = claude.getPtyIdBySessionId(sessionId);
     if (livePtyId !== undefined) {
-      const liveLeafId = leafIdByPtyId.value.get(livePtyId);
-      if (liveLeafId !== undefined) layout.focusPane(liveLeafId);
+      focusPaneByPtyId(livePtyId, dir);
       return;
     }
     // 連打ガード: 同一 sessionId の resume が in-flight (spawn 中 / claude --resume
@@ -624,6 +623,24 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   /**
+   * ptyId の leaf を解決して focus する。live PTY があるのに leaf が引けないのは
+   * paneRegistry の不整合で、到達すると「クリックしたのに何も起きない」に見えるため
+   * エラートーストで通知する。不変条件の記述と通知文言をここに一元化し、
+   * 呼び出し側ごとの解決 + 失敗処理の複製を作らない。
+   */
+  function focusPaneByPtyId(ptyId: number, dir: string): void {
+    const leafId = leafIdByPtyId.value.get(ptyId);
+    if (leafId === undefined) {
+      notify.error(
+        "Failed to focus session terminal",
+        new Error(`no leaf for pty ptyId=${ptyId} dir=${dir}`),
+      );
+      return;
+    }
+    layout.focusPane(leafId);
+  }
+
+  /**
    * dir の focus が当たっている PTY が、その session のものかどうか。
    * サイドバーの「fill (青 capsule) はカード内 1 行だけ」という不変条件の判定 SSOT で、
    * wt カード (WtCard) と active session ペインが共有する。同じ不変条件を 2 実装で守ると、
@@ -699,6 +716,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     resetLayout: layout.resetLayout,
     resizeBranch: layout.resizeBranch,
     focusPane: layout.focusPane,
+    focusPaneByPtyId,
     remove: removeWorktreeFromLayout,
     // pty
     spawnPty: ptySession.spawnPty,

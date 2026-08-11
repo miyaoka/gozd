@@ -193,23 +193,19 @@ function onSelectSessionWt(wt: WorktreeEntry) {
 }
 
 // lookup が両方成功するのは下段の不変条件（行は live session を持つ task だけ）だが、
-// 破れると「クリックしたのに何も起きない」だけになり痕跡が残らない。到達しないなら
-// コストは無く、不変条件が破れた瞬間だけ検出できるので観察ログを残す。
+// 破れると「クリックしたのに何も起きない」に見える。上段 (openTaskSession) と同じく
+// エラートーストで通知する。
 function onSelectSessionTask(wt: WorktreeEntry, task: Task) {
   worktreeStore.setOpen(wt.path);
   const ptyId = terminalStore.getPtyIdBySessionId(task.sessionId);
   if (ptyId === undefined) {
-    console.error(
-      `[onSelectSessionTask] no pty for session sessionId=${task.sessionId} dir=${wt.path}`,
+    notify.error(
+      "Failed to focus session terminal",
+      new Error(`no pty for session sessionId=${task.sessionId} dir=${wt.path}`),
     );
     return;
   }
-  const leafId = terminalStore.getLeafIdByPtyId(ptyId);
-  if (leafId === undefined) {
-    console.error(`[onSelectSessionTask] no leaf for pty ptyId=${ptyId} dir=${wt.path}`);
-    return;
-  }
-  terminalStore.focusPane(leafId);
+  terminalStore.focusPaneByPtyId(ptyId, wt.path);
 }
 
 async function handleTaskRemove(rootDir: string, task: Task) {

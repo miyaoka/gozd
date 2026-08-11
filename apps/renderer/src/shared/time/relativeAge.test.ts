@@ -23,6 +23,7 @@ describe("formatRelativeAge", () => {
   test("日付が分からない項目はテキストを出さない", () => {
     // 呼び出し側に fallback を書かせないため、空文字を関数仕様として固定する
     expect(formatRelativeAge(0, NOW).text).toBe("");
+    expect(formatRelativeAge(0, NOW).color).toBe("text-foreground-muted");
     expect(formatRelativeAge(-1, NOW).text).toBe("");
     expect(formatRelativeAge(isoToUnixSec("not a date"), NOW).text).toBe("");
   });

@@ -18,7 +18,7 @@ import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import { selectDir } from "../../../sidebar";
+import { activateDir } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { useWorktreeStore } from "../../../worktree";
 import { rpcReviveSession, rpcReviveSessionList } from "./rpc";
@@ -65,7 +65,7 @@ export function registerReviveCommand(): () => void {
     // 明示ヒントとして渡す。作り直した worktree は未訪問なので、setOpen 起点の visit が
     // このヒントを消費して初期 leaf に `claude --resume <sessionId>` を仕込む。
     terminalStore.requestResumeSession(result.value.dir, session.sessionId);
-    selectDir(result.value.dir);
+    activateDir(result.value.dir);
   }
 
   /** loading で picker を開き、fetch 完了後に一覧を埋める。gen で stale 応答を捨てる。 */

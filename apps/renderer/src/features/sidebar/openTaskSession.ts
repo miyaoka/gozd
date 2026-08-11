@@ -1,20 +1,6 @@
 import type { Task } from "@gozd/rpc";
 import { useTerminalStore } from "../terminal";
-import { useWorktreeStore } from "../worktree";
-
-/**
- * viewMode を wt に倒し setOpen で selectedDir を切り替える選択プリミティブ。
- * dir を active にする選択はこの関数を経由し、viewMode / setOpen の 2 行を直書きしない
- * (setOpen を伴わない viewMode 単独の切替 — terminal の split 系 — は別の操作で対象外)。
- * setOpen は冪等で、同一 dir の再選択でも selectionVersion が発火し
- * useTerminalStore 側の watch が done を消化する。
- */
-export function selectDir(dir: string): void {
-  const terminalStore = useTerminalStore();
-  const worktreeStore = useWorktreeStore();
-  terminalStore.viewMode = "wt";
-  worktreeStore.setOpen(dir);
-}
+import { activateDir } from "./activateDir";
 
 /**
  * task を選択して「dir を active にし、session へ到達する」分岐の SSOT。
@@ -32,16 +18,16 @@ export function openTaskSession(dir: string, task: Task): void {
   const terminalStore = useTerminalStore();
   if (task.sessionId === "") {
     terminalStore.requestNewClaudeSession(dir);
-    selectDir(dir);
+    activateDir(dir);
     return;
   }
   const ptyId = terminalStore.getPtyIdBySessionId(task.sessionId);
   if (ptyId === undefined) {
     terminalStore.requestResumeSession(dir, task.sessionId);
-    selectDir(dir);
+    activateDir(dir);
     return;
   }
-  selectDir(dir);
+  activateDir(dir);
   const leafId = terminalStore.getLeafIdByPtyId(ptyId);
   if (leafId === undefined) {
     // live PTY があるのに leaf が引けないのは paneRegistry の不整合。到達すると

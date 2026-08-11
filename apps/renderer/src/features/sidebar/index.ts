@@ -1,4 +1,5 @@
-export { openTaskSession, selectDir } from "./openTaskSession";
+export { activateDir } from "./activateDir";
+export { openTaskSession } from "./openTaskSession";
 export { default as SidebarPane } from "./SidebarPane.vue";
 export { rpcCreateWorktree, rpcGitDefaultBranch, rpcGitWorktreeList, rpcTaskAdd } from "./rpc";
 export type { BranchChangePayload, FsWatchReadyPayload, RemoteRefsChangePayload } from "./rpc";

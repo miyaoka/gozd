@@ -128,7 +128,7 @@ useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
-const { isCreatingFor, selectDir, handleWorktreeSelect, addWorktree, handleWorktreeRemove } =
+const { isCreatingFor, activateDir, handleWorktreeSelect, addWorktree, handleWorktreeRemove } =
   useWorktreeActions({
     showConfirm,
   });
@@ -164,7 +164,7 @@ function onSelectWt(wt: WorktreeEntry) {
 
 // 非 git project ヘッダ経路。dir 選択プリミティブに委譲して rootDir を active にする。
 function onSelectRoot(rootDir: string) {
-  selectDir(rootDir);
+  activateDir(rootDir);
 }
 
 function onSelectTask(wt: WorktreeEntry, task: Task) {
@@ -177,7 +177,7 @@ function onSelectTask(wt: WorktreeEntry, task: Task) {
 //
 // 上段と違い viewMode を倒さない。下段のクリックは「動いているタイルへ focus を移す」
 // 操作で、docs/terminal.md の「横断ビュー（all / claude）では focus 追従のみ行い viewMode は
-// 変更しない」規律と同じ意味論になる。selectDir（= wt ビューへ移動する）を通すと、claude
+// 変更しない」規律と同じ意味論になる。activateDir（= wt ビューへ移動する）を通すと、claude
 // タイル表示中に下段を触った瞬間にタイルが畳まれ、常設ペインとして使えない。
 //
 // 下段の行は live session を持つ task だけなので（collectActiveSessionGroups が status で

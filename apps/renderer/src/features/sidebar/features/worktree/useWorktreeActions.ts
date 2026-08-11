@@ -5,7 +5,7 @@ import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp } from "../../../worktree";
-import { selectDir } from "../../openTaskSession";
+import { activateDir } from "../../activateDir";
 import { rpcCreateWorktree, rpcGitDefaultBranch, rpcGitWorktreeRemove } from "../../rpc";
 import { worktreeDisplayName } from "../../utils";
 
@@ -27,7 +27,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
   const creatingRootDirs = ref(new Set<string>());
 
   function handleWorktreeSelect(wt: WorktreeEntry) {
-    selectDir(wt.path);
+    activateDir(wt.path);
   }
 
   // --- store 更新 helpers ---
@@ -69,9 +69,9 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
       );
       if (result.ok && result.value.worktree !== undefined) {
         repoStore.appendWorktree(rootDir, result.value.worktree);
-        // setOpen（selectDir 内）が visit を駆動する前に setup ヒントを立てる
+        // setOpen（activateDir 内）が visit を駆動する前に setup ヒントを立てる
         terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
-        selectDir(result.value.dir);
+        activateDir(result.value.dir);
       } else {
         notify.error("Failed to add worktree", result.ok ? undefined : result.error);
       }
@@ -110,7 +110,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   return {
     isCreatingFor,
-    selectDir,
+    activateDir,
     handleWorktreeSelect,
     addWorktree,
     handleWorktreeRemove,

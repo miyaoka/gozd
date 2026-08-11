@@ -22,7 +22,7 @@ click-to-front、ESC / Cmd+W はフォーカスがあるサーフェスを閉じ
 import { computed, useTemplateRef } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import { useSurface } from "../../shared/surface";
-import { selectDir } from "../sidebar";
+import { activateDir } from "../sidebar";
 import { useTerminalStore } from "../terminal";
 import type { ServerAttributionKind } from "./rpc";
 import { useServerStore } from "./useServerStore";
@@ -116,7 +116,7 @@ const rows = computed<ServerRow[]>(() => {
 function onRowClick(row: ServerRow): void {
   // worktree が解決できない行 (external / 削除済み orphaned) は開けない。
   if (!row.openable) return;
-  selectDir(row.worktreePath);
+  activateDir(row.worktreePath);
   // live なら該当端末ペインへフォーカスする (ptyId は帰属先 PTY)。
   if (row.ptyId > 0) {
     const leafId = terminalStore.getLeafIdByPtyId(row.ptyId);

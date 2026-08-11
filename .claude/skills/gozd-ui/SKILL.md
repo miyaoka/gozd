@@ -85,10 +85,10 @@ VS Code が list 専用色 (`list.activeSelectionBackground` / `list.hoverBackgr
   on-accent 色へ強制上書きする」(VS Code / macOS の流儀。VS Code は dark でも
   `list.activeSelectionForeground: white` を背景と組で定義する) とセットでのみ成立する。
   列ごとに意味を持つ色 (branch / 鮮度) を載せる gozd の行では情報が死ぬため不採用
-- **カーソル行と同一色相の subtle 面を同じリストに常設しない**。`bg-selection` (blue-4) と
+- **カーソル行と同一色相の subtle 面を、行の背景として同じリストに常設しない**。`bg-selection` (blue-4) と
   `bg-primary-subtle(-hover)` (blue-3/4) は隣接 step または同値であり、同時に並ぶとこの節が
   禁じた「同一 scale 内の同時対比」が blue 側で再発する。行の属性表示は icon / text
-  チャネルへ逃がす
+  チャネルへ逃がす (行内のマッチハイライト等、行背景でない subtle チップは対象外)
 - **selection と hover の分離は彩度だけが担う**。blue-4 と gray-4 は同 step でほぼ同輝度
   (輝度比 約 1.005:1) のため、グレースケール環境では区別できない。selection の彩度を
   落とす変更をしない。より強い区別が必要になったら色以外のチャネル (左端のアクセントバー等)

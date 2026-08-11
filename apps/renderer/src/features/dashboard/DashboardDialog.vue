@@ -51,7 +51,8 @@ const filteredRows = computed((): DashboardRow[] => {
 
   const scored: Array<{ row: DashboardRow; score: number }> = [];
   for (const row of rows.value) {
-    const result = fuzzyMatch(`${row.title} ${row.repoName} ${row.branch}`, q);
+    // owner (org) は UI 表示しないが絞り込み対象には含める
+    const result = fuzzyMatch(`${row.title} ${row.repoName} ${row.branch} ${row.owner ?? ""}`, q);
     if (result) {
       scored.push({ row, score: result.score });
     }

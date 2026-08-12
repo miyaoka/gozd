@@ -26,6 +26,7 @@ my work パネルの 1 ペイン。描くのは与えられた 1 軸ぶんで、
 import type { GitMyWorkGroup } from "@gozd/rpc";
 import { computed } from "vue";
 import { activateExternalLink, ITEM_KIND_DISPLAY } from "../github-item";
+import { isMyWorkTruncated, myWorkCountDisplay, myWorkEmptyMessage } from "./myWorkCountDisplay";
 import MyWorkRow from "./MyWorkRow.vue";
 import IconLucideExternalLink from "~icons/lucide/external-link";
 
@@ -48,41 +49,20 @@ const links = computed(() => {
   }));
 });
 
-/**
- * 取得上限で切れているか。真偽値を境界で運ばず、総件数と取得件数の比較で導出する。
- *
- * 比較するのは `visibleItems` ではなく `group.items`。絞り込みは取得済みの行の中でしか
- * 効かないため、切れているかどうかは絞り込みで変わらない。
- */
-const isTruncated = computed(() => props.group.totalCount > props.group.items.length);
+/** 件数表示の入力。取得結果と絞り込みの状態だけで決まる */
+const countInput = computed(() => ({
+  unreadOnly: props.unreadOnly,
+  visibleCount: visibleItems.value.length,
+  fetchedCount: props.group.items.length,
+  totalCount: props.group.totalCount,
+}));
 
-/**
- * 絞り込み中は表示件数、そうでなければ総件数を出す。
- *
- * 絞り込み中に `表示件数 / 総件数` の形にしない。その形は「取得上限で切れている」ことを
- * 表す語彙として既に使われており、同じ表記に「絞り込んだ」の意味を重ねると、読む側が
- * 2 つを区別できなくなる。切れている事実は数字の色と説明が引き続き運ぶ。
- */
-const countLabel = computed(() => {
-  if (props.unreadOnly) return `${visibleItems.value.length}`;
-  return isTruncated.value
-    ? `${props.group.items.length} / ${props.group.totalCount}`
-    : `${props.group.totalCount}`;
-});
+/** 取得上限で切れているか。数字の色を切り替えるためだけに使う（表記の判断は表示側が持つ） */
+const isTruncated = computed(() => isMyWorkTruncated(countInput.value));
 
-/** 空の理由を書き分ける。絞り込み中の空は「この軸に何も無い」ではなく「未読が無い」 */
-const emptyMessage = computed(() => (props.unreadOnly ? "No unread items" : "Nothing here"));
+const countDisplay = computed(() => myWorkCountDisplay(countInput.value));
 
-const countTitle = computed(() => {
-  if (props.unreadOnly) {
-    return isTruncated.value
-      ? `${visibleItems.value.length} unread among the ${props.group.items.length} most recently updated of ${props.group.totalCount}`
-      : `${visibleItems.value.length} unread of ${props.group.totalCount}`;
-  }
-  return isTruncated.value
-    ? `Showing the ${props.group.items.length} most recently updated of ${props.group.totalCount}`
-    : `${props.group.totalCount} total`;
-});
+const emptyMessage = computed(() => myWorkEmptyMessage(props.unreadOnly));
 </script>
 
 <template>
@@ -96,9 +76,9 @@ const countTitle = computed(() => {
         <span
           class="shrink-0 tabular-nums"
           :class="isTruncated ? 'text-warning-text' : 'text-foreground-muted'"
-          :title="countTitle"
+          :title="countDisplay.title"
         >
-          {{ countLabel }}
+          {{ countDisplay.label }}
         </span>
       </span>
       <a

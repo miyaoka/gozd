@@ -118,8 +118,10 @@ const SOLID_STEPS: Record<keyof typeof INTENT_ON_SOLID, { rest: number; hover?: 
   orange: { rest: 9 },
 };
 
-/* Tier 2 が hover に使う alpha の step。面の上限判定はこの層を重ねた後の色で行う。
- * hover は加算なので、載りうる最も明るい面は gray の step だけでは表せない。 */
+/* hover の層に使う alpha の step。値は role (`--surface-hover-layer`) として出し、Tier 2 は
+ * それを参照するだけにする — Tier 2 が別の alpha を選べると、面の上限判定の前提が黙って崩れる。
+ * 面の上限判定はこの層を重ねた後の色で行う (載りうる最も明るい面は gray の step だけでは
+ * 表せない)。solid の輪郭は下限ぎりぎりなので、濃くすると assert が落ちる。 */
 const HOVER_ALPHA_STEP = 2;
 
 /* solid 面が載る最も明るい下地 (panel)。面自体が下地から 3:1 離れていないと輪郭を失う (1.4.11)。
@@ -375,6 +377,9 @@ assertContrast(
 lines.push(``);
 lines.push(`  /* focus ring: gray-${RING_MAX_SURFACE_STEP} までの面に対して 3:1 を満たす */`);
 lines.push(`  --ring-primitive: ${oklchToCss(ringColor)};`);
+lines.push(``);
+lines.push(`  /* hover の層。面の上限判定がこの値を前提に組まれているため、利用側で選び直さない */`);
+lines.push(`  --surface-hover-layer: oklch(1 0 0 / ${hoverAlpha});`);
 
 /* age 帯の値を組み立て、scale 内不変条件を検証してから primitive として出力する */
 if (greenHexes === undefined) {

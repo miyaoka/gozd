@@ -71,7 +71,11 @@ alpha variant と同じ流儀。
   告げるだけの一時的な変化で、恒久的な面のような読みやすさの要件を負わない
 - **hover 専用**。rest の面に `bg-element-hover` を使わない。使うとその要素の地の色が下地任せに
   なり、置いた場所で見えが変わる。rest は `bg-element`
-- **層なので加算**になる。元が明るい面ほど hover が強く出る。置換のつもりで step 差を見積もらない
+- **どの rest 面でもほぼ同じ比で持ち上がる**。層は白との差に比例して効くため、明るい面ほど
+  絶対的な増分は小さくなり、比は揃う。step 差で見積もると誤る（置換なら暗い面ほど大きく動き、
+  明るい面では逆に暗くなる）
+- **濃さは生成側が持つ**。面の上限判定がその値を前提に組まれているので、利用側で alpha を
+  選び直さない
 - **層は border と content の下に塗られる** (CSS Backgrounds 3: borders are drawn in front of the
   element's background)。行の border や子要素は層で持ち上がらない
 - WCAG が hover 面そのものに 3:1 を要求しないのは、hover の視覚強調が supplemental だから

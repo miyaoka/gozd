@@ -102,7 +102,7 @@
 
   /* focus ring。値は生成側が持つ (ring が載りうる最も明るい面に対して 3:1 を満たすことを
      生成時に検証する)。border 帯の step を借りると、bg より明るい面に載った瞬間に 3:1 を割る */
-  --color-ring: var(--ring-primitive);
+  --color-ring: var(--ring);
 
   /* overlay: black alpha (dialog backdrop で前景を意図的に見せる UX 要件。
      Radix Tooltip / Material modal / Spectrum overlay と同じ業界標準パターン) */

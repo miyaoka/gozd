@@ -88,9 +88,8 @@ alpha variant と同じ流儀。
 #### リスト選択とホバーは色相で分離する (`bg-selection`)
 
 リストでは「keyboard カーソル行」と「マウス hover 行」が**別の行として同時に画面に出る**。
-dark パレットの低 step は圧縮されており、隣接 gray step の同時対比 (element-active gray-5 vs
-element-hover gray-4、ΔL 0.05) は人間に判別できない。**同一 scale の隣接 step に、同時に
-視界へ並ぶ 2 状態を割り当てない**。これは Radix の step 規約 (単一要素の遷移) の適用範囲外で、
+dark パレットの低 step は圧縮されており、隣接 gray step の同時対比 (ΔL 0.05 前後) は人間に
+判別できない。**同一 scale の隣接 step に、同時に視界へ並ぶ 2 状態を割り当てない**。これは Radix の step 規約 (単一要素の遷移) の適用範囲外で、
 VS Code が list 専用色 (`list.activeSelectionBackground` / `list.hoverBackground`) を別立てする
 理由でもある。
 
@@ -102,7 +101,9 @@ VS Code が list 専用色 (`list.activeSelectionBackground` / `list.hoverBackgr
   約 3.0:1 で AA を割るため載せない**。step 5 は step-11 系 text が約 4.4:1 で
   AA をわずかに割るため使わない
 - **hover 行**: `hover:bg-element-hover` (無彩色の層)。選択とは色相で分かれる。行の中に色を持つ
-  要素があっても、層なので一緒に持ち上がり、その要素だけが取り残されない
+  要素 (バー / ドット / バッジ) は層で持ち上がらないので、それらと背景の contrast は hover 中に
+  縮む。恒久的な面ではないため下限は課さないが、行の状態をその要素だけで伝えているなら、rest で
+  余裕を持たせておく
 - **`bg-primary` (step 9 solid) をリスト選択に使わない**。solid accent 戦略は「子孫の全テキスト色を
   on-accent 色へ強制上書きする」(VS Code / macOS の流儀。VS Code は dark でも
   `list.activeSelectionForeground: white` を背景と組で定義する) とセットでのみ成立する。

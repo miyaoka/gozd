@@ -376,10 +376,10 @@ assertContrast(
 );
 lines.push(``);
 lines.push(`  /* focus ring: gray-${RING_MAX_SURFACE_STEP} までの面に対して 3:1 を満たす */`);
-lines.push(`  --ring-primitive: ${oklchToCss(ringColor)};`);
+lines.push(`  --ring: ${oklchToCss(ringColor)};`);
 lines.push(``);
 lines.push(`  /* hover の層。面の上限判定がこの値を前提に組まれているため、利用側で選び直さない */`);
-lines.push(`  --surface-hover-layer: oklch(1 0 0 / ${hoverAlpha});`);
+lines.push(`  --surface-hover-layer: var(--gray-a${HOVER_ALPHA_STEP});`);
 
 /* age 帯の値を組み立て、scale 内不変条件を検証してから primitive として出力する */
 if (greenHexes === undefined) {

@@ -126,19 +126,19 @@
      bg に対して 14:1 で生成された値で、solid 面の前景として設計されていないため。 */
 
   /* intent: primary (blue) */
-  --color-primary: var(--blue-9);
+  --color-primary: var(--blue-solid);
   /* solid の hover は暗い側へ動かす。白前景を載せる面は明るくすると前景が AA を割るため
      (許容される bg 比の上限と rest の値の間に余地が無い)。生成側の SOLID_STEPS が根拠 */
-  --color-primary-hover: var(--blue-8);
+  --color-primary-hover: var(--blue-solid-hover);
   --color-primary-subtle: var(--blue-3);
   --color-primary-subtle-hover: var(--blue-4);
   --color-primary-text: var(--blue-11);
   --color-primary-foreground: var(--blue-on-solid);
 
   /* intent: destructive (red) */
-  --color-destructive: var(--red-9);
+  --color-destructive: var(--red-solid);
   /* hover を暗い側へ動かす理由は primary と同じ */
-  --color-destructive-hover: var(--red-8);
+  --color-destructive-hover: var(--red-solid-hover);
   --color-destructive-subtle: var(--red-3);
   /* subtle-emphasis (step 5): subtle bg の上に重ねる静的な強調面。diff の行内 (文字単位)
      変更範囲で使用。dark パレットの低 step は差が圧縮されているため、subtle との知覚差は
@@ -149,7 +149,7 @@
   --color-destructive-foreground: var(--red-on-solid);
 
   /* intent: success (green)。-hover は未利用 (solid success button が無い) */
-  --color-success: var(--green-9);
+  --color-success: var(--green-solid);
   --color-success-subtle: var(--green-3);
   /* subtle-emphasis (step 5): destructive-subtle-emphasis と同じ役割 */
   --color-success-subtle-emphasis: var(--green-5);
@@ -157,7 +157,7 @@
   --color-success-foreground: var(--green-on-solid);
 
   /* intent: warning (amber、solid は light yellow → foreground は dark)。-hover は未利用 */
-  --color-warning: var(--amber-9);
+  --color-warning: var(--amber-solid);
   --color-warning-subtle: var(--amber-3);
   --color-warning-text: var(--amber-11);
   --color-warning-foreground: var(--amber-on-solid);
@@ -167,7 +167,7 @@
      warning と区別する用途が出ていない)。必要になった時点で
      `--color-warning-strong-hover: var(--orange-10)` /
      `--color-warning-strong-subtle: var(--orange-3)` を追加する */
-  --color-warning-strong: var(--orange-9);
+  --color-warning-strong: var(--orange-solid);
   --color-warning-strong-text: var(--orange-11);
   --color-warning-strong-foreground: var(--orange-on-solid);
 
@@ -177,7 +177,7 @@
   /* channel 識別 (dev 起動バッジ、TitleBar.vue)。緑系だが success (完了/成功) とは
      独立した role。「dev channel で起動している」は環境の識別であり成功状態ではない
      ため、success の色相変更に巻き込まれない専用 alias を持つ */
-  --color-channel-dev: var(--green-9);
+  --color-channel-dev: var(--green-solid);
   --color-channel-dev-subtle: var(--green-3);
   --color-channel-dev-foreground: var(--green-on-solid);
 

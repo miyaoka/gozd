@@ -108,16 +108,28 @@ const INTENT_ON_SOLID = {
  *
  * 暗前景の面は rest だけ。前景が bg と同色なので、暗い側へ動かすと前景との差が縮んで割れる
  * (step 8 は 3.50:1)。hover を要求する用途が出た時点で、明るい側の step で帯を広げる。 */
-const SOLID_STEPS: Record<"light" | "dark", readonly number[]> = {
-  light: [8, 9],
-  dark: [9],
+const SOLID_STEPS: Record<"light" | "dark", { rest: number; hover?: number }> = {
+  light: { rest: 9, hover: 8 },
+  dark: { rest: 9 },
 };
 
-/* focus ring に使う step と、ring が載りうる最も明るい面 (element-hover)。ring は interactive な
- * 面の縁に描かれるため、bg ではなく **その面** に対して 3:1 を要求される (1.4.11)。border 帯
- * (step 8) は bg より明るい面の上で 3:1 を割るので使えない。 */
+/* solid 面が載る最も明るい下地 (panel)。面自体が下地から 3:1 離れていないと輪郭を失う (1.4.11)。
+ *
+ * この要件は **rest にだけ**掛ける。hover は状態の識別に必要な情報ではなく supplemental な
+ * 変化なので、面そのものに 3:1 は要求されない (W3C の Understanding 1.4.11)。hover にも掛けると、
+ * 白前景 AA を保つために暗くした面と両立せず、値のチューニングでは抜けられない。
+ *
+ * element (gray-3) 以上の面は上限に取れない。白と bg の比が固定である以上、白前景 AA を保てる
+ * 面の明るさには上限があり、その面が element の上で 3:1 を得ることは数学的に成立しないため。 */
+const SOLID_MAX_SURFACE_STEP = 2;
+
+/* focus ring に使う step と、ring が載りうる最も明るい面。ring は interactive な面の縁に
+ * 描かれるため、bg ではなく **その面** に対して 3:1 を要求される (1.4.11)。border 帯 (step 8) は
+ * bg より明るい面の上で 3:1 を割るので使えない。
+ * 面の上限は element-active (gray-5) を取る。focusable な button の背景として使われており、
+ * hover の層が element に重なった面もこの明るさに達する。 */
 const RING_STEP = 11;
-const RING_MAX_SURFACE_STEP = 4;
+const RING_MAX_SURFACE_STEP = 5;
 
 /* 前景の実体。light は純白、dark は bg と同色 (gray scale の 1 段目) を使う */
 const ON_SOLID_LIGHT: Oklch = [1, 0, 0];
@@ -290,7 +302,11 @@ for (const name of INTENT_NAMES) {
      無言で割れる（step を跨いで同じ前景を載せるため） */
   const fgKind = INTENT_ON_SOLID[name];
   const onSolid = fgKind === "light" ? ON_SOLID_LIGHT : onSolidDark;
-  const solidSteps = SOLID_STEPS[fgKind];
+  const roles = SOLID_STEPS[fgKind];
+  const solidSteps = roles.hover === undefined ? [roles.rest] : [roles.rest, roles.hover];
+
+  /* 前景は rest / hover の両方で AA を要求する。文字を読むのは hover 中も同じで、
+     step を跨いで同じ前景が載るため */
   for (const step of solidSteps) {
     assertContrast(
       `${name}-${step} と on-solid`,
@@ -298,13 +314,28 @@ for (const name of INTENT_NAMES) {
       4.5,
     );
   }
+  /* 面の輪郭は rest にだけ要求する (hover は supplemental) */
+  assertContrast(
+    `${name}-${roles.rest} と gray-${SOLID_MAX_SURFACE_STEP}`,
+    wcagContrast(
+      roundedOklchOf(hexes[roles.rest - 1]),
+      roundedOklchOf(grayHexes[SOLID_MAX_SURFACE_STEP - 1]),
+    ),
+    3,
+  );
 
   lines.push(``);
   lines.push(`  /* ${name}: 12-step solid */`);
   for (let i = 0; i < hexes.length; i++) {
     lines.push(`  --${name}-${i + 1}: ${toOklch(hexes[i])};`);
   }
-  lines.push(`  /* solid 面 (steps ${solidSteps.join(" / ")}) に載せる前景 */`);
+  /* 面そのものも role として出す。どの step を solid に使うかを Tier 2 が選べる状態だと、
+     検証されていない step を指しても生成時に気付けない */
+  lines.push(`  /* solid 面と、その面に載せる前景。検証済みの組を role として出す */`);
+  lines.push(`  --${name}-solid: ${toOklch(hexes[roles.rest - 1])};`);
+  if (roles.hover !== undefined) {
+    lines.push(`  --${name}-solid-hover: ${toOklch(hexes[roles.hover - 1])};`);
+  }
   lines.push(`  --${name}-on-solid: ${oklchToCss(onSolid)};`);
 }
 

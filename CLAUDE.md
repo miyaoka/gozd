@@ -102,19 +102,23 @@ renderer の `src/` は **feature** と **shared** の 2 層で構成する。
 
 ### レイヤー
 
-| レイヤー | パス              | 役割                                                                                             |
-| -------- | ----------------- | ------------------------------------------------------------------------------------------------ |
-| feature  | `src/features/*/` | UI 機能単位。コンポーネント・composable・store をまとめる                                        |
-| shared   | `src/shared/*/`   | feature に依存しない基盤モジュール（RPC、コマンドシステム、複数 feature が共有する表示語彙など） |
+| レイヤー | パス              | 役割                                                                                                              |
+| -------- | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| feature  | `src/features/*/` | アプリケーション機能（ドメイン）の単位                                                                            |
+| shared   | `src/shared/*/`   | feature に依存しない基盤モジュール（RPC、コマンドシステム、UI プリミティブ、複数 feature が共有する表示語彙など） |
 
 依存方向: **feature → shared は許可、shared → feature は禁止**。下位層が上位層に依存してはいけない。
 
 shared の制約:
 
 - shared 間の依存は禁止（`barrel-import` ルールの scope 設定で強制）。各モジュールは独立して閉じる
-- コンポーネントは置かない。UI を描く材料（design token を指す class 名など）は、**どの feature
-  にも属さず複数 feature が同じ値を見る必要があるときだけ**置く。特定の機能に属する語彙は
-  feature 側が持つ
+- feature のドメインを知るコンポーネントは置かない。ビジネスロジックを持たない UI プリミティブ
+  （`ResizeHandle` / QuickPick の state 等）だけは `shared/ui` に置く（Feature-Sliced Design の
+  shared/ui 相当）。どの feature に置いても他 feature からの逆流参照を生む部品がここの対象
+- UI を描く材料（design token を指す class 名など）は、**どの feature にも属さず複数 feature が
+  同じ値を見る必要があるときだけ**置く。特定の機能に属する語彙は feature 側が持つ
+- 複数 feature が共有する RPC wrapper と push payload 契約（appConfig / fs watch 等）は
+  `shared/rpc` に置く。単一 feature 専用の RPC wrapper はその feature の `rpc.ts` に置く
 
 ### バレルファイル（index.ts）
 
@@ -131,6 +135,15 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 ```
 
 外部プラグイン `@miyaoka/eslint-plugin-barrel-import` の `barrel-import` ルールがこれを強制する。違反すると lint エラーになる。
+
+### feature 間の依存
+
+- feature 間の依存グラフは **DAG**（循環禁止）。dependency-cruiser が renderer の `lint` で
+  強制する。許可リスト・負債リストは持たない。解消の指針は違反エラー自体に表示される
+- feature と子 feature（包含関係）の相互参照は循環と数えない
+- 循環や共有層化が出たときの降ろし先は、上の「shared の制約」の線引きに従う。複数 feature が
+  参照した時点でそれは所有 feature の実装詳細ではなく共有概念であり、feature のバレルから
+  供給し続けるとその feature が事実上の共有層になる
 
 ### ルール
 

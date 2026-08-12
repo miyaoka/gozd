@@ -11,11 +11,12 @@ my work パネルの 1 行。PR と issue を同じ行フォーマットで描�
 - 左端に repo 所有者のアイコンを軸によらず常設する。repo をまたぐ一覧では「どの repo の
   行か」が最初の手がかりで、2 行目の文字列より先に視覚で掴める。サイドバーの repo と同じ
   `RepoIcon` を使い、gozd 内で repo の顔を 1 種類に保つ
-- アイコンは行内の相手を指すものではないため、行末の author アバターと役割が競合しない。
-  author が自分に固定される軸（My issues / My pull requests）でもアバターの意味は変わらず、
-  行の形が軸によって変わらない
+- 左端のアイコンは repo の所有者を、行末のアバターは author を指す。自分の repo にある
+  自分の issue / PR では両端が同じ画像になるが、それはその行に区別すべき相手が居ないことの
+  表れであって、どちらかを軸ごとに隠すと行の形が軸によって変わる
 - アイコンは 2 行ぶんの高さの中央に置く。上端に揃えると 1 行目の文字より背が高い分だけ
-  はみ出して見える
+  はみ出して見える。行の高さはテキスト列（種別アイコン 14px と author アバター 16px を
+  含む 2 行）が決めるため、24px のアイコンを足しても行は高くならない
 - `checkState` が undefined なのは **check が 1 つも登録されていない PR** であって取得漏れ
   ではない。issue も同じ undefined に落ちるため、ドットごと出さない（欠けた要約を
   「不明」として描かない契約は docs/git.md）
@@ -46,7 +47,6 @@ import IconLucideMessageSquare from "~icons/lucide/message-square";
 
 const props = defineProps<{ item: GitMyWorkItem }>();
 
-/** `repo` は `owner/name`。RepoIcon は owner でアバターを引き、name を identicon の種にする */
 const repoIdentity = computed(() => {
   const [owner = "", name = ""] = props.item.repo.split("/");
   return { owner, name };

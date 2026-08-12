@@ -14,7 +14,7 @@
  * 構成する（ref の同値代入は watch を発火させない）。voicevox store は値変化で configSave を
  * 発火する watch を持つため、この性質がエコーループの収束条件になっている。
  */
-import type { AppConfig } from "@gozd/rpc";
+import type { AppConfig, AppConfigChangePayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage, rpcLoadAppConfig } from "../../shared/rpc";
@@ -26,10 +26,6 @@ import {
   terminalFontSize,
 } from "../terminal";
 import { useVoicevoxStore } from "../voicevox";
-
-interface AppConfigChangePayload {
-  config: AppConfig;
-}
 
 /**
  * 副作用のないセクション（theme / font）の適用。ref への冪等な代入だけで構成されるため、

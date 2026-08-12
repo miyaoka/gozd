@@ -16,6 +16,7 @@
 // 辿れず全サーバーが誤帰属し、lsof 失敗時は「0 件」誤 snapshot で全バッジが消える。
 // どちらも次の成功スキャンまで前回 snapshot を維持する（空配列 = 正当な 0 件は push する）。
 
+import type { ServerAttribution, ServerEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -27,16 +28,10 @@ const SCAN_INTERVAL_MS = 3000;
 // ppid チェーンを辿る最大段数。循環 / 異常な親子関係でも無限ループしない安全弁
 const MAX_ANCESTRY_DEPTH = 64;
 
-export type ServerAttributionKind = "live" | "orphaned" | "external";
+export type ServerAttributionKind = ServerAttribution;
 
-export interface ScannedServer {
-  pid: number;
-  name: string;
-  ports: number[];
-  attribution: ServerAttributionKind;
-  worktreePath: string;
-  ptyId: number;
-}
+/** スキャン結果。ワイヤ型 (`ServerEntry`) をそのまま内部表現として使う。 */
+export type ScannedServer = ServerEntry;
 
 export interface PtyOwner {
   ptyId: number;

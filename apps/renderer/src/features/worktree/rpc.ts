@@ -15,7 +15,6 @@ import {
   GitWorktreeListResponse,
   GitWorktreeRemoveRequest,
   GitWorktreeRemoveResponse,
-  UpstreamStatus,
 } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
@@ -46,44 +45,3 @@ export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
 // 非 github.com / remote 未設定は空文字。
 export const rpcGitGithubIdentity = (req: GitGithubIdentityRequest) =>
   rpc<GitGithubIdentityResponse>("/git/githubIdentity", req);
-
-export interface BranchChangePayload {
-  /** 同 repo を共有する worktree 群の中から primary 1 つだけが発火する。
-   * `dir` は primary watcher の path で、active worktree とは限らない。subscriber が
-   * 「同 repo の event か」を判定する場合は `findRepoOwning(dir).rootDir` を使う。 */
-  dir: string;
-}
-
-/** `refs/remotes/*` / `packed-refs` の更新 (push / fetch 後) を repo スコープで通知する push。
- * `branchChange` と同じく commonGitDir 単位の primary watcher 1 つに collapse される。
- *
- * `gitStatusChange` との使い分け:
- *   - `gitStatusChange`: per-worktree の ahead/behind と HEAD を更新する経路。dir は source worktree
- *   - `remoteRefsChange`: 「remote ref トポロジが変わった」を repo スコープで通知する経路。
- *     current branch 以外の remote ref が動いた場合、`gitStatusChange` の upstream key は
- *     変化しないため、git log を再 load するトリガはこちらに頼る */
-export interface RemoteRefsChangePayload {
-  dir: string;
-}
-
-export interface WorktreeChangePayload {
-  dir: string;
-}
-
-// gitStatusChange push event payload
-export interface GitStatusChangePayload {
-  dir: string;
-  statuses: Record<string, string>;
-  /** rename / copy エントリの 新パス → 旧パス。`statuses` のキーは新パスのみ持つため、
-   * HEAD 側の比較元 (旧パス) はこの map で運ぶ。rename が無ければ空。 */
-  renameOldPaths: Record<string, string>;
-  head: string;
-  /** HEAD が指す branch 名（`git status --porcelain=v2 --branch` の `# branch.head`）。
-   * `git branch -m` は OID を変えないため、rename はこの値の変化で検知する。
-   * detached HEAD の場合は空文字。 */
-  branchHead: string;
-  /** upstream 未設定なら不在。`undefined` なら ahead/behind を読まない契約。 */
-  upstream?: UpstreamStatus;
-  /** 変更ファイルの最終更新時刻 (Unix 秒)。clean / stat 全失敗のときは 0。 */
-  latestMtime: number;
-}

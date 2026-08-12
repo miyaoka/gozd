@@ -1,15 +1,18 @@
+import type {
+  BranchChangePayload,
+  HookPayload,
+  NotifyPayload,
+  WorktreeChangePayload,
+} from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import type { NotifyPayload } from "../../shared/notification";
 import { CLAUDE_PLACEHOLDER_TITLE, useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import type { FsWatchReadyPayload } from "../../shared/rpc";
 import { rpcTaskList, rpcTaskSetTerminalTitle, validateTasksCreatedAt } from "../task";
 import { stripClaudeTitlePrefix, useTerminalStore } from "../terminal";
-import type { HookPayload } from "../terminal";
 import { rpcGitGithubIdentity, rpcGitWorktreeList, useWorktreeStore } from "../worktree";
-import type { BranchChangePayload, WorktreeChangePayload } from "../worktree";
 import { restoreActiveDir } from "./restoreActiveDir";
 import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
 

@@ -7,7 +7,7 @@
 export { rpcLoadAppConfig, updateAppConfig } from "./appConfig";
 export { rpc } from "./client";
 export { rpcFsUnwatch, rpcFsUnwatchAll, rpcFsWatch } from "./fs";
-export type { FsChangePayload, FsWatchReadyPayload } from "./fs";
+export type { FsWatchReadyPayload } from "./fs";
 export { isLinkActivation, LINK_OPEN_FAILED_MESSAGE, openExternal } from "./openExternal";
 export {
   dispatchMessage,

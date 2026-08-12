@@ -79,7 +79,7 @@ export interface TextSearchLineResult {
 }
 
 /** `textSearchMatch` push の payload。1 push に複数行をまとめて載せる。 */
-export interface TextSearchMatchPush {
+export interface TextSearchMatchPayload {
   searchId: string;
   /** 検索元ディレクトリ（複数検索の並走時に購読側が突き合わせる補助キー）。 */
   dir: string;

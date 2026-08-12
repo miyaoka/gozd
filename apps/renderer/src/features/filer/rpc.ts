@@ -66,10 +66,3 @@ export const rpcFsWatchFileAbsolute = (req: FsWatchFileAbsoluteRequest) =>
 
 export const rpcFsUnwatchFileAbsolute = (req: FsUnwatchFileAbsoluteRequest) =>
   rpc<FsUnwatchFileAbsoluteResponse>("/fs/unwatchFileAbsolute", req);
-
-// fsChangeAbsolute push event payload.
-// rpcFsWatchFileAbsolute で watch 中の絶対パスファイルが変更されたことを通知する
-// （main 側 absFileWatcher が発火元）。
-export interface FsChangeAbsolutePayload {
-  path: string;
-}

@@ -4,6 +4,7 @@
 // イベントの filename はランタイム依存で当てにならない (atomic write の rename が tmp 名で
 // 届く / 無関係ファイルで対象名の spurious イベントが届く) ため、判定は stat 比較が SSOT。
 
+import type { PushFn } from "../rpcDispatcher";
 import { tryCatch } from "@gozd/shared";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -30,7 +31,9 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 describe("absFileWatcher", () => {
   const tempDirs: string[] = [];
   const pushes: { type: string; payload: unknown }[] = [];
-  const push = (type: string, payload: unknown) => pushes.push({ type, payload });
+  const push: PushFn = (type, payload) => {
+    pushes.push({ type, payload });
+  };
 
   function makeTempDir(): string {
     const dir = mkdtempSync(join(tmpdir(), "gozd-absfilewatcher-test-"));

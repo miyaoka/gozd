@@ -8,9 +8,9 @@
  * renderer の EventLogPanel に流す。VS Code が隔離 watcher の onDidLogMessage を client の
  * logger に転送するのと同じ経路を、gozd では main→renderer push で実現する。
  */
+import type { DebugLogPayload } from "@gozd/rpc";
 import { onMounted, onUnmounted } from "vue";
 import { logEvent } from "../../shared/debug";
-import type { DebugLogPayload } from "../../shared/debug";
 import { onMessage } from "../../shared/rpc";
 
 export function useMainDebugSubscription() {

@@ -1,7 +1,4 @@
 // PTY 操作 RPC の型。
-//
-// push イベント（ptyText / ptyExit）の payload 型は renderer の terminal feature が
-// 手書きで定義する（shared/rpc の messages.ts 設計判断を参照）。
 
 import type { EmptyMessage } from "./common";
 
@@ -51,3 +48,14 @@ export interface PtyKillRequest {
 }
 
 export type PtyKillResponse = EmptyMessage;
+
+// --- main → renderer push payloads ---
+
+export interface PtyTextPayload {
+  id: number;
+  text: string;
+}
+
+export interface PtyExitPayload {
+  id: number;
+}

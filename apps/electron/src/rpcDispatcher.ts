@@ -5,8 +5,12 @@
 // （両端が同じ型定義を参照するため codec は不要。routes.ts の cast / satisfies 契約を参照。
 // plain data の不変条件は `@gozd/shared` の `ElectronRpcBridge` docstring が SSOT）。
 
+import type { PushPayloadMap } from "@gozd/rpc";
+
 /** push 発射関数。spawn 時の sender に束縛される */
-export type PushFn = (type: string, payload: unknown) => void;
+// push は type 名 → payload 型の束縛 (`PushPayloadMap`) で型検査される。
+// 未登録の type 名や payload 形の取り違えはコンパイルエラーになる
+export type PushFn = <K extends keyof PushPayloadMap>(type: K, payload: PushPayloadMap[K]) => void;
 
 export interface RpcContext {
   push: PushFn;

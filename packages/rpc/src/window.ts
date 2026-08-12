@@ -13,3 +13,10 @@ export interface WindowSetTitleContextRequest {
   title: string;
 }
 export type WindowSetTitleContextResponse = EmptyMessage;
+
+// --- main → renderer push payload ---
+
+/** windowFullscreenChange push payload。enter/leave-full-screen の遷移を通知する。 */
+export interface WindowFullscreenChangePayload {
+  isFullscreen: boolean;
+}

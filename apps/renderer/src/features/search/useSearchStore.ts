@@ -1,4 +1,4 @@
-import type { TextSearchLineResult, TextSearchMatchPush } from "@gozd/rpc";
+import type { TextSearchLineResult, TextSearchMatchPayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { watchDebounced } from "@vueuse/core";
 import { acceptHMRUpdate, defineStore } from "pinia";
@@ -213,7 +213,7 @@ export const useSearchStore = defineStore("search", () => {
   );
 
   // textSearchMatch push を一度だけ購読。現行 searchId のマッチだけ raw に蓄積する
-  onMessage<TextSearchMatchPush>("textSearchMatch", (payload) => {
+  onMessage<TextSearchMatchPayload>("textSearchMatch", (payload) => {
     if (payload.searchId !== currentSearchId) return;
     for (const line of payload.lines) {
       let idx = groupIndex.get(line.path);

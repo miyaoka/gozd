@@ -12,6 +12,5 @@ export {
   rpcFsWriteFile,
   rpcFsWriteFileAbsolute,
 } from "./rpc";
-export type { FsChangeAbsolutePayload } from "./rpc";
 export { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
 export { useFsWatchSync } from "./useFsWatchSync";

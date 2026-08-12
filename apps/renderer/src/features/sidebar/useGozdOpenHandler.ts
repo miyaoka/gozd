@@ -5,7 +5,7 @@
  * - targetDir が既存 repo の worktrees に含まれる → 切替のみ
  * - 含まれない → 新規 repo として worktrees を fetch して `addRepo` → 切替
  */
-import type { WorktreeEntry } from "@gozd/rpc";
+import type { GozdOpenPayload, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted } from "vue";
 import { useAppStore } from "../../shared/app";
@@ -14,30 +14,6 @@ import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { usePreviewStore } from "../preview";
 import { rpcGitWorktreeList, useWorktreeStore } from "../worktree";
-
-interface GozdOpenPayload {
-  dir: string;
-  /**
-   * main 側 `openTarget.ts` の resolver は **ファイル指定のときだけ** selection を埋め、
-   * その場合 `kind: "file"` 固定で送る（dir 指定時は selection 未指定）。renderer は
-   * `kind` で分岐せず常に worktree 相対のファイルとして扱う契約。field を残すのは将来
-   * `dir` 種別を追加する余地のため。判定 / mapping を増やすときは本コメントと
-   * `openTarget.ts` の selection 生成箇所（`kind: "file"` リテラルを含むブロック）
-   * を同時に更新する。
-   */
-  selection?: { kind: string; relPath: string; lineNumber: number };
-  channel: string;
-  repoName: string;
-  isGitRepo: boolean;
-  switchToDir: string;
-  /**
-   * native 側で git バイナリの解決自体に失敗した場合（`GitError.launchFailed`）に積まれる。
-   * `commandFailed`（probeDir が git 管理外 / detached HEAD 等）は積まず、`isGitRepo = false`
-   * として既存挙動を維持する。両者を区別することで、ユーザーシェル経由でも git を解決できない
-   * 病的環境を「git repo ではない」と silent に化けさせず notify.error で可視化する。
-   */
-  error?: string;
-}
 
 export function useGozdOpenHandler() {
   const repoStore = useRepoStore();

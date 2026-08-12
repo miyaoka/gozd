@@ -3,6 +3,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import type { PtyExitPayload, PtyTextPayload } from "@gozd/rpc";
 import type { ElectronRpcBridge } from "@gozd/shared";
 import type { SpikeApi } from "../ipc";
 
@@ -53,14 +54,14 @@ async function main() {
   let outputBuffer = "";
   rpc.onPush((type, payload) => {
     if (type === "ptyText") {
-      const { id, text } = payload as { id: number; text: string };
+      const { id, text } = payload as PtyTextPayload;
       if (id !== ptyId) return;
       terminal.write(text);
       outputBuffer += text;
       return;
     }
     if (type === "ptyExit") {
-      const { id } = payload as { id: number };
+      const { id } = payload as PtyExitPayload;
       if (id !== ptyId) return;
       terminal.write("\r\n[Process exited]\r\n");
     }

@@ -8,12 +8,7 @@
 // 設計上の制約: 単一行マッチのみ扱う（--multiline 非対応）。列は byte offset を
 // UTF-8 デコードして文字数に変換する。
 
-import type {
-  TextSearchLineResult,
-  TextSearchMatchPush,
-  TextSearchRequest,
-  TextSearchResponse,
-} from "@gozd/rpc";
+import type { TextSearchLineResult, TextSearchRequest, TextSearchResponse } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
@@ -107,7 +102,7 @@ export function searchText(req: TextSearchRequest, push: PushFn): Promise<TextSe
 
     const flush = (): void => {
       if (batch.length === 0) return;
-      push("textSearchMatch", { searchId, dir, lines: batch } satisfies TextSearchMatchPush);
+      push("textSearchMatch", { searchId, dir, lines: batch });
       batch = [];
     };
 

@@ -117,7 +117,7 @@ export function createPtyClient(deps: PtyClientDeps): PtyClient {
     // exited として renderer に通知し状態を掃除する。次の spawn で host を lazy 再起動する。
     logEvent("pty-host", "crashed", `process exited (code=${code}); ${live.size} terminals down`);
     for (const id of live) {
-      // signal 経由の異常終了として扱う（SIGKILL 相当）。renderer は ptyExit を signaled で描く
+      // signal 経由の異常終了として扱う（SIGKILL 相当）
       onExit(id, 0, 9);
     }
     live.clear();

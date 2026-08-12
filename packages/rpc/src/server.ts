@@ -34,3 +34,10 @@ export type ServerListRequest = EmptyMessage;
 export interface ServerListResponse {
   servers: ServerEntry[];
 }
+
+// --- main → renderer push payload ---
+
+/** serverPortsChange push payload。pull (`ServerListResponse`) と同じ `ServerEntry` を運ぶ。 */
+export interface ServerPortsChangePayload {
+  servers: ServerEntry[];
+}

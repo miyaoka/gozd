@@ -28,13 +28,12 @@
  * fsChange メッセージで選択中ファイルをリアクティブに再取得（uncommitted / PR diff モードのみ）。
  * バージョンカウンターで非同期レースを防止する。
  */
-import type { WireBytes } from "@gozd/rpc";
+import type { FsChangeAbsolutePayload, FsChangePayload, WireBytes } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
-import type { FsChangePayload } from "../../shared/rpc";
 import { useChangesStore, useChangesSummaryStore } from "../changes";
 import {
   relDirOf,
@@ -43,7 +42,6 @@ import {
   rpcFsUnwatchFileAbsolute,
   rpcFsWatchFileAbsolute,
 } from "../filer";
-import type { FsChangeAbsolutePayload } from "../filer";
 import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { GitChangeKind, Selection } from "../worktree";

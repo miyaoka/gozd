@@ -150,6 +150,7 @@ import type {
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
   WorktreeEntry,
+  GitStatusChangePayload,
 } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
@@ -258,9 +259,11 @@ const ptyClient = createPtyClient({
   onExit: (id, exitCode, signal) => {
     ptyPids.delete(id);
     unregisterExit(id);
-    // Swift PTYExitReason と同形の payload（terminal/rpc.ts の PtyExitReason 契約）
-    const reason = signal !== 0 ? { kind: "signaled", signal } : { kind: "exited", exitCode };
-    ptyPush?.("ptyExit", { id, reason });
+    // 終了理由はワイヤに載せず観察ログにだけ残す（renderer は id しか読まない）。
+    // main はこの地点で意図的な kill (ペインクローズの SIGHUP) と異常終了を区別できない
+    // ため、分類せず code / signal をそのまま記録する
+    pushPtyDebugLog("pty", "exit", `id=${id} exitCode=${exitCode} signal=${signal}`);
+    ptyPush?.("ptyExit", { id });
   },
   logEvent: pushPtyDebugLog,
 });
@@ -286,7 +289,6 @@ const portScanner = createPortScanner({
     }
     return owners;
   },
-  // 手組み dict payload（renderer の ServerPortsChangePayload と一致。attribution は文字列）
   onSnapshot: (servers) => {
     serverPush?.("serverPortsChange", { servers });
   },
@@ -503,11 +505,10 @@ async function handleGitFetchRemotes(body: unknown): Promise<unknown> {
 // マルチウィンドウ化する場合は dir → sender の対応を registry 側に持たせる必要がある
 let fsPush: PushFn | undefined;
 
-/** AppRuntime.swift の onGitStatusChange と同形の payload を組む */
-function gitStatusChangePayload(dir: string, status: StatusFull): Record<string, unknown> {
-  const payload: Record<string, unknown> = {
+function gitStatusChangePayload(dir: string, status: StatusFull): GitStatusChangePayload {
+  const payload: GitStatusChangePayload = {
     dir,
-    statuses: status.statuses,
+    entries: status.statuses,
     renameOldPaths: status.renameOldPaths,
     head: status.head,
     branchHead: status.branchHead,
@@ -532,7 +533,13 @@ const pushDebugLog = makeDebugLogPush(() => fsPush);
 const watcherClient = createWatcherClient({
   logEvent: pushDebugLog,
   notify: (message, detail) =>
-    fsPush?.("notify", { type: "error", source: "file-watcher", message, detail, dir: "" }),
+    fsPush?.("notify", {
+      type: "error",
+      source: "file-watcher",
+      message,
+      detail,
+      dir: "",
+    }),
 });
 
 const fsWatchRegistry = createFsWatchRegistry(

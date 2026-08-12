@@ -1,14 +1,10 @@
+import type { ServerPortsChangePayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
-import {
-  rpcServerList,
-  type ServerInfo,
-  type ServerPortsChangePayload,
-  serversFromPayload,
-} from "./rpc";
+import { rpcServerList, type ServerInfo } from "./rpc";
 
 /**
  * 実行中サーバー (TCP LISTEN プロセス) の検出結果と一覧パネルの開閉を集約する SSOT
@@ -53,7 +49,7 @@ export const useServerStore = defineStore("server", () => {
   disposeServerPorts?.();
   disposeServerPorts = onMessage<ServerPortsChangePayload>("serverPortsChange", (payload) => {
     receivedPush = true;
-    servers.value = serversFromPayload(payload);
+    servers.value = payload.servers;
   });
 
   function open(): void {

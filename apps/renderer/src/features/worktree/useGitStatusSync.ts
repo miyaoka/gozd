@@ -5,11 +5,11 @@
  * - native 側 FSWatchRegistry からの gitStatusChange push（全 worktree が対象。payload の dir で
  *   該当 worktree に直接反映する）
  */
+import type { GitStatusChangePayload } from "@gozd/rpc";
 import { onMounted, onUnmounted, watch } from "vue";
 import { logEvent } from "../../shared/debug";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
-import type { GitStatusChangePayload } from "./rpc";
 import { useGitStatusStore } from "./useGitStatusStore";
 import { useWorktreeStore } from "./useWorktreeStore";
 
@@ -60,7 +60,7 @@ export function useGitStatusSync(options: GitStatusSyncOptions) {
           .at(-1) ?? payload.dir;
       logEvent("git-status", "change", wtName);
       repoStore.setWorktreeGitStatuses(payload.dir, {
-        statuses: payload.statuses,
+        statuses: payload.entries,
         renameOldPaths: payload.renameOldPaths,
         upstream: payload.upstream,
         latestMtime: payload.latestMtime,

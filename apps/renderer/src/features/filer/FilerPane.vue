@@ -41,12 +41,12 @@
 </doc>
 
 <script setup lang="ts">
+import type { FsChangePayload } from "@gozd/rpc";
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, useTemplateRef, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { onMessage } from "../../shared/rpc";
-import type { FsChangePayload } from "../../shared/rpc";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { FileContextMenuPayload } from "./fileContextMenuPayload";

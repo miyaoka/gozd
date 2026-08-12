@@ -33,8 +33,7 @@ function toColor(c: Oklch): ChromaColor {
   const [inputL, inputC, inputH] = c;
   /* hue は無彩色で NaN になるため、C が有意にあるときだけ見る。C が保たれたまま hue だけが
      回るクリップを取りこぼさないための比較で、360 度の折り返しを畳んで差を取る */
-  const hueDrift =
-    inputC > QUANTIZE_TOLERANCE ? Math.abs(((h - inputH + 540) % 360) - 180) : 0;
+  const hueDrift = inputC > QUANTIZE_TOLERANCE ? Math.abs(((h - inputH + 540) % 360) - 180) : 0;
   if (
     Math.abs(l - inputL) > QUANTIZE_TOLERANCE ||
     Math.abs(chroma_ - inputC) > QUANTIZE_TOLERANCE ||

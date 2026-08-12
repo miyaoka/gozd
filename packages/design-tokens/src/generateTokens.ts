@@ -173,7 +173,7 @@ const LIGHT_ANCHOR_C = 0.03;
  * chroma の instance method (.oklch()) と factory (chroma.oklch(L, C, H)) が
  * 型推論で unknown に倒れる。両 API を 1 箇所に集約して unknown cast を 1 度だけ書く。 */
 const chromaApi = chroma as unknown as {
-  (input: string): { oklch: () => [number, number, number] };
+  (input: string): { oklch: () => [number, number, number]; rgb: () => [number, number, number] };
   oklch: (l: number, c: number, h: number) => { hex: () => string };
 };
 
@@ -210,13 +210,15 @@ function buildAnchor(brandHex: string, l: number, c: number): `#${string}` {
   return chromaApi.oklch(l, c, hue).hex() as `#${string}`;
 }
 
-/* white overlay on bg で色 T を再現する alpha を計算
- * formula (linear RGB): T = white * a + bg * (1 - a) → a = (T - bg) / (1 - bg)
- * gray は無彩色なので lightness 1 channel で計算可能 */
+/* white overlay on bg で色 T を再現する alpha を計算。
+ *
+ * ブラウザは gamma sRGB のチャネル値で合成する (composited = 255 * a + bg * (1 - a)) ため、
+ * 同じ空間で解く。OKLCH の L や linear RGB で解くと空間が違い、生成した alpha を重ねても
+ * 目標の step にならない。gray は無彩色なので 1 channel で足りる。 */
 function alphaForGray(target: string, bg: string): string {
-  const t = oklchOf(target)[0];
-  const b = oklchOf(bg)[0];
-  const a = Math.max(0, Math.min(1, (t - b) / (1 - b)));
+  const [t] = chromaApi(target).rgb();
+  const [b] = chromaApi(bg).rgb();
+  const a = Math.max(0, Math.min(1, (t - b) / (255 - b)));
   return `oklch(1 0 0 / ${Math.round(a * 1000) / 1000})`;
 }
 

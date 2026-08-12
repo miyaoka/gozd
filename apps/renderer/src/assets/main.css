@@ -70,13 +70,11 @@
   --color-background-readonly: var(--gray-3);
   --color-panel: var(--gray-2);
   --color-element: var(--gray-3);
-  /* hover は面を置き換えず、上に薄い層を重ねる (state layer)。hover は状態を恒久的に表す面では
-     なく、ポインタが載っている間だけの一時的な変化なので、下にある色を消さずに全体を持ち上げる。
-     置き換えにすると、行の中に別の色を持つ要素 (一覧の未読バー等) だけが取り残されて沈む。
-     値は bg の上で element-hover 相当になるよう生成した alpha で、Material の state layer /
-     Radix の alpha variant と同じ流儀。**hover 専用で、rest の面には使わない** (rest に使うと
-     その要素の地の色が下地任せになる) */
-  --color-element-hover: var(--gray-a3);
+  /* hover は面を置き換えず、上に薄い層を重ねる (state layer)。置き換えると色を持つ面が固定の
+     グレーへ潰れるが、層なら rest の面から導出されて元の色を保つ。層は白なので、濃いほど面が
+     白へ寄る。hover は状態を告げるだけの一時的な変化なので、変化が知覚できる最小限に留める。
+     hover 専用で rest の面には使わない (rest に使うと地の色が下地任せになる) */
+  --color-element-hover: var(--gray-a2);
   /* 押下と選択。選択は hover と違って状態が続くため、下地に依存しない solid を使う */
   --color-element-active: var(--gray-5);
   /* keyboard カーソル行 (picker / list の選択)。無彩色の hover (element-hover) と色相で

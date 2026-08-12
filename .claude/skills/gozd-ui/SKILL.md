@@ -63,18 +63,20 @@ primitive utility (`bg-gray-3` 等) は Tailwind が utility 化していない 
 
 #### hover は面を置き換えず、上に層を重ねる (state layer)
 
-`element-hover` だけは solid ではなく **薄い層 (alpha)**。hover は状態を恒久的に表す面ではなく、
-ポインタが載っている間だけの一時的な変化なので、下にある色を消さずに全体を持ち上げる。置き換えに
-すると、行の中に別の色を持つ要素 (一覧の未読バー等) だけが取り残されて沈む。Material の state
-layer / Radix の alpha variant と同じ流儀で、値は bg の上で従来の hover 面と同じ見えになるよう
-生成されている。
+`element-hover` だけは solid ではなく **薄い層 (alpha)**。置き換えにすると色を持つ面が固定の
+グレーへ潰れるが、層なら rest の面から導出されて元の色を保つ。Material の state layer / Radix の
+alpha variant と同じ流儀。
 
+- **変化が知覚できる最小限に留める**。層は白なので、濃くすると面が白へ寄る。hover は状態を
+  告げるだけの一時的な変化で、恒久的な面のような読みやすさの要件を負わない
 - **hover 専用**。rest の面に `bg-element-hover` を使わない。使うとその要素の地の色が下地任せに
   なり、置いた場所で見えが変わる。rest は `bg-element`
 - **層なので加算**になる。元が明るい面ほど hover が強く出る。置換のつもりで step 差を見積もらない
-- WCAG が hover 面そのものに 3:1 を要求しないのは、hover の視覚強調が「状態の識別に必要な情報」
-  ではなく supplemental だから (W3C の Understanding 1.4.11 / wcag discussion #3865)。恒久的な面と
-  同じ基準で contrast を判定しない
+- **層は border と content の下に塗られる** (CSS Backgrounds 3: borders are drawn in front of the
+  element's background)。行の border や子要素は層で持ち上がらない
+- WCAG が hover 面そのものに 3:1 を要求しないのは、hover の視覚強調が supplemental だから
+  (W3C の Understanding 1.4.11 "Hover states")。ただし免除されるのは hover 強調そのものだけで、
+  text の 4.5:1 (SC 1.4.3) に hover の免除は無い
 
 `element` / `element-active` の gray 3/5 (Radix rest / active 写像) は **単一要素の状態遷移**に
 だけ使う。選択は hover と違って状態が続くため、下地に依存しない solid を保つ。

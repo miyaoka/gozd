@@ -13,8 +13,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { usePreviewStore } from "../preview";
-import { useWorktreeStore } from "../worktree";
-import { rpcGitWorktreeList } from "./rpc";
+import { rpcGitWorktreeList, useWorktreeStore } from "../worktree";
 
 interface GozdOpenPayload {
   dir: string;

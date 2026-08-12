@@ -13,10 +13,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
+import { useQuickPick } from "../../../../shared/ui";
+import type { QuickPickItem } from "../../../../shared/ui";
 import { useListNavigation } from "../../useListNavigation";
 import { useDialog } from "./useDialog";
-import { useQuickPick } from "./useQuickPick";
-import type { QuickPickItem } from "./useQuickPick";
 
 const contextKeys = useContextKeys();
 const { Dialog, show: showDialog, close: closeDialog, isOpen } = useDialog();

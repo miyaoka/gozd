@@ -22,8 +22,7 @@ click-to-front、ESC / Cmd+W はフォーカスがあるサーフェスを閉じ
 import { computed, useTemplateRef } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import { useSurface } from "../../shared/surface";
-import { activateDir } from "../sidebar";
-import { useTerminalStore } from "../terminal";
+import { activateDir, useTerminalStore } from "../terminal";
 import type { ServerAttributionKind } from "./rpc";
 import { useServerStore } from "./useServerStore";
 import IconLucideServer from "~icons/lucide/server";

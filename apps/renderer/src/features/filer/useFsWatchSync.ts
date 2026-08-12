@@ -22,8 +22,7 @@ import { tryCatch } from "@gozd/shared";
 import { onUnmounted, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
-import { dispatchMessage } from "../../shared/rpc";
-import { rpcFsUnwatch, rpcFsUnwatchAll, rpcFsWatch } from "./rpc";
+import { dispatchMessage, rpcFsUnwatch, rpcFsUnwatchAll, rpcFsWatch } from "../../shared/rpc";
 import { runOneSyncPass } from "./runOneSyncPass";
 import { runSerializedSync, type SerializeState, whenIdle } from "./runSerializedSync";
 

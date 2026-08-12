@@ -23,9 +23,13 @@ import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vu
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
-import { ResizeHandle } from "../layout";
-import type { BranchChangePayload, FsWatchReadyPayload, RemoteRefsChangePayload } from "../sidebar";
-import type { GitStatusChangePayload } from "../worktree";
+import type { FsWatchReadyPayload } from "../../shared/rpc";
+import { ResizeHandle } from "../../shared/ui";
+import type {
+  BranchChangePayload,
+  RemoteRefsChangePayload,
+  GitStatusChangePayload,
+} from "../worktree";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import CommitDetailPane from "./CommitDetailPane.vue";
 import { CommitContextMenu, useCommitContextMenuTrigger } from "./features/commit-context-menu";

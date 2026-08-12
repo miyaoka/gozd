@@ -3,8 +3,7 @@ import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, readonly, ref, shallowRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { onMessage } from "../../shared/rpc";
-import { rpcLoadAppConfig, updateAppConfig } from "../settings";
+import { onMessage, rpcLoadAppConfig, updateAppConfig } from "../../shared/rpc";
 import type { ClaudeFxEvent } from "../terminal";
 import {
   rpcVoicevoxCheckEngine,

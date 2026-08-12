@@ -13,7 +13,7 @@
 import type { GitFileChange } from "@gozd/rpc";
 import { computed } from "vue";
 import { getFileIconUrl, getFolderIconUrl } from "../filer";
-import type { FileContextMenuPayload } from "../navigator";
+import type { FileContextMenuPayload } from "../filer";
 import type { ChangesTreeNode } from "./changesTree";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideChevronRight from "~icons/lucide/chevron-right";

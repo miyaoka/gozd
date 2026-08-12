@@ -9,7 +9,20 @@ export {
   pathTargetToString,
 } from "./pathUtils";
 export type { PathTarget } from "./pathUtils";
-export type { GitStatusChangePayload } from "./rpc";
+export {
+  rpcCreateWorktree,
+  rpcGitDefaultBranch,
+  rpcGitGithubIdentity,
+  rpcGitPrList,
+  rpcGitWorktreeList,
+  rpcGitWorktreeRemove,
+} from "./rpc";
+export type {
+  BranchChangePayload,
+  GitStatusChangePayload,
+  RemoteRefsChangePayload,
+  WorktreeChangePayload,
+} from "./rpc";
 export { useRemoteFetchStore } from "./useRemoteFetchStore";
 export { default as StatusIcons } from "./StatusIcons.vue";
 export { useWorktreeStore } from "./useWorktreeStore";

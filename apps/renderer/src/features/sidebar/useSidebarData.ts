@@ -4,20 +4,14 @@ import { useNotificationStore } from "../../shared/notification";
 import type { NotifyPayload } from "../../shared/notification";
 import { CLAUDE_PLACEHOLDER_TITLE, useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
+import type { FsWatchReadyPayload } from "../../shared/rpc";
+import { rpcTaskList, rpcTaskSetTerminalTitle, validateTasksCreatedAt } from "../task";
 import { stripClaudeTitlePrefix, useTerminalStore } from "../terminal";
 import type { HookPayload } from "../terminal";
-import { useWorktreeStore } from "../worktree";
+import { rpcGitGithubIdentity, rpcGitWorktreeList, useWorktreeStore } from "../worktree";
+import type { BranchChangePayload, WorktreeChangePayload } from "../worktree";
 import { restoreActiveDir } from "./restoreActiveDir";
-import {
-  rpcAppStateLoad,
-  rpcAppStateSave,
-  rpcGitGithubIdentity,
-  rpcGitWorktreeList,
-  rpcTaskList,
-  rpcTaskSetTerminalTitle,
-} from "./rpc";
-import type { BranchChangePayload, FsWatchReadyPayload, WorktreeChangePayload } from "./rpc";
-import { validateTasksCreatedAt } from "./taskBaseTime";
+import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
 
 /**
  * サイドバーのデータ取得・状態管理。

@@ -25,16 +25,16 @@ SSOT は `usePrDiffToggleStore`。
 
 ## View all
 
-ヘッダーの View all ボタンは `usePreviewStore.toggleSummary` を呼び、
-summary 表示モードと preview popover の開閉を同時に切り替える。
+ヘッダーの View all ボタンは `viewAll` を emit する。summary 表示モードと preview popover の
+開閉の同時切り替えは親 (NavigatorPane) が preview store に繋ぐ。select / contextMenu と同じく、
+この pane は副作用を持たず event を上へ投げるだけに徹する。
 summary 有効時は preview ペインに全変更の縦並び diff が表示される。
 </doc>
 
 <script setup lang="ts">
 import { ref } from "vue";
+import type { FileContextMenuPayload } from "../filer";
 import { usePrDiffToggleStore } from "../git-graph";
-import type { FileContextMenuPayload } from "../navigator";
-import { usePreviewStore } from "../preview";
 import ChangesTreeItem from "./ChangesTreeItem.vue";
 import { useChangesStore } from "./useChangesStore";
 import { useChangesSummaryStore } from "./useChangesSummaryStore";
@@ -47,11 +47,12 @@ const emit = defineEmits<{
   select: [relPath: string];
   /** 右クリック payload を NavigatorPane まで bubble する。hash 解決は navigator + store SSOT */
   contextMenu: [payload: FileContextMenuPayload];
+  /** View all ボタン。summary + preview popover の同時切り替えは親が preview store に繋ぐ */
+  viewAll: [];
 }>();
 
 const changesStore = useChangesStore();
 const summaryStore = useChangesSummaryStore();
-const previewStore = usePreviewStore();
 const prDiffToggle = usePrDiffToggleStore();
 
 /** 折りたたみ中フォルダの fullPath 集合（デフォルトは全展開） */
@@ -68,7 +69,7 @@ function toggleFolder(fullPath: string) {
 }
 
 function onClickViewAll() {
-  previewStore.toggleSummary();
+  emit("viewAll");
 }
 </script>
 

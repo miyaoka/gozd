@@ -1,3 +1,4 @@
+export { branchLabel } from "./branchLabel";
 export {
   collectFsWatchTargetDirs,
   repoDirEntries,

@@ -1,3 +1,5 @@
+export { activateDir } from "./activateDir";
+export { claudeStateKeyOf } from "./claudeStateKey";
 export { default as TerminalPane } from "./TerminalPane.vue";
 export { useTerminalStore } from "./useTerminalStore";
 export { applyTerminalTheme, registerThemeCommand } from "./registerThemeCommand";

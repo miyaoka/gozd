@@ -2,6 +2,10 @@
  * QuickPick の制御を外部に公開する module singleton composable。
  * QuickPick.vue がリアクティブに currentOptions / showSignal を読み取り、
  * 外部のコマンドハンドラーは show() を呼ぶだけで dialog が開く。
+ *
+ * 描画は palette の QuickPick.vue が担い、mount されていなければ show() は無音で
+ * 何も起きない（MainLayout が常設 mount する契約）。描画側を shared/ui に同居
+ * できないのは、QuickPick.vue が shared/command に依存し shared 間依存が禁止のため。
  */
 
 import { ref } from "vue";

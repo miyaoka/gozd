@@ -42,7 +42,7 @@ import { tryCatch } from "@gozd/shared";
 import { onUnmounted, ref, watch, type Ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
-import { rpcFsUnwatch, rpcFsWatch, type FsChangePayload } from "../filer";
+import { rpcFsUnwatch, rpcFsWatch, type FsChangePayload } from "../../shared/rpc";
 import { rpcClaudeSessionLog } from "./rpc";
 import { subagentTabLabel } from "./sessionLogView";
 

@@ -1,8 +1,8 @@
 import type { Task, WorktreeEntry } from "@gozd/rpc";
 import type { RepoState } from "../../shared/repo";
-import { repoDirEntries } from "../../shared/repo";
+import { repoDirEntries, branchLabel } from "../../shared/repo";
 import type { ClaudeStatus } from "../terminal";
-import { branchLabel, compareTaskOrder } from "./utils";
+import { compareTaskOrder } from "./utils";
 
 /** live な Claude セッションを持つ 1 task。行の描画に必要な値だけを持つ */
 interface ActiveSessionEntry {

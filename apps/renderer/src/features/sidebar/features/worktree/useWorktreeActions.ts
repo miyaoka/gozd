@@ -3,10 +3,13 @@ import { tryCatch } from "@gozd/shared";
 import { ref } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import { useTerminalStore } from "../../../terminal";
-import { generateTimestamp } from "../../../worktree";
-import { activateDir } from "../../activateDir";
-import { rpcCreateWorktree, rpcGitDefaultBranch, rpcGitWorktreeRemove } from "../../rpc";
+import { activateDir, useTerminalStore } from "../../../terminal";
+import {
+  generateTimestamp,
+  rpcCreateWorktree,
+  rpcGitDefaultBranch,
+  rpcGitWorktreeRemove,
+} from "../../../worktree";
 import { worktreeDisplayName } from "../../utils";
 
 interface UseWorktreeActionsOptions {

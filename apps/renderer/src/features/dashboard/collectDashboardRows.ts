@@ -1,7 +1,7 @@
 import type { Task } from "@gozd/rpc";
 import type { RepoState } from "../../shared/repo";
-import { repoDirEntries, taskDisplayTitle } from "../../shared/repo";
-import { branchLabel, resolveTaskBaseTime } from "../sidebar";
+import { repoDirEntries, taskDisplayTitle, branchLabel } from "../../shared/repo";
+import { resolveTaskBaseTime } from "../task";
 import type { ClaudeStatus } from "../terminal";
 
 /** ダッシュボード 1 行 = 1 task。行の描画とジャンプに必要な値だけを持つ */

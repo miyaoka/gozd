@@ -108,10 +108,19 @@ const INTENT_ON_SOLID = {
  *
  * 暗前景の面は rest だけ。前景が bg と同色なので、暗い側へ動かすと前景との差が縮んで割れる
  * (step 8 は 3.50:1)。hover を要求する用途が出た時点で、明るい側の step で帯を広げる。 */
-const SOLID_STEPS: Record<"light" | "dark", { rest: number; hover?: number }> = {
-  light: { rest: 9, hover: 8 },
-  dark: { rest: 9 },
+const SOLID_STEPS: Record<keyof typeof INTENT_ON_SOLID, { rest: number; hover?: number }> = {
+  blue: { rest: 9, hover: 8 },
+  red: { rest: 9, hover: 8 },
+  /* solid の hover を要求する用途がまだ無い hue は rest だけ持つ。出しておくと使われない
+     role が増え、どれが検証済みの組かが読み取れなくなる */
+  green: { rest: 9 },
+  amber: { rest: 9 },
+  orange: { rest: 9 },
 };
+
+/* Tier 2 が hover に使う alpha の step。面の上限判定はこの層を重ねた後の色で行う。
+ * hover は加算なので、載りうる最も明るい面は gray の step だけでは表せない。 */
+const HOVER_ALPHA_STEP = 2;
 
 /* solid 面が載る最も明るい下地 (panel)。面自体が下地から 3:1 離れていないと輪郭を失う (1.4.11)。
  *
@@ -175,6 +184,7 @@ const LIGHT_ANCHOR_C = 0.03;
 const chromaApi = chroma as unknown as {
   (input: string): { oklch: () => [number, number, number]; rgb: () => [number, number, number] };
   oklch: (l: number, c: number, h: number) => { hex: () => string };
+  rgb: (r: number, g: number, b: number) => { hex: () => string };
 };
 
 function oklchOf(hex: string): [number, number, number] {
@@ -215,11 +225,18 @@ function buildAnchor(brandHex: string, l: number, c: number): `#${string}` {
  * ブラウザは gamma sRGB のチャネル値で合成する (composited = 255 * a + bg * (1 - a)) ため、
  * 同じ空間で解く。OKLCH の L や linear RGB で解くと空間が違い、生成した alpha を重ねても
  * 目標の step にならない。gray は無彩色なので 1 channel で足りる。 */
-function alphaForGray(target: string, bg: string): string {
+function alphaForGray(target: string, bg: string): number {
   const [t] = chromaApi(target).rgb();
   const [b] = chromaApi(bg).rgb();
   const a = Math.max(0, Math.min(1, (t - b) / (255 - b)));
-  return `oklch(1 0 0 / ${Math.round(a * 1000) / 1000})`;
+  return Math.round(a * 1000) / 1000;
+}
+
+/** 白の層を重ねた結果。合成はブラウザと同じ gamma sRGB で行う */
+function overlayWhite(baseHex: string, alpha: number): Oklch {
+  const mix = (c: number) => 255 * alpha + c * (1 - alpha);
+  const [r, g, b] = chromaApi(baseHex).rgb();
+  return roundedOklchOf(chromaApi.rgb(mix(r), mix(g), mix(b)).hex());
 }
 
 /* gray は無彩色なので chroma curve 制御不要。単一 brand anchor で十分
@@ -284,11 +301,17 @@ for (let i = 0; i < grayHexes.length; i++) {
 lines.push(``);
 lines.push(`  /* gray: 12-step alpha (white overlay matched to gray scale) */`);
 for (let i = 0; i < grayHexes.length; i++) {
-  lines.push(`  --gray-a${i + 1}: ${alphaForGray(grayHexes[i], grayHexes[0])};`);
+  lines.push(`  --gray-a${i + 1}: oklch(1 0 0 / ${alphaForGray(grayHexes[i], grayHexes[0])});`);
 }
 
 /* 暗い前景は bg と同色。gray scale の 1 段目がそれにあたる */
 const onSolidDark = roundedOklchOf(grayHexes[0]);
+
+/* 面の上限は「上限 step が hover している状態」。hover は層なので、gray の step だけでは
+   載りうる最も明るい面を表せない */
+const hoverAlpha = alphaForGray(grayHexes[HOVER_ALPHA_STEP - 1], grayHexes[0]);
+const maxSurfaceHovered = overlayWhite(grayHexes[SOLID_MAX_SURFACE_STEP - 1], hoverAlpha);
+const ringMaxSurfaceHovered = overlayWhite(grayHexes[RING_MAX_SURFACE_STEP - 1], hoverAlpha);
 
 let greenHexes: string[] | undefined;
 let blueHexes: string[] | undefined;
@@ -302,9 +325,8 @@ for (const name of INTENT_NAMES) {
 
   /* solid として使う全 step で前景が AA を満たすことを保証する。rest だけ見ると hover が
      無言で割れる（step を跨いで同じ前景を載せるため） */
-  const fgKind = INTENT_ON_SOLID[name];
-  const onSolid = fgKind === "light" ? ON_SOLID_LIGHT : onSolidDark;
-  const roles = SOLID_STEPS[fgKind];
+  const onSolid = INTENT_ON_SOLID[name] === "light" ? ON_SOLID_LIGHT : onSolidDark;
+  const roles = SOLID_STEPS[name];
   const solidSteps = roles.hover === undefined ? [roles.rest] : [roles.rest, roles.hover];
 
   /* 前景は rest / hover の両方で AA を要求する。文字を読むのは hover 中も同じで、
@@ -316,13 +338,11 @@ for (const name of INTENT_NAMES) {
       4.5,
     );
   }
-  /* 面の輪郭は rest にだけ要求する (hover は supplemental) */
+  /* 面の輪郭は rest にだけ要求する (hover は supplemental)。ただし下地の側は hover しうるので、
+     上限 step に層を重ねた色を実際の下地として見る */
   assertContrast(
-    `${name}-${roles.rest} と gray-${SOLID_MAX_SURFACE_STEP}`,
-    wcagContrast(
-      roundedOklchOf(hexes[roles.rest - 1]),
-      roundedOklchOf(grayHexes[SOLID_MAX_SURFACE_STEP - 1]),
-    ),
+    `${name}-${roles.rest} と hover 中の gray-${SOLID_MAX_SURFACE_STEP}`,
+    wcagContrast(roundedOklchOf(hexes[roles.rest - 1]), maxSurfaceHovered),
     3,
   );
 
@@ -349,7 +369,7 @@ if (blueHexes === undefined) {
 const ringColor = roundedOklchOf(blueHexes[RING_STEP - 1]);
 assertContrast(
   `ring と gray-${RING_MAX_SURFACE_STEP}`,
-  wcagContrast(ringColor, roundedOklchOf(grayHexes[RING_MAX_SURFACE_STEP - 1])),
+  wcagContrast(ringColor, ringMaxSurfaceHovered),
   3,
 );
 lines.push(``);

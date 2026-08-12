@@ -18,6 +18,9 @@ const chromaApi = chroma as unknown as {
  * 動いた成分は量子化ではなく gamut clamp で削られたものとみなす */
 const QUANTIZE_TOLERANCE = 0.01;
 
+/* hue の許容ずれ (度)。低彩度ほど 8bit 量子化で角度が大きく振れるため、L / C より緩く取る */
+const HUE_TOLERANCE_DEG = 5;
+
 /** sRGB gamut 外の設計値は clamp で画面と検証値が乖離するため、fallback せずエラーにする。
  *
  * 判定に chroma の `clipped()` を使わない。あれは limit 前の生値を見るため、純白のように
@@ -26,11 +29,16 @@ const QUANTIZE_TOLERANCE = 0.01;
  * 比較に使わない。 */
 function toColor(c: Oklch): ChromaColor {
   const color = chromaApi.oklch(...c);
-  const [l, chroma_] = chromaApi(color.hex()).oklch();
-  const [inputL, inputC] = c;
+  const [l, chroma_, h] = chromaApi(color.hex()).oklch();
+  const [inputL, inputC, inputH] = c;
+  /* hue は無彩色で NaN になるため、C が有意にあるときだけ見る。C が保たれたまま hue だけが
+     回るクリップを取りこぼさないための比較で、360 度の折り返しを畳んで差を取る */
+  const hueDrift =
+    inputC > QUANTIZE_TOLERANCE ? Math.abs(((h - inputH + 540) % 360) - 180) : 0;
   if (
     Math.abs(l - inputL) > QUANTIZE_TOLERANCE ||
-    Math.abs(chroma_ - inputC) > QUANTIZE_TOLERANCE
+    Math.abs(chroma_ - inputC) > QUANTIZE_TOLERANCE ||
+    hueDrift > HUE_TOLERANCE_DEG
   ) {
     throw new Error(`out of sRGB gamut: oklch(${c.join(" ")})`);
   }

@@ -292,7 +292,13 @@ function myWorkWebLinks(search: MyWorkSearch): GitMyWorkWebLink[] {
  * `search(type: ISSUE)` の node は `Issue | PullRequest` の union なので、CI / レビュー結果は
  * PullRequest 側の named fragment で取る。`statusCheckRollup` は connection ではないため
  * cost に乗らず、`comments { totalCount }` も `first` / `last` を渡さない限りページを
- * 要求しないので同じく乗らない（PR_QUERY 冒頭のコメントと同じ規律）。`issueCount` も同様。
+ * 要求しないので同じく乗らない（PR_QUERY 冒頭のコメントと同じ規律）。`issueCount` と
+ * `isReadByViewer` も同様。
+ *
+ * 未読を「最終コメントの投稿者が自分以外か」で導出しない。`comments(last: 1)` は node ごとに
+ * ページを要求するため cost が軸数ぶん跳ね（4 軸で 1 → 4 を実測）、bot のコメントも拾ううえ、
+ * 見たかどうかを表せない。`isReadByViewer` は GitHub が viewer ごとに持つ既読状態そのもので、
+ * スカラーなので cost を増やさずに同じ問いへ直接答える。
  *
  * 取得上限で切れているかどうかを示すのに `pageInfo { hasNextPage }` を併載しないのは、
  * `issueCount` と取得件数の比較で同じ事実が得られ、境界に同じ事実の表現を 2 つ持たせない
@@ -320,6 +326,7 @@ fragment prFields on PullRequest {
   title
   url
   isDraft
+  isReadByViewer
   updatedAt
   repository { nameWithOwner }
   author { login avatarUrl(size: ${AVATAR_SIZE}) }
@@ -334,6 +341,7 @@ fragment issueFields on Issue {
   number
   title
   url
+  isReadByViewer
   updatedAt
   repository { nameWithOwner }
   author { login avatarUrl(size: ${AVATAR_SIZE}) }
@@ -425,20 +433,37 @@ function mixedNodeKind(item: unknown): GitItemKind {
 /** my work query の nodes を `GitMyWorkItem` へ変換する pure 関数。全グループとも
  * これを経由する SSOT で、snapshot 入力に対する境界の振る舞いをここに閉じる。 */
 export function parseMyWorkNodes(nodes: unknown[], kind: GitItemKind | "mixed"): GitMyWorkItem[] {
-  return nodes.map((item) => ({
-    kind: kind === "mixed" ? mixedNodeKind(item) : kind,
-    repo: str(getPath(item, "repository", "nameWithOwner")),
-    number: int(getPath(item, "number")),
-    title: str(getPath(item, "title")),
-    url: str(getPath(item, "url")),
-    author: str(getPath(item, "author", "login")),
-    authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
-    updatedAt: str(getPath(item, "updatedAt")),
-    isDraft: getPath(item, "isDraft") === true,
-    checkState: checkState(getPath(item, "statusCheckRollup", "state"), "myWork"),
-    reviewDecision: reviewDecision(getPath(item, "reviewDecision")),
-    commentCount: commentCount(item),
-  }));
+  // 既読状態が取れなかった件数。行ごとに出すと 1 応答で 100 行ぶん流れるため集計して 1 行にする
+  let missingReadState = 0;
+
+  const items = nodes.map((item) => {
+    const readState = getPath(item, "isReadByViewer");
+    if (typeof readState !== "boolean") missingReadState += 1;
+
+    return {
+      kind: kind === "mixed" ? mixedNodeKind(item) : kind,
+      repo: str(getPath(item, "repository", "nameWithOwner")),
+      number: int(getPath(item, "number")),
+      title: str(getPath(item, "title")),
+      url: str(getPath(item, "url")),
+      author: str(getPath(item, "author", "login")),
+      authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
+      updatedAt: str(getPath(item, "updatedAt")),
+      isDraft: getPath(item, "isDraft") === true,
+      checkState: checkState(getPath(item, "statusCheckRollup", "state"), "myWork"),
+      reviewDecision: reviewDecision(getPath(item, "reviewDecision")),
+      commentCount: commentCount(item),
+      // 欠落時は既読側へ倒す。未読は注意を促す表示なので、取得できていない事実を
+      // 「未読がある」と描くと実在しない要対応を作り出す
+      isUnread: readState === false,
+    };
+  });
+
+  // 全件が既読側へ倒れると「未読が無い」と区別できなくなる。取れなかったことを残す
+  if (missingReadState > 0) {
+    console.error(`[myWork] missing isReadByViewer: ${missingReadState}/${nodes.length} nodes`);
+  }
+  return items;
 }
 
 /** `gh api user --jq .login` で認証中ユーザーの login を返す */

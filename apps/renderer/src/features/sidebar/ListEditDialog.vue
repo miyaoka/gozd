@@ -95,7 +95,7 @@ function onDialogClick(event: MouseEvent) {
         <button
           type="button"
           :disabled="!canSave"
-          class="rounded-sm bg-primary px-3 py-1.5 text-sm text-foreground hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-element disabled:text-foreground-muted"
+          class="rounded-sm bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-element disabled:text-foreground-muted"
           @click="save"
         >
           Save

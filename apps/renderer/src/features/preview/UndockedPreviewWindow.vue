@@ -438,7 +438,7 @@ function dockToPreview() {
         </button>
         <button
           type="button"
-          class="rounded-sm bg-primary px-2 py-0.5 text-xs text-foreground hover:bg-primary-hover disabled:bg-element disabled:text-foreground-muted disabled:hover:bg-element"
+          class="rounded-sm bg-primary px-2 py-0.5 text-xs text-primary-foreground hover:bg-primary-hover disabled:bg-element disabled:text-foreground-muted disabled:hover:bg-element"
           :disabled="saving"
           title="Save"
           aria-label="Save"

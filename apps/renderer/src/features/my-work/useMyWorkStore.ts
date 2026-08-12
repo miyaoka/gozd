@@ -58,6 +58,14 @@ export const useMyWorkStore = defineStore("myWork", () => {
 
   const isOpen = ref(false);
 
+  /**
+   * 未読だけを表示するか。取得条件ではなく**表示の絞り込み**なので、切り替えても再取得は
+   * 起きない（未読は取得済みの行が持つ属性で、GitHub の検索条件には未読の qualifier が無い）。
+   *
+   * パネルを閉じても保つ。開閉のたびに戻ると、閉じて開き直す運用で毎回付け直しになる。
+   */
+  const unreadOnly = ref(false);
+
   // 初回取得までの place holder。`webLinks` はこの時点では未知だが、パネルは取得が
   // 済むまで一覧を描かないため表示に出ない。軸ごとに別オブジェクトを作る
   const emptyGroups = (): Record<GitMyWorkAxisKey, GitMyWorkGroup> => {
@@ -159,6 +167,7 @@ export const useMyWorkStore = defineStore("myWork", () => {
 
   return {
     isOpen,
+    unreadOnly,
     groups,
     hasLoaded,
     isLoading,

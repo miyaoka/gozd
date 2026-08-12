@@ -70,7 +70,12 @@
   --color-background-readonly: var(--gray-3);
   --color-panel: var(--gray-2);
   --color-element: var(--gray-3);
-  --color-element-hover: var(--gray-4);
+  /* hover は面を置き換えず、上に薄い層を重ねる (state layer)。置き換えると色を持つ面が固定の
+     グレーへ潰れるが、層なら rest の面から導出されて元の色を保ち、どの面でも同じ比で持ち上がる。
+     濃さは生成側が持つ (面の上限判定がその値を前提に組まれているため、ここで選び直さない)。
+     hover 専用で rest の面には使わない (rest に使うと地の色が下地任せになる) */
+  --color-element-hover: var(--surface-hover-layer);
+  /* 押下と選択。選択は hover と違って状態が続くため、下地に依存しない solid を使う */
   --color-element-active: var(--gray-5);
   /* keyboard カーソル行 (picker / list の選択)。無彩色の hover (element-hover) と色相で
      分離するための低輝度 accent 面。リスト行に text が載る 3 面 (panel / hover 行 /
@@ -95,8 +100,9 @@
   --color-foreground-low: var(--gray-11);
   --color-foreground-muted: var(--gray-9);
 
-  /* focus ring (intent step 8) */
-  --color-ring: var(--blue-8);
+  /* focus ring。値は生成側が持つ (ring が載りうる最も明るい面に対して 3:1 を満たすことを
+     生成時に検証する)。border 帯の step を借りると、bg より明るい面に載った瞬間に 3:1 を割る */
+  --color-ring: var(--ring);
 
   /* overlay: black alpha (dialog backdrop で前景を意図的に見せる UX 要件。
      Radix Tooltip / Material modal / Spectrum overlay と同じ業界標準パターン) */
@@ -108,19 +114,29 @@
 
   /* intent tokens。suffix の分類・step 対応・用途の SSOT は
      .claude/skills/gozd-ui/SKILL.md (数や列挙をここに書くと追加・削除のたびに腐る)。
-     各 token の役割は定義行のインラインコメントで説明する。 */
+     各 token の役割は定義行のインラインコメントで説明する。
+
+     `-foreground` (solid 面に載せる前景) の値は生成側が owner として持ち (`--<hue>-on-solid`)、
+     ここは role 名を与えるだけで分類を持たない。面と前景は対でしか意味を持たず、分類を 2 箇所に
+     置くと片方だけ変えたときに contrast が無言で壊れるため。生成時に、solid として使う全 step で
+     AA を満たすことが検証される。
+     gray スケールの最上段を前景に流用しないのは、あれが「背景の上に置く高 contrast text」として
+     bg に対して 14:1 で生成された値で、solid 面の前景として設計されていないため。 */
 
   /* intent: primary (blue) */
-  --color-primary: var(--blue-9);
-  --color-primary-hover: var(--blue-10);
+  --color-primary: var(--blue-solid);
+  /* solid の hover は暗い側へ動かす。白前景を載せる面は明るくすると前景が AA を割るため
+     (許容される bg 比の上限と rest の値の間に余地が無い)。生成側の SOLID_STEPS が根拠 */
+  --color-primary-hover: var(--blue-solid-hover);
   --color-primary-subtle: var(--blue-3);
   --color-primary-subtle-hover: var(--blue-4);
   --color-primary-text: var(--blue-11);
-  --color-primary-foreground: var(--gray-12);
+  --color-primary-foreground: var(--blue-on-solid);
 
   /* intent: destructive (red) */
-  --color-destructive: var(--red-9);
-  --color-destructive-hover: var(--red-10);
+  --color-destructive: var(--red-solid);
+  /* hover を暗い側へ動かす理由は primary と同じ */
+  --color-destructive-hover: var(--red-solid-hover);
   --color-destructive-subtle: var(--red-3);
   /* subtle-emphasis (step 5): subtle bg の上に重ねる静的な強調面。diff の行内 (文字単位)
      変更範囲で使用。dark パレットの低 step は差が圧縮されているため、subtle との知覚差は
@@ -128,30 +144,30 @@
      `-active` (交互作用の押下 / 選択状態) と混同しないよう emphasis と命名する */
   --color-destructive-subtle-emphasis: var(--red-5);
   --color-destructive-text: var(--red-11);
-  --color-destructive-foreground: var(--gray-12);
+  --color-destructive-foreground: var(--red-on-solid);
 
   /* intent: success (green)。-hover は未利用 (solid success button が無い) */
-  --color-success: var(--green-9);
+  --color-success: var(--green-solid);
   --color-success-subtle: var(--green-3);
   /* subtle-emphasis (step 5): destructive-subtle-emphasis と同じ役割 */
   --color-success-subtle-emphasis: var(--green-5);
   --color-success-text: var(--green-11);
-  --color-success-foreground: var(--gray-12);
+  --color-success-foreground: var(--green-on-solid);
 
   /* intent: warning (amber、solid は light yellow → foreground は dark)。-hover は未利用 */
-  --color-warning: var(--amber-9);
+  --color-warning: var(--amber-solid);
   --color-warning-subtle: var(--amber-3);
   --color-warning-text: var(--amber-11);
-  --color-warning-foreground: var(--gray-1);
+  --color-warning-foreground: var(--amber-on-solid);
 
   /* intent: warning-strong (orange、solid は mid-bright → foreground は dark)。
      -hover / -subtle は未利用 (solid warning-strong button や subtle bg として
      warning と区別する用途が出ていない)。必要になった時点で
      `--color-warning-strong-hover: var(--orange-10)` /
      `--color-warning-strong-subtle: var(--orange-3)` を追加する */
-  --color-warning-strong: var(--orange-9);
+  --color-warning-strong: var(--orange-solid);
   --color-warning-strong-text: var(--orange-11);
-  --color-warning-strong-foreground: var(--gray-1);
+  --color-warning-strong-foreground: var(--orange-on-solid);
 
   /* intent: info (text-only、solid なし。primary と同 hue の text step を借用) */
   --color-info: var(--blue-11);
@@ -159,9 +175,9 @@
   /* channel 識別 (dev 起動バッジ、TitleBar.vue)。緑系だが success (完了/成功) とは
      独立した role。「dev channel で起動している」は環境の識別であり成功状態ではない
      ため、success の色相変更に巻き込まれない専用 alias を持つ */
-  --color-channel-dev: var(--green-9);
+  --color-channel-dev: var(--green-solid);
   --color-channel-dev-subtle: var(--green-3);
-  --color-channel-dev-foreground: var(--gray-12);
+  --color-channel-dev-foreground: var(--green-on-solid);
 
   /* age scale (text-only): 一覧の相対日時が示す鮮度の 4 段階。帯名は表示単位
      (hour = 秒・分・時間表記、day = 日、week = 週、date = 絶対日付) で、色帯の境界と

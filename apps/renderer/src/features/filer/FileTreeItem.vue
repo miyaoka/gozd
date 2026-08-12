@@ -224,11 +224,12 @@ const textColorClass = computed(() => {
 });
 
 // snapshot mode では面自体が element と同値 (background-readonly = gray step 3) に上がるため、
-// hover / 選択を element のままにすると同色で識別が消える。1 段明るい element-hover に逃がす
+// snapshot 面は element 相当なので、選択を element のままにすると同色で識別が消える。
+// 選択は状態が続く面なので、hover の層ではなく 1 段濃い solid へ逃がす
 const rowHoverClass = computed(() =>
   isSnapshot.value ? "hover:bg-element-hover" : "hover:bg-element",
 );
-const rowSelectedClass = computed(() => (isSnapshot.value ? "bg-element-hover" : "bg-element"));
+const rowSelectedClass = computed(() => (isSnapshot.value ? "bg-element-active" : "bg-element"));
 
 /** 削除ファイルかどうか (snapshot mode では発生しない) */
 const isDeleted = computed(() => !isSnapshot.value && props.gitChange === "deleted");

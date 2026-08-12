@@ -138,6 +138,7 @@ function myWorkPrNode(overrides: Record<string, unknown> = {}): Record<string, u
     title: "ci: pin oasdiff install",
     url: "https://github.com/miyaoka/gozd/pull/7846",
     isDraft: false,
+    isReadByViewer: true,
     updatedAt: "2026-08-05T11:07:03Z",
     repository: { nameWithOwner: "miyaoka/gozd" },
     author: { login: "miyaoka", avatarUrl: "https://example.invalid/a.png" },
@@ -179,6 +180,7 @@ describe("parseMyWorkNodes", () => {
       number: 17232,
       title: "dev:proxy が dev-docker の管理領域に直接書き込む",
       url: "https://github.com/miyaoka/gozd/issues/17232",
+      isReadByViewer: true,
       updatedAt: "2026-08-05T05:39:22Z",
       repository: { nameWithOwner: "miyaoka/gozd" },
       author: { login: "miyaoka", avatarUrl: "https://example.invalid/a.png" },
@@ -225,6 +227,38 @@ describe("parseMyWorkNodes", () => {
     }
   });
 
+  test("viewer が読んでいない項目は未読になる", () => {
+    const [item] = parseMyWorkNodes([myWorkPrNode({ isReadByViewer: false })], "pr");
+    expect(item.isUnread).toBe(true);
+  });
+
+  test("viewer が読んだ項目は未読にならない", () => {
+    const [item] = parseMyWorkNodes([myWorkPrNode({ isReadByViewer: true })], "pr");
+    expect(item.isUnread).toBe(false);
+  });
+
+  test("既読状態が取れない項目は未読にせず、取れなかった件数を観察ログに残す", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const nodes = [myWorkPrNode({ isReadByViewer: null }), myWorkPrNode()];
+      const items = parseMyWorkNodes(nodes, "pr");
+      expect(items[0].isUnread).toBe(false);
+      expect(spy).toHaveBeenCalledWith("[myWork] missing isReadByViewer: 1/2 nodes");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("既読状態が全件揃っていれば観察ログを出さない", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      parseMyWorkNodes([myWorkPrNode(), myWorkPrNode({ isReadByViewer: false })], "pr");
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test("mixed 軸は __typename で行の種別を判定する", () => {
     const nodes = [
       myWorkPrNode({ __typename: "PullRequest" }),
@@ -233,6 +267,7 @@ describe("parseMyWorkNodes", () => {
         number: 17232,
         title: "dev:proxy が dev-docker の管理領域に直接書き込む",
         url: "https://github.com/miyaoka/gozd/issues/17232",
+        isReadByViewer: true,
         updatedAt: "2026-08-05T05:39:22Z",
         repository: { nameWithOwner: "miyaoka/gozd" },
         author: { login: "miyaoka", avatarUrl: "https://example.invalid/a.png" },

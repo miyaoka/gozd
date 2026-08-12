@@ -28,13 +28,17 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Color, BackgroundColor, Theme } from "@adobe/leonardo-contrast-colors";
 import chroma from "chroma-js";
-import { deltaEOk, type Oklch } from "./colorMath";
+import { deltaEOk, wcagContrast, type Oklch } from "./colorMath";
 
 const OUTPUT_FILE = path.resolve(import.meta.dir, "../dist/tokens.generated.css");
 
+/* brand anchor。solid step を暗くすると Leonardo の補間で彩度も落ちる (明度を下げると brand
+ * anchor から離れるため)。blue はその目減りを brand 側の彩度で戻してあり、値は sRGB gamut の
+ * 上限 — これ以上上げても hex 化でクリップされて同じ色になる。他の hue も同じ目減りを受けるが
+ * 補正していない。 */
 const BRAND = {
   gray: "#888888",
-  blue: "#3b82f6",
+  blue: "#1f7dff",
   red: "#ef4444",
   green: "#22c55e",
   amber: "#f59e0b",
@@ -47,7 +51,107 @@ const BRAND = {
  * step 11 / 12 のコントラスト保証はこの目標値から来る。
  * BG 側は step 1 が bg 自身のため ratios は 11 点 */
 const STEP_RATIOS_BG = [1.1, 1.3, 1.5, 1.8, 2.2, 2.8, 3.5, 4.5, 5.5, 8, 14];
-const STEP_RATIOS_INTENT = [1.05, 1.15, 1.3, 1.5, 1.8, 2.2, 2.8, 3.5, 4.5, 5.5, 8, 14];
+
+/* intent の solid step (9-10) を縛るのは bg との差ではなく **面に載る前景** で、必要な向きが
+ * 前景の明暗で逆になる。白前景の面は暗くないと文字が沈み、暗前景の面は明るくないと文字が沈む。
+ * 1 本の ratios では両立しないため、前景の明暗で 2 系統に分ける。
+ *
+ * どちらを使うかは「その面に文字を載せるか、載せるならどちらの前景か」で決まる Tier 2 の
+ * 配置知識なので、hue ではなく前景で命名する (hue と前景の対応が変わっても命名が嘘にならない)。 */
+
+/* 白前景を載せる面。取りうる範囲は上下から挟まれる。
+ *
+ * 上限は前景から決まる。白と bg の比は 16.85:1 で固定なので、白前景が AA (4.5:1) を保てる面は
+ * bg 比 3.74 以下に限られる。bg 比 4.5 を狙っていた頃はここを越えており、白前景が 3.7:1 まで
+ * 落ちて blue / red の両方で AA を割っていた。
+ *
+ * 下限は面自体の識別で、bg から 3:1 離れる必要がある (1.4.11)。3.0〜3.74 の範囲で面の視認性が
+ * 最も高い 3.7 を取る。
+ *
+ * この帯の制約は rest だけでなく **solid として使う全 step** に掛かる。hover を明るい側へ
+ * 動かせないのはそのためで、上限 3.74 と rest 3.7 の間に余地が無い。使う step の集合は
+ * SOLID_STEPS が持ち、生成時に検証する。border 帯 (6-8) は単調性を保つために追随させる。 */
+const STEP_RATIOS_ON_LIGHT_FG = [1.05, 1.15, 1.3, 1.5, 1.8, 2.1, 2.5, 3.1, 3.7, 4.6, 8, 14];
+
+/* 暗前景 (gray-1) を載せる面。前景が bg と同じ色なので、bg に対する比がそのまま前景の
+ * contrast になる。AA を満たすには 4.5 を上回る必要があり、丸めを踏まないよう 4.6 を取る。 */
+const STEP_RATIOS_ON_DARK_FG = [1.05, 1.15, 1.3, 1.5, 1.8, 2.2, 2.8, 3.5, 4.6, 5.5, 8, 14];
+
+/* hue → 前景系統。solid に文字を載せない hue (green の success 用途 / orange) も、同じ役割の
+ * 仲間 (channel-dev は green-9 に白文字、warning-strong は warning と対) に合わせて選ぶ。 */
+const INTENT_RATIOS = {
+  blue: STEP_RATIOS_ON_LIGHT_FG,
+  red: STEP_RATIOS_ON_LIGHT_FG,
+  green: STEP_RATIOS_ON_LIGHT_FG,
+  amber: STEP_RATIOS_ON_DARK_FG,
+  orange: STEP_RATIOS_ON_DARK_FG,
+} as const;
+
+/* solid 面に載せる前景。面と対でしか意味を持たないため、面を作る側が owner になり、値そのものを
+ * primitive として出す。Tier 2 はそれを参照するだけで分類を持たない — 同じ分類を 2 箇所に置くと、
+ * 片方だけ変えたときに contrast が無言で壊れ、型もテストも掛からない。 */
+const INTENT_ON_SOLID = {
+  blue: "light",
+  red: "light",
+  green: "light",
+  amber: "dark",
+  orange: "dark",
+} as const;
+
+/* solid 面として使う step。ここに挙げた step すべてで前景が AA を満たすことを生成時に検証する。
+ * rest だけ見ると hover が無言で割れる（step を跨いで同じ前景を載せるため）。
+ *
+ * 白前景の面は hover を **暗い側** の step 8 から取る。step 10 (bg 比 4.6) に置けないのは、
+ * 白前景が AA を保てる上限 3.74 を越えるためで、Radix の「step 10 = より明るい hover」は
+ * light theme の前提。暗い bg に白前景を載せる構成では明度を上げる向き自体が成立しない
+ * (Apple の塗りボタンも dark 背景で hover をほぼ動かさず、押下はむしろ暗くする)。
+ *
+ * 暗前景の面は rest だけ。前景が bg と同色なので、暗い側へ動かすと前景との差が縮んで割れる
+ * (step 8 は 3.50:1)。hover を要求する用途が出た時点で、明るい側の step で帯を広げる。 */
+const SOLID_STEPS: Record<keyof typeof INTENT_ON_SOLID, { rest: number; hover?: number }> = {
+  blue: { rest: 9, hover: 8 },
+  red: { rest: 9, hover: 8 },
+  /* solid の hover を要求する用途がまだ無い hue は rest だけ持つ。出しておくと使われない
+     role が増え、どれが検証済みの組かが読み取れなくなる */
+  green: { rest: 9 },
+  amber: { rest: 9 },
+  orange: { rest: 9 },
+};
+
+/* hover の層に使う alpha の step。値は role (`--surface-hover-layer`) として出し、Tier 2 は
+ * それを参照するだけにする — Tier 2 が別の alpha を選べると、面の上限判定の前提が黙って崩れる。
+ * 面の上限判定はこの層を重ねた後の色で行う (載りうる最も明るい面は gray の step だけでは
+ * 表せない)。solid の輪郭は下限ぎりぎりなので、濃くすると assert が落ちる。 */
+const HOVER_ALPHA_STEP = 2;
+
+/* solid 面が載る最も明るい下地 (panel)。面自体が下地から 3:1 離れていないと輪郭を失う (1.4.11)。
+ *
+ * この要件は **rest にだけ**掛ける。hover は状態の識別に必要な情報ではなく supplemental な
+ * 変化なので、面そのものに 3:1 は要求されない (W3C の Understanding 1.4.11)。hover にも掛けると、
+ * 白前景 AA を保つために暗くした面と両立せず、値のチューニングでは抜けられない。
+ *
+ * element (gray-3) 以上の面は上限に取れない。白と bg の比が固定である以上、白前景 AA を保てる
+ * 面の明るさには上限があり、その面が element の上で 3:1 を得ることは数学的に成立しないため。 */
+const SOLID_MAX_SURFACE_STEP = 2;
+
+/* focus ring に使う step と、ring が載りうる最も明るい面。ring は interactive な面の縁に
+ * 描かれるため、bg ではなく **その面** に対して 3:1 を要求される (1.4.11)。border 帯 (step 8) は
+ * bg より明るい面の上で 3:1 を割るので使えない。
+ * 面の上限は element-active (gray-5) を取る。focusable な button の背景として使われており、
+ * hover の層が element に重なった面もこの明るさに達する。 */
+const RING_STEP = 11;
+const RING_MAX_SURFACE_STEP = 5;
+
+/* 前景の実体。light は純白、dark は bg と同色 (gray scale の 1 段目) を使う */
+const ON_SOLID_LIGHT: Oklch = [1, 0, 0];
+
+/** solid 面と前景 / ring と面の関係。破れたら生成を失敗させる (age scale の ΔE 検証と同じ流儀で、
+ * 壊れた token を出荷させない) */
+function assertContrast(label: string, got: number, min: number): void {
+  if (got < min) {
+    throw new Error(`${label}: contrast ${got.toFixed(2)} < ${min}`);
+  }
+}
 
 /* age scale (相対日時の鮮度 4 帯) の個別設計値。hour / date 帯は生成 scale の step
  * (green 11 / gray 11) と同値で、day / week は人間が候補比較で選んだ値。
@@ -80,8 +184,9 @@ const LIGHT_ANCHOR_C = 0.03;
  * chroma の instance method (.oklch()) と factory (chroma.oklch(L, C, H)) が
  * 型推論で unknown に倒れる。両 API を 1 箇所に集約して unknown cast を 1 度だけ書く。 */
 const chromaApi = chroma as unknown as {
-  (input: string): { oklch: () => [number, number, number] };
+  (input: string): { oklch: () => [number, number, number]; rgb: () => [number, number, number] };
   oklch: (l: number, c: number, h: number) => { hex: () => string };
+  rgb: (r: number, g: number, b: number) => { hex: () => string };
 };
 
 function oklchOf(hex: string): [number, number, number] {
@@ -117,14 +222,23 @@ function buildAnchor(brandHex: string, l: number, c: number): `#${string}` {
   return chromaApi.oklch(l, c, hue).hex() as `#${string}`;
 }
 
-/* white overlay on bg で色 T を再現する alpha を計算
- * formula (linear RGB): T = white * a + bg * (1 - a) → a = (T - bg) / (1 - bg)
- * gray は無彩色なので lightness 1 channel で計算可能 */
-function alphaForGray(target: string, bg: string): string {
-  const t = oklchOf(target)[0];
-  const b = oklchOf(bg)[0];
-  const a = Math.max(0, Math.min(1, (t - b) / (1 - b)));
-  return `oklch(1 0 0 / ${Math.round(a * 1000) / 1000})`;
+/* white overlay on bg で色 T を再現する alpha を計算。
+ *
+ * ブラウザは gamma sRGB のチャネル値で合成する (composited = 255 * a + bg * (1 - a)) ため、
+ * 同じ空間で解く。OKLCH の L や linear RGB で解くと空間が違い、生成した alpha を重ねても
+ * 目標の step にならない。gray は無彩色なので 1 channel で足りる。 */
+function alphaForGray(target: string, bg: string): number {
+  const [t] = chromaApi(target).rgb();
+  const [b] = chromaApi(bg).rgb();
+  const a = Math.max(0, Math.min(1, (t - b) / (255 - b)));
+  return Math.round(a * 1000) / 1000;
+}
+
+/** 白の層を重ねた結果。合成はブラウザと同じ gamma sRGB で行う */
+function overlayWhite(baseHex: string, alpha: number): Oklch {
+  const mix = (c: number) => 255 * alpha + c * (1 - alpha);
+  const [r, g, b] = chromaApi(baseHex).rgb();
+  return roundedOklchOf(chromaApi.rgb(mix(r), mix(g), mix(b)).hex());
 }
 
 /* gray は無彩色なので chroma curve 制御不要。単一 brand anchor で十分
@@ -139,7 +253,9 @@ const gray = new BackgroundColor({
 /* intent は dark/brand/light の 3 anchor を渡して chroma 両端 tapering を強制する。
  * 単一 anchor だと chroma が全 step で brand 並みに維持され、低 step が subtle に
  * ならない (PR #718 の元コードがこれで blue-3 が C=0.183 と他 intent の 1.4 倍出た)。 */
-const intents = (["blue", "red", "green", "amber", "orange"] as const).map(
+const INTENT_NAMES = ["blue", "red", "green", "amber", "orange"] as const;
+
+const intents = INTENT_NAMES.map(
   (name) =>
     new Color({
       name,
@@ -149,7 +265,7 @@ const intents = (["blue", "red", "green", "amber", "orange"] as const).map(
         buildAnchor(BRAND[name], LIGHT_ANCHOR_L, LIGHT_ANCHOR_C),
       ],
       colorSpace: "OKLCH",
-      ratios: STEP_RATIOS_INTENT,
+      ratios: INTENT_RATIOS[name],
     }),
 );
 
@@ -187,22 +303,83 @@ for (let i = 0; i < grayHexes.length; i++) {
 lines.push(``);
 lines.push(`  /* gray: 12-step alpha (white overlay matched to gray scale) */`);
 for (let i = 0; i < grayHexes.length; i++) {
-  lines.push(`  --gray-a${i + 1}: ${alphaForGray(grayHexes[i], grayHexes[0])};`);
+  lines.push(`  --gray-a${i + 1}: oklch(1 0 0 / ${alphaForGray(grayHexes[i], grayHexes[0])});`);
 }
 
+/* 暗い前景は bg と同色。gray scale の 1 段目がそれにあたる */
+const onSolidDark = roundedOklchOf(grayHexes[0]);
+
+/* 面の上限は「上限 step が hover している状態」。hover は層なので、gray の step だけでは
+   載りうる最も明るい面を表せない */
+const hoverAlpha = alphaForGray(grayHexes[HOVER_ALPHA_STEP - 1], grayHexes[0]);
+const maxSurfaceHovered = overlayWhite(grayHexes[SOLID_MAX_SURFACE_STEP - 1], hoverAlpha);
+const ringMaxSurfaceHovered = overlayWhite(grayHexes[RING_MAX_SURFACE_STEP - 1], hoverAlpha);
+
 let greenHexes: string[] | undefined;
-for (const intent of intents) {
-  const group = groups.find((g) => g.name === intent.name);
-  if (group === undefined) throw new Error(`missing ${intent.name} group`);
+let blueHexes: string[] | undefined;
+for (const name of INTENT_NAMES) {
+  const group = groups.find((g) => g.name === name);
+  if (group === undefined) throw new Error(`missing ${name} group`);
   const hexes = group.values.map((v) => v.value);
-  if (hexes.length !== 12) throw new Error(`expected 12 ${intent.name} steps, got ${hexes.length}`);
-  if (intent.name === "green") greenHexes = hexes;
-  lines.push(``);
-  lines.push(`  /* ${intent.name}: 12-step solid */`);
-  for (let i = 0; i < hexes.length; i++) {
-    lines.push(`  --${intent.name}-${i + 1}: ${toOklch(hexes[i])};`);
+  if (hexes.length !== 12) throw new Error(`expected 12 ${name} steps, got ${hexes.length}`);
+  if (name === "green") greenHexes = hexes;
+  if (name === "blue") blueHexes = hexes;
+
+  /* solid として使う全 step で前景が AA を満たすことを保証する。rest だけ見ると hover が
+     無言で割れる（step を跨いで同じ前景を載せるため） */
+  const onSolid = INTENT_ON_SOLID[name] === "light" ? ON_SOLID_LIGHT : onSolidDark;
+  const roles = SOLID_STEPS[name];
+  const solidSteps = roles.hover === undefined ? [roles.rest] : [roles.rest, roles.hover];
+
+  /* 前景は rest / hover の両方で AA を要求する。文字を読むのは hover 中も同じで、
+     step を跨いで同じ前景が載るため */
+  for (const step of solidSteps) {
+    assertContrast(
+      `${name}-${step} と on-solid`,
+      wcagContrast(onSolid, roundedOklchOf(hexes[step - 1])),
+      4.5,
+    );
   }
+  /* 面の輪郭は rest にだけ要求する (hover は supplemental)。ただし下地の側は hover しうるので、
+     上限 step に層を重ねた色を実際の下地として見る */
+  assertContrast(
+    `${name}-${roles.rest} と hover 中の gray-${SOLID_MAX_SURFACE_STEP}`,
+    wcagContrast(roundedOklchOf(hexes[roles.rest - 1]), maxSurfaceHovered),
+    3,
+  );
+
+  lines.push(``);
+  lines.push(`  /* ${name}: 12-step solid */`);
+  for (let i = 0; i < hexes.length; i++) {
+    lines.push(`  --${name}-${i + 1}: ${toOklch(hexes[i])};`);
+  }
+  /* 面そのものも role として出す。どの step を solid に使うかを Tier 2 が選べる状態だと、
+     検証されていない step を指しても生成時に気付けない */
+  lines.push(`  /* solid 面と、その面に載せる前景。検証済みの組を role として出す */`);
+  lines.push(`  --${name}-solid: ${toOklch(hexes[roles.rest - 1])};`);
+  if (roles.hover !== undefined) {
+    lines.push(`  --${name}-solid-hover: ${toOklch(hexes[roles.hover - 1])};`);
+  }
+  lines.push(`  --${name}-on-solid: ${oklchToCss(onSolid)};`);
 }
+
+/* focus ring。interactive な面の上に描かれるので、bg ではなく載りうる最も明るい面に対して
+   3:1 を要求する */
+if (blueHexes === undefined) {
+  throw new Error("blue scale missing for focus ring");
+}
+const ringColor = roundedOklchOf(blueHexes[RING_STEP - 1]);
+assertContrast(
+  `ring と gray-${RING_MAX_SURFACE_STEP}`,
+  wcagContrast(ringColor, ringMaxSurfaceHovered),
+  3,
+);
+lines.push(``);
+lines.push(`  /* focus ring: gray-${RING_MAX_SURFACE_STEP} までの面に対して 3:1 を満たす */`);
+lines.push(`  --ring: ${oklchToCss(ringColor)};`);
+lines.push(``);
+lines.push(`  /* hover の層。面の上限判定がこの値を前提に組まれているため、利用側で選び直さない */`);
+lines.push(`  --surface-hover-layer: var(--gray-a${HOVER_ALPHA_STEP});`);
 
 /* age 帯の値を組み立て、scale 内不変条件を検証してから primitive として出力する */
 if (greenHexes === undefined) {

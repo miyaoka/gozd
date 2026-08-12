@@ -14,6 +14,14 @@ SSOT は store の `isOpen` で、popover DOM へのミラーは要素を所有�
 このため他のドックパネルより横幅を要する。ウィンドウ幅を超えないよう上限を切り、狭い
 ウィンドウではウィンドウ幅まで縮む。
 
+## 未読の絞り込み
+
+ヘッダのトグルは**全ペインに一括で効く**。未読を拾うのが目的なので、軸ごとに持たせると
+目的に対して操作が軸の数だけ増える。
+
+絞り込んでもペインは枠ごと残る（件数 0 のペインを残すのと同じ理由）。並びと幅が状況で
+変わると、どの軸を見ているのかが掴めなくなる。
+
 ## 取得の発火
 
 `fetchIfDue` を呼ぶ条件を **「対象の出入り」** として持つ。対象とは「パネルが開いていて、かつ
@@ -147,6 +155,17 @@ const { raise } = useSurface(panelRef, {
         <span class="truncate">Showing stale data</span>
       </span>
       <span v-else class="flex-1"></span>
+      <label
+        class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs has-focus-visible:ring-2 has-focus-visible:ring-ring"
+        :class="
+          myWorkStore.unreadOnly
+            ? 'bg-primary text-primary-foreground'
+            : 'bg-element text-foreground-low hover:text-foreground'
+        "
+      >
+        <input v-model="myWorkStore.unreadOnly" type="checkbox" class="sr-only" />
+        Unread only
+      </label>
       <button
         type="button"
         aria-label="Refresh"
@@ -203,7 +222,13 @@ const { raise } = useSurface(panelRef, {
     </div>
 
     <div v-else class="flex min-h-0 flex-1">
-      <MyWorkSection v-for="axis in AXES" :key="axis.key" :title="axis.title" :group="axis.group" />
+      <MyWorkSection
+        v-for="axis in AXES"
+        :key="axis.key"
+        :title="axis.title"
+        :group="axis.group"
+        :unread-only="myWorkStore.unreadOnly"
+      />
     </div>
   </div>
 </template>
@@ -220,5 +245,9 @@ const { raise } = useSurface(panelRef, {
      height が auto でないと top + bottom の伸縮が効かずコンテンツ高さに縮む */
   height: auto;
   max-height: none;
+  /* UA スタイル [popover] { overflow: auto } を打ち消す。スクロールするのは各ペインの
+     一覧だけで、パネルそのものは動かない。残すとパネル全体が縦スクロールし、ヘッダーが
+     画面外へ流れて Refresh / Close に届かなくなる */
+  overflow: hidden;
 }
 </style>

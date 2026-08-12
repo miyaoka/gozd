@@ -17,16 +17,25 @@ my work パネルの 1 ペイン。描くのは与えられた 1 軸ぶんで、
   無い」ことと「そのペインが存在しない」ことが区別できなくなる
 - `min-w-0` を置く。flex item の既定 `min-width: auto` は中身の最小幅で下限が決まるため、
   これが無いと長いタイトルがペインを押し広げてパネルが横スクロールする
+- 未読だけを出す絞り込みは親から受け取り、間引きはここで行う。絞り込みは表示の関心なので、
+  渡された `group` は取得結果のまま扱う。取得件数と総件数の対が持つ「上限で切れたか」の
+  意味を、表示側の都合で書き換えない
 </doc>
 
 <script setup lang="ts">
 import type { GitMyWorkGroup } from "@gozd/rpc";
 import { computed } from "vue";
 import { activateExternalLink, ITEM_KIND_DISPLAY } from "../github-item";
+import { isMyWorkTruncated, myWorkCountDisplay, myWorkEmptyMessage } from "./myWorkCountDisplay";
 import MyWorkRow from "./MyWorkRow.vue";
 import IconLucideExternalLink from "~icons/lucide/external-link";
 
-const props = defineProps<{ title: string; group: GitMyWorkGroup }>();
+const props = defineProps<{ title: string; group: GitMyWorkGroup; unreadOnly: boolean }>();
+
+/** 実際に描く行。絞り込みは表示の関心なので、取得結果である `group` は元のまま扱う */
+const visibleItems = computed(() =>
+  props.unreadOnly ? props.group.items.filter((item) => item.isUnread) : props.group.items,
+);
 
 /** 見出し右端のリンク。1 本なら軸名で足りるが、複数本は種別で区別する */
 const links = computed(() => {
@@ -40,20 +49,20 @@ const links = computed(() => {
   }));
 });
 
-/** 取得上限で切れているか。真偽値を境界で運ばず、総件数と表示件数の比較で導出する */
-const isTruncated = computed(() => props.group.totalCount > props.group.items.length);
+/** 件数表示の入力。取得結果と絞り込みの状態だけで決まる */
+const countInput = computed(() => ({
+  unreadOnly: props.unreadOnly,
+  visibleCount: visibleItems.value.length,
+  fetchedCount: props.group.items.length,
+  totalCount: props.group.totalCount,
+}));
 
-const countLabel = computed(() =>
-  isTruncated.value
-    ? `${props.group.items.length} / ${props.group.totalCount}`
-    : `${props.group.totalCount}`,
-);
+/** 取得上限で切れているか。数字の色を切り替えるためだけに使う（表記の判断は表示側が持つ） */
+const isTruncated = computed(() => isMyWorkTruncated(countInput.value));
 
-const countTitle = computed(() =>
-  isTruncated.value
-    ? `Showing the ${props.group.items.length} most recently updated of ${props.group.totalCount}`
-    : `${props.group.totalCount} total`,
-);
+const countDisplay = computed(() => myWorkCountDisplay(countInput.value));
+
+const emptyMessage = computed(() => myWorkEmptyMessage(props.unreadOnly));
 </script>
 
 <template>
@@ -67,9 +76,9 @@ const countTitle = computed(() =>
         <span
           class="shrink-0 tabular-nums"
           :class="isTruncated ? 'text-warning-text' : 'text-foreground-muted'"
-          :title="countTitle"
+          :title="countDisplay.title"
         >
-          {{ countLabel }}
+          {{ countDisplay.label }}
         </span>
       </span>
       <a
@@ -87,8 +96,10 @@ const countTitle = computed(() =>
     </h3>
 
     <div class="min-h-0 flex-1 overflow-y-auto">
-      <p v-if="group.items.length === 0" class="p-3 text-xs text-foreground-muted">Nothing here</p>
-      <MyWorkRow v-for="item in group.items" v-else :key="item.url" :item="item" />
+      <p v-if="visibleItems.length === 0" class="p-3 text-xs text-foreground-muted">
+        {{ emptyMessage }}
+      </p>
+      <MyWorkRow v-for="item in visibleItems" v-else :key="item.url" :item="item" />
     </div>
   </section>
 </template>

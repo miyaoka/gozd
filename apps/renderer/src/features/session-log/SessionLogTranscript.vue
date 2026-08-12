@@ -674,15 +674,12 @@ onBeforeUnmount(teardownObserver);
           <!-- thinking / system 平文 -->
           <div
             v-if="ev.kind === 'thinking' || ev.kind === 'system'"
-            class="mx-auto mt-1 max-w-[85%] rounded-md bg-element-hover px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-foreground-low"
+            class="mx-auto mt-1 max-w-[85%] rounded-md bg-element px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-foreground-low"
           >
             {{ ev.text }}
           </div>
           <!-- tool: input 全体 + 実行結果 -->
-          <div
-            v-else
-            class="mx-auto mt-1 max-w-[85%] space-y-2 rounded-md bg-element-hover px-3 py-2"
-          >
+          <div v-else class="mx-auto mt-1 max-w-[85%] space-y-2 rounded-md bg-element px-3 py-2">
             <pre
               class="overflow-x-auto rounded-sm bg-panel p-2 text-xs text-foreground"
             ><code>{{ formattedInputs.get(i) }}</code></pre>

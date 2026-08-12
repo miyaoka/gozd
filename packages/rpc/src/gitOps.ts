@@ -326,6 +326,15 @@ export interface GitMyWorkItem {
   reviewDecision?: GitPullRequestReviewDecision;
   /** 会話の総量。数え方は `GitPullRequest.commentCount` の doc が SSOT */
   commentCount: number;
+  /**
+   * viewer がまだ読んでいない更新を持つ。GitHub が viewer ごとに持つ既読状態の反転で、
+   * 一覧に出る青いラインと同じ事実を指す。
+   *
+   * 既読にする API は存在しない（schema の Mutation に該当フィールドが無い）ため、この値は
+   * **読み取り専用**。gozd 側で既読の定義を持つと GitHub の状態と二重管理になり、片方だけ
+   * ずれた状態を作れてしまうので持たない。
+   */
+  isUnread: boolean;
 }
 
 /**

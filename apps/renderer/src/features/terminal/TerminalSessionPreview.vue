@@ -559,7 +559,7 @@ watch([hasMain, hasSub], ([main, sub]) => {
     />
     <details :open="mainOpen" @toggle="onMainToggle">
       <summary
-        class="pointer-events-auto cursor-pointer truncate bg-element-hover px-2 py-1 text-xs font-semibold text-foreground-low hover:bg-element-active [&::-webkit-details-marker]:hidden [&::marker]:hidden"
+        class="pointer-events-auto cursor-pointer truncate bg-element px-2 py-1 text-xs font-semibold text-foreground-low hover:bg-element-hover [&::-webkit-details-marker]:hidden [&::marker]:hidden"
       >
         Main
       </summary>
@@ -616,7 +616,7 @@ watch([hasMain, hasSub], ([main, sub]) => {
     />
     <details :open="subOpen" @toggle="onSubToggle">
       <summary
-        class="pointer-events-auto cursor-pointer truncate bg-element-hover px-2 py-1 text-xs font-semibold text-foreground-low hover:bg-element-active [&::-webkit-details-marker]:hidden [&::marker]:hidden"
+        class="pointer-events-auto cursor-pointer truncate bg-element px-2 py-1 text-xs font-semibold text-foreground-low hover:bg-element-hover [&::-webkit-details-marker]:hidden [&::marker]:hidden"
         :title="subLabel"
       >
         {{ subLabel }}

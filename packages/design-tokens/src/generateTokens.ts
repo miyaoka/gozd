@@ -28,14 +28,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Color, BackgroundColor, Theme } from "@adobe/leonardo-contrast-colors";
 import chroma from "chroma-js";
-import { deltaEOk, type Oklch } from "./colorMath";
+import { deltaEOk, wcagContrast, type Oklch } from "./colorMath";
 
 const OUTPUT_FILE = path.resolve(import.meta.dir, "../dist/tokens.generated.css");
 
-/* brand anchor。solid step を暗くした分だけ彩度が落ちる (Leonardo は明度を下げると brand
- * anchor から離れ、補間で chroma も下がる) ため、blue は彩度を上げて補ってある。値は sRGB
- * gamut の上限で、これ以上上げても hex 化でクリップされて同じ色になる。他の hue は solid に
- * 文字を載せないため補正しない。 */
+/* brand anchor。solid step を暗くすると Leonardo の補間で彩度も落ちる (明度を下げると brand
+ * anchor から離れるため)。blue はその目減りを brand 側の彩度で戻してあり、値は sRGB gamut の
+ * 上限 — これ以上上げても hex 化でクリップされて同じ色になる。他の hue も同じ目減りを受けるが
+ * 補正していない。 */
 const BRAND = {
   gray: "#888888",
   blue: "#1f7dff",
@@ -59,10 +59,18 @@ const STEP_RATIOS_BG = [1.1, 1.3, 1.5, 1.8, 2.2, 2.8, 3.5, 4.5, 5.5, 8, 14];
  * どちらを使うかは「その面に文字を載せるか、載せるならどちらの前景か」で決まる Tier 2 の
  * 配置知識なので、hue ではなく前景で命名する (hue と前景の対応が変わっても命名が嘘にならない)。 */
 
-/* 白前景を載せる面。bg 比 4.5 だと面が明るくなりすぎ、白前景が 3.7:1 まで落ちて AA を割る
- * (blue / red の両方で不成立だった)。3.7 まで下げると前景が 4.5:1 を回復し、面自体も bg から
- * 3:1 以上離れたままになる。これより下げると focus ring (step 8) が bg から 3:1 を割るため
- * 3.7 が下限。border 帯 (6-8) は solid との単調性を保つために追随させる。 */
+/* 白前景を載せる面。取りうる範囲は上下から挟まれる。
+ *
+ * 上限は前景から決まる。白と bg の比は 16.85:1 で固定なので、白前景が AA (4.5:1) を保てる面は
+ * bg 比 3.74 以下に限られる。bg 比 4.5 を狙っていた頃はここを越えており、白前景が 3.7:1 まで
+ * 落ちて blue / red の両方で AA を割っていた。
+ *
+ * 下限は面自体の識別で、bg から 3:1 離れる必要がある (1.4.11)。3.0〜3.74 の範囲で面の視認性が
+ * 最も高い 3.7 を取る。
+ *
+ * この帯の制約は rest だけでなく **solid として使う全 step** に掛かる。hover を明るい側へ
+ * 動かせないのはそのためで、上限 3.74 と rest 3.7 の間に余地が無い。使う step の集合は
+ * SOLID_STEPS が持ち、生成時に検証する。border 帯 (6-8) は単調性を保つために追随させる。 */
 const STEP_RATIOS_ON_LIGHT_FG = [1.05, 1.15, 1.3, 1.5, 1.8, 2.1, 2.5, 3.1, 3.7, 4.6, 8, 14];
 
 /* 暗前景 (gray-1) を載せる面。前景が bg と同じ色なので、bg に対する比がそのまま前景の
@@ -78,6 +86,49 @@ const INTENT_RATIOS = {
   amber: STEP_RATIOS_ON_DARK_FG,
   orange: STEP_RATIOS_ON_DARK_FG,
 } as const;
+
+/* solid 面に載せる前景。面と対でしか意味を持たないため、面を作る側が owner になり、値そのものを
+ * primitive として出す。Tier 2 はそれを参照するだけで分類を持たない — 同じ分類を 2 箇所に置くと、
+ * 片方だけ変えたときに contrast が無言で壊れ、型もテストも掛からない。 */
+const INTENT_ON_SOLID = {
+  blue: "light",
+  red: "light",
+  green: "light",
+  amber: "dark",
+  orange: "dark",
+} as const;
+
+/* solid 面として使う step。ここに挙げた step すべてで前景が AA を満たすことを生成時に検証する。
+ * rest だけ見ると hover が無言で割れる（step を跨いで同じ前景を載せるため）。
+ *
+ * 白前景の面は hover を **暗い側** の step 8 から取る。step 10 (bg 比 4.6) に置けないのは、
+ * 白前景が AA を保てる上限 3.74 を越えるためで、Radix の「step 10 = より明るい hover」は
+ * light theme の前提。暗い bg に白前景を載せる構成では明度を上げる向き自体が成立しない
+ * (Apple の塗りボタンも dark 背景で hover をほぼ動かさず、押下はむしろ暗くする)。
+ *
+ * 暗前景の面は rest だけ。前景が bg と同色なので、暗い側へ動かすと前景との差が縮んで割れる
+ * (step 8 は 3.50:1)。hover を要求する用途が出た時点で、明るい側の step で帯を広げる。 */
+const SOLID_STEPS: Record<"light" | "dark", readonly number[]> = {
+  light: [8, 9],
+  dark: [9],
+};
+
+/* focus ring に使う step と、ring が載りうる最も明るい面 (element-hover)。ring は interactive な
+ * 面の縁に描かれるため、bg ではなく **その面** に対して 3:1 を要求される (1.4.11)。border 帯
+ * (step 8) は bg より明るい面の上で 3:1 を割るので使えない。 */
+const RING_STEP = 11;
+const RING_MAX_SURFACE_STEP = 4;
+
+/* 前景の実体。light は純白、dark は bg と同色 (gray scale の 1 段目) を使う */
+const ON_SOLID_LIGHT: Oklch = [1, 0, 0];
+
+/** solid 面と前景 / ring と面の関係。破れたら生成を失敗させる (age scale の ΔE 検証と同じ流儀で、
+ * 壊れた token を出荷させない) */
+function assertContrast(label: string, got: number, min: number): void {
+  if (got < min) {
+    throw new Error(`${label}: contrast ${got.toFixed(2)} < ${min}`);
+  }
+}
 
 /* age scale (相対日時の鮮度 4 帯) の個別設計値。hour / date 帯は生成 scale の step
  * (green 11 / gray 11) と同値で、day / week は人間が候補比較で選んだ値。
@@ -169,7 +220,9 @@ const gray = new BackgroundColor({
 /* intent は dark/brand/light の 3 anchor を渡して chroma 両端 tapering を強制する。
  * 単一 anchor だと chroma が全 step で brand 並みに維持され、低 step が subtle に
  * ならない (PR #718 の元コードがこれで blue-3 が C=0.183 と他 intent の 1.4 倍出た)。 */
-const intents = (["blue", "red", "green", "amber", "orange"] as const).map(
+const INTENT_NAMES = ["blue", "red", "green", "amber", "orange"] as const;
+
+const intents = INTENT_NAMES.map(
   (name) =>
     new Color({
       name,
@@ -220,19 +273,55 @@ for (let i = 0; i < grayHexes.length; i++) {
   lines.push(`  --gray-a${i + 1}: ${alphaForGray(grayHexes[i], grayHexes[0])};`);
 }
 
+/* 暗い前景は bg と同色。gray scale の 1 段目がそれにあたる */
+const onSolidDark = roundedOklchOf(grayHexes[0]);
+
 let greenHexes: string[] | undefined;
-for (const intent of intents) {
-  const group = groups.find((g) => g.name === intent.name);
-  if (group === undefined) throw new Error(`missing ${intent.name} group`);
+let blueHexes: string[] | undefined;
+for (const name of INTENT_NAMES) {
+  const group = groups.find((g) => g.name === name);
+  if (group === undefined) throw new Error(`missing ${name} group`);
   const hexes = group.values.map((v) => v.value);
-  if (hexes.length !== 12) throw new Error(`expected 12 ${intent.name} steps, got ${hexes.length}`);
-  if (intent.name === "green") greenHexes = hexes;
-  lines.push(``);
-  lines.push(`  /* ${intent.name}: 12-step solid */`);
-  for (let i = 0; i < hexes.length; i++) {
-    lines.push(`  --${intent.name}-${i + 1}: ${toOklch(hexes[i])};`);
+  if (hexes.length !== 12) throw new Error(`expected 12 ${name} steps, got ${hexes.length}`);
+  if (name === "green") greenHexes = hexes;
+  if (name === "blue") blueHexes = hexes;
+
+  /* solid として使う全 step で前景が AA を満たすことを保証する。rest だけ見ると hover が
+     無言で割れる（step を跨いで同じ前景を載せるため） */
+  const fgKind = INTENT_ON_SOLID[name];
+  const onSolid = fgKind === "light" ? ON_SOLID_LIGHT : onSolidDark;
+  const solidSteps = SOLID_STEPS[fgKind];
+  for (const step of solidSteps) {
+    assertContrast(
+      `${name}-${step} と on-solid`,
+      wcagContrast(onSolid, roundedOklchOf(hexes[step - 1])),
+      4.5,
+    );
   }
+
+  lines.push(``);
+  lines.push(`  /* ${name}: 12-step solid */`);
+  for (let i = 0; i < hexes.length; i++) {
+    lines.push(`  --${name}-${i + 1}: ${toOklch(hexes[i])};`);
+  }
+  lines.push(`  /* solid 面 (steps ${solidSteps.join(" / ")}) に載せる前景 */`);
+  lines.push(`  --${name}-on-solid: ${oklchToCss(onSolid)};`);
 }
+
+/* focus ring。interactive な面の上に描かれるので、bg ではなく載りうる最も明るい面に対して
+   3:1 を要求する */
+if (blueHexes === undefined) {
+  throw new Error("blue scale missing for focus ring");
+}
+const ringColor = roundedOklchOf(blueHexes[RING_STEP - 1]);
+assertContrast(
+  `ring と gray-${RING_MAX_SURFACE_STEP}`,
+  wcagContrast(ringColor, roundedOklchOf(grayHexes[RING_MAX_SURFACE_STEP - 1])),
+  3,
+);
+lines.push(``);
+lines.push(`  /* focus ring: gray-${RING_MAX_SURFACE_STEP} までの面に対して 3:1 を満たす */`);
+lines.push(`  --ring-primitive: ${oklchToCss(ringColor)};`);
 
 /* age 帯の値を組み立て、scale 内不変条件を検証してから primitive として出力する */
 if (greenHexes === undefined) {

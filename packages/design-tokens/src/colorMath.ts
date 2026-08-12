@@ -11,6 +11,7 @@ interface ChromaColor {
 const chromaApi = chroma as unknown as {
   (input: string): ChromaColor;
   oklch: (l: number, c: number, h: number) => ChromaColor;
+  contrast: (a: ChromaColor, b: ChromaColor) => number;
 };
 
 /** sRGB gamut 外の設計値は clamp で画面と検証値が乖離するため、fallback せずエラーにする。
@@ -28,6 +29,13 @@ function quantized(c: Oklch): ChromaColor {
   return chromaApi(toColor(c).hex());
 }
 
+/** gamut 判定を伴わない量子化。gamut 内にあることが既に分かっている色どうしの比較に使う。
+ * `clipped()` は limit 前の生値を見るため、純白のような境界ちょうどの値を gamut 外と誤検出する
+ * (`toColor` の doc が予告している挙動)。設計値そのものの妥当性は生成側が別に担保する。 */
+function quantizedInGamut(c: Oklch): ChromaColor {
+  return chromaApi(chromaApi.oklch(...c).hex());
+}
+
 /** oklch の成分 3 値（L, C, hue deg）。CSS の `oklch(L C h)` と同順 */
 export type Oklch = [number, number, number];
 
@@ -42,4 +50,15 @@ export function deltaEOk(a: Oklch, b: Oklch): number {
   const [l1, a1, b1] = quantized(a).oklab();
   const [l2, a2, b2] = quantized(b).oklab();
   return Math.hypot(l1 - l2, a1 - a2, b1 - b2) * 100;
+}
+
+/**
+ * WCAG2 のコントラスト比。
+ *
+ * 面と、その面に載る前景 / 隣接面との関係を判定するための尺度。text は 4.5、UI 部品や
+ * 図形は 3 が下限（WCAG 1.4.3 / 1.4.11）。`deltaEOk` と同じく量子化後の値で判定し、
+ * 「検証は通るが画面は割る」ずれを作らない。相対輝度の算出は chroma-js に委譲する。
+ */
+export function wcagContrast(a: Oklch, b: Oklch): number {
+  return chromaApi.contrast(quantizedInGamut(a), quantizedInGamut(b));
 }

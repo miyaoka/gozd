@@ -95,8 +95,9 @@
   --color-foreground-low: var(--gray-11);
   --color-foreground-muted: var(--gray-9);
 
-  /* focus ring (intent step 8) */
-  --color-ring: var(--blue-8);
+  /* focus ring。値は生成側が持つ (ring が載りうる最も明るい面に対して 3:1 を満たすことを
+     生成時に検証する)。border 帯の step を借りると、bg より明るい面に載った瞬間に 3:1 を割る */
+  --color-ring: var(--ring-primitive);
 
   /* overlay: black alpha (dialog backdrop で前景を意図的に見せる UX 要件。
      Radix Tooltip / Material modal / Spectrum overlay と同じ業界標準パターン) */
@@ -110,22 +111,27 @@
      .claude/skills/gozd-ui/SKILL.md (数や列挙をここに書くと追加・削除のたびに腐る)。
      各 token の役割は定義行のインラインコメントで説明する。
 
-     `-foreground` (solid 面に載せる前景) は白を既定とし、明るい solid (amber / orange)
-     だけ dark に倒す。gray スケールの最上段を前景に流用しないのは、あれが「背景の上に置く
-     高 contrast text」として bg に対して 14:1 で生成された値で、solid 面の前景として
-     設計されていないため。白より暗いぶん、同じ面に載せても contrast がそのまま目減りする。 */
+     `-foreground` (solid 面に載せる前景) の値は生成側が owner として持ち (`--<hue>-on-solid`)、
+     ここは role 名を与えるだけで分類を持たない。面と前景は対でしか意味を持たず、分類を 2 箇所に
+     置くと片方だけ変えたときに contrast が無言で壊れるため。生成時に、solid として使う全 step で
+     AA を満たすことが検証される。
+     gray スケールの最上段を前景に流用しないのは、あれが「背景の上に置く高 contrast text」として
+     bg に対して 14:1 で生成された値で、solid 面の前景として設計されていないため。 */
 
   /* intent: primary (blue) */
   --color-primary: var(--blue-9);
-  --color-primary-hover: var(--blue-10);
+  /* solid の hover は暗い側へ動かす。白前景を載せる面は明るくすると前景が AA を割るため
+     (許容される bg 比の上限と rest の値の間に余地が無い)。生成側の SOLID_STEPS が根拠 */
+  --color-primary-hover: var(--blue-8);
   --color-primary-subtle: var(--blue-3);
   --color-primary-subtle-hover: var(--blue-4);
   --color-primary-text: var(--blue-11);
-  --color-primary-foreground: oklch(1 0 0);
+  --color-primary-foreground: var(--blue-on-solid);
 
   /* intent: destructive (red) */
   --color-destructive: var(--red-9);
-  --color-destructive-hover: var(--red-10);
+  /* hover を暗い側へ動かす理由は primary と同じ */
+  --color-destructive-hover: var(--red-8);
   --color-destructive-subtle: var(--red-3);
   /* subtle-emphasis (step 5): subtle bg の上に重ねる静的な強調面。diff の行内 (文字単位)
      変更範囲で使用。dark パレットの低 step は差が圧縮されているため、subtle との知覚差は
@@ -133,7 +139,7 @@
      `-active` (交互作用の押下 / 選択状態) と混同しないよう emphasis と命名する */
   --color-destructive-subtle-emphasis: var(--red-5);
   --color-destructive-text: var(--red-11);
-  --color-destructive-foreground: oklch(1 0 0);
+  --color-destructive-foreground: var(--red-on-solid);
 
   /* intent: success (green)。-hover は未利用 (solid success button が無い) */
   --color-success: var(--green-9);
@@ -141,13 +147,13 @@
   /* subtle-emphasis (step 5): destructive-subtle-emphasis と同じ役割 */
   --color-success-subtle-emphasis: var(--green-5);
   --color-success-text: var(--green-11);
-  --color-success-foreground: oklch(1 0 0);
+  --color-success-foreground: var(--green-on-solid);
 
   /* intent: warning (amber、solid は light yellow → foreground は dark)。-hover は未利用 */
   --color-warning: var(--amber-9);
   --color-warning-subtle: var(--amber-3);
   --color-warning-text: var(--amber-11);
-  --color-warning-foreground: var(--gray-1);
+  --color-warning-foreground: var(--amber-on-solid);
 
   /* intent: warning-strong (orange、solid は mid-bright → foreground は dark)。
      -hover / -subtle は未利用 (solid warning-strong button や subtle bg として
@@ -156,7 +162,7 @@
      `--color-warning-strong-subtle: var(--orange-3)` を追加する */
   --color-warning-strong: var(--orange-9);
   --color-warning-strong-text: var(--orange-11);
-  --color-warning-strong-foreground: var(--gray-1);
+  --color-warning-strong-foreground: var(--orange-on-solid);
 
   /* intent: info (text-only、solid なし。primary と同 hue の text step を借用) */
   --color-info: var(--blue-11);
@@ -166,7 +172,7 @@
      ため、success の色相変更に巻き込まれない専用 alias を持つ */
   --color-channel-dev: var(--green-9);
   --color-channel-dev-subtle: var(--green-3);
-  --color-channel-dev-foreground: oklch(1 0 0);
+  --color-channel-dev-foreground: var(--green-on-solid);
 
   /* age scale (text-only): 一覧の相対日時が示す鮮度の 4 段階。帯名は表示単位
      (hour = 秒・分・時間表記、day = 日、week = 週、date = 絶対日付) で、色帯の境界と

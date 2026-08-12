@@ -433,23 +433,37 @@ function mixedNodeKind(item: unknown): GitItemKind {
 /** my work query の nodes を `GitMyWorkItem` へ変換する pure 関数。全グループとも
  * これを経由する SSOT で、snapshot 入力に対する境界の振る舞いをここに閉じる。 */
 export function parseMyWorkNodes(nodes: unknown[], kind: GitItemKind | "mixed"): GitMyWorkItem[] {
-  return nodes.map((item) => ({
-    kind: kind === "mixed" ? mixedNodeKind(item) : kind,
-    repo: str(getPath(item, "repository", "nameWithOwner")),
-    number: int(getPath(item, "number")),
-    title: str(getPath(item, "title")),
-    url: str(getPath(item, "url")),
-    author: str(getPath(item, "author", "login")),
-    authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
-    updatedAt: str(getPath(item, "updatedAt")),
-    isDraft: getPath(item, "isDraft") === true,
-    checkState: checkState(getPath(item, "statusCheckRollup", "state"), "myWork"),
-    reviewDecision: reviewDecision(getPath(item, "reviewDecision")),
-    commentCount: commentCount(item),
-    // 欠落時は既読側へ倒す。未読は注意を促す表示なので、取得できていない事実を
-    // 「未読がある」と描くと実在しない要対応を作り出す
-    isUnread: getPath(item, "isReadByViewer") === false,
-  }));
+  // 既読状態が取れなかった件数。行ごとに出すと 1 応答で 100 行ぶん流れるため集計して 1 行にする
+  let missingReadState = 0;
+
+  const items = nodes.map((item) => {
+    const readState = getPath(item, "isReadByViewer");
+    if (typeof readState !== "boolean") missingReadState += 1;
+
+    return {
+      kind: kind === "mixed" ? mixedNodeKind(item) : kind,
+      repo: str(getPath(item, "repository", "nameWithOwner")),
+      number: int(getPath(item, "number")),
+      title: str(getPath(item, "title")),
+      url: str(getPath(item, "url")),
+      author: str(getPath(item, "author", "login")),
+      authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
+      updatedAt: str(getPath(item, "updatedAt")),
+      isDraft: getPath(item, "isDraft") === true,
+      checkState: checkState(getPath(item, "statusCheckRollup", "state"), "myWork"),
+      reviewDecision: reviewDecision(getPath(item, "reviewDecision")),
+      commentCount: commentCount(item),
+      // 欠落時は既読側へ倒す。未読は注意を促す表示なので、取得できていない事実を
+      // 「未読がある」と描くと実在しない要対応を作り出す
+      isUnread: readState === false,
+    };
+  });
+
+  // 全件が既読側へ倒れると「未読が無い」と区別できなくなる。取れなかったことを残す
+  if (missingReadState > 0) {
+    console.error(`[myWork] missing isReadByViewer: ${missingReadState}/${nodes.length} nodes`);
+  }
+  return items;
 }
 
 /** `gh api user --jq .login` で認証中ユーザーの login を返す */

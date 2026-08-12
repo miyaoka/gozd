@@ -4,9 +4,9 @@
  * shared/rpc と shared/notification の橋渡し。shared 間の依存は禁じられているため、
  * 上位層（layout feature）でこの bridge を組む。
  */
+import type { NotifyPayload } from "@gozd/rpc";
 import { onMounted, onUnmounted } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import type { NotifyPayload } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 
 export function useNotifySubscription() {

@@ -16,6 +16,7 @@ export type {
   LoadAppConfigResponse,
   SaveAppConfigRequest,
   SaveAppConfigResponse,
+  AppConfigChangePayload,
 } from "./appConfig";
 export type {
   AppState,
@@ -79,6 +80,8 @@ export type {
   FsWriteFileAbsoluteResponse,
   FsWriteFileRequest,
   FsWriteFileResponse,
+  FsChangePayload,
+  FsChangeAbsolutePayload,
 } from "./fs";
 export type {
   CreateWorktreeRequest,
@@ -150,7 +153,14 @@ export type {
   BranchScope,
   SortMode,
 } from "./gitOps";
-export type { GitStatusRequest, GitStatusResponse } from "./gitStatus";
+export type {
+  GitStatusRequest,
+  GitStatusResponse,
+  BranchChangePayload,
+  RemoteRefsChangePayload,
+  WorktreeChangePayload,
+  GitStatusChangePayload,
+} from "./gitStatus";
 export { GIT_PULL_REQUEST_CHECK_STATES } from "./common";
 export { GIT_MY_WORK_AXIS_KEYS, GIT_PULL_REQUEST_REVIEW_DECISIONS } from "./gitOps";
 export { ghRefForIssue, ghRefForPr, ghRefLabel } from "./helpers";
@@ -161,6 +171,7 @@ export type {
   OpenFileResponse,
   PickAndOpenRequest,
   PickAndOpenResponse,
+  GozdOpenPayload,
 } from "./open";
 export type {
   PreviewHtmlUrlRequest,
@@ -186,12 +197,15 @@ export type {
   PtySpawnResponse,
   PtyWriteRequest,
   PtyWriteResponse,
+  PtyTextPayload,
+  PtyExitPayload,
 } from "./pty";
 export type {
   ServerAttribution,
   ServerEntry,
   ServerListRequest,
   ServerListResponse,
+  ServerPortsChangePayload,
 } from "./server";
 export type {
   TaskAddRequest,
@@ -212,7 +226,7 @@ export type {
   TextSearchCancelRequest,
   TextSearchCancelResponse,
   TextSearchLineResult,
-  TextSearchMatchPush,
+  TextSearchMatchPayload,
   TextSearchMatchRange,
   TextSearchOptions,
   TextSearchQuery,
@@ -235,4 +249,8 @@ export type {
   WindowCloseResponse,
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
+  WindowFullscreenChangePayload,
 } from "./window";
+export type { NotifyPayload, DebugLogPayload } from "./observability";
+export type { HookPayload } from "./clientMessage";
+export type { PushPayloadMap } from "./push";

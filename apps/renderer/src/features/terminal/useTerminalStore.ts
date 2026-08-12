@@ -1,3 +1,4 @@
+import type { HookPayload, PtyExitPayload, PtyTextPayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, shallowRef } from "vue";
@@ -8,7 +9,6 @@ import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
-import type { HookPayload, PtyExitPayload, PtyTextPayload } from "./rpc";
 import { rpcClaudeSessionRemoveByPty, rpcPtyKill, rpcPtySpawn } from "./rpc";
 import { createTerminalLayout } from "./terminalLayout";
 import type { TerminalLayoutState } from "./terminalLayout";

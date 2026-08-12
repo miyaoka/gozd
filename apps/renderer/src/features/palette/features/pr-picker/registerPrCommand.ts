@@ -10,18 +10,17 @@ import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import { ghErrorMessage } from "../../../github-item";
+import { reviveTaskForGhRef, rpcTaskAdd } from "../../../task";
+import { activateDir, useTerminalStore } from "../../../terminal";
 import {
-  reviveTaskForGhRef,
+  generateTimestamp,
   rpcCreateWorktree,
+  rpcGitPrList,
   rpcGitWorktreeList,
-  rpcTaskAdd,
-  activateDir,
-} from "../../../sidebar";
-import { useTerminalStore } from "../../../terminal";
-import { generateTimestamp, useWorktreeStore } from "../../../worktree";
+  useWorktreeStore,
+} from "../../../worktree";
 import { inFlightKey, useInFlightGhRefs } from "../../inFlightGhRefs";
 import { buildTaskIndexByGhRef, ghRefKey } from "../../taskIndexByGhRef";
-import { rpcGitPrList } from "./rpc";
 import { usePrPicker } from "./usePrPicker";
 import type { PrPickerItem } from "./usePrPicker";
 import { fetchViewer } from "./useViewer";

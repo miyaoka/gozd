@@ -73,7 +73,6 @@ import { tryCatch } from "@gozd/shared";
 import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { openExternal } from "../../shared/rpc";
-import type { FileContextMenuPayload } from "../navigator";
 import {
   resolveDirectoryGitChange,
   resolveFileGitChange,
@@ -81,6 +80,7 @@ import {
   useWorktreeStore,
 } from "../worktree";
 import type { GitChangeKind } from "../worktree";
+import type { FileContextMenuPayload } from "./fileContextMenuPayload";
 import {
   getDeletedEntries,
   isDescendantOf,
@@ -150,7 +150,7 @@ const emit = defineEmits<{
   /**
    * 右クリック時に親に bubble する。NavigatorPane が popover singleton を open する責務を持つ。
    * 子 FileTreeItem からの emit もここで素通しで bubble する (再帰的に root pane まで上がる)。
-   * payload 型は navigator が SSOT として export (type-only import で依存方向は壊さない)。
+   * payload 型は同 feature の fileContextMenuPayload.ts が SSOT。
    */
   contextMenu: [payload: FileContextMenuPayload];
 }>();

@@ -1,6 +1,5 @@
 import type { Task } from "@gozd/rpc";
-import { useTerminalStore } from "../terminal";
-import { activateDir } from "./activateDir";
+import { activateDir, useTerminalStore } from "../terminal";
 
 /**
  * task を選択して「dir を active にし、session へ到達する」分岐の SSOT。

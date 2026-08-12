@@ -38,11 +38,11 @@
  * 設計 (Apple 公式、fswatch 公式)。debounce での coalesce は VSCode / chokidar / Vite で
  * 採用されている標準パターン。
  */
+import type { FsChangePayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { onUnmounted, ref, watch, type Ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { onMessage } from "../../shared/rpc";
-import { rpcFsUnwatch, rpcFsWatch, type FsChangePayload } from "../filer";
+import { onMessage, rpcFsUnwatch, rpcFsWatch } from "../../shared/rpc";
 import { rpcClaudeSessionLog } from "./rpc";
 import { subagentTabLabel } from "./sessionLogView";
 

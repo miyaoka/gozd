@@ -28,7 +28,7 @@ import { tryCatch } from "@gozd/shared";
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
-import { rpcTaskSetUserTitle } from "./rpc";
+import { rpcTaskSetUserTitle } from "../task";
 import { useTaskEditing } from "./useTaskEditing";
 import { placeholderForEmptyUserTitle } from "./utils";
 

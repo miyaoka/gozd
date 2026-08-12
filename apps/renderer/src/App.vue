@@ -21,6 +21,7 @@ import { UndockedPreviewLayer } from "./features/preview";
 import { ServerListPanel } from "./features/server";
 import { UndockedLogLayer } from "./features/session-log";
 import { useGozdOpenHandler, useRepoContextKey } from "./features/sidebar";
+import { claudeStateKeyOf } from "./features/terminal";
 import { useGitStatusSync, useRemoteFetchSync } from "./features/worktree";
 import { useKeyBindings } from "./shared/command";
 
@@ -32,7 +33,9 @@ useRpcListenerErrorBridge();
 useGozdOpenHandler();
 useRepoContextKey();
 useFsWatchSync();
-useGitStatusSync();
+// worktree は terminal を知らない。「dir の Claude 状態が動いたら git status を取り直す」の
+// 状態源だけを composition root で配線する
+useGitStatusSync({ claudeStateKeyOf });
 useRemoteFetchSync();
 useTitleContextSync();
 </script>

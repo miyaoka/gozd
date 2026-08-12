@@ -5,19 +5,24 @@
  * - native 側 FSWatchRegistry からの gitStatusChange push（全 worktree が対象。payload の dir で
  *   該当 worktree に直接反映する）
  */
+import type { GitStatusChangePayload } from "@gozd/rpc";
 import { onMounted, onUnmounted, watch } from "vue";
 import { logEvent } from "../../shared/debug";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
-import { useTerminalStore } from "../terminal";
-import type { GitStatusChangePayload } from "./rpc";
 import { useGitStatusStore } from "./useGitStatusStore";
 import { useWorktreeStore } from "./useWorktreeStore";
 
-export function useGitStatusSync() {
+interface GitStatusSyncOptions {
+  /** dir に紐づく Claude 群の state 集合を安定キー化した文字列を返す reactive getter。
+   * worktree feature は「エージェントの状態が動いたら status を取り直す」ことだけを知り、
+   * 状態の持ち主 (terminal store) は composition root (App.vue) が注入する。 */
+  claudeStateKeyOf: (dir: string) => string;
+}
+
+export function useGitStatusSync(options: GitStatusSyncOptions) {
   const repoStore = useRepoStore();
   const worktreeStore = useWorktreeStore();
-  const terminalStore = useTerminalStore();
   const gitStatusStore = useGitStatusStore();
 
   watch(
@@ -32,11 +37,7 @@ export function useGitStatusSync() {
     () => {
       const dir = repoStore.selectedDir;
       if (dir === undefined) return "";
-      return terminalStore
-        .getClaudeStatusesByDir(dir)
-        .map((s) => s.state)
-        .sort()
-        .join(",");
+      return options.claudeStateKeyOf(dir);
     },
     (newKey, oldKey) => {
       if (newKey === oldKey) return;
@@ -59,7 +60,7 @@ export function useGitStatusSync() {
           .at(-1) ?? payload.dir;
       logEvent("git-status", "change", wtName);
       repoStore.setWorktreeGitStatuses(payload.dir, {
-        statuses: payload.statuses,
+        statuses: payload.entries,
         renameOldPaths: payload.renameOldPaths,
         upstream: payload.upstream,
         latestMtime: payload.latestMtime,

@@ -70,3 +70,9 @@ export type EnsureAppConfigFileRequest = EmptyMessage;
 export interface EnsureAppConfigFileResponse {
   path: string;
 }
+
+// --- main → renderer push payload ---
+
+/** appConfigChange push payload。config ファイルの変更（UI 保存の自己エコー含む）を通知する。
+ * pull (`LoadAppConfigResponse`) と同じ hydrate 形。 */
+export type AppConfigChangePayload = LoadAppConfigResponse;

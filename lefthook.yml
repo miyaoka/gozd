@@ -113,6 +113,11 @@ pre-commit:
                   glob: "**/*.{ts,vue,css,md}"
                   run: pnpm exec oxfmt {staged_files}
                   stage_fixed: true
+                # feature 間循環は増分で判定できない（グラフ全体の性質）ため全体走査で
+                # 実行する。staged に .ts/.vue が無い commit では走らせない
+                - name: feature-cycles
+                  glob: "**/*.{ts,vue}"
+                  run: bun scripts/checkFeatureCycles.ts
 
     # fix 系ジョブ完了後に実行（stage_fixed によるファイル書き換え後の状態で解析）
     # --fix で未使用 export を自動削除して stage に乗せる。

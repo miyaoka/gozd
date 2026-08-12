@@ -4,8 +4,9 @@ renderer と main の通信、および CLI / Claude hooks からの受付。
 
 ## 型の SSOT
 
-全メッセージ型（request / response / 永続化 schema / socket message）を単一のパッケージが持ち、
-renderer と main の両方が同じ定義を参照する。**両端が同型を見るため、ワイヤ変換層は存在しない**。
+全メッセージ型（request / response / push payload / 永続化 schema / socket message）を単一の
+パッケージが持ち、renderer と main の両方が同じ定義を参照する。**両端が同型を見るため、
+ワイヤ変換層は存在しない**。
 
 型に課す制約は [architecture.md](architecture.md#プロセス境界を跨ぐ型) の契約に従う。加えて:
 
@@ -44,32 +45,36 @@ HTML preview 用の 1 つだけで、それ以外の到達経路を増やさな�
 
 main から renderer への一方向通知。
 
-| type                     | 意味                                                     |
-| ------------------------ | -------------------------------------------------------- |
-| `ptyText`                | PTY 出力                                                 |
-| `ptyExit`                | PTY 終了                                                 |
-| `fsChange`               | 監視 dir 配下のファイル変更                              |
-| `fsChangeAbsolute`       | 監視中の単一ファイル（worktree 外）の変更                |
-| `gitStatusChange`        | git status snapshot の変化                               |
-| `branchChange`           | ローカルブランチ参照の変化                               |
-| `remoteRefsChange`       | リモート tracking 参照の変化                             |
-| `worktreeChange`         | worktree の構成、または main worktree の checkout 先変化 |
-| `fsWatchReady`           | 監視登録成立後の dir 単位の再同期シグナル                |
-| `gozdOpen`               | CLI / 起動要求からの open 要求                           |
-| `serverPortsChange`      | 実行中サーバー検出結果の snapshot                        |
-| `hook`                   | Claude Code の hook イベント                             |
-| `notify`                 | main 側のバックグラウンドエラー / 情報通知               |
-| `windowFullscreenChange` | fullscreen 遷移                                          |
-| `appConfigChange`        | 設定ファイルの外部編集                                   |
+| type                     | 意味                                                                                   |
+| ------------------------ | -------------------------------------------------------------------------------------- |
+| `ptyText`                | PTY 出力                                                                               |
+| `ptyExit`                | PTY 終了                                                                               |
+| `fsChange`               | 監視 dir 配下のファイル変更                                                            |
+| `fsChangeAbsolute`       | 監視中の単一ファイル（worktree 外）の変更                                              |
+| `gitStatusChange`        | git status snapshot の変化                                                             |
+| `branchChange`           | ローカルブランチ参照の変化                                                             |
+| `remoteRefsChange`       | リモート tracking 参照の変化                                                           |
+| `worktreeChange`         | worktree の構成、または main worktree の checkout 先変化                               |
+| `fsWatchReady`           | 監視登録成立後の dir 単位の再同期シグナル（renderer 内部で発射。ワイヤ push ではない） |
+| `gozdOpen`               | CLI / 起動要求からの open 要求                                                         |
+| `serverPortsChange`      | 実行中サーバー検出結果の snapshot                                                      |
+| `hook`                   | Claude Code の hook イベント                                                           |
+| `notify`                 | main 側のバックグラウンドエラー / 情報通知                                             |
+| `windowFullscreenChange` | fullscreen 遷移                                                                        |
+| `appConfigChange`        | 設定ファイルの外部編集                                                                 |
+| `debugLog`               | main 側の観測イベント（イベントログ行き）                                              |
+| `textSearchMatch`        | 全文検索のマッチ逐次配信                                                               |
 
 - ファイル監視由来の push は **発火源の `dir` を必須で持つ**
   （[architecture.md](architecture.md#ssot-push-の-dir-filter-規律)）
 - 単一ファイル監視の push は exact path 一致で受け取るため、dir filter 規律の対象外
 - グローバルに 1 つしか対象が無い push は filter キー自体を持たない
 
-**push payload の型は共有パッケージに置かない**。request / response は両端が同じ型を参照する
-必要があるが、push は「main の発火箇所」と「renderer の購読側」がそれぞれ形を持つ。共通の
-イベントバス層は payload の形を知らない設計にする。
+**ワイヤ push の type 名と payload 型の対応は単一の map が持ち、送信側はその map で型検査
+される**。未登録の type 名や payload 形の取り違えはコンパイルエラーになる。renderer 内部
+イベント（`fsWatchReady` / `claudeFx` 等）はワイヤ契約ではないため map に載せず、所有側が型を
+持つ。イベントバスはワイヤと内部イベントの両方を運ぶため payload の形を知らず、購読側が型を
+当てる。
 
 ### CLI / Claude hooks → main
 

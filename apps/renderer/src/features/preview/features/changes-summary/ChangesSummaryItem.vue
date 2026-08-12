@@ -31,13 +31,12 @@ N 個の callback が走る (filter で大半は早期 return)。summary view �
 </doc>
 
 <script setup lang="ts">
-import { type GitFileChange } from "@gozd/rpc";
+import type { FsChangePayload, GitFileChange } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useIntersectionObserver } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { onMessage } from "../../../../shared/rpc";
 import { getFileIconUrl, relDirOf, rpcFsReadFile } from "../../../filer";
-import type { FsChangePayload } from "../../../filer";
 import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../../../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../../../worktree";
 import type { GitChangeKind } from "../../../worktree";

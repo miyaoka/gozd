@@ -48,6 +48,7 @@ import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { closeFocusedSurface, hasFocusedSurface, useSurface } from "../../shared/surface";
+import { ResizeHandle } from "../../shared/ui";
 import { DashboardDialog, registerDashboardCommand } from "../dashboard";
 import { registerFilerCommands } from "../filer";
 import { GitGraphPane } from "../git-graph";
@@ -93,7 +94,6 @@ import {
 } from "./layoutSizes";
 import NotificationCenterPanel from "./NotificationCenterPanel.vue";
 import NotificationToast from "./NotificationToast.vue";
-import ResizeHandle from "./ResizeHandle.vue";
 import { rpcWindowClose } from "./rpc";
 import TitleBar from "./TitleBar.vue";
 

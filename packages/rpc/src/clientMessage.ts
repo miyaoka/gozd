@@ -66,3 +66,7 @@ export interface HookMessage {
 export interface OpenMessage {
   targetPath: string;
 }
+
+/** hook push payload。socket で受けた `HookMessage` から送信経路情報 (`source`) を
+ * 落とした形をそのまま renderer へ転送する。 */
+export type HookPayload = Omit<HookMessage, "source">;

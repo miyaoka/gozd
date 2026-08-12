@@ -139,3 +139,21 @@ export interface FsStatResponse {
   /** ISO 8601 */
   modifiedAt: string;
 }
+
+// --- main → renderer push payloads (fs watch) ---
+
+/** fsChange push payload。
+ * `dir` は購読時に渡した dir（renderer 側 worktree dir と文字列同一）。
+ * `relDir` は変更ファイルの親 dir を `dir` からの相対パスで表現する。
+ * main 側 `relativeDir()`（fs/classify.ts）の SSOT に従い、worktree 直下は `""`、
+ * サブディレクトリ配下は末尾 "/" を含まないディレクトリ相対パス。 */
+export interface FsChangePayload {
+  dir: string;
+  relDir: string;
+}
+
+/** fsChangeAbsolute push payload。
+ * fs/watchFileAbsolute で watch 中の絶対パスファイルの変更通知（main 側 absFileWatcher が発火元）。 */
+export interface FsChangeAbsolutePayload {
+  path: string;
+}

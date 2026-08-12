@@ -6,7 +6,7 @@ import { logEvent } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { ghErrorLogDetail, ghErrorMessage } from "../github-item";
-import { rpcGitPrList } from "../palette";
+import { rpcGitPrList } from "../worktree";
 
 /**
  * PR 一覧の SSOT + 取得マネージャ。`gh pr list` は repo 単位で結果が同じなので、**repo

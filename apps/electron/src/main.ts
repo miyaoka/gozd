@@ -207,12 +207,16 @@ function createWindow(): BrowserWindow {
   // macOS fullscreen では信号機ボタンが消える。renderer のタイトルバー（TitleBar.vue）が
   // 左の逃げ幅 pad を畳めるよう遷移を push する。初期状態の pull hydrate は持たない
   // （取りこぼしても pad が残るだけで、次の遷移で自己回復する cosmetic 用途のため）
-  const pushFullscreenChange = (isFullscreen: boolean): void => {
+  const windowPush: PushFn = (type, payload) => {
     if (window.webContents.isDestroyed()) return;
-    window.webContents.send("rpc:push", "windowFullscreenChange", { isFullscreen });
+    window.webContents.send("rpc:push", type, payload);
   };
-  window.on("enter-full-screen", () => pushFullscreenChange(true));
-  window.on("leave-full-screen", () => pushFullscreenChange(false));
+  window.on("enter-full-screen", () =>
+    windowPush("windowFullscreenChange", { isFullscreen: true }),
+  );
+  window.on("leave-full-screen", () =>
+    windowPush("windowFullscreenChange", { isFullscreen: false }),
+  );
   // ロード経路は 3 つ（Swift 版 GozdApp.task と同型）:
   //   1. GOZD_ELECTRON_RENDERER_URL: Vite dev server（HMR / 検証）
   //   2. packaged: .app 同梱の renderer（Vite build は base "./" のため file:// で成立。

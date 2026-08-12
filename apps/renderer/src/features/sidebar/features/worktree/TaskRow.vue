@@ -50,10 +50,10 @@ inactive state だけなので実質 `task.createdAt` 起点になる（status �
 import type { Task } from "@gozd/rpc";
 import { computed } from "vue";
 import { taskDisplayTitle } from "../../../../shared/repo";
+import { resolveTaskBaseTime } from "../../../task";
 import { CLAUDE_STATE_VISUAL, displayClaudeState } from "../../../terminal";
 import type { ClaudeState, ClaudeStatus } from "../../../terminal";
 import { extractAskingText, extractFirstSentence } from "../../../voicevox";
-import { resolveTaskBaseTime } from "../../taskBaseTime";
 import { useRelativeTime } from "../../useRelativeTime";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
 

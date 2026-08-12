@@ -48,11 +48,12 @@ task は `task.createdAt` 昇順 (append 順) で固定。新しい task は末�
 <script setup lang="ts">
 import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { computed } from "vue";
+import { branchLabel as resolveBranchLabel } from "../../../../shared/repo";
 import { useServerStore } from "../../../server";
 import type { ClaudeState, ClaudeStatus } from "../../../terminal";
 import { displayClaudeState, useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
-import { compareTaskOrder, branchLabel as resolveBranchLabel, hasChanges } from "../../utils";
+import { compareTaskOrder, hasChanges } from "../../utils";
 import TaskRow from "./TaskRow.vue";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideArrowUp from "~icons/lucide/arrow-up";

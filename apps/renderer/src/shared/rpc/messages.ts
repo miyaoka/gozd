@@ -6,9 +6,10 @@
 //
 // 設計判断:
 //
-// 1. **payload 型は feature が定義する**。shared は payload 形を知らない。
-//    呼び出し側が `onMessage<MyPayload>("my-type", fn)` の generic で型を当てる。
-//    GozdMessageMap を持つと shared が feature 知識を持ってしまうため。
+// 1. **onMessage は payload 形を知らない**。呼び出し側が `onMessage<MyPayload>("my-type", fn)`
+//    の generic で型を当てる。ワイヤ push の payload 型は @gozd/rpc（`PushPayloadMap`）が
+//    SSOT で送信側を閉じるが、このバスには renderer 内部イベント（fsWatchReady / claudeFx 等、
+//    feature 所有の型）も乗るため、受信側をワイヤの map だけで閉じることはできない。
 //
 // 2. **`window` への登録は明示の `initRpcDispatcher()` で行う**。モジュールトップレベルで
 //    `window.__gozdReceive = ...` を実行すると import するだけで window へ書き込む副作用が

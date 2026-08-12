@@ -7,16 +7,10 @@ import {
   FsReadFileAbsoluteResponse,
   FsReadFileRequest,
   FsReadFileResponse,
-  FsUnwatchAllRequest,
-  FsUnwatchAllResponse,
   FsUnwatchFileAbsoluteRequest,
   FsUnwatchFileAbsoluteResponse,
-  FsUnwatchRequest,
-  FsUnwatchResponse,
   FsWatchFileAbsoluteRequest,
   FsWatchFileAbsoluteResponse,
-  FsWatchRequest,
-  FsWatchResponse,
   FsWriteFileAbsoluteRequest,
   FsWriteFileAbsoluteResponse,
   FsWriteFileRequest,
@@ -65,10 +59,6 @@ export const rpcClipboardCopyFiles = (req: ClipboardCopyFilesRequest) =>
 /** ファイルを OS のデフォルトアプリで開く（macOS の `open` 相当）。path は絶対パス。 */
 export const rpcOpenFile = (req: OpenFileRequest) => rpc<OpenFileResponse>("/open/file", req);
 
-export const rpcFsWatch = (req: FsWatchRequest) => rpc<FsWatchResponse>("/fs/watch", req);
-
-export const rpcFsUnwatch = (req: FsUnwatchRequest) => rpc<FsUnwatchResponse>("/fs/unwatch", req);
-
 // 絶対パスの単一ファイル watch（worktree 外。preview の表示中ファイル追従用）。
 // 変更は fsChangeAbsolute push で届く。同一 path は main 側 refcount で共有される。
 export const rpcFsWatchFileAbsolute = (req: FsWatchFileAbsoluteRequest) =>
@@ -76,23 +66,3 @@ export const rpcFsWatchFileAbsolute = (req: FsWatchFileAbsoluteRequest) =>
 
 export const rpcFsUnwatchFileAbsolute = (req: FsUnwatchFileAbsoluteRequest) =>
   rpc<FsUnwatchFileAbsoluteResponse>("/fs/unwatchFileAbsolute", req);
-
-export const rpcFsUnwatchAll = (req: FsUnwatchAllRequest) =>
-  rpc<FsUnwatchAllResponse>("/fs/unwatchAll", req);
-
-// fsChange push event payload.
-// `dir` は購読時に渡した dir（renderer 側 worktree dir と文字列同一）。
-// `relDir` は変更ファイルの親 dir を `dir` からの相対パスで表現する。
-// main 側 `relativeDir()`（fs/classify.ts）の SSOT に従い、worktree 直下は `""`、
-// サブディレクトリ配下は末尾 "/" を含まないディレクトリ相対パス。
-export interface FsChangePayload {
-  dir: string;
-  relDir: string;
-}
-
-// fsChangeAbsolute push event payload.
-// rpcFsWatchFileAbsolute で watch 中の絶対パスファイルが変更されたことを通知する
-// （main 側 absFileWatcher が発火元）。
-export interface FsChangeAbsolutePayload {
-  path: string;
-}

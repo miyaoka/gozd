@@ -15,7 +15,14 @@ HEAD-only walk を末尾 append し境界に `truncatedAbove` を立てる。ren
 </doc>
 
 <script setup lang="ts">
-import { BranchScope, SortMode, type GitCommit } from "@gozd/rpc";
+import {
+  BranchScope,
+  SortMode,
+  type GitCommit,
+  type BranchChangePayload,
+  type GitStatusChangePayload,
+  type RemoteRefsChangePayload,
+} from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useElementSize, useIntervalFn, useWindowFocus } from "@vueuse/core";
 import { storeToRefs } from "pinia";
@@ -23,9 +30,8 @@ import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vu
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
-import { ResizeHandle } from "../layout";
-import type { BranchChangePayload, FsWatchReadyPayload, RemoteRefsChangePayload } from "../sidebar";
-import type { GitStatusChangePayload } from "../worktree";
+import type { FsWatchReadyPayload } from "../../shared/rpc";
+import { ResizeHandle } from "../../shared/ui";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import CommitDetailPane from "./CommitDetailPane.vue";
 import { CommitContextMenu, useCommitContextMenuTrigger } from "./features/commit-context-menu";

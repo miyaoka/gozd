@@ -1,5 +1,5 @@
-import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
+import { useTerminalStore } from "./useTerminalStore";
 
 /**
  * viewMode を wt に倒し setOpen で selectedDir を切り替える選択プリミティブ。

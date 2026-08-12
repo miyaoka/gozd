@@ -18,6 +18,7 @@
 </doc>
 
 <script setup lang="ts">
+import type { WindowFullscreenChangePayload } from "@gozd/rpc";
 import { onUnmounted, ref } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { useEventLogStore } from "../event-log";
@@ -30,11 +31,6 @@ import IconLucideActivity from "~icons/lucide/activity";
 import IconLucideBell from "~icons/lucide/bell";
 import IconLucideInbox from "~icons/lucide/inbox";
 import IconLucideServer from "~icons/lucide/server";
-
-/** main の enter/leave-full-screen から届く push。payload 型は購読側が SSOT（docs/rpc.md） */
-interface WindowFullscreenChangePayload {
-  isFullscreen: boolean;
-}
 
 const channelChip = channelChipLabel();
 const title = useTitleContext();

@@ -11,6 +11,7 @@
 // - git 管理外のパスなら targetPath をそのまま dir として使い、isGitRepo=false
 // - file 指定（targetPath が file）の場合、selection を埋めて dir は parent にする
 
+import type { GozdOpenPayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { existsSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -29,7 +30,7 @@ async function repoTopLevel(dir: string): Promise<string> {
 
 export async function buildGozdOpenPayload(
   targetPath: string,
-): Promise<Record<string, unknown> | undefined> {
+): Promise<GozdOpenPayload | undefined> {
   // CLI も送信前に同じ検証で弾くが、cold start は launch request 書き出しから消費までに
   // 時間差があり、その間にパスが消える TOCTOU が残る。3 つの呼び出し元（socket open /
   // launch request 消費 / ファイルピッカー）が合流するここを不変条件の SSOT にする
@@ -40,7 +41,7 @@ export async function buildGozdOpenPayload(
   const isDir = statSync(targetPath).isDirectory();
 
   let probeDir: string;
-  let selection: Record<string, unknown> | undefined;
+  let selection: GozdOpenPayload["selection"];
   if (!isDir) {
     // ファイル指定 → parent を dir にして selection を埋める
     probeDir = dirname(targetPath);
@@ -69,7 +70,7 @@ export async function buildGozdOpenPayload(
     // file 指定で probeDir が toplevel と異なる場合、selection.relPath を toplevel
     // からの相対パスに更新する
     if (selection !== undefined && probeDir !== toplevel) {
-      const absFile = join(probeDir, selection.relPath as string);
+      const absFile = join(probeDir, selection.relPath);
       if (absFile.startsWith(toplevel)) {
         const rel = absFile.slice(toplevel.length);
         selection.relPath = rel.startsWith("/") ? rel.slice(1) : rel;
@@ -77,7 +78,7 @@ export async function buildGozdOpenPayload(
     }
   }
 
-  const payload: Record<string, unknown> = {
+  const payload: GozdOpenPayload = {
     dir,
     // channel は dev/stable の実行時リソース分離識別子。Electron shell は channel 分離を
     // まだ持たないため空文字（renderer 側は空なら setChannel しない契約）

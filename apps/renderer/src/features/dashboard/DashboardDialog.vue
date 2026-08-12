@@ -24,7 +24,7 @@ import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { fuzzyMatch, useListNavigation } from "../palette";
-import { openTaskSession } from "../sidebar";
+import { openTaskSession } from "../task";
 import { useTerminalStore } from "../terminal";
 import type { DashboardRow } from "./collectDashboardRows";
 import { collectDashboardRows } from "./collectDashboardRows";

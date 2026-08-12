@@ -24,6 +24,7 @@ import { tryCatch } from "@gozd/shared";
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
+import { rpcLoadAppConfig } from "../../shared/rpc";
 import { useDialog } from "../palette";
 import {
   previewCodeFontFamily,
@@ -42,7 +43,6 @@ import {
   patchAppConfig,
   patchProjectConfig,
   rpcEnsureAppConfigFile,
-  rpcLoadAppConfig,
   rpcProjectConfigEnsureFile,
   rpcProjectConfigLoad,
 } from "./rpc";

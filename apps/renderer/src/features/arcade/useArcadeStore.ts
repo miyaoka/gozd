@@ -1,7 +1,7 @@
 // arcade (ゲームジュース層) の設定 store。
 //
 // 永続化は AppConfig (config.json) に乗せ、main 側 store を SSOT とする。
-// renderer からは settings の updateAppConfig (直列化された RMW) 経由で書き、起動時のみ
+// renderer からは shared/rpc の updateAppConfig (直列化された RMW) 経由で書き、起動時のみ
 // rpcLoadAppConfig で読む。gozd の「renderer 永続化は main の RPC 経由」規約 (architecture.md)
 // に従い localStorage は使わない。更新が他セクション (terminal / preview / voicevox) と
 // 並行しても巻き戻らないよう、書き込みは updateAppConfig の単一キューに通す。
@@ -10,7 +10,7 @@ import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { rpcLoadAppConfig, updateAppConfig } from "../settings";
+import { rpcLoadAppConfig, updateAppConfig } from "../../shared/rpc";
 
 /** sfx の既定値。config.arcade 未設定 (初インストール) のとき ON に倒す */
 const DEFAULT_SFX_ENABLED = true;

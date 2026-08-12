@@ -53,7 +53,7 @@ worktree が閉じられている場合はエラートーストで可視化し�
 </doc>
 
 <script setup lang="ts">
-import type { WireBytes } from "@gozd/rpc";
+import type { WireBytes, FsChangeAbsolutePayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
@@ -66,7 +66,6 @@ import {
   rpcFsWatchFileAbsolute,
   rpcFsWriteFileAbsolute,
 } from "../filer";
-import type { FsChangeAbsolutePayload } from "../filer";
 import { UndockedWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
 import { joinAbsRel, useWorktreeStore } from "../worktree";

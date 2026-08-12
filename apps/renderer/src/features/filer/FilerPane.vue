@@ -41,16 +41,16 @@
 </doc>
 
 <script setup lang="ts">
+import type { FsChangePayload } from "@gozd/rpc";
 import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, useTemplateRef, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { onMessage } from "../../shared/rpc";
 import { useGitGraphStore } from "../git-graph";
-import type { FileContextMenuPayload } from "../navigator";
 import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
+import type { FileContextMenuPayload } from "./fileContextMenuPayload";
 import FileTreeItem from "./FileTreeItem.vue";
-import type { FsChangePayload } from "./rpc";
 import { useFilerEventStore } from "./useFilerEventStore";
 
 // 右クリック menu open 中の操作対象 relPath。menu state の SSOT は navigator の popover

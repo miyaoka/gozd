@@ -12,7 +12,7 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 
 ## 右クリックメニュー
 
-FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event を受けて singleton popover (`useFileContextMenu`) に橋渡しする。子側は navigator への直接依存を持たない (payload 型のみ type-only import) ため、依存方向は navigator → 子の 1 方向で閉じる。pointerup once-capture による light-dismiss 回避 / dir / hash snapshot / disconnect ガード等の内部仕様は `useFileContextMenu.ts` の docstring を SSOT として参照する。
+FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event を受けて singleton popover (`useFileContextMenu`) に橋渡しする。子側は navigator への依存を持たない (payload 型は filer の `fileContextMenuPayload` が SSOT) ため、依存方向は navigator → 子の 1 方向で閉じる。pointerup once-capture による light-dismiss 回避 / dir / hash snapshot / disconnect ガード等の内部仕様は `useFileContextMenu.ts` の docstring を SSOT として参照する。
 </doc>
 
 <script setup lang="ts">
@@ -21,15 +21,15 @@ import { computed, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { formatAbsoluteTime, formatCompactTime } from "../../shared/time";
+import { ResizeHandle } from "../../shared/ui";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
+import type { FileContextMenuPayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
-import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
 import { useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
-import type { FileContextMenuPayload } from "./useFileContextMenu";
 import IconLucideFolderTree from "~icons/lucide/folder-tree";
 
 const HANDLE_HEIGHT = 8;
@@ -262,7 +262,11 @@ function onFileContextMenu(req: FileContextMenuPayload) {
         :get-before-size="getFilerHeight"
       />
       <div class="shrink-0 overflow-hidden" :style="{ height: `${changesHeight}px` }">
-        <ChangesPane @select="onFileSelect" @context-menu="onFileContextMenu" />
+        <ChangesPane
+          @select="onFileSelect"
+          @context-menu="onFileContextMenu"
+          @view-all="previewStore.toggleSummary()"
+        />
       </div>
     </template>
 

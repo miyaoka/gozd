@@ -1,7 +1,8 @@
 // rg を実際に spawn して検索できることの契約。fixture を tmpdir に作り、push で
 // 集めたマッチと終端 response を検証する。rg 実バイナリ（@vscode/ripgrep）に依存する。
 
-import type { TextSearchMatchPush } from "@gozd/rpc";
+import type { TextSearchMatchPayload } from "@gozd/rpc";
+import type { PushFn } from "../rpcDispatcher";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,9 +26,9 @@ afterAll(async () => {
 });
 
 function collect() {
-  const pushes: TextSearchMatchPush[] = [];
-  const push = (type: string, payload: unknown): void => {
-    if (type === "textSearchMatch") pushes.push(payload as TextSearchMatchPush);
+  const pushes: TextSearchMatchPayload[] = [];
+  const push: PushFn = (type, payload) => {
+    if (type === "textSearchMatch") pushes.push(payload as TextSearchMatchPayload);
   };
   const lines = () => pushes.flatMap((p) => p.lines);
   const matches = () => lines().filter((l) => !l.isContext);

@@ -24,7 +24,13 @@ import { taskStore } from "./taskStore";
 
 function notifyTaskStoreError(push: PushFn, message: string, error: unknown, dir: string): void {
   console.error(`[TaskStore] ${message}: ${String(error)}`);
-  push("notify", { type: "error", source: "task-store", message, detail: String(error), dir });
+  push("notify", {
+    type: "error",
+    source: "task-store",
+    message,
+    detail: String(error),
+    dir,
+  });
 }
 
 /** session-start / session-end hook を task store に反映する。
@@ -156,19 +162,11 @@ async function handleSocketMessage(line: string, push: PushFn): Promise<void> {
     if (hook.event === "session-start" || hook.event === "session-end") {
       await applyClaudeSessionHook(hook, worktreePathFor(hook.ptyId), push);
     }
-    // Swift onHook と同形の payload（renderer useTerminalStore handleHookEvent 契約）
-    push("hook", {
-      event: hook.event,
-      ptyId: hook.ptyId,
-      sessionId: hook.sessionId,
-      lastAssistantMessage: hook.lastAssistantMessage,
-      toolName: hook.toolName,
-      toolInput: hook.toolInput,
-      pendingWork: hook.pendingWork,
-      hasTeammateTask: hook.hasTeammateTask,
-      agentId: hook.agentId,
-      teammateName: hook.teammateName,
-    });
+    // source は socket 側の経路情報なので renderer には渡さない。
+    // hook は parseClientMessage が field 単位に構築した値なので余剰キーは載らない
+    // (パーサを cast に変えると、この rest spread が socket の任意キーを素通しする)
+    const { source: _source, ...hookPayload } = hook;
+    push("hook", hookPayload);
     return;
   }
   if (msg.open !== undefined) {

@@ -95,5 +95,8 @@ const { raise } = useSurface(panelRef, {
   /* UA スタイル [popover] { height: fit-content } を打ち消し、top + bottom の伸縮を効かせる */
   height: auto;
   max-height: none;
+  /* UA スタイル [popover] { overflow: auto } を打ち消す。スクロールするのは中身の一覧だけで、
+     パネルそのものは動かない。残すとパネル全体が縦スクロールし、ヘッダーが画面外へ流れる */
+  overflow: hidden;
 }
 </style>

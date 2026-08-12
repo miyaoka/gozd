@@ -268,7 +268,7 @@ useEventListener(window, "pointerup", () => {
               :class="[
                 track.indent ? 'pl-4' : '',
                 isActive(track)
-                  ? 'bg-element-hover font-medium text-foreground'
+                  ? 'bg-element-active font-medium text-foreground'
                   : track.isMain
                     ? 'font-semibold text-foreground hover:bg-element-hover'
                     : 'text-foreground-low hover:bg-element-hover hover:text-foreground',
@@ -322,7 +322,7 @@ useEventListener(window, "pointerup", () => {
                       ? 'bg-foreground'
                       : track.isMain
                         ? 'bg-element-active'
-                        : 'bg-element-hover'
+                        : 'bg-element'
                 "
                 :style="{ left: barStyle(track).left, width: barStyle(track).width }"
                 :title="barStyle(track).placeholder ? 'no timestamps' : undefined"

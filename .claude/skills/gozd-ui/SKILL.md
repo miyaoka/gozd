@@ -55,15 +55,29 @@ primitive utility (`bg-gray-3` 等) は Tailwind が utility 化していない 
 | ページ背景                         | `bg-background`     |
 | 既定 panel / card / dialog 内側    | `bg-panel`          |
 | component bg (rest)                | `bg-element`        |
-| component bg (hover)               | `bg-element-hover`  |
+| component bg (hover、上に重ねる層) | `bg-element-hover`  |
 | component bg (pressed / selected)  | `bg-element-active` |
 | keyboard カーソル行 (focused list) | `bg-selection`      |
 
 `hover:bg-element-hover` は generic hover overlay の正規 pattern (旧 `hover:bg-accent` 相当)。
 
-element / element-hover / element-active の gray 3/4/5 (Radix rest / hover / active 写像) は
-**単一要素の状態遷移**にだけ使う。rest → hover → active は同一要素上で排他的に起きるので、
-隣接 step の微差で足りる。
+#### hover は面を置き換えず、上に層を重ねる (state layer)
+
+`element-hover` だけは solid ではなく **薄い層 (alpha)**。hover は状態を恒久的に表す面ではなく、
+ポインタが載っている間だけの一時的な変化なので、下にある色を消さずに全体を持ち上げる。置き換えに
+すると、行の中に別の色を持つ要素 (一覧の未読バー等) だけが取り残されて沈む。Material の state
+layer / Radix の alpha variant と同じ流儀で、値は bg の上で従来の hover 面と同じ見えになるよう
+生成されている。
+
+- **hover 専用**。rest の面に `bg-element-hover` を使わない。使うとその要素の地の色が下地任せに
+  なり、置いた場所で見えが変わる。rest は `bg-element`
+- **層なので加算**になる。元が明るい面ほど hover が強く出る。置換のつもりで step 差を見積もらない
+- WCAG が hover 面そのものに 3:1 を要求しないのは、hover の視覚強調が「状態の識別に必要な情報」
+  ではなく supplemental だから (W3C の Understanding 1.4.11 / wcag discussion #3865)。恒久的な面と
+  同じ基準で contrast を判定しない
+
+`element` / `element-active` の gray 3/5 (Radix rest / active 写像) は **単一要素の状態遷移**に
+だけ使う。選択は hover と違って状態が続くため、下地に依存しない solid を保つ。
 
 #### リスト選択とホバーは色相で分離する (`bg-selection`)
 
@@ -81,8 +95,8 @@ VS Code が list 専用色 (`list.activeSelectionBackground` / `list.hoverBackgr
   `text-foreground-low` / `text-<intent>-text` 約 5.3:1。**`text-foreground-muted` は
   約 3.0:1 で AA を割るため載せない**。step 5 は step-11 系 text が約 4.4:1 で
   AA をわずかに割るため使わない
-- **hover 行**: `hover:bg-element-hover` (無彩色 solid)。選択と色相で分かれるため薄める必要はなく、
-  alpha modifier での希釈は Alpha 規律違反
+- **hover 行**: `hover:bg-element-hover` (無彩色の層)。選択とは色相で分かれる。行の中に色を持つ
+  要素があっても、層なので一緒に持ち上がり、その要素だけが取り残されない
 - **`bg-primary` (step 9 solid) をリスト選択に使わない**。solid accent 戦略は「子孫の全テキスト色を
   on-accent 色へ強制上書きする」(VS Code / macOS の流儀。VS Code は dark でも
   `list.activeSelectionForeground: white` を背景と組で定義する) とセットでのみ成立する。
@@ -128,7 +142,7 @@ VS Code が list 専用色 (`list.activeSelectionBackground` / `list.hoverBackgr
 | token suffix               | 用途                                                                | 例                                               |
 | -------------------------- | ------------------------------------------------------------------- | ------------------------------------------------ |
 | `<intent>`                 | solid bg (step 9)                                                   | `bg-primary`, `bg-destructive`                   |
-| `<intent>-hover`           | solid bg hover (step 10)                                            | `hover:bg-primary-hover`                         |
+| `<intent>-hover`           | solid bg hover (白前景の hue は暗い側の step)                       | `hover:bg-primary-hover`                         |
 | `<intent>-subtle`          | subtle bg (step 3、intent 性を保った dim 面)                        | `bg-destructive-subtle`, `bg-success-subtle`     |
 | `<intent>-subtle-hover`    | subtle bg hover (step 4、primary のみ提供)                          | `hover:bg-primary-subtle-hover`                  |
 | `<intent>-subtle-emphasis` | subtle bg 上の静的な強調面 (step 5、destructive / success のみ提供) | `bg-success-subtle-emphasis` (diff 行内変更範囲) |
@@ -141,7 +155,17 @@ surface role `selection` は blue-4 を参照し `primary-subtle-hover` と同�
 
 `-subtle-hover` は active row の hover で必要になった `primary` のみ提供。`-subtle-emphasis` は diff の行内 (文字単位) 変更範囲の強調で必要になった `destructive` / `success` のみ提供 (subtle より暗い側での差別化は dark パレットの低 step 圧縮により知覚不能なため、強調は明るい側で取る)。交互作用状態ではない静的な強調面なので `-active` を使わない (`element-active` 等の `-active` は押下 / 選択状態を指す)。他 intent は use case が出た時点で追加する (YAGNI)。`warning-strong-subtle` も同様に未利用のため未定義 (subtle banner として warning と区別する用途が無い)。
 
-`info` は text-only (solid なし、blue step 11 を借用)。warning / warning-strong は light yellow / mid-orange のため `*-foreground` は dark (gray-1)。
+`info` は text-only (solid なし、blue step 11 を借用)。
+
+`<intent>-foreground` の値は Tier 1 の生成側が owner として持つ (`--<hue>-on-solid`)。面と前景は
+対でしか意味を持たず、分類を 2 箇所に置くと片方だけ変えたときに contrast が無言で壊れるため。
+白前景か暗前景かの割り当ても生成側にあり、solid として使う全 step で AA を満たすことが生成時に
+検証される (破れるとビルドが落ちる)。
+
+**白前景を載せる solid の hover は暗い側へ動く**。白と bg の比は固定なので、白前景が AA を保てる
+面の明るさには上限があり、rest がその直下にある構成では「より明るい hover」と AA が同時に成立
+しない。Radix の「step 10 = より明るい hover」は light theme の前提で、暗い bg に白前景を載せる
+構成には当てはまらない。
 
 ### Intent 利用パターン
 
@@ -216,7 +240,8 @@ SSOT。
 | コンテンツ全体の dim (focus 外 pane / 非 actionable data state) | ✅ 使う (限定) | TerminalLeaf の非 focused leaf、PrPickerDialog の `isDraft` row 等、子孫 element の色を個別 token で書き換えるのが現実的でないケース。data state (interactive state ではない) に限る |
 | subtle bg "chip" / banner / row                                 | ❌ 使うな      | `bg-<intent>-subtle` (step 3 solid) を使う                                                                                                                                           |
 | disabled / de-emphasized text                                   | ❌ 使うな      | `text-foreground-muted` (gray-9 solid) を使う (Primer "NEVER" 規律)                                                                                                                  |
-| interactive state (hover / active / selected)                   | ❌ 使うな      | `bg-element-hover` / `bg-element-active` / `bg-<intent>-subtle` を使う                                                                                                               |
+| hover の層 (state layer)                                        | ✅ 使う        | `bg-element-hover` が alpha primitive 経由で層になっている。下の色を消さずに持ち上げるのが要件で、solid では代替できない                                                             |
+| active / selected の面                                          | ❌ 使うな      | 状態が続く面は下地に依存させない。`bg-element-active` / `bg-<intent>-subtle` を使う                                                                                                  |
 | border / divider                                                | ❌ 使うな      | `border-border-subtle` (step 6 solid) で統一 (SSOT 純度優先)                                                                                                                         |
 | 複雑な前景の上に半透明 layer を重ねる                           | ❌ 絶対禁止    | 下のレイヤーが透ける ([Improta 3 大禁忌](https://designtokens.substack.com/p/transparency-in-color-tokens))                                                                          |
 

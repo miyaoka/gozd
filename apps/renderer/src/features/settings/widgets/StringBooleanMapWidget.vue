@@ -85,7 +85,7 @@ function removeRow(index: number): void {
         :aria-checked="row.enabled"
         aria-label="Enabled"
         class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors"
-        :class="row.enabled ? 'bg-primary' : 'bg-element-hover'"
+        :class="row.enabled ? 'bg-primary' : 'bg-element'"
         @click="
           row.enabled = !row.enabled;
           commit();

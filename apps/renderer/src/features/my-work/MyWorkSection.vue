@@ -17,6 +17,9 @@ my work パネルの 1 ペイン。描くのは与えられた 1 軸ぶんで、
   無い」ことと「そのペインが存在しない」ことが区別できなくなる
 - `min-w-0` を置く。flex item の既定 `min-width: auto` は中身の最小幅で下限が決まるため、
   これが無いと長いタイトルがペインを押し広げてパネルが横スクロールする
+- 未読だけを出す絞り込みは親から受け取り、間引きはここで行う。絞り込みは表示の関心なので、
+  渡された `group` は取得結果のまま扱う。取得件数と総件数の対が持つ「上限で切れたか」の
+  意味を、表示側の都合で書き換えない
 </doc>
 
 <script setup lang="ts">
@@ -26,7 +29,12 @@ import { activateExternalLink, ITEM_KIND_DISPLAY } from "../github-item";
 import MyWorkRow from "./MyWorkRow.vue";
 import IconLucideExternalLink from "~icons/lucide/external-link";
 
-const props = defineProps<{ title: string; group: GitMyWorkGroup }>();
+const props = defineProps<{ title: string; group: GitMyWorkGroup; unreadOnly: boolean }>();
+
+/** 実際に描く行。絞り込みは表示の関心なので、取得結果である `group` は元のまま扱う */
+const visibleItems = computed(() =>
+  props.unreadOnly ? props.group.items.filter((item) => item.isUnread) : props.group.items,
+);
 
 /** 見出し右端のリンク。1 本なら軸名で足りるが、複数本は種別で区別する */
 const links = computed(() => {
@@ -40,20 +48,41 @@ const links = computed(() => {
   }));
 });
 
-/** 取得上限で切れているか。真偽値を境界で運ばず、総件数と表示件数の比較で導出する */
+/**
+ * 取得上限で切れているか。真偽値を境界で運ばず、総件数と取得件数の比較で導出する。
+ *
+ * 比較するのは `visibleItems` ではなく `group.items`。絞り込みは取得済みの行の中でしか
+ * 効かないため、切れているかどうかは絞り込みで変わらない。
+ */
 const isTruncated = computed(() => props.group.totalCount > props.group.items.length);
 
-const countLabel = computed(() =>
-  isTruncated.value
+/**
+ * 絞り込み中は表示件数、そうでなければ総件数を出す。
+ *
+ * 絞り込み中に `表示件数 / 総件数` の形にしない。その形は「取得上限で切れている」ことを
+ * 表す語彙として既に使われており、同じ表記に「絞り込んだ」の意味を重ねると、読む側が
+ * 2 つを区別できなくなる。切れている事実は数字の色と説明が引き続き運ぶ。
+ */
+const countLabel = computed(() => {
+  if (props.unreadOnly) return `${visibleItems.value.length}`;
+  return isTruncated.value
     ? `${props.group.items.length} / ${props.group.totalCount}`
-    : `${props.group.totalCount}`,
-);
+    : `${props.group.totalCount}`;
+});
 
-const countTitle = computed(() =>
-  isTruncated.value
+/** 空の理由を書き分ける。絞り込み中の空は「この軸に何も無い」ではなく「未読が無い」 */
+const emptyMessage = computed(() => (props.unreadOnly ? "No unread items" : "Nothing here"));
+
+const countTitle = computed(() => {
+  if (props.unreadOnly) {
+    return isTruncated.value
+      ? `${visibleItems.value.length} unread among the ${props.group.items.length} most recently updated of ${props.group.totalCount}`
+      : `${visibleItems.value.length} unread of ${props.group.totalCount}`;
+  }
+  return isTruncated.value
     ? `Showing the ${props.group.items.length} most recently updated of ${props.group.totalCount}`
-    : `${props.group.totalCount} total`,
-);
+    : `${props.group.totalCount} total`;
+});
 </script>
 
 <template>
@@ -87,8 +116,10 @@ const countTitle = computed(() =>
     </h3>
 
     <div class="min-h-0 flex-1 overflow-y-auto">
-      <p v-if="group.items.length === 0" class="p-3 text-xs text-foreground-muted">Nothing here</p>
-      <MyWorkRow v-for="item in group.items" v-else :key="item.url" :item="item" />
+      <p v-if="visibleItems.length === 0" class="p-3 text-xs text-foreground-muted">
+        {{ emptyMessage }}
+      </p>
+      <MyWorkRow v-for="item in visibleItems" v-else :key="item.url" :item="item" />
     </div>
   </section>
 </template>

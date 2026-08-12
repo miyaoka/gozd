@@ -13,6 +13,14 @@ my work パネルの 1 行。PR と issue を同じ行フォーマットで描�
   「不明」として描かない契約は docs/git.md）
 - CI ドットは装飾ではなく状態を運ぶ図形なので、支援技術にも露出させる（`RefBadge` の
   同じドットと同じ扱い）
+- 未読は行頭のバーで表す。行内には既に CI の色付きドットがあるので、同じ図形をもう 1 つ
+  足さず別のチャネルへ逃がす
+- バーに primary を使う。この一覧では未読の行が対応すべき対象で、読み終えた行は用が
+  済んでいる。未読はこのパネルの active state そのもの。**行の選択という状態は存在しない**
+  （行はクリックで外部ブラウザへ渡すリンクで、選択もキーボードカーソルも持たない）ため、
+  active を表す色が他の意味と競合しない
+- バーは既読の行にも透明で常設する。未読の行にだけ足すと、その行の内容だけ横にずれる
+- バーは視覚にしか出ないため、未読であることを読み上げ用のテキストで併記する
 </doc>
 
 <script setup lang="ts">
@@ -45,10 +53,13 @@ const dateDisplay = computed(() => formatRelativeAge(isoToUnixSec(props.item.upd
 <template>
   <a
     :href="item.url"
-    class="flex flex-col gap-1 border-b border-border-subtle px-3 py-2 text-xs no-underline hover:bg-element-hover"
+    class="flex flex-col gap-1 border-b border-l-2 border-border-subtle px-3 py-2 text-xs no-underline hover:bg-element-hover"
+    :class="item.isUnread ? 'border-l-primary' : 'border-l-transparent'"
     @click="activateExternalLink($event, item.url)"
     @auxclick="activateExternalLink($event, item.url)"
   >
+    <span v-if="item.isUnread" class="sr-only">Unread</span>
+
     <div class="flex items-start gap-2">
       <component
         :is="ITEM_KIND_DISPLAY[item.kind].icon"

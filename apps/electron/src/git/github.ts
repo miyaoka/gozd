@@ -292,7 +292,13 @@ function myWorkWebLinks(search: MyWorkSearch): GitMyWorkWebLink[] {
  * `search(type: ISSUE)` の node は `Issue | PullRequest` の union なので、CI / レビュー結果は
  * PullRequest 側の named fragment で取る。`statusCheckRollup` は connection ではないため
  * cost に乗らず、`comments { totalCount }` も `first` / `last` を渡さない限りページを
- * 要求しないので同じく乗らない（PR_QUERY 冒頭のコメントと同じ規律）。`issueCount` も同様。
+ * 要求しないので同じく乗らない（PR_QUERY 冒頭のコメントと同じ規律）。`issueCount` と
+ * `isReadByViewer` も同様。
+ *
+ * 未読を「最終コメントの投稿者が自分以外か」で導出しない。`comments(last: 1)` は node ごとに
+ * ページを要求するため cost が軸数ぶん跳ね（4 軸で 1 → 4 を実測）、bot のコメントも拾ううえ、
+ * 見たかどうかを表せない。`isReadByViewer` は GitHub が viewer ごとに持つ既読状態そのもので、
+ * スカラーなので cost を増やさずに同じ問いへ直接答える。
  *
  * 取得上限で切れているかどうかを示すのに `pageInfo { hasNextPage }` を併載しないのは、
  * `issueCount` と取得件数の比較で同じ事実が得られ、境界に同じ事実の表現を 2 つ持たせない
@@ -320,6 +326,7 @@ fragment prFields on PullRequest {
   title
   url
   isDraft
+  isReadByViewer
   updatedAt
   repository { nameWithOwner }
   author { login avatarUrl(size: ${AVATAR_SIZE}) }
@@ -334,6 +341,7 @@ fragment issueFields on Issue {
   number
   title
   url
+  isReadByViewer
   updatedAt
   repository { nameWithOwner }
   author { login avatarUrl(size: ${AVATAR_SIZE}) }
@@ -438,6 +446,9 @@ export function parseMyWorkNodes(nodes: unknown[], kind: GitItemKind | "mixed"):
     checkState: checkState(getPath(item, "statusCheckRollup", "state"), "myWork"),
     reviewDecision: reviewDecision(getPath(item, "reviewDecision")),
     commentCount: commentCount(item),
+    // 欠落時は既読側へ倒す。未読は注意を促す表示なので、取得できていない事実を
+    // 「未読がある」と描くと実在しない要対応を作り出す
+    isUnread: getPath(item, "isReadByViewer") === false,
   }));
 }
 

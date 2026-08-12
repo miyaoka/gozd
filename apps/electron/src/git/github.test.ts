@@ -138,6 +138,7 @@ function myWorkPrNode(overrides: Record<string, unknown> = {}): Record<string, u
     title: "ci: pin oasdiff install",
     url: "https://github.com/miyaoka/gozd/pull/7846",
     isDraft: false,
+    isReadByViewer: true,
     updatedAt: "2026-08-05T11:07:03Z",
     repository: { nameWithOwner: "miyaoka/gozd" },
     author: { login: "miyaoka", avatarUrl: "https://example.invalid/a.png" },
@@ -223,6 +224,21 @@ describe("parseMyWorkNodes", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  test("viewer が読んでいない項目は未読になる", () => {
+    const [item] = parseMyWorkNodes([myWorkPrNode({ isReadByViewer: false })], "pr");
+    expect(item.isUnread).toBe(true);
+  });
+
+  test("viewer が読んだ項目は未読にならない", () => {
+    const [item] = parseMyWorkNodes([myWorkPrNode({ isReadByViewer: true })], "pr");
+    expect(item.isUnread).toBe(false);
+  });
+
+  test("既読状態が取れない項目は未読にしない", () => {
+    const [item] = parseMyWorkNodes([myWorkPrNode({ isReadByViewer: null })], "pr");
+    expect(item.isUnread).toBe(false);
   });
 
   test("mixed 軸は __typename で行の種別を判定する", () => {

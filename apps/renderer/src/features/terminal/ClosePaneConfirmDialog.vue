@@ -48,7 +48,7 @@ function onDialogClick(event: MouseEvent) {
         </button>
         <button
           type="button"
-          class="rounded-sm bg-destructive px-3 py-1.5 text-sm text-foreground hover:bg-destructive-hover"
+          class="rounded-sm bg-destructive px-3 py-1.5 text-sm text-destructive-foreground hover:bg-destructive-hover"
           @click="confirm"
         >
           Close

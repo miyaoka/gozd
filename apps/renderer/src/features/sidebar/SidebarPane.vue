@@ -539,7 +539,7 @@ function getSessionsHeight(): number {
         <span class="px-1 text-sm font-semibold">Edit list</span>
         <button
           type="button"
-          class="rounded-sm bg-primary px-2.5 py-0.5 text-xs text-foreground hover:bg-primary-hover"
+          class="rounded-sm bg-primary px-2.5 py-0.5 text-xs text-primary-foreground hover:bg-primary-hover"
           @click="toggleEditMode"
         >
           Done
@@ -720,7 +720,7 @@ function getSessionsHeight(): number {
             Cancel
           </button>
           <button
-            class="rounded-sm bg-destructive px-3 py-1.5 text-sm text-foreground hover:bg-destructive-hover"
+            class="rounded-sm bg-destructive px-3 py-1.5 text-sm text-destructive-foreground hover:bg-destructive-hover"
             @click="executeConfirm"
           >
             OK

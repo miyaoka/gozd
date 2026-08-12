@@ -32,9 +32,13 @@ import { deltaEOk, type Oklch } from "./colorMath";
 
 const OUTPUT_FILE = path.resolve(import.meta.dir, "../dist/tokens.generated.css");
 
+/* brand anchor。solid step を暗くした分だけ彩度が落ちる (Leonardo は明度を下げると brand
+ * anchor から離れ、補間で chroma も下がる) ため、blue は彩度を上げて補ってある。値は sRGB
+ * gamut の上限で、これ以上上げても hex 化でクリップされて同じ色になる。他の hue は solid に
+ * 文字を載せないため補正しない。 */
 const BRAND = {
   gray: "#888888",
-  blue: "#3b82f6",
+  blue: "#1f7dff",
   red: "#ef4444",
   green: "#22c55e",
   amber: "#f59e0b",
@@ -47,7 +51,33 @@ const BRAND = {
  * step 11 / 12 のコントラスト保証はこの目標値から来る。
  * BG 側は step 1 が bg 自身のため ratios は 11 点 */
 const STEP_RATIOS_BG = [1.1, 1.3, 1.5, 1.8, 2.2, 2.8, 3.5, 4.5, 5.5, 8, 14];
-const STEP_RATIOS_INTENT = [1.05, 1.15, 1.3, 1.5, 1.8, 2.2, 2.8, 3.5, 4.5, 5.5, 8, 14];
+
+/* intent の solid step (9-10) を縛るのは bg との差ではなく **面に載る前景** で、必要な向きが
+ * 前景の明暗で逆になる。白前景の面は暗くないと文字が沈み、暗前景の面は明るくないと文字が沈む。
+ * 1 本の ratios では両立しないため、前景の明暗で 2 系統に分ける。
+ *
+ * どちらを使うかは「その面に文字を載せるか、載せるならどちらの前景か」で決まる Tier 2 の
+ * 配置知識なので、hue ではなく前景で命名する (hue と前景の対応が変わっても命名が嘘にならない)。 */
+
+/* 白前景を載せる面。bg 比 4.5 だと面が明るくなりすぎ、白前景が 3.7:1 まで落ちて AA を割る
+ * (blue / red の両方で不成立だった)。3.7 まで下げると前景が 4.5:1 を回復し、面自体も bg から
+ * 3:1 以上離れたままになる。これより下げると focus ring (step 8) が bg から 3:1 を割るため
+ * 3.7 が下限。border 帯 (6-8) は solid との単調性を保つために追随させる。 */
+const STEP_RATIOS_ON_LIGHT_FG = [1.05, 1.15, 1.3, 1.5, 1.8, 2.1, 2.5, 3.1, 3.7, 4.6, 8, 14];
+
+/* 暗前景 (gray-1) を載せる面。前景が bg と同じ色なので、bg に対する比がそのまま前景の
+ * contrast になる。AA を満たすには 4.5 を上回る必要があり、丸めを踏まないよう 4.6 を取る。 */
+const STEP_RATIOS_ON_DARK_FG = [1.05, 1.15, 1.3, 1.5, 1.8, 2.2, 2.8, 3.5, 4.6, 5.5, 8, 14];
+
+/* hue → 前景系統。solid に文字を載せない hue (green の success 用途 / orange) も、同じ役割の
+ * 仲間 (channel-dev は green-9 に白文字、warning-strong は warning と対) に合わせて選ぶ。 */
+const INTENT_RATIOS = {
+  blue: STEP_RATIOS_ON_LIGHT_FG,
+  red: STEP_RATIOS_ON_LIGHT_FG,
+  green: STEP_RATIOS_ON_LIGHT_FG,
+  amber: STEP_RATIOS_ON_DARK_FG,
+  orange: STEP_RATIOS_ON_DARK_FG,
+} as const;
 
 /* age scale (相対日時の鮮度 4 帯) の個別設計値。hour / date 帯は生成 scale の step
  * (green 11 / gray 11) と同値で、day / week は人間が候補比較で選んだ値。
@@ -149,7 +179,7 @@ const intents = (["blue", "red", "green", "amber", "orange"] as const).map(
         buildAnchor(BRAND[name], LIGHT_ANCHOR_L, LIGHT_ANCHOR_C),
       ],
       colorSpace: "OKLCH",
-      ratios: STEP_RATIOS_INTENT,
+      ratios: INTENT_RATIOS[name],
     }),
 );
 

@@ -209,12 +209,16 @@ const ASK_DEBOUNCE_MS = 150;
 
 /**
  * Claude Code が OSC タイトル先頭に付ける状態プレフィックス。working / idle をこの
- * プレフィックスで判定する（herdr 方式）。Claude は稼働中はタイトル先頭に点字スピナー
- * (U+2800–U+28FF)、プロンプト待ちでは `✳` (U+2733) を出す。いずれも直後に半角スペースが続く。
+ * プレフィックスで判定する（herdr 方式）。Claude は稼働中はタイトル先頭にスピナー、
+ * プロンプト待ちでは `✳` (U+2733) を出す。いずれも直後に半角スペースが続く。
+ *
+ * 稼働中スピナーの字形は Claude Code のバージョンで異なる。2.1.227 以前は点字
+ * (U+2800–U+28FF)、2.1.228 以降は半円 (`◐` U+25D0 / `◑` U+25D1) の 2 コマ。gozd の
+ * 利用者が使う Claude Code のバージョンは gozd が決められないため、両方を受ける。
  * `working` は「今まさに稼働している」確証、`idle` は「入力待ちに戻った」確証で、UserPromptSubmit /
  * PostToolUse hook や PTY 出力の中断メッセージに頼らず状態を導出できる。
  */
-const CLAUDE_TITLE_WORKING_RE = /^[⠀-⣿] /;
+const CLAUDE_TITLE_WORKING_RE = /^[⠀-⣿◐◑] /;
 const CLAUDE_TITLE_IDLE_RE = /^✳ /;
 
 /** OSC タイトルの状態プレフィックスを分類する。プレフィックスが無ければ undefined */

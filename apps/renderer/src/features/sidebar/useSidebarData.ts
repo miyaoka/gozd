@@ -272,7 +272,8 @@ export function useSidebarData() {
     () => terminalStore.lastTitleUpdate,
     (update) => {
       if (!update?.title) return;
-      // Claude Code のステータスプレフィックス（✳ + Braille dots）を除去
+      // strip 後の値で同期する。スピナー文字を残すとコマが変わるたびに別タイトル扱いになり、
+      // syncTaskTitle の完全一致 dedupe を毎回すり抜けて RPC と tasks.json 書き込みが走り続ける
       const title = stripClaudeTitlePrefix(update.title);
       if (!title) return;
       if (title === CLAUDE_PLACEHOLDER_TITLE) return;

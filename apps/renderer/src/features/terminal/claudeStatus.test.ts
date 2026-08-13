@@ -11,8 +11,10 @@ import {
   type ClaudeStatus,
 } from "./claudeStatus";
 
-/** Claude が OSC タイトル先頭に出すプレフィックス（点字スピナー / ✳ + スペース） */
-const WORKING_TITLE = "⠋ project"; // U+280B = 点字スピナーの一種
+/** Claude が OSC タイトル先頭に出すプレフィックス（スピナー / ✳ + スペース） */
+const WORKING_TITLE = "⠋ project"; // U+280B = 2.1.227 以前の点字スピナー
+const WORKING_TITLE_HALF_CIRCLE = "◐ project"; // U+25D0 = 2.1.228 以降の半円スピナー
+const WORKING_TITLE_HALF_CIRCLE_ALT = "◑ project"; // U+25D1 = 半円スピナーのもう 1 コマ
 const IDLE_TITLE = "✳ project"; // U+2733 = ✳
 
 function setup() {
@@ -329,15 +331,24 @@ describe("handleHookEvent fx 発行（効果ストリームの単一発行点）
 
 describe("classifyClaudeTitle / stripClaudeTitlePrefix", () => {
   test("スピナープレフィックスは working、✳ は idle、それ以外は undefined", () => {
+    // 点字・半円のどちらの字形でも working。利用者の Claude Code バージョンは選べない
     expect(classifyClaudeTitle(WORKING_TITLE)).toBe("working");
+    expect(classifyClaudeTitle(WORKING_TITLE_HALF_CIRCLE)).toBe("working");
+    expect(classifyClaudeTitle(WORKING_TITLE_HALF_CIRCLE_ALT)).toBe("working");
     expect(classifyClaudeTitle(IDLE_TITLE)).toBe("idle");
     expect(classifyClaudeTitle("plain title")).toBeUndefined();
     // 矢印キー等のエスケープではなく通常タイトル。プレフィックス無しは状態シグナル無し
     expect(classifyClaudeTitle("⠋no-space")).toBeUndefined();
+    expect(classifyClaudeTitle("◐no-space")).toBeUndefined();
+    // タイトルに出る半円は 2 コマだけ。範囲記法 `◐-◓` への一般化で残り 2 つを巻き込まない
+    expect(classifyClaudeTitle("◒ project")).toBeUndefined();
+    expect(classifyClaudeTitle("◓ project")).toBeUndefined();
   });
 
   test("strip は working/idle 両プレフィックスを落とし、素のタイトルは触らない", () => {
     expect(stripClaudeTitlePrefix(WORKING_TITLE)).toBe("project");
+    expect(stripClaudeTitlePrefix(WORKING_TITLE_HALF_CIRCLE)).toBe("project");
+    expect(stripClaudeTitlePrefix(WORKING_TITLE_HALF_CIRCLE_ALT)).toBe("project");
     expect(stripClaudeTitlePrefix(IDLE_TITLE)).toBe("project");
     expect(stripClaudeTitlePrefix("project")).toBe("project");
   });

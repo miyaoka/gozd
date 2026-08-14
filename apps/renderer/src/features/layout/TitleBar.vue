@@ -70,8 +70,9 @@ onUnmounted(disposeFullscreen);
     </span>
     <!-- 中央の 1 日進捗バー。ウィンドウ幅に追従させず上限で頭打ちにする（横に伸ばしても
          読み取れる情報は増えず、広い画面では帯を横断する巨大な線になるだけ）。
-         px は狭いウィンドウで左の信号機 pad / 右のトグル群と重ならないための逃げ幅 -->
-    <div class="pointer-events-none absolute inset-x-0 flex justify-center px-32">
+         px は左の信号機 pad + channel チップ / 右のトグル群と重ならないための逃げ幅。
+         最小幅では上限に届かずバー側が縮むので、チップに寄る前に頭打ちが解ける -->
+    <div class="pointer-events-none absolute inset-x-0 flex justify-center px-40">
       <div class="w-full max-w-md">
         <DayProgressBar />
       </div>

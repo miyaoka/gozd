@@ -3,6 +3,10 @@
  *
  * バーは常にローカル時刻の 00:00〜24:00 を左端〜右端に写す固定スケールで、
  * 位置は「時刻 → パーセント」の線形写像だけで決まる。
+ *
+ * このモジュールは時刻の値を数値でしか受け取らない。現在時刻の取得や日付の
+ * 整形は `Temporal` を使う呼び出し側が持つ。テストランナー（bun 1.3.14）は
+ * まだ `Temporal` を持たないため、境界をここに引いて座標計算を検証可能に保つ。
  */
 
 /** バーが表す 1 日の長さ（時間）。バー幅 100% がこの時間に対応する。 */
@@ -20,18 +24,14 @@ export const TICK_HOURS = [0, 6, 12, 18, 24];
 
 /** 目盛りラベルの横方向の寄せ。ラベルは目盛り位置を基準に配置するため、両端だけ
  * バーの内側へ折り返さないと文字がバーからはみ出す。 */
-export type TickAlign = "start" | "center" | "end";
+type TickAlign = "start" | "center" | "end";
 
 const TICK_ALIGN: Record<number, TickAlign> = {
   0: "start",
   [HOURS_PER_DAY]: "end",
 };
 
-export function tickAlign(hour: number): TickAlign {
-  return TICK_ALIGN[hour] ?? "center";
-}
-
-/** ラベルを目盛り位置に対して寄せる transform。`tickAlign` の各値に対応する。 */
+/** ラベルを目盛り位置に対して寄せる transform。 */
 const TICK_TRANSFORM: Record<TickAlign, string> = {
   start: "translateX(0)",
   center: "translateX(-50%)",
@@ -39,17 +39,12 @@ const TICK_TRANSFORM: Record<TickAlign, string> = {
 };
 
 export function tickTransform(hour: number): string {
-  return TICK_TRANSFORM[tickAlign(hour)];
+  return TICK_TRANSFORM[TICK_ALIGN[hour] ?? "center"];
 }
 
-/** ローカル時刻を 0〜24 の小数時間に変換する。日付は捨てて時刻だけを見る。 */
-export function hoursOfDay(date: Date): number {
-  return date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
-}
-
-/** 時刻（時間）をバー上の位置（%）に変換する。 */
-export function hourToPercent(hour: number): number {
-  return (hour / HOURS_PER_DAY) * 100;
+/** 時刻をバー上の位置（%）に変換する。 */
+export function timeToPercent(hour: number, minute = 0): number {
+  return ((hour + minute / 60) / HOURS_PER_DAY) * 100;
 }
 
 /** 帯の種別。 */
@@ -84,40 +79,8 @@ export function barSegments(): BarSegment[] {
     return {
       key: `${kind}-${startHour}`,
       kind,
-      left: `calc(${hourToPercent(startHour)}% + ${leftInset}px)`,
-      width: `calc(${hourToPercent(endHour - startHour)}% - ${leftInset + rightInset}px)`,
+      left: `calc(${timeToPercent(startHour)}% + ${leftInset}px)`,
+      width: `calc(${timeToPercent(endHour - startHour)}% - ${leftInset + rightInset}px)`,
     };
   });
-}
-
-/** 現在時刻の読み上げ / 補助表示用の文字列。バーの目盛りが 0〜24 なので、locale の
- * 12 時間制設定に関わらず 24 時間表記に固定してスケールと一致させる。 */
-const CLOCK_FORMATTER = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-
-export function formatClockTime(date: Date): string {
-  return CLOCK_FORMATTER.format(date);
-}
-
-/** バーの両端に添える日付ラベル（月日 + 曜日）。曜日を日付のどちら側に置くか、
- * 何で区切るかは locale ごとに違う（ja は "8/14(金)"、en-US は "Fri, 8/14"）ため、
- * 並びは Intl に委ね、自前でテンプレートを組み立てない。 */
-const DATE_LABEL_FORMATTER = new Intl.DateTimeFormat(undefined, {
-  weekday: "short",
-  month: "numeric",
-  day: "numeric",
-});
-
-export function formatDateLabel(date: Date): string {
-  return DATE_LABEL_FORMATTER.format(date);
-}
-
-/** 翌日の同時刻。月末・年末・DST の繰り上がりは Date の日付演算に委ねる。 */
-export function nextDay(date: Date): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + 1);
-  return next;
 }

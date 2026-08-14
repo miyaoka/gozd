@@ -19,7 +19,7 @@ export function formatTitleContext(
 
 /**
  * ウィンドウタイトル文字列の導出 SSOT。
- * TitleBar.vue の表示と useTitleContextSync の native title push が共有する。
+ * useTitleContextSync が native title の push に使う。
  */
 export function useTitleContext(): ComputedRef<string> {
   const repoStore = useRepoStore();

@@ -4,11 +4,13 @@
 
 ## 設計判断
 
-- 昼帯は固定時刻（`dayProgress.ts` の `DAYTIME_*`）で、日の出 / 日の入りの実測ではない。
+- 昼帯は固定時刻（`dayProgress.ts` の帯定義）で、日の出 / 日の入りの実測ではない。
   実測は観測地の緯度経度を要求し、同じタイムゾーン内でも 1 時間以上ずれる。このバーは
   今日がどこまで進んだかの当たりを付ける背景であって、天文情報を出す面ではない
-- 更新間隔は 1 分。バーの実幅に対して 1 分は 1px に満たないため、それより細かく刻んでも
-  見た目は変わらず再描画だけが増える
+- 日付と時刻の操作は `Temporal` に委ねる。翌日の算出（月末・年末・うるう年の繰り上がり）も
+  `datetime` 属性に載せる機械可読値も、標準 API がそのままの形で持っている
+- 更新は分境界に同期する（`useMinuteClock`）。バーの見た目は 1 分では動かない（実幅に対し
+  1 分は 1px 未満）が、`datetime` と日付ラベルは分・日をまたいだ瞬間に変わる必要がある
 - playhead はバーの上下へはみ出させる。帯の中に収めると昼夜の境界線と見分けが付かない
 - タイトルバーはドラッグ領域なので、バー全体を `pointer-events-none` にしてドラッグを
   奪わない。時刻そのものは可視テキストを持たないため `<time>` の datetime と aria-label で渡す
@@ -17,59 +19,60 @@
 </doc>
 
 <script setup lang="ts">
-import { useNow } from "@vueuse/core";
 import { computed } from "vue";
 import {
   barSegments,
-  formatClockTime,
-  formatDateLabel,
-  hoursOfDay,
-  hourToPercent,
-  nextDay,
   tickTransform,
   TICK_HOURS,
+  timeToPercent,
   type SegmentKind,
 } from "./dayProgress";
+import { useMinuteClock } from "./useMinuteClock";
 
-const MINUTE_MS = 60_000;
+/** 日付ラベル（月日 + 曜日）。曜日を日付のどちら側に置くか、何で区切るかは locale ごとに
+ * 違う（ja は "8/14(金)"、en-US は "Fri, 8/14"）ため、並びは Intl に委ねる。 */
+const DATE_LABEL_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  weekday: "short",
+  month: "numeric",
+  day: "numeric",
+});
 
-const now = useNow({ interval: MINUTE_MS });
+const now = useMinuteClock();
 
-const clockTime = computed<string>(() => formatClockTime(now.value));
+/** `<time datetime>` に載せる機械可読値。HTML の valid time string（`14:54`）を
+ * `Temporal` がそのまま返すので、locale 整形（numbering system が latn とは限らない）を
+ * 機械可読値に流さずに済む。 */
+const timeAttribute = computed<string>(() =>
+  now.value.toPlainTime().toString({ smallestUnit: "minute" }),
+);
 
-const todayLabel = computed<string>(() => formatDateLabel(now.value));
+const todayLabel = computed<string>(() => DATE_LABEL_FORMATTER.format(now.value.toPlainDate()));
 
-const tomorrowLabel = computed<string>(() => formatDateLabel(nextDay(now.value)));
+const tomorrowLabel = computed<string>(() =>
+  DATE_LABEL_FORMATTER.format(now.value.toPlainDate().add({ days: 1 })),
+);
 
-const playheadLeft = computed<string>(() => `${hourToPercent(hoursOfDay(now.value))}%`);
+const playheadLeft = computed<string>(() => `${timeToPercent(now.value.hour, now.value.minute)}%`);
 
 const SEGMENT_CLASS: Record<SegmentKind, string> = {
-  daytime: "bg-daytime",
-  nighttime: "bg-nighttime",
+  daytime: "bg-clock-daytime",
+  nighttime: "bg-clock-nighttime",
 };
 
 const segments = barSegments();
 
-interface Tick {
-  hour: number;
-  left: string;
-  transform: string;
-}
-
-const ticks = computed<Tick[]>(() =>
-  TICK_HOURS.map((hour) => ({
-    hour,
-    left: `${hourToPercent(hour)}%`,
-    transform: tickTransform(hour),
-  })),
-);
+const ticks = TICK_HOURS.map((hour) => ({
+  hour,
+  left: `${timeToPercent(hour)}%`,
+  transform: tickTransform(hour),
+}));
 </script>
 
 <template>
   <time
     class="pointer-events-none flex items-end gap-4"
-    :datetime="clockTime"
-    :aria-label="`Current time ${clockTime}, ${todayLabel}`"
+    :datetime="timeAttribute"
+    :aria-label="`Current time ${timeAttribute}, ${todayLabel}`"
   >
     <span class="shrink-0 text-xs leading-none text-foreground tabular-nums">
       {{ todayLabel }}
@@ -88,7 +91,7 @@ const ticks = computed<Tick[]>(() =>
       </div>
 
       <div class="relative">
-        <!-- 帯は重ねず横に並べる。地を敷いて上に重ねる形だと境界の隙間から地の色が覗く -->
+        <!-- 帯は重ねず横に並べる。下地を敷いて上に重ねる形だと、境界の隙間から下地が覗く -->
         <div class="relative h-1.5 overflow-hidden rounded-full">
           <div
             v-for="segment in segments"

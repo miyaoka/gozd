@@ -1,41 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import {
-  barSegments,
-  hoursOfDay,
-  hourToPercent,
-  nextDay,
-  tickAlign,
-  tickTransform,
-  TICK_HOURS,
-} from "./dayProgress";
+import { barSegments, tickTransform, TICK_HOURS, timeToPercent } from "./dayProgress";
 
-describe("hoursOfDay", () => {
-  test("深夜 0 時ちょうどは 0", () => {
-    expect(hoursOfDay(new Date(2026, 7, 14, 0, 0, 0))).toBe(0);
-  });
-
-  test("分と秒を小数時間に含める", () => {
-    expect(hoursOfDay(new Date(2026, 7, 14, 8, 30, 0))).toBe(8.5);
-  });
-
-  test("日付が変わっても時刻だけを見る", () => {
-    expect(hoursOfDay(new Date(2026, 0, 1, 23, 0, 0))).toBe(
-      hoursOfDay(new Date(2026, 11, 31, 23, 0, 0)),
-    );
-  });
-});
-
-describe("hourToPercent", () => {
+describe("timeToPercent", () => {
   test("0 時は左端", () => {
-    expect(hourToPercent(0)).toBe(0);
+    expect(timeToPercent(0)).toBe(0);
   });
 
   test("正午はバーの中央", () => {
-    expect(hourToPercent(12)).toBe(50);
+    expect(timeToPercent(12)).toBe(50);
   });
 
   test("24 時は右端", () => {
-    expect(hourToPercent(24)).toBe(100);
+    expect(timeToPercent(24)).toBe(100);
+  });
+
+  test("分を小数時間として位置に含める", () => {
+    expect(timeToPercent(8, 30)).toBe(timeToPercent(8.5));
+  });
+
+  test("分を省略すると 0 分として扱う", () => {
+    expect(timeToPercent(8)).toBe(timeToPercent(8, 0));
   });
 });
 
@@ -69,53 +53,16 @@ describe("barSegments", () => {
   });
 });
 
-describe("nextDay", () => {
-  test("翌日を返す", () => {
-    expect(nextDay(new Date(2026, 7, 14)).getDate()).toBe(15);
-  });
-
-  test("月末は翌月 1 日へ繰り上がる", () => {
-    const next = nextDay(new Date(2026, 7, 31));
-    expect(next.getMonth()).toBe(8);
-    expect(next.getDate()).toBe(1);
-  });
-
-  test("年末は翌年 1 月 1 日へ繰り上がる", () => {
-    const next = nextDay(new Date(2026, 11, 31));
-    expect(next.getFullYear()).toBe(2027);
-    expect(next.getMonth()).toBe(0);
-    expect(next.getDate()).toBe(1);
-  });
-
-  test("うるう年の 2/28 は 2/29 になる", () => {
-    const next = nextDay(new Date(2028, 1, 28));
-    expect(next.getMonth()).toBe(1);
-    expect(next.getDate()).toBe(29);
-  });
-
-  test("引数の Date を書き換えない", () => {
-    const original = new Date(2026, 7, 14);
-    nextDay(original);
-    expect(original.getDate()).toBe(14);
-  });
-});
-
 describe("目盛りラベル", () => {
   test("両端はバーの内側へ寄せ、中間は目盛りを中心に置く", () => {
-    expect(tickAlign(0)).toBe("start");
-    expect(tickAlign(12)).toBe("center");
-    expect(tickAlign(24)).toBe("end");
-  });
-
-  test("寄せ方に対応する transform を返す", () => {
     expect(tickTransform(0)).toBe("translateX(0)");
-    expect(tickTransform(6)).toBe("translateX(-50%)");
+    expect(tickTransform(12)).toBe("translateX(-50%)");
     expect(tickTransform(24)).toBe("translateX(-100%)");
   });
 
   test("全目盛りがバーの範囲に収まる", () => {
     for (const hour of TICK_HOURS) {
-      const percent = hourToPercent(hour);
+      const percent = timeToPercent(hour);
       expect(percent).toBeGreaterThanOrEqual(0);
       expect(percent).toBeLessThanOrEqual(100);
     }

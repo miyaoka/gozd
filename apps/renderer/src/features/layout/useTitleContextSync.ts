@@ -6,7 +6,7 @@ import { useTitleContext } from "./useTitleContext";
 
 /**
  * タイトル文字列を native window title（Mission Control / Cmd+Tab 表示）へ push する。
- * ウィンドウ内の表示は TitleBar.vue が同じ useTitleContext を直接 render する。
+ * repo / worktree 名を出す面はこの経路だけで、ウィンドウ内のタイトルバーには出ない。
  */
 export function useTitleContextSync(): void {
   const notify = useNotificationStore();

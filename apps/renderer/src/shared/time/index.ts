@@ -1,4 +1,5 @@
 export { formatRelativeAge, isoToUnixSec } from "./relativeAge";
+export { useMinuteClock } from "./useMinuteClock";
 export {
   formatAbsoluteTime,
   formatCompactTime,

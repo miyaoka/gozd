@@ -3,6 +3,7 @@ import {
   barSegments,
   hoursOfDay,
   hourToPercent,
+  nextDay,
   tickAlign,
   tickTransform,
   TICK_HOURS,
@@ -65,6 +66,37 @@ describe("barSegments", () => {
   test("key が帯ごとに一意", () => {
     const keys = barSegments().map((s) => s.key);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("nextDay", () => {
+  test("翌日を返す", () => {
+    expect(nextDay(new Date(2026, 7, 14)).getDate()).toBe(15);
+  });
+
+  test("月末は翌月 1 日へ繰り上がる", () => {
+    const next = nextDay(new Date(2026, 7, 31));
+    expect(next.getMonth()).toBe(8);
+    expect(next.getDate()).toBe(1);
+  });
+
+  test("年末は翌年 1 月 1 日へ繰り上がる", () => {
+    const next = nextDay(new Date(2026, 11, 31));
+    expect(next.getFullYear()).toBe(2027);
+    expect(next.getMonth()).toBe(0);
+    expect(next.getDate()).toBe(1);
+  });
+
+  test("うるう年の 2/28 は 2/29 になる", () => {
+    const next = nextDay(new Date(2028, 1, 28));
+    expect(next.getMonth()).toBe(1);
+    expect(next.getDate()).toBe(29);
+  });
+
+  test("引数の Date を書き換えない", () => {
+    const original = new Date(2026, 7, 14);
+    nextDay(original);
+    expect(original.getDate()).toBe(14);
   });
 });
 

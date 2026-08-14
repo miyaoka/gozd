@@ -72,7 +72,7 @@ onUnmounted(disposeFullscreen);
          読み取れる情報は増えず、広い画面では帯を横断する巨大な線になるだけ）。
          px は狭いウィンドウで左の信号機 pad / 右のトグル群と重ならないための逃げ幅 -->
     <div class="pointer-events-none absolute inset-x-0 flex justify-center px-32">
-      <div class="w-full max-w-80">
+      <div class="w-full max-w-md">
         <DayProgressBar />
       </div>
     </div>

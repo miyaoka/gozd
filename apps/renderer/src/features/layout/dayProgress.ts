@@ -101,3 +101,23 @@ const CLOCK_FORMATTER = new Intl.DateTimeFormat(undefined, {
 export function formatClockTime(date: Date): string {
   return CLOCK_FORMATTER.format(date);
 }
+
+/** バーの両端に添える日付ラベル（月日 + 曜日）。曜日を日付のどちら側に置くか、
+ * 何で区切るかは locale ごとに違う（ja は "8/14(金)"、en-US は "Fri, 8/14"）ため、
+ * 並びは Intl に委ね、自前でテンプレートを組み立てない。 */
+const DATE_LABEL_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  weekday: "short",
+  month: "numeric",
+  day: "numeric",
+});
+
+export function formatDateLabel(date: Date): string {
+  return DATE_LABEL_FORMATTER.format(date);
+}
+
+/** 翌日の同時刻。月末・年末・DST の繰り上がりは Date の日付演算に委ねる。 */
+export function nextDay(date: Date): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + 1);
+  return next;
+}

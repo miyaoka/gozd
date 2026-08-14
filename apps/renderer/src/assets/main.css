@@ -31,6 +31,13 @@
   --scroll-pill-primitive: oklch(0.48 0.11 250);
   --scroll-pill-hover-primitive: oklch(0.53 0.11 250);
   --scroll-pill-foreground-primitive: oklch(1 0 0);
+
+  /* clock (タイトルバーの 1 日進捗バー)。昼夜の帯は intent (状態) ではなくカテゴリの
+     識別で、生成スケールの step に意味的な対応を持たない。帯の高さが数 px しかなく
+     細い面では彩度・明度の知覚が潰れる (small-field effect) ため、明度と彩度を
+     この面のために直接指定する。 */
+  --clock-daytime-primitive: oklch(0.8 0.11 73.65);
+  --clock-nighttime-primitive: oklch(0.65 0.15 252.28);
 }
 
 /* layout 定数: カスタムタイトルバー（TitleBar.vue）の高さ。
@@ -178,6 +185,13 @@
   --color-channel-dev: var(--green-solid);
   --color-channel-dev-subtle: var(--green-3);
   --color-channel-dev-foreground: var(--green-on-solid);
+
+  /* 時刻帯の識別 (Tier 2 semantic alias): 1 日を昼と夜に二分する帯の塗り分け。
+     intent (成功 / 警告) ではなくカテゴリの識別なので独立 role を持ち、状態表現の
+     色相変更に時刻表示が巻き込まれない。値は brand 固定 primitive (`:root` 配下)。
+     両者は hue 差 179° あり、色覚特性によらず「別の色名で呼べる」分離を満たす */
+  --color-daytime: var(--clock-daytime-primitive);
+  --color-nighttime: var(--clock-nighttime-primitive);
 
   /* age scale (text-only): 一覧の相対日時が示す鮮度の 4 段階。帯名は表示単位
      (hour = 秒・分・時間表記、day = 日、week = 週、date = 絶対日付) で、色帯の境界と

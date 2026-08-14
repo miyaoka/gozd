@@ -13,8 +13,12 @@
 - fullscreen では macOS が信号機ボタンを消すため、main からの `windowFullscreenChange`
   push を受けて pad を畳む。pull hydrate は持たない（fullscreen 中の renderer リロードで
   ずれても pad が残るだけで、次の遷移で自己回復する）
-- タイトルは絶対配置でウィンドウ中央に置く。flex 中央だと左の pad / チップの幅で
+- 中央は絶対配置でウィンドウ中央に置く。flex 中央だと左の pad / チップの幅で
   視覚中心がずれ、ドラッグでウィンドウを動かすたびに目線が揺れる
+- 中央に出すのは repo / worktree 名ではなく 1 日の進捗バー。repo と branch は
+  サイドバーと各ペインが常時見せているため帯に重ねて出す価値が薄く、代わりに
+  どこからも読めない情報（時刻）を置く。OS のウィンドウ一覧向けのネイティブ
+  タイトルは別経路（`useTitleContextSync`）が repo / branch を出し続ける
 </doc>
 
 <script setup lang="ts">
@@ -25,15 +29,14 @@ import { useEventLogStore } from "../event-log";
 import { useMyWorkStore } from "../my-work";
 import { useServerStore } from "../server";
 import { channelChipLabel } from "./channel";
+import DayProgressBar from "./DayProgressBar.vue";
 import { useNotificationCenterStore } from "./useNotificationCenterStore";
-import { useTitleContext } from "./useTitleContext";
 import IconLucideActivity from "~icons/lucide/activity";
 import IconLucideBell from "~icons/lucide/bell";
 import IconLucideInbox from "~icons/lucide/inbox";
 import IconLucideServer from "~icons/lucide/server";
 
 const channelChip = channelChipLabel();
-const title = useTitleContext();
 const serverStore = useServerStore();
 const eventLogStore = useEventLogStore();
 const myWorkStore = useMyWorkStore();
@@ -65,11 +68,14 @@ onUnmounted(disposeFullscreen);
     >
       {{ channelChip }}
     </span>
-    <span
-      class="pointer-events-none absolute inset-x-0 truncate px-32 text-center text-xs text-foreground-low"
-    >
-      {{ title === "" ? "gozd" : title }}
-    </span>
+    <!-- 中央の 1 日進捗バー。ウィンドウ幅に追従させず上限で頭打ちにする（横に伸ばしても
+         読み取れる情報は増えず、広い画面では帯を横断する巨大な線になるだけ）。
+         px は狭いウィンドウで左の信号機 pad / 右のトグル群と重ならないための逃げ幅 -->
+    <div class="pointer-events-none absolute inset-x-0 flex justify-center px-32">
+      <div class="w-full max-w-80">
+        <DayProgressBar />
+      </div>
+    </div>
 
     <!-- ツールバー右端のグローバルトグル (Swift 期は native titlebar の ToolbarItem。Electron shell は
          native toolbar を持たないためこのカスタム titlebar 右端に集約する)。drag 帯なので no-drag 指定必須。 -->

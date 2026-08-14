@@ -4,45 +4,31 @@
 クラシック Mac メニューバーの時計を踏襲し、左にアナログ時計、右に HH:MM の
 24 時間表記デジタル時計を並べる。秒針 / 秒表示は持たず分単位で更新する。
 
-更新は分境界まで 1 回 setTimeout する adaptive 方式。1 秒ごとの polling を避け、
-表示が変わらない時間は wakeup しない。
+更新は `useMinuteClock`（分境界に同期する共有 composable）に委ねる。1 秒ごとの polling を
+避け、表示が変わらない時間は wakeup しない。
 </doc>
 
 <script setup lang="ts">
-import { useTimeoutFn } from "@vueuse/core";
-import { computed, ref } from "vue";
+import { computed } from "vue";
+import { useMinuteClock } from "../../shared/time";
 
-const formatter = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
+const now = useMinuteClock();
 
-const now = ref(new Date());
+/** デジタル表示。locale の 12 時間制設定に関わらず 24 時間表記へ固定するため、
+ * `Temporal` が返す ISO 8601 の `HH:MM` をそのまま出す。
+ *
+ * `Intl.DateTimeFormat` に委ねて区切り文字を locale に従わせると、桁が揺れる。
+ * `Intl.DateTimeFormat` は `Date` 用と Temporal 型用で別の format record を持ち
+ * (`[[DateTimeFormat]]` と `[[TemporalPlainTimeFormat]]`)、後者は生成時に locale の
+ * available pattern から選び直される。ja-JP の time pattern は numeric hour (`H:mm`) な
+ * ため `hour: "2-digit"` の要求はそこで落ち、`09:36` が `9:36`、`00:05` が `0:05` になる
+ * (`resolvedOptions().hour` は `[[DateTimeFormat]]` 側を映すので `2-digit` のまま)。
+ * オプションで変えられる段階の話ではない。tabular-nums で揃えた時計の幅が分ごとに
+ * 変わるより、区切り文字が ISO に固定される方を採る。 */
+const display = computed(() => now.value.toPlainTime().toString({ smallestUnit: "minute" }));
 
-const MINUTE_MS = 60 * 1000;
-
-/** 次の分境界（次の :00 秒）までの ms */
-function msToNextMinute(d: Date): number {
-  return MINUTE_MS - (d.getSeconds() * 1000 + d.getMilliseconds());
-}
-
-const delay = ref(msToNextMinute(now.value));
-const { start, stop } = useTimeoutFn(
-  () => {
-    now.value = new Date();
-    delay.value = msToNextMinute(now.value);
-    stop();
-    start();
-  },
-  delay,
-  { immediate: true },
-);
-
-const display = computed(() => formatter.format(now.value));
-
-const minuteAngle = computed(() => now.value.getMinutes() * 6);
-const hourAngle = computed(() => (now.value.getHours() % 12) * 30 + now.value.getMinutes() * 0.5);
+const minuteAngle = computed(() => now.value.minute * 6);
+const hourAngle = computed(() => (now.value.hour % 12) * 30 + now.value.minute * 0.5);
 </script>
 
 <template>

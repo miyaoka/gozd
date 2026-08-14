@@ -8,7 +8,9 @@
   実測は観測地の緯度経度を要求し、同じタイムゾーン内でも 1 時間以上ずれる。このバーは
   今日がどこまで進んだかの当たりを付ける背景であって、天文情報を出す面ではない
 - 日付と時刻の操作は `Temporal` に委ねる。翌日の算出（月末・年末・うるう年の繰り上がり）も
-  `datetime` 属性に載せる機械可読値も、標準 API がそのままの形で持っている
+  `datetime` 属性に載せる機械可読値も、標準 API がそのままの形で持っている。テストランナー
+  （bun）が `Temporal` を持たないためこの層はテストを持たない
+  - TODO: bun が `Temporal` を持つ版になったら、翌日の算出と `datetime` 値にテストを書く
 - 更新は分境界に同期する（`useMinuteClock`）。バーの見た目は 1 分では動かない（実幅に対し
   1 分は 1px 未満）が、`datetime` と日付ラベルは分・日をまたいだ瞬間に変わる必要がある
 - playhead はバーの上下へはみ出させる。帯の中に収めると昼夜の境界線と見分けが付かない
@@ -20,6 +22,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { useMinuteClock } from "../../shared/time";
 import {
   barSegments,
   tickTransform,
@@ -27,7 +30,6 @@ import {
   timeToPercent,
   type SegmentKind,
 } from "./dayProgress";
-import { useMinuteClock } from "./useMinuteClock";
 
 /** 日付ラベル（月日 + 曜日）。曜日を日付のどちら側に置くか、何で区切るかは locale ごとに
  * 違う（ja は "8/14(金)"、en-US は "Fri, 8/14"）ため、並びは Intl に委ねる。 */

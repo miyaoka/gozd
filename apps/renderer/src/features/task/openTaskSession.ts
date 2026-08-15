@@ -3,7 +3,7 @@ import { activateDir, useTerminalStore } from "../terminal";
 
 /**
  * task を選択して「dir を active にし、session へ到達する」分岐の SSOT。
- * サイドバー上段とダッシュボードが共有する。
+ * サイドバーとダッシュボードが共有する。
  *
  * 分岐:
  * - task.sessionId 空 (PR/issue 由来で未起動 / SessionEnd で切り離し済み):

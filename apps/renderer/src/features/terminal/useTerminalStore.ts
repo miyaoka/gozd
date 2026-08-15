@@ -328,20 +328,6 @@ export const useTerminalStore = defineStore("terminal", () => {
   const claudeActiveLeafIds = computed(() => claude.getClaudeActiveLeafIds());
 
   /**
-   * Claude セッションを持つ leaf の所属 dir 集合。サイドバー下段（active session ペイン）の
-   * 母集団キー。TerminalPane のタイル対象（claudeActiveLeafIds）から導出するため、
-   * claude タイルに出る leaf と同じ集合を指す。
-   */
-  const claudeActiveDirs = computed<Set<string>>(() => {
-    const dirs = new Set<string>();
-    for (const leafId of claudeActiveLeafIds.value) {
-      const dir = paneRegistry.value[leafId]?.dir;
-      if (dir !== undefined) dirs.add(dir);
-    }
-    return dirs;
-  });
-
-  /**
    * 表示用の実効モード。`userViewMode === "claude"` でも Claude leaf が 0 件なら
    * `wt` として解釈する。これにより:
    *  - claude ビュー中に split で素 PTY を増やしても、新 pane が見える wt として描画
@@ -647,9 +633,9 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /**
    * dir の focus が当たっている PTY が、その session のものかどうか。
-   * サイドバーの「fill (青 capsule) はカード内 1 行だけ」という不変条件の判定 SSOT で、
-   * wt カード (WtCard) と active session ペインが共有する。同じ不変条件を 2 実装で守ると、
-   * 片方だけ直る形の劣化が必ず起きるため導出を 1 箇所に置く。
+   * サイドバーの「fill (青 capsule) はカード内 1 行だけ」という不変条件の判定 SSOT。
+   * 判定には layoutsByDir の focusedLeafId と pty 解決の両方が要るので、利用側で
+   * 組み立てず store 側に置く。
    *
    * session / focus / pty のいずれかが欠けたら false。undefined 同士の一致で true に
    * 倒れる形（pty を持たない leaf が focus 中なら全行が focus 扱い）を構造的に排除する。
@@ -710,7 +696,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     lastRemovedLeafId,
     // computed
     claudeActiveLeafIds,
-    claudeActiveDirs,
     // layout
     visit,
     requestResumeSession,

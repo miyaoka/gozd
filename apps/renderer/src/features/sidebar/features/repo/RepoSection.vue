@@ -16,9 +16,9 @@ state による並び替えは行わない。Claude 起動 / 状態遷移でカ�
 「どこに何があるか」を覚えていられないため、位置は静的に保ち、状態は state
 アイコンで識別する。
 
-Claude セッションの有無で wt カードを絞ることはしない。「いま動いているもの」はサイドバー
-下段の active session ペインが専用の行フォーマットで受け持ち、この section は
-「どこで作業するか」の地図として常に全 worktree を出す。
+Claude セッションの有無で wt カードを絞ることはしない。稼働を横断して見る面は Task 単位の
+ダッシュボード（docs/task.md）と端末単位の view mode（docs/terminal.md）が受け持ち、この
+section は「どこで作業するか」の地図として常に全 worktree を出す。
 
 ## 操作
 
@@ -206,7 +206,7 @@ function onHeaderClick() {
   <section
     ref="section"
     :data-active="!editMode && active"
-    class="_fx-panel mx-1 mb-2 flex flex-col rounded-lg"
+    class="_fx-panel flex flex-col rounded-lg"
   >
     <!-- 角丸は状態で変えず panel と同じ rounded-lg 固定。展開時に上下で radius が混在すると
          タブ状の歪な形に見えるため（full-bleed の設計原則は <doc> のレイアウト節を参照）。 -->
@@ -226,7 +226,7 @@ function onHeaderClick() {
         ref="dragHandle"
         type="button"
         aria-label="Reorder repository"
-        class="ml-1.5 grid size-6 shrink-0 cursor-grab place-items-center rounded-sm text-foreground-muted hover:bg-panel hover:text-foreground active:cursor-grabbing"
+        class="grid size-6 shrink-0 cursor-grab place-items-center rounded-sm text-foreground-muted hover:bg-panel hover:text-foreground active:cursor-grabbing"
       >
         <IconLucideGripVertical class="size-3.5" />
       </button>
@@ -244,7 +244,7 @@ function onHeaderClick() {
             removesFromWindow ? 'Remove repository from gozd' : 'Remove repository from list'
           "
           :title="removesFromWindow ? 'Remove from gozd' : 'Remove from list'"
-          class="mr-1.5 grid size-6 place-items-center rounded-sm text-destructive-text hover:bg-destructive-subtle hover:text-destructive-text"
+          class="grid size-6 place-items-center rounded-sm text-destructive-text hover:bg-destructive-subtle hover:text-destructive-text"
           @click.stop="emit('removeRepo', rootDir)"
         >
           <IconLucideX class="text-sm" />

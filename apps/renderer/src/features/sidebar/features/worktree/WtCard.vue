@@ -111,9 +111,6 @@ interface TaskWithStatus {
   status: ClaudeStatus | undefined;
 }
 
-/**
- * 並び順の規律 (`compareTaskOrder`) は active session ペインと共有する。
- */
 const tasksWithStatus = computed<TaskWithStatus[]>(() => {
   // task ≠ session 設計: sessionId が空 (PR/issue 由来で未起動 / SessionEnd で切り離し済み)
   // の task は status が undefined になる。サイドバークリック時に素の claude を
@@ -128,7 +125,7 @@ const tasksWithStatus = computed<TaskWithStatus[]>(() => {
 
 /**
  * wt 内のいずれかの task が focused PTY を持っているか。判定の SSOT は
- * `terminalStore.isSessionFocused`（active session ペインと共有）。
+ * `terminalStore.isSessionFocused`。
  * active wt 以外では capsule を出してはいけない。各 wt の layoutsByDir[dir].
  * focusedLeafId は履歴として残るため、active 条件を噛ませないと過去訪問した
  * 全 wt で task に capsule が点いてしまう。
@@ -169,7 +166,7 @@ function onHeaderClick() {
   <article
     :data-active="active"
     :data-wt-path="wt.path"
-    class="rounded-lg border p-0.5 transition-colors"
+    class="flex flex-col gap-0.5 rounded-lg border p-0.5 transition-colors"
     :class="[active ? '_fx-quest-active border-primary' : 'border-border-subtle', auraClass]"
   >
     <div class="group/wt relative">
@@ -224,7 +221,7 @@ function onHeaderClick() {
       </button>
     </div>
 
-    <div v-if="tasksWithStatus.length > 0" class="mt-0.5 border-t border-border-subtle pt-0.5">
+    <div v-if="tasksWithStatus.length > 0" class="border-t border-border-subtle py-0.5">
       <TaskRow
         v-for="entry in tasksWithStatus"
         :key="entry.task.id"

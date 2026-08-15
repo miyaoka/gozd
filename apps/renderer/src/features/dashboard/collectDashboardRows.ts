@@ -25,7 +25,7 @@ export interface DashboardRow {
  * 全 repo 横断の task を最終活動の新しい順に平坦化する純関数。
  *
  * 母集団は poolDirs (repo プール全体)。アクティブ repo list で絞ると「動いているのに
- * 一覧に出ない」task が生まれる (collectActiveSessionGroups と同じ理由)。
+ * 一覧に出ない」task が生まれる。
  *
  * 並びはサイドバーの compareTaskOrder (createdAt 固定順) とあえて違う動的順にする。
  * サイドバーは常設面で空間記憶に最適化するが、ここは開くたびに使い捨てる transient な

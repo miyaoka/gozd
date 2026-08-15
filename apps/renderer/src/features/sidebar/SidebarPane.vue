@@ -474,11 +474,11 @@ watch(
       </div>
     </template>
 
-    <!-- padding は上下対称。repo list バー側の余白と RepoSection 自身の下端余白が既に
-         あるため、ここは最小の内側クリアランスだけを持つ -->
+    <!-- カード間・カードと縁の間隔はすべてこの容器が持つ（子側の margin では、スクロール
+         端で余白が潰れるうえ最後のカードの下だけ間隔が二重になる） -->
     <div
       ref="scrollContainer"
-      class="_thin-scrollbar flex min-h-0 flex-1 flex-col overflow-y-scroll py-1"
+      class="_thin-scrollbar flex min-h-0 flex-1 flex-col gap-2 overflow-y-scroll px-1 py-2"
     >
       <!-- 空リストの empty state: 通常モードでは repo が 1 つも描画されず操作の手がかりが
            消えるため、編集モード（Add from other lists / Open directory… が出る）への
@@ -522,10 +522,7 @@ watch(
       <!-- 編集モード: 既存プール repo（他 repo list にのみ所属）の候補。RepoSection と同じ
            RepoIcon + repo 名の行で「既にある repo をこの repo list に載せる」ことを示し、
            ディスクからの新規追加 (Open directory…) と描き分ける -->
-      <div
-        v-if="editMode && addableRootDirs.length > 0"
-        class="mx-1 mt-2 border-t border-border-subtle pt-2"
-      >
+      <div v-if="editMode && addableRootDirs.length > 0" class="border-t border-border-subtle pt-2">
         <div class="px-2 pb-1 text-xs text-foreground-muted">Add from other lists</div>
         <button
           v-for="rootDir in addableRootDirs"
@@ -546,7 +543,7 @@ watch(
 
       <!-- 新規ディレクトリ追加。既存 repo 候補とは divider で分離し、folder-plus で
            「ディスクから新しく開く」操作であることを示す -->
-      <div v-if="editMode" class="mx-1 mt-2 border-t border-border-subtle pt-2">
+      <div v-if="editMode" class="border-t border-border-subtle pt-2">
         <button
           type="button"
           class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground-low hover:bg-panel hover:text-foreground"

@@ -166,7 +166,7 @@ function onHeaderClick() {
   <article
     :data-active="active"
     :data-wt-path="wt.path"
-    class="rounded-lg border p-0.5 transition-colors"
+    class="flex flex-col gap-0.5 rounded-lg border p-0.5 transition-colors"
     :class="[active ? '_fx-quest-active border-primary' : 'border-border-subtle', auraClass]"
   >
     <div class="group/wt relative">
@@ -221,7 +221,7 @@ function onHeaderClick() {
       </button>
     </div>
 
-    <div v-if="tasksWithStatus.length > 0" class="mt-0.5 border-t border-border-subtle pt-0.5">
+    <div v-if="tasksWithStatus.length > 0" class="border-t border-border-subtle py-0.5">
       <TaskRow
         v-for="entry in tasksWithStatus"
         :key="entry.task.id"

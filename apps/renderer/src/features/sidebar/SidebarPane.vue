@@ -522,28 +522,36 @@ watch(
       <!-- 編集モード: 既存プール repo（他 repo list にのみ所属）の候補。RepoSection と同じ
            RepoIcon + repo 名の行で「既にある repo をこの repo list に載せる」ことを示し、
            ディスクからの新規追加 (Open directory…) と描き分ける -->
-      <div v-if="editMode && addableRootDirs.length > 0" class="border-t border-border-subtle pt-2">
-        <div class="px-2 pb-1 text-xs text-foreground-muted">Add from other lists</div>
-        <button
-          v-for="rootDir in addableRootDirs"
-          :key="rootDir"
-          type="button"
-          class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-foreground-low hover:bg-panel hover:text-foreground"
-          :title="rootDir"
-          :aria-label="`Add ${repoNameOf(rootDir)} to this repo list`"
-          @click="repoStore.ensureInActiveRepoList(rootDir)"
-        >
-          <RepoIcon :name="repoNameOf(rootDir)" :owner="repoOwnerOf(rootDir)" />
-          <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
-            {{ repoNameOf(rootDir) }}
-          </span>
-          <IconLucidePlus class="size-4 shrink-0" />
-        </button>
+      <!-- 区切り線は高さゼロの独立した子にする。線の上下の間隔は容器の gap が持つ
+           （線を持つ箱に padding を足すと、線の上は gap・下は padding という別々の
+           出どころで同じ間隔を作ることになる） -->
+      <div v-if="editMode && addableRootDirs.length > 0" class="border-t border-border-subtle" />
+      <div v-if="editMode && addableRootDirs.length > 0" class="flex flex-col gap-1">
+        <div class="px-2 text-xs text-foreground-muted">Add from other lists</div>
+        <!-- 候補行は密着させるので、見出しとの間隔だけを外側の gap が持つ -->
+        <div class="flex flex-col">
+          <button
+            v-for="rootDir in addableRootDirs"
+            :key="rootDir"
+            type="button"
+            class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-foreground-low hover:bg-panel hover:text-foreground"
+            :title="rootDir"
+            :aria-label="`Add ${repoNameOf(rootDir)} to this repo list`"
+            @click="repoStore.ensureInActiveRepoList(rootDir)"
+          >
+            <RepoIcon :name="repoNameOf(rootDir)" :owner="repoOwnerOf(rootDir)" />
+            <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
+              {{ repoNameOf(rootDir) }}
+            </span>
+            <IconLucidePlus class="size-4 shrink-0" />
+          </button>
+        </div>
       </div>
 
       <!-- 新規ディレクトリ追加。既存 repo 候補とは divider で分離し、folder-plus で
            「ディスクから新しく開く」操作であることを示す -->
-      <div v-if="editMode" class="border-t border-border-subtle pt-2">
+      <div v-if="editMode" class="border-t border-border-subtle" />
+      <div v-if="editMode" class="flex flex-col">
         <button
           type="button"
           class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground-low hover:bg-panel hover:text-foreground"

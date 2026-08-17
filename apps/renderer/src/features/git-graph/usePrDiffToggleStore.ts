@@ -211,9 +211,12 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
    * auto-off 経由 disable() / dir 変化 / base OID 変化 のいずれでも increment され、
    * 進行中の enable() は post-await の `seq !== enableSeq.value` チェックで結果を捨てる。 */
   const enableSeq = ref(0);
-  /** enable() async の進行中フラグ。ChangesPane の toggle button の disabled gate に使う。
-   * 書き込みは `enable()` の入口 (true) と finally (false) の 2 か所のみで、disable() からは
-   * 書かない (= race トークン = enableSeq に所有を集約)。 */
+  /** enable() async の進行中フラグ。toggle button の disabled gate に使う。
+   *
+   * **解除は「現役でなくなった側が放棄し、割り込んだ側が落とす」**。in-flight の enable() は
+   * `enableSeq` が進むと finally での解除を放棄するため、割り込む `disable()` が代わりに落とさないと
+   * true のまま残り、入口 gate (`isOn || enabling`) が以降の enable をすべて弾く (= トグルが
+   * リロードまで押せなくなる)。解除の唯一の口が enable() の中にある状態を作らない。 */
   const enabling = ref(false);
 
   async function enable(target: PrDiffMode) {
@@ -308,16 +311,19 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
         diffBaseOid: mergeBaseOid,
       };
     } finally {
-      // seq 一致 = この enable() が現役。disable() / 他経路の `enableSeq++` が割り込んだ場合は
-      // 他の write 主体が後続 enable() を始めるのでこの finally は触らない。
+      // seq 一致 = この enable() が現役。割り込まれた場合は解除の所有が割り込み側 (disable() か
+      // 後続の enable()) へ移っているため触らない。
       if (seq === enableSeq.value) enabling.value = false;
     }
   }
 
   function disable() {
-    // 進行中の enable() を破棄するため increment。`enabling` は触らず、finally に処理を委ねる。
+    // 進行中の enable() を破棄するため increment。
     enableSeq.value++;
     lockedBase.value = undefined;
+    // in-flight の enable() は seq 不一致で finally の解除を放棄する。ここで落とさないと解除者が
+    // 誰も居なくなり、以降の enable が入口 gate で弾かれ続ける。
+    enabling.value = false;
   }
 
   /** 指定 mode の toggle を押したときの遷移。

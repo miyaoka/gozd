@@ -271,7 +271,12 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   async function requestFollowUpFetch(dir: string): Promise<boolean> {
     const repo = repoStore.findRepoOwning(dir);
     if (repo === undefined || !repo.isGitRepo) {
-      logEvent("fetch", "skip", repo?.repoName ?? dir);
+      logEvent(
+        "fetch",
+        "skip",
+        repo?.repoName ?? dir,
+        repo === undefined ? `untracked dir: ${dir}` : "not a git repo",
+      );
       return false;
     }
     const outcome = await runFetch(repo.rootDir);

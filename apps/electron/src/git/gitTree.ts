@@ -156,8 +156,7 @@ export async function commitFiles(params: {
  */
 export async function prDiffFiles(dir: string, baseHash: string): Promise<FileChangeInfo[]> {
   // validateRev は empty を許す設計のため、commit OID 必須の lsTree / resetMixed と同じ
-  // 二段ガードで empty / all-zero を入口で reject する（empty を素通りさせると `git diff` が
-  // rev なしの別 semantic で走るため）
+  // 二段ガードで empty / all-zero を入口で reject する
   if (baseHash === "") throw new Error("git diff: base hash must be specified");
   if (isAllZeroHex(baseHash)) {
     throw new Error("git diff: all-zero hash (UNCOMMITTED_HASH) is not a valid PR base");

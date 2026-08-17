@@ -509,9 +509,10 @@ base 端だけ**で、差分の右端（作業ツリー）・untracked の扱い
   前進）でも落ちる
 - **HEAD の追従は commit グラフの表示状態に依存させない**。グラフを開いていない / ロードに失敗している
   間も HEAD の移動を観測できる経路を使う
-- stack の base 端は trunk 側の tip なので、**stack の下段が merge されると OFF になる**。merge は
-  trunk を前進させ、さらに残った PR のうち最下段のものが trunk 直下へ付け替えられるため、どちらの
-  経路でも base 端が動く
+- stack の下段が merge されたときに OFF になるかは **merge の方式で決まる**。merge commit なら下段の
+  変更が自分の履歴の祖先に入るため起点が前進して OFF、squash / rebase merge なら生成された commit は
+  祖先にならないため起点は動かず表示を維持する。base 端が動いたかではなく起点が動いたかで決まる、と
+  いう上の規則の帰結
 
 ### UI 構成
 

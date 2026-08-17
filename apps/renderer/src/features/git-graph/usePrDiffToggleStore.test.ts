@@ -1,7 +1,7 @@
 import type { GitPullRequest } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import type { PrDiffOrigin } from "./usePrDiffToggleStore";
-import { isPrDiffOriginStale, prDiffBaseOid } from "./usePrDiffToggleStore";
+import { decidePrDiffFollowUp, isPrDiffOriginStale, prDiffBaseOid } from "./usePrDiffToggleStore";
 
 const PR_BASE_OID = "878532b8b72fa424e9daf50261e1fe752e5ada6b";
 const STACK_BASE_OID = "db45e9d81f80091fd0357aa834030cf0fb29ca9b";
@@ -114,6 +114,24 @@ describe("isPrDiffOriginStale", () => {
   test("HEAD が不明でも dir が動いていれば stale", () => {
     expect(isPrDiffOriginStale(origin(), origin({ dir: "/w/other", headHash: undefined }))).toBe(
       true,
+    );
+  });
+});
+
+describe("decidePrDiffFollowUp", () => {
+  // U の退行を固定する: 入力が動いても起点が同じなら維持する。fast-forward な commit がこれに当たり、
+  // ここを off にすると gozd で最頻の操作のたびに表示が落ちる
+  test("解決した起点が固定値と同じなら維持する", () => {
+    expect(decidePrDiffFollowUp({ resolved: STACK_BASE_OID, pinned: STACK_BASE_OID })).toBe("keep");
+  });
+
+  test("起点が動いていたら OFF", () => {
+    expect(decidePrDiffFollowUp({ resolved: PR_BASE_OID, pinned: STACK_BASE_OID })).toBe("off");
+  });
+
+  test("解決できなければ unresolved（OFF に倒す側の判断は呼び出し元が持つ）", () => {
+    expect(decidePrDiffFollowUp({ resolved: undefined, pinned: STACK_BASE_OID })).toBe(
+      "unresolved",
     );
   });
 });

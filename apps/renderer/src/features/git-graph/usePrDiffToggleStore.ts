@@ -83,6 +83,27 @@ export function isPrDiffOriginStale(initial: PrDiffOrigin, current: PrDiffOrigin
   return false;
 }
 
+/** 再解決の結果に対する行動。 */
+export type PrDiffFollowUp = "keep" | "off" | "unresolved";
+
+/**
+ * 起点を解決し直した結果から次の行動を決める。
+ *
+ * **入力が動いても起点が同じなら維持する**のがこの判定の要点。fast-forward な commit や、自分が
+ * 取り込まない base の前進は入力を動かすが共通祖先を動かさないため、`keep` に落ちる。ここを
+ * 「入力が動いたら OFF」にすると、gozd で最頻の操作である commit のたびに表示が落ちる。
+ */
+export function decidePrDiffFollowUp(params: {
+  /** 解決し直した merge-base。解決不能なら undefined */
+  resolved: string | undefined;
+  /** 現在固定されている起点 */
+  pinned: string;
+}): PrDiffFollowUp {
+  if (params.resolved === undefined) return "unresolved";
+  if (params.resolved === params.pinned) return "keep";
+  return "off";
+}
+
 /**
  * PR diff モード (ChangesPane / PreviewPane を「base..working tree」表示に切り替える) の SSOT。
  *
@@ -115,28 +136,33 @@ export function isPrDiffOriginStale(initial: PrDiffOrigin, current: PrDiffOrigin
  * - `isOn` / `mode` / `disable` は `lockedBase` の有無 / 中身 / クリアとして表現する (派生)
  * - 表示用 / per-file 取得用の起点 OID は **`diffBaseOid` (= merge-base)**。consumer は公開 getter
  *   `lockedBaseOid` 経由で読む (実体は `lockedBase.diffBaseOid`)
- * - auto-off の比較対象は **`sourceBaseOid` と `sourceHeadHash`**。起点は `merge-base` の 2 引数から
- *   決まるので、片方だけを追うと同じ base OID のまま HEAD が動いた場合を取りこぼす
+ * - `sourceBaseOid` / `sourceHeadHash` は**再解決の起動条件**。起点は `merge-base` の 2 引数から
+ *   決まるので、片方だけを追うと同じ base OID のまま HEAD が動いた場合を取りこぼす。OFF の判定は
+ *   これらの変化ではなく、再解決した `diffBaseOid` が動いたかで行う
  *
- * ## auto-off の一次トリガ
+ * ## OFF になる契機
  *
- * - `worktreeStore.dir` の変化: enable() の起点入力が変わるため一次トリガ。base OID 経由の
- *   間接判定だと「別 worktree の PR の base OID が偶然同値」の場合に取りこぼすため、dir 変化は
- *   独立して watch する。enable() async 中の dir 切替もこの watcher が `enableSeq` を increment
- *   して破棄する (race 防護)
+ * **即 OFF にするもの** (起点の前提そのものが消える / ユーザーが別の比較を選んだ)
+ *
+ * - `worktreeStore.dir` の変化: 起点を計算した対象が別物になる。base OID 経由の間接判定だと
+ *   「別 worktree の PR の base OID が偶然同値」の場合に取りこぼすため、dir 変化は独立して watch
+ *   する。enable() async 中の dir 切替もこの watcher が `enableSeq` を increment して破棄する
  * - `gitGraphStore.selectionVersion` の increment: ユーザーが graph で commit を選んだ瞬間
- * - live base OID が `sourceBaseOid` snapshot と変化: base end が動いた / 消失
- * - HEAD が `sourceHeadHash` snapshot と変化: `merge-base` のもう一方の引数が動いた。ここで OFF に
- *   するのではなく起点を解決し直し、実際に動いていたときだけ OFF にする
  *
- * stack mode の base 端は trunk の tip なので、**stack の下段 PR が merge されると必ず OFF になる**。
- * merge は trunk を前進させ、さらに GitHub は次の未 merge PR を trunk 直下へ rebase する
- * (= base 端を持つ position 1 の PR 自体が入れ替わる)。どちらの経路でも base 端の OID が動く。
+ * **再解決を経て判定するもの** (起点の入力が動いた)
  *
- * いずれも silent drop 禁止規律に従い、`useNotificationStore.info` でユーザーにトースト通知する
- * (toggle の見た目が突然変わるのでユーザーに認知させる必要がある)。ただし enable() async 中で
- * `isOn=false` のままだった場合、toggle はまだ ON の視覚的フィードバックを出していないため、
- * graph selection 経由の disable は通知を出さない (`isOn` を判定条件にする)。
+ * - live base OID / HEAD が snapshot と変化 → `reresolveOrigin` が `merge-base` を解決し直し、
+ *   **値が動いたときだけ** OFF。同値なら snapshot だけ進めて表示を維持する
+ *
+ * stack の下段 PR が merge されたときに OFF になるかは merge の方式で決まる。merge commit なら
+ * 下段の変更が自分の履歴の祖先に入るため起点が前進して OFF、squash / rebase merge なら生成された
+ * commit は祖先にならないため起点は動かず維持される。
+ *
+ * OFF にするときは silent drop 禁止規律に従い `useNotificationStore.info` で通知する (toggle の
+ * 見た目が突然変わるのでユーザーに認知させる必要がある)。**維持する再解決は通知しない** —
+ * ユーザーから見て何も起きていないため。ただし enable() async 中で `isOn=false` のままだった場合、
+ * toggle はまだ ON の視覚的フィードバックを出していないため、graph selection 経由の disable は
+ * 通知を出さない (`lockedBase` の有無を判定条件にする)。
  *
  * ## enable() を async にした race 対策
  *
@@ -144,8 +170,9 @@ export function isPrDiffOriginStale(initial: PrDiffOrigin, current: PrDiffOrigin
  * await 中に
  * - toggle がもう一度押された (= disable / 再 enable)
  * - worktree が切り替わった
- * - live `baseRefOid` が変わった
+ * - 起点の入力 (base OID / HEAD) が変わった
  * のいずれかが起きると snapshot 結果は破棄する。`enableSeq` 単一カウンタを比較して破棄判定する。
+ * ON 中の再解決も同じカウンタを進めるため、解決の並走は enable / 再解決をまたいで排他になる。
  */
 export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   const gitGraphStore = useGitGraphStore();
@@ -213,9 +240,9 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
    * **merge-base OID** (= `lockedBase.diffBaseOid`)。OFF 時 undefined。mode によらず同じ意味。 */
   const lockedBaseOid = computed<string | undefined>(() => lockedBase.value?.diffBaseOid);
 
-  /** enable() async race を破棄するための単調 increment counter。disable() / 連続 enable() /
-   * auto-off 経由 disable() / dir 変化 / base OID 変化 のいずれでも increment され、
-   * 進行中の enable() は post-await の `seq !== enableSeq.value` チェックで結果を捨てる。 */
+  /** 解決の race を破棄するための単調 increment counter。disable() / 連続 enable() / auto-off 経由の
+   * disable() / dir 変化 / 起点の入力の変化 (= `reresolveOrigin`) のいずれでも increment され、
+   * 進行中の解決は post-await の `seq !== enableSeq.value` チェックで結果を捨てる。 */
   const enableSeq = ref(0);
   /** enable() async の進行中フラグ。toggle button の disabled gate に使う。
    *
@@ -233,12 +260,16 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
    * 別の手順に退化して、ON の起点と再解決後の起点が別の意味を持つ。
    *
    * `seq` は呼び出し元が握る race トークン。await ごとに現役かを確かめ、割り込まれたら黙って抜ける。
+   *
+   * **fetch の入口は呼び出し元が渡す**。クリック起点はユーザーが結果を待っているので backoff を
+   * bypass する経路、自動追従は待っていないので背景経路。解決手順は共有しつつ、この 1 点だけ分ける。
    */
   async function resolveDiffBase(
     target: PrDiffMode,
     dir: string,
     baseOid: string,
     seq: number,
+    requestFetch: (dir: string) => Promise<boolean>,
   ): Promise<string | undefined> {
     const label = MODE_LABEL[target];
 
@@ -253,10 +284,11 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     // 2. 未 reachable なら fetch を要求 → 再 reachable 判定。fetch 成功でもリモートで base ref が
     // 削除されていれば依然 unreachable のため、再判定で「fetch しても届かない」を構造的に検出する。
     if (!reachable.value.reachable) {
-      const fetched = await fetchStore.requestImmediateFetch(dir);
+      const fetched = await requestFetch(dir);
       if (seq !== enableSeq.value) return undefined;
       if (!fetched) {
-        // 下層 (`useRemoteFetchStore`) で notify.info が出ている契約。追加通知は出さない。
+        // クリック起点では下層が notify.info を出す契約。背景経路は間引きに従うため無音のことも
+        // ある。いずれも追加通知は出さない。
         return undefined;
       }
       const reachableAfterFetch = await tryCatch(rpcGitRevReachable({ dir, hash: baseOid }));
@@ -313,7 +345,13 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     const seq = ++enableSeq.value;
     enabling.value = true;
     try {
-      const mergeBaseOid = await resolveDiffBase(target, initialDir, initialBaseOid, seq);
+      const mergeBaseOid = await resolveDiffBase(
+        target,
+        initialDir,
+        initialBaseOid,
+        seq,
+        fetchStore.requestImmediateFetch,
+      );
       if (mergeBaseOid === undefined) return;
 
       // final race check: await 中に起点の入力 (dir / base / HEAD) が動いていないか
@@ -430,22 +468,31 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     if (!moved) return;
 
     const seq = ++enableSeq.value;
-    const mergeBaseOid = await resolveDiffBase(locked.mode, dir, baseOid, seq);
+    const mergeBaseOid = await resolveDiffBase(
+      locked.mode,
+      dir,
+      baseOid,
+      seq,
+      fetchStore.requestBackgroundFetch,
+    );
     if (seq !== enableSeq.value) return;
     // 再解決の途中で OFF になっていれば結果を捨てる
     const current = lockedBase.value;
     if (current === undefined) return;
-    if (mergeBaseOid === undefined) {
-      disable();
-      notify.info(`${MODE_LABEL[current.mode]} turned off: cannot resolve the diff origin anymore`);
-      return;
-    }
-    if (mergeBaseOid === current.diffBaseOid) {
+    const followUp = decidePrDiffFollowUp({
+      resolved: mergeBaseOid,
+      pinned: current.diffBaseOid,
+    });
+    if (followUp === "keep") {
       // 起点は動いていない。次回の比較が空振りしないよう snapshot だけ進める
       lockedBase.value = { ...current, sourceBaseOid: baseOid, sourceHeadHash: headHash };
       return;
     }
     disable();
+    if (followUp === "unresolved") {
+      notify.info(`${MODE_LABEL[current.mode]} turned off: cannot resolve the diff origin anymore`);
+      return;
+    }
     notify.info(
       `${MODE_LABEL[current.mode]} turned off: diff origin moved from ${current.diffBaseOid} to ${mergeBaseOid}`,
     );

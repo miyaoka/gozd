@@ -259,9 +259,30 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
     return outcome.ok;
   }
 
+  /**
+   * 背景アクター向けの on-demand fetch。任意 dir を repo root に正規化して `fetchIfDue` の
+   * lock / backoff / 通知間引きに載せる。
+   *
+   * **ユーザーが結果を待っていない発火はこちらを使う**。`requestImmediateFetch` は backoff を
+   * bypass し失敗を毎回通知する契約で、それはクリック等に応答するためのもの。自動追従から呼ぶと
+   * ユーザーが何もしていないのに fetch が走り、失敗トーストが間引きなしで積まれる。
+   *
+   * 不正 path は skip して false。ここは背景経路なので通知を出さない (`fetchIfDue` の skip と同じ
+   * 扱い。観察は event-log 側が担う)。
+   */
+  async function requestBackgroundFetch(dir: string): Promise<boolean> {
+    const repo = repoStore.findRepoOwning(dir);
+    if (repo === undefined || !repo.isGitRepo) {
+      logEvent("fetch", "skip", dir);
+      return false;
+    }
+    return fetchIfDue(repo.rootDir);
+  }
+
   return {
     fetchIfDue,
     requestImmediateFetch,
+    requestBackgroundFetch,
   };
 });
 

@@ -59,8 +59,13 @@ export interface PrDiffOrigin {
 }
 
 /**
- * 固定した起点が現在の入力に対して古くなったかを判定する。`enable()` の await 中の破棄判定が使う。
- * ON 中の追従は原因ごとに通知を分けるため watcher を個別に持つが、判定軸 (dir / base / HEAD) は同じ。
+ * 起点の**入力**が動いたかを判定する。使い所は 2 つあり、結論の意味が異なる。
+ *
+ * - `enable()` の await 中の破棄判定: 動いていたら結果を捨てる。古い入力で解決した起点を固定する
+ *   より、ON にせずユーザーの再押下に委ねる方が安全。窓は数秒なので過剰に捨てても実害が小さい
+ * - ON 中の追従の入口: 動いていたら起点を**解決し直す**。ここで OFF にはしない。入力が動いても
+ *   起点が同じことは多く (fast-forward な commit・自分が取り込まない base の前進)、入力の変化を
+ *   OFF の理由にすると常用に耐えない
  *
  * **HEAD を入力に含める**のが要点。起点は `merge-base(HEAD, base)` なので base だけを見ていると、
  * 同じ dir で branch が切り替わって base OID が同値のまま HEAD だけ動いた場合に、古い HEAD から
@@ -219,6 +224,77 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
    * リロードまで押せなくなる)。解除の唯一の口が enable() の中にある状態を作らない。 */
   const enabling = ref(false);
 
+  /**
+   * 起点 (`merge-base(HEAD, base)`) を解決する。reachable 判定 → 必要なら fetch → 再判定 →
+   * merge-base の 4 段。解決できなければ undefined を返し、原因は通知済み。
+   *
+   * `enable()` と再解決の両方が使う。片方だけに解決手順を置くと、再解決が「reachable なら OK」等の
+   * 別の手順に退化して、ON の起点と再解決後の起点が別の意味を持つ。
+   *
+   * `seq` は呼び出し元が握る race トークン。await ごとに現役かを確かめ、割り込まれたら黙って抜ける。
+   */
+  async function resolveDiffBase(
+    target: PrDiffMode,
+    dir: string,
+    baseOid: string,
+    seq: number,
+  ): Promise<string | undefined> {
+    const label = MODE_LABEL[target];
+
+    // 1. reachable 判定: base 端が local repo に届いているか
+    const reachable = await tryCatch(rpcGitRevReachable({ dir, hash: baseOid }));
+    if (seq !== enableSeq.value) return undefined;
+    if (!reachable.ok) {
+      notify.error(`Failed to probe ${label} base reachability`, reachable.error);
+      return undefined;
+    }
+
+    // 2. 未 reachable なら fetch を要求 → 再 reachable 判定。fetch 成功でもリモートで base ref が
+    // 削除されていれば依然 unreachable のため、再判定で「fetch しても届かない」を構造的に検出する。
+    if (!reachable.value.reachable) {
+      const fetched = await fetchStore.requestImmediateFetch(dir);
+      if (seq !== enableSeq.value) return undefined;
+      if (!fetched) {
+        // 下層 (`useRemoteFetchStore`) で notify.info が出ている契約。追加通知は出さない。
+        return undefined;
+      }
+      const reachableAfterFetch = await tryCatch(rpcGitRevReachable({ dir, hash: baseOid }));
+      if (seq !== enableSeq.value) return undefined;
+      if (!reachableAfterFetch.ok) {
+        notify.error(
+          `Failed to probe ${label} base reachability after fetch`,
+          reachableAfterFetch.error,
+        );
+        return undefined;
+      }
+      if (!reachableAfterFetch.value.reachable) {
+        // fetch は成功したが base ref はまだ届かない = remote 側で削除されている可能性が高い。
+        // この経路の文言を merge-base 失敗の「unrelated histories?」と分離する。
+        notify.error(
+          `${label}: base commit ${baseOid} not reachable after fetch (base ref may have been removed)`,
+        );
+        return undefined;
+      }
+    }
+
+    // 3. merge-base 計算 (= 3-dot semantics の左端解決)
+    const merged = await tryCatch(rpcGitMergeBase({ dir, hash1: "HEAD", hash2: baseOid }));
+    if (seq !== enableSeq.value) return undefined;
+    if (!merged.ok) {
+      notify.error(`Failed to compute ${label} merge-base`, merged.error);
+      return undefined;
+    }
+    if (merged.value.mergeBaseOid === "") {
+      // GitOps.mergeBase が空文字を返すのは unrelated histories / validateRev 失敗。reachable は
+      // 上で担保済みのため remote 削除経路は除外されており、ここは真に共通祖先が無いケース。
+      notify.error(
+        `${label}: cannot resolve merge-base with the base commit (unrelated histories?)`,
+      );
+      return undefined;
+    }
+    return merged.value.mergeBaseOid;
+  }
+
   async function enable(target: PrDiffMode) {
     if (isOn.value || enabling.value) return;
     const initialBaseOid = baseOidOf(target);
@@ -226,77 +302,20 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     const initialDir = worktreeStore.dir;
     if (initialDir === undefined) return;
 
-    const label = MODE_LABEL[target];
     // 起点は merge-base(HEAD, base) なので HEAD も snapshot する。解決できないまま固定すると
     // 以降の追従判定の基準が無くなるため、silent に進めずここで打ち切る。
     const initialHeadHash = gitGraphStore.headHash;
     if (initialHeadHash === undefined) {
-      notify.error(`${label}: cannot resolve HEAD (commit graph is not loaded yet)`);
+      notify.error(`${MODE_LABEL[target]}: cannot resolve HEAD (commit graph is not loaded yet)`);
       return;
     }
     const seq = ++enableSeq.value;
     enabling.value = true;
     try {
-      // 1. reachable 判定: baseRefOid が local repo に届いているか
-      const reachable = await tryCatch(
-        rpcGitRevReachable({ dir: initialDir, hash: initialBaseOid }),
-      );
-      if (seq !== enableSeq.value) return;
-      if (!reachable.ok) {
-        notify.error(`Failed to probe ${label} base reachability`, reachable.error);
-        return;
-      }
+      const mergeBaseOid = await resolveDiffBase(target, initialDir, initialBaseOid, seq);
+      if (mergeBaseOid === undefined) return;
 
-      // 2. 未 reachable なら fetch を要求 → 再 reachable 判定。fetch 成功でもリモートで base ref が
-      // 削除されていれば依然 unreachable のため、再判定で「fetch しても届かない」を構造的に検出する。
-      if (!reachable.value.reachable) {
-        const fetched = await fetchStore.requestImmediateFetch(initialDir);
-        if (seq !== enableSeq.value) return;
-        if (!fetched) {
-          // 下層 (`useRemoteFetchStore`) で notify.info が出ている契約。追加通知は出さない。
-          return;
-        }
-        const reachableAfterFetch = await tryCatch(
-          rpcGitRevReachable({ dir: initialDir, hash: initialBaseOid }),
-        );
-        if (seq !== enableSeq.value) return;
-        if (!reachableAfterFetch.ok) {
-          notify.error(
-            `Failed to probe ${label} base reachability after fetch`,
-            reachableAfterFetch.error,
-          );
-          return;
-        }
-        if (!reachableAfterFetch.value.reachable) {
-          // fetch は成功したが base ref はまだ届かない = remote 側で削除されている可能性が高い。
-          // この経路の文言を merge-base 失敗の「unrelated histories?」と分離する。
-          notify.error(
-            `${label}: base commit ${initialBaseOid} not reachable after fetch (base ref may have been removed)`,
-          );
-          return;
-        }
-      }
-
-      // 3. merge-base 計算 (= 3-dot semantics の左端解決)
-      const merged = await tryCatch(
-        rpcGitMergeBase({ dir: initialDir, hash1: "HEAD", hash2: initialBaseOid }),
-      );
-      if (seq !== enableSeq.value) return;
-      if (!merged.ok) {
-        notify.error(`Failed to compute ${label} merge-base`, merged.error);
-        return;
-      }
-      const mergeBaseOid = merged.value.mergeBaseOid;
-      if (mergeBaseOid === "") {
-        // GitOps.mergeBase が空文字を返すのは unrelated histories / validateRev 失敗。reachable は
-        // 上で担保済みのため remote 削除経路は除外されており、ここは真に共通祖先が無いケース。
-        notify.error(
-          `${label}: cannot resolve merge-base with the base commit (unrelated histories?)`,
-        );
-        return;
-      }
-
-      // 4. final race check: await 中に起点の入力 (dir / base / HEAD) が動いていないか
+      // final race check: await 中に起点の入力 (dir / base / HEAD) が動いていないか
       const initialOrigin = {
         dir: initialDir,
         baseOid: initialBaseOid,
@@ -372,46 +391,71 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     },
   );
 
-  // ON 中の mode に対応する live base OID を snapshot (`sourceBaseOid`) と比較し、消失 / 変化の
-  // いずれかで auto-off。`liveBaseOid` は OFF 時 undefined なので、snapshot 不在の早期 return が
-  // そのまま「OFF 中は監視しない」になる。
-  // enable() 中は post-await チェックで race を処理するため、ここは ON 中のみ対象 (snapshot 有り)。
-  watch(liveBaseOid, (current) => {
+  /**
+   * ON 中に起点の入力が動いたときの追従。**入力の変化ではなく起点の変化で OFF する。**
+   *
+   * fast-forward な HEAD の移動（通常の commit）では `merge-base(HEAD, base)` は動かない。commit が
+   * 増やすのは base 側と無関係な子孫だけで、共通祖先は同じ commit のままである。base 端の前進も
+   * 同じで、自分のブランチが取り込まない限り共通祖先は動かない。入力の同値性で判定すると、これらを
+   * すべて OFF に倒す — gozd では commit が最頻の操作なので、見ている最中に落ち続けることになる。
+   *
+   * そこで入力が動いたら起点を**解決し直し**、`diffBaseOid` が実際に変わったときだけ OFF にする。
+   * 同値なら snapshot だけ差し替えて表示を維持する（ユーザーには何も起きない）。
+   *
+   * 解決不能になった場合は OFF に倒す。base 端が消えた（PR / stack から外れた）ケースは原因が
+   * mode ごとに違うので、そちらは入力の消失として先に判定する。
+   */
+  async function reresolveOrigin() {
     const locked = lockedBase.value;
     if (locked === undefined) return;
-    const label = MODE_LABEL[locked.mode];
-    if (current === undefined) {
+
+    const headHash = gitGraphStore.headHash;
+    // 不明は「動いた」と扱わない。commit グラフのロード中に一時的に解決できないのは UI 側の都合で、
+    // HEAD が動いた証拠ではない (`isPrDiffOriginStale` と同じ扱い)。
+    if (headHash === undefined) return;
+
+    const dir = worktreeStore.dir;
+    const baseOid = baseOidOf(locked.mode);
+    if (dir === undefined || baseOid === undefined) {
       disable();
-      // 消えたのが PR 自体か stack の帰属かで原因が違う。mode 別に出さないと、stack が外れただけの
-      // ときに「PR が無くなった」と告げることになる。
-      notify.info(`${label} turned off: ${MODE_LOST_CAUSE[locked.mode]}`);
+      notify.info(`${MODE_LABEL[locked.mode]} turned off: ${MODE_LOST_CAUSE[locked.mode]}`);
       return;
     }
-    if (current !== locked.sourceBaseOid) {
-      disable();
-      notify.info(
-        `${label} turned off: base commit changed from ${locked.sourceBaseOid} to ${current}`,
-      );
-    }
-  });
+    // 入力が動いたかの判定は final race check と同じ述語を通す。dir を両側に同じ値で渡して
+    // dir 軸を落とす: dir の変化は専用の watcher が OFF にするため、ここでは扱わない。
+    const moved = isPrDiffOriginStale(
+      { dir, baseOid: locked.sourceBaseOid, headHash: locked.sourceHeadHash },
+      { dir, baseOid, headHash },
+    );
+    if (!moved) return;
 
-  // HEAD は `merge-base` のもう一方の引数なので、動けば固定した起点が古くなる。rebase / commit /
-  // 同一 dir での branch 切替が対象。stack mode は起点が trunk 側にあり HEAD からの距離が長いため、
-  // 取りこぼすと「取り込んだ trunk の変更が自分の変更として出る」形で差分が壊れる。
-  watch(
-    () => gitGraphStore.headHash,
-    (current) => {
-      const locked = lockedBase.value;
-      if (locked === undefined) return;
-      // ロード中の不明は HEAD が動いた証拠ではない (`isPrDiffOriginStale` と同じ扱い)
-      if (current === undefined) return;
-      if (current === locked.sourceHeadHash) return;
+    const seq = ++enableSeq.value;
+    const mergeBaseOid = await resolveDiffBase(locked.mode, dir, baseOid, seq);
+    if (seq !== enableSeq.value) return;
+    // 再解決の途中で OFF になっていれば結果を捨てる
+    const current = lockedBase.value;
+    if (current === undefined) return;
+    if (mergeBaseOid === undefined) {
       disable();
-      notify.info(
-        `${MODE_LABEL[locked.mode]} turned off: HEAD moved from ${locked.sourceHeadHash} to ${current}`,
-      );
-    },
-  );
+      notify.info(`${MODE_LABEL[current.mode]} turned off: cannot resolve the diff origin anymore`);
+      return;
+    }
+    if (mergeBaseOid === current.diffBaseOid) {
+      // 起点は動いていない。次回の比較が空振りしないよう snapshot だけ進める
+      lockedBase.value = { ...current, sourceBaseOid: baseOid, sourceHeadHash: headHash };
+      return;
+    }
+    disable();
+    notify.info(
+      `${MODE_LABEL[current.mode]} turned off: diff origin moved from ${current.diffBaseOid} to ${mergeBaseOid}`,
+    );
+  }
+
+  // 起点の入力 (base 端 / HEAD) の変化を 1 本の watcher で受け、再解決に委ねる。軸ごとに watcher を
+  // 分けると、両方が同じ burst で動いたときに再解決が二重に走る。
+  watch([liveBaseOid, () => gitGraphStore.headHash], () => {
+    void reresolveOrigin();
+  });
 
   return {
     isOn,

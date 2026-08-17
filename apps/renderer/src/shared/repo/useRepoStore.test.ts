@@ -220,11 +220,13 @@ describe("updateRepoData", () => {
     });
 
     const genSnapshot = new Map([["/r1/wt-1", store.getGitStatusGen("/r1/wt-1")]]);
-    // rpcGitWorktreeList の往復中に status 経路が HEAD の移動を書く
+    // rpcGitWorktreeList の往復中に status 経路が HEAD の移動を書く。
+    // 全フィールドを wt() の既定値と区別できる値にする。既定値と同値だと、引き継ぎから
+    // そのフィールドを削っても ...wt が同じ値を埋めてしまい回帰を検出できない
     store.setWorktreeGitStatuses("/r1/wt-1", {
-      statuses: { "a.txt": ".M" },
-      renameOldPaths: {},
-      upstream: undefined,
+      statuses: { "b.txt": "R." },
+      renameOldPaths: { "b.txt": "a.txt" },
+      upstream: { ahead: 1, behind: 0 },
       latestMtime: 42,
       head: "new",
     });
@@ -233,7 +235,9 @@ describe("updateRepoData", () => {
 
     const target = store.repos["/r1"]?.worktrees[0];
     expect(target?.head).toBe("new");
-    expect(target?.gitStatuses).toEqual({ "a.txt": ".M" });
+    expect(target?.gitStatuses).toEqual({ "b.txt": "R." });
+    expect(target?.renameOldPaths).toEqual({ "b.txt": "a.txt" });
+    expect(target?.upstream).toEqual({ ahead: 1, behind: 0 });
     expect(target?.latestMtime).toBe(42);
   });
 

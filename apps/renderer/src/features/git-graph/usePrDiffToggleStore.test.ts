@@ -61,8 +61,6 @@ describe("prDiffBaseOid", () => {
     expect(prDiffBaseOid(undefined, "stack")).toBeUndefined();
   });
 
-  // 空文字は「取れなかった」を表す。git には fatal になるだけだが、解決チェーンへ入れると fetch を
-  // 空撃ちしたうえで merge-base 失敗が unrelated histories として通知され、原因が誤分類される
   test("空文字の base 端は解決できないものとして扱う", () => {
     expect(prDiffBaseOid(pr({ baseRefOid: "" }), "pr")).toBeUndefined();
     expect(prDiffBaseOid(stackedPr({ baseRefOid: "" }), "stack")).toBeUndefined();
@@ -87,8 +85,6 @@ describe("isPrDiffOriginStale", () => {
     expect(isPrDiffOriginStale(origin(), origin())).toBe(false);
   });
 
-  // CodeRabbit の指摘の本体。同じ既定ブランチから切った PR 同士は base OID が同値になるため、
-  // base だけを見ていると branch 切替を取りこぼし、古い HEAD の merge-base を固定してしまう
   test("base OID が同値のまま HEAD だけ動いたら stale", () => {
     expect(isPrDiffOriginStale(origin(), origin({ headHash: HEAD_B }))).toBe(true);
   });
@@ -106,7 +102,6 @@ describe("isPrDiffOriginStale", () => {
     expect(isPrDiffOriginStale(origin(), origin({ baseOid: undefined }))).toBe(true);
   });
 
-  // commit グラフのロード中に HEAD が一時的に解決できないのは UI 側の都合で、HEAD が動いた証拠ではない
   test("HEAD の不明は動いたと扱わない", () => {
     expect(isPrDiffOriginStale(origin(), origin({ headHash: undefined }))).toBe(false);
   });
@@ -119,8 +114,6 @@ describe("isPrDiffOriginStale", () => {
 });
 
 describe("decidePrDiffFollowUp", () => {
-  // U の退行を固定する: 入力が動いても起点が同じなら維持する。fast-forward な commit がこれに当たり、
-  // ここを off にすると gozd で最頻の操作のたびに表示が落ちる
   test("解決した起点が固定値と同じなら維持する", () => {
     expect(decidePrDiffFollowUp({ resolved: STACK_BASE_OID, pinned: STACK_BASE_OID })).toBe("keep");
   });

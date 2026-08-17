@@ -131,10 +131,10 @@ describe("parsePullRequestNodes", () => {
   });
 });
 
-/** stack 全体の base commit OID。position 1 の PR の base として応答に現れる */
+/** stack 全体の base commit OID */
 const STACK_BASE_OID = "db45e9d81f80091fd0357aa834030cf0fb29ca9b";
 
-/** 4 段 stack の position 2 に居る PR の応答 snapshot。stack の中身だけ差し替えられる */
+/** 4 段 stack の position 2 に居る PR の応答 snapshot */
 function stackFields(stackOverrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     stackEntry: { position: 2 },
@@ -178,7 +178,6 @@ describe("parsePullRequestNodes の stack", () => {
       position: 2,
       baseRefOid: STACK_BASE_OID,
     });
-    // PR 自身の base 端は stack の base 端と別物として残る
     expect(pr.baseRefOid).toBe("878532b8");
   });
 

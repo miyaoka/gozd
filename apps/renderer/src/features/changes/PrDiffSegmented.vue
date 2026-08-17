@@ -1,33 +1,15 @@
 <doc lang="md">
 diff の base 端を選ぶセグメントコントロール。
 
-## 3 状態を 1 個の群で表す
-
-base 端は PR base / stack base のどちらか一方だけが有効で、両方 off も含めて 3 状態から 1 つを
-選ぶ選択になる。独立したトグルを並べると、状態空間に対して表現が冗長なうえ幅も要る。Navigator の
-最小幅ではラベル付きボタンを 2 個置けない。
-
-## mode ごとの分岐を持たない
-
-押せる mode は store が順序付きで返し、このコンポーネントは mode をキーにした静的テーブルから
-表示語彙を引くだけにする。mode ごとに `v-if` を積むと、mode の増減でテーブルと分岐の両方を
-触ることになる。
-
-## セグメントが 1 個でも枠を出す
-
-PR しか選べない場合も枠の中に描く。stack の有無で枠が出入りすると、同じ操作が別の見た目で現れる。
-
-## 幅で落とすのはラベルだけ
-
-container query で狭いときラベルを畳み、アイコンだけにする。操作はどの幅でも全部残す。PR 番号と
-stack 位置は title に置く。閾値は最近の container を見るため、ヘッダ側が `@container` を宣言して
-いる必要がある。
-
-## 選択面は active row の語彙
-
-選択中は keyboard focus を持たない常設面の選択なので `primary-subtle` (+ hover 変種) を使う。
-`selection` は focused list のカーソル行の role で、ここではない。`element-active` は
-`primary-text` を載せると AA を割るため使えない。
+- **3 状態 (off / PR / Stack) を 1 個の群で表す**。独立したトグルを並べると Navigator の最小幅に
+  ラベル付きボタンが 2 個入らない
+- **mode ごとの分岐を持たない**。押せる mode は store が順序付きで返し、ここは mode をキーにした
+  静的テーブルから表示語彙を引くだけ
+- **セグメントが 1 個でも枠を出す**。stack の有無で枠が出入りすると同じ操作が別の見た目になる
+- **幅で落とすのはラベルだけ**。操作はどの幅でも残し、PR 番号と stack 位置は title に置く。閾値は
+  最近の container を見るため、ヘッダ側が `@container` を宣言している必要がある
+- 選択中の面は `primary-subtle` (keyboard focus を持たない常設面の選択)。`element-active` は
+  `primary-text` を載せると AA を割る
 </doc>
 
 <script setup lang="ts">

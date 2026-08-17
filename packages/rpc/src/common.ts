@@ -10,9 +10,8 @@ export type EmptyMessage = Record<string, never>;
 export interface WorktreeEntry {
   path: string;
   /** HEAD が指す commit OID。unborn branch では空文字。
-   * **worktree 一覧の取得と git status の更新の両経路が書く**。どちらも同じ full sha を運ぶため
-   * 後に書いた側の値へ収束する。status 経路が書くのは、commit / rebase で HEAD が動いたことを
-   * commit グラフの描画状態に依存せず観測できるようにするため。 */
+   * **worktree 一覧の取得と git status の更新の両経路が書く**（同じ full sha なので後勝ちで収束）。
+   * status 経路が書くのは、HEAD の移動を commit グラフの描画状態に依存せず観測するため。 */
   head: string;
   branch: string;
   isMain: boolean;
@@ -140,19 +139,17 @@ export const GIT_PULL_REQUEST_CHECK_STATES = [
 
 export type GitPullRequestCheckState = (typeof GIT_PULL_REQUEST_CHECK_STATES)[number];
 
-/** PR が属する stacked PR の連鎖。GitHub の stack 機能 (`gh stack` / stack UI) に対応する。
+/** PR が属する stacked PR の連鎖。各 PR の base は 1 つ下の PR の head になる。
  *
- * stack は trunk から積み上がる PR の列で、各 PR の base は 1 つ下の PR の head になる。
- * GitHub の stack UI は「この PR とその下の全 PR」を merge 単位として扱うため、stack として
- * 意味のある差分の起点は自分の直下の PR ではなく **stack 全体の base** になる。 */
+ * stack UI は「この PR とその下の全 PR」を merge 単位として扱うため、stack として意味のある差分の
+ * 起点は直下の PR ではなく **stack 全体の base**。 */
 export interface GitPullRequestStack {
   /** stack に属する PR の総数。 */
   size: number;
-  /** stack 内でのこの PR の位置。1 が trunk に最も近い。この PR を merge したときに
-   * 同時に merge される PR 数と一致する (stack UI の "Merge stack N" の N)。 */
+  /** stack 内での位置。1 が trunk に最も近い。この PR を merge したとき同時に merge される PR 数と
+   * 一致する (stack UI の "Merge stack N" の N)。 */
   position: number;
-  /** stack 全体の base commit OID (= trunk 側の tip)。`GitPullRequest.baseRefOid` と同じ役割を
-   * stack 単位で果たし、stack diff の base 端に使う。 */
+  /** stack 全体の base commit OID (= trunk 側の tip)。stack diff の base 端。 */
   baseRefOid: string;
 }
 

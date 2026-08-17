@@ -122,21 +122,23 @@ export function isRepoFetchDue(args: {
  *   同時実行数を絞る。可視集合の同時 fetch が cap を超えたぶんは queue し、TLS 接続バーストによる
  *   connect hang を断つ
  * - 成功・失敗を区別せず 60s の単一周期で lock（`REMOTE_FETCH_INTERVAL_MS`）
- * - 失敗の通知は経路ごとに方針が分かれる (CLAUDE.md `console.error で握り潰さない`)。
- *   ユーザー起点 (`requestImmediateFetch`) は常に即 toast。背景 (`fetchIfDue`) は同一 repo を
- *   `FAILURE_NOTIFY_INTERVAL_MS` に 1 回へ間引く: 毎周期の再通知は center の 100 件枠を
+ * - 失敗の通知は経路ごとに方針が分かれる (CLAUDE.md `console.error で握り潰さない`)。間引く側は
+ *   同一 repo を `FAILURE_NOTIFY_INTERVAL_MS` に 1 回へ絞る: 毎周期の再通知は center の 100 件枠を
  *   食い潰し、他サブシステムの未読 error を巻き添えで押し出すため。event-log には毎回
  *   detail 込みで残す。成功で間引きは解除され、次の失敗エピソードは即通知に戻る
  *
- * ## public API は 2 経路のみ
+ * ## public API は 3 経路
  *
- * - `fetchIfDue(rootDir, { now? })`: 背景 poll 経路。`isRepoFetchDue` + in-flight を gate 込みで
- *   判定し、due なら fetch を発射する。due でなければ no-op。どの repo をいつ poll するかは
- *   `useRemoteFetchSync` の可視スコープが決め、このストアは per-repo の lock/backoff だけ持つ
- * - `requestImmediateFetch(dir)`: on-demand 経路。background poll の backoff を bypass して
- *   fetch を要求する。ただし `fetchLimiter` の同時実行 cap は共有するため、cap が埋まっていれば
- *   slot 空き待ちが入りうる (backoff は bypass するが並列度は共有)。`dir` は worktree path /
- *   rootDir どちらも可で内部正規化する
+ * 軸は「backoff に従うか」と「失敗を即通知するか」。
+ *
+ * - `fetchIfDue(rootDir, { now? })`: 従う / 間引く。背景 poll。`isRepoFetchDue` + in-flight を
+ *   gate 込みで判定し、due でなければ no-op。どの repo をいつ poll するかは `useRemoteFetchSync` の
+ *   可視スコープが決め、このストアは per-repo の lock/backoff だけ持つ
+ * - `requestImmediateFetch(dir)`: bypass / 即通知。ユーザーが結果を待つ操作
+ * - `requestFollowUpFetch(dir)`: bypass / 間引く。自動追従。**撃てたかどうかを判断材料にする
+ *   呼び出しは backoff に載せない** — lock は poll が張り直し続けるため、no-op を失敗と誤読する
+ *
+ * bypass 側も `fetchLimiter` の cap は共有する。`dir` は worktree path / rootDir どちらも可。
  *
  * 内部 `runFetch` は public に出さない。直接呼びで backoff を bypass 連射する経路を
  * 型レベルで塞ぐため、外部からアクセス不可能な closure に閉じる。
@@ -164,9 +166,8 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
    * 発火元 1 回に寄せると immediate 経路が背景の間引き窓に飲まれ、ユーザー操作への応答が
    * 消えるため、重複のほうを許容する。
    *
-   * non-public: backoff を一切読まないため直接呼びは連射の原因。呼び分けるのは 3 経路で、軸は
-   * 「backoff に従うか」と「失敗を即通知するか」の 2 つ。`fetchIfDue` (従う / 間引き)、
-   * `requestImmediateFetch` (bypass / 即通知)、`requestFollowUpFetch` (bypass / 間引き)。
+   * non-public: backoff を一切読まないため直接呼びは連射の原因。公開経路とその軸は header の表が
+   * SSOT で、ここでは数え直さない。
    */
   function runFetch(rootDir: string): Promise<FetchOutcome> {
     const name = repoStore.repos[rootDir]?.repoName ?? rootDir;
@@ -261,19 +262,11 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   }
 
   /**
-   * 自動追従向けの fetch。**backoff は bypass し、失敗通知は間引く**。
+   * 自動追従向けの fetch。backoff は bypass し、失敗通知は間引く。
    *
-   * 既存 2 経路は「今撃つか」と「ユーザーが待っているか」を 1 つの API に束ねていた。自動追従が
-   * 要るのは「今撃つ・でも騒がない」で、どちらにも当てはまらない。
-   *
-   * `fetchIfDue` に載せると **ほぼ常に throttle される**: 背景 poller が同じ 60 秒間隔で lock を
-   * 張り直すため、ad-hoc の呼び出しは lock 期間中に当たる。さらに in-flight でも即 false を返すので、
-   * 呼び出し側は「撃たなかった」と「撃ったが失敗した」を区別できず、fetch の不発を自分の解決失敗と
-   * 誤って解釈する。
-   *
-   * in-flight は `runFetch` の dedup が待つため、同 repo の fetch が走っていればその結果を使う。
-   *
-   * 不正 path は skip して false。背景側の方針に合わせて通知は出さない (観察は event-log が担う)。
+   * `fetchIfDue` に載せると **ほぼ常に throttle される** — poll が同じ 60 秒間隔で lock を張り直す
+   * ため。さらに in-flight でも即 false を返すので、呼び出し側は「撃たなかった」と「撃って失敗した」を
+   * 区別できない。in-flight は `runFetch` の dedup が待つ。
    */
   async function requestFollowUpFetch(dir: string): Promise<boolean> {
     const repo = repoStore.findRepoOwning(dir);

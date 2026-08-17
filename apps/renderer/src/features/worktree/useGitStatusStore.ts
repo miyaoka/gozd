@@ -55,10 +55,8 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
   /**
    * active dir の HEAD が指す commit OID。未取得 / unborn branch では undefined。
    *
-   * commit グラフ (`useGitGraphStore.headHash`) と違い、**描画状態に依存しない**。あちらは表示用の
-   * commit リストから HEAD の ref を探す派生値なので、グラフ未ロード / ロード失敗のあいだ解決できない。
-   * こちらは status の push と単発取得が dir 単位で書き込む値で、グラフを開いていなくても最新になる。
-   * HEAD の移動を追従の signal に使う側はこちらを見る。
+   * `useGitGraphStore.headHash` と違い**描画状態に依存しない**（あちらは表示用 commit リストからの
+   * 派生でグラフ未ロード中は解決できない）。HEAD の移動を追従の signal に使う側はこちらを見る。
    */
   const headHash = computed<string | undefined>(() => {
     const dir = repoStore.selectedDir;

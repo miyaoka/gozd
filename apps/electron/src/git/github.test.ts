@@ -141,7 +141,6 @@ function stackFields(stackOverrides: Record<string, unknown> = {}): Record<strin
     stack: {
       number: 17638,
       size: 4,
-      baseRefName: "dev",
       entries: {
         nodes: [
           { position: 1, pullRequest: { baseRefOid: STACK_BASE_OID } },
@@ -175,10 +174,8 @@ describe("parsePullRequestNodes の stack", () => {
       OWNER,
     );
     expect(pr.stack).toEqual({
-      number: 17638,
       size: 4,
       position: 2,
-      baseRef: "dev",
       baseRefOid: STACK_BASE_OID,
     });
     // PR 自身の base 端は stack の base 端と別物として残る

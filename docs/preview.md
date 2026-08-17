@@ -504,8 +504,10 @@ base 端だけ**で、差分の右端（作業ツリー）・untracked の扱い
 
 - **2 つの base 端が同時に有効になることはない**。差分の起点は常に 1 つ
 - stack に属さない PR では stack 側のトグルを出さない
-- stack 側の自動 OFF は **stack 全体の base 端が動いたとき**に限る。stack の下段が merge されても
-  trunk 側の base が同じなら差分の範囲は変わらない
+- 自動 OFF の条件は base 端の出自で変わらない。**選んだ base 端が動いたら OFF** にする
+- stack の base 端は trunk 側の tip なので、**stack の下段が merge されると OFF になる**。merge は
+  trunk を前進させ、さらに残った PR のうち最下段のものが trunk 直下へ付け替えられるため、どちらの
+  経路でも base 端が動く
 
 ### UI 構成
 

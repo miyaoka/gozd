@@ -139,8 +139,9 @@ PR 一覧は polling で繰り返し取得するため、**GitHub API の消費�
 
 ### stack の帰属
 
-PR が stack（連鎖する PR の列）に属するとき、一覧はその帰属も運ぶ。stack の識別、stack 内での
-位置と大きさ、そして **stack 全体の base 端**を含める。
+PR が stack（連鎖する PR の列）に属するとき、一覧はその帰属も運ぶ。stack 内での位置と大きさ、
+そして **stack 全体の base 端**を含める。stack 自身の識別子は運ばない（UI で読む用途が無く、
+観察ログにだけ要る）。
 
 - base 端は ref 名ではなく commit で持つ。理由は PR 単体の base 端と同じで、rename や force-push を
   またいで同じ端を指せるため

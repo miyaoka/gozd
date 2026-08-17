@@ -30,10 +30,8 @@ function pr(overrides: Partial<GitPullRequest> = {}): GitPullRequest {
 function stackedPr(stackOverrides: Partial<GitPullRequest["stack"]> = {}): GitPullRequest {
   return pr({
     stack: {
-      number: 17638,
       size: 4,
       position: 4,
-      baseRef: "dev",
       baseRefOid: STACK_BASE_OID,
       ...stackOverrides,
     },
@@ -62,7 +60,8 @@ describe("prDiffBaseOid", () => {
     expect(prDiffBaseOid(undefined, "stack")).toBeUndefined();
   });
 
-  // 空文字は「取れなかった」を表す。rev として渡すと merge-base が HEAD 起点に化けるため通さない
+  // 空文字は「取れなかった」を表す。git には fatal になるだけだが、解決チェーンへ入れると fetch を
+  // 空撃ちしたうえで merge-base 失敗が unrelated histories として通知され、原因が誤分類される
   test("空文字の base 端は解決できないものとして扱う", () => {
     expect(prDiffBaseOid(pr({ baseRefOid: "" }), "pr")).toBeUndefined();
     expect(prDiffBaseOid(stackedPr({ baseRefOid: "" }), "stack")).toBeUndefined();

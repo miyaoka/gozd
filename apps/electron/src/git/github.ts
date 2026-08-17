@@ -117,7 +117,6 @@ query($owner: String!, $repo: String!, $limit: Int!) {
         stack {
           number
           size
-          baseRefName
           entries(first: ${STACK_ENTRY_LIMIT}) { nodes { position pullRequest { baseRefOid } } }
         }
       }
@@ -197,8 +196,10 @@ export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullR
  * `stack` が null で来るため undefined を返す。
  *
  * base 端の OID は `stack.entries` の position 1 の PR の `baseRefOid` から取る。GraphQL の
- * `PullRequestStack` は base の ref 名しか持たず、ref 名から OID を引くには別 query が必要になる
- * ため。REST の PR が返す `stack.base.sha` と同値。
+ * `PullRequestStack` が持つのは `baseRefName` までで OID を返す field が無く、ref 名から OID を
+ * 引くには PR ごとに名前が変わる `repository.ref(qualifiedName:)` が要って単一 query に載らない。
+ *
+ * `number` は観察ログにしか使わない。stack を識別する値を UI へ運ぶ用途が無いため型には載せない。
  *
  * position 1 の entry を明示的に探し、entries の並び順には依存しない。順序が保証される記述は
  * schema に無く、先頭要素を base とみなすと並びが変わった瞬間に別 PR の base を起点にした
@@ -221,10 +222,8 @@ function parseStack(item: unknown): GitPullRequestStack | undefined {
   }
 
   return {
-    number,
     size: int(getPath(stack, "size")),
     position,
-    baseRef: str(getPath(stack, "baseRefName")),
     baseRefOid,
   };
 }

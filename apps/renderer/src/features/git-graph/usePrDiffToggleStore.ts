@@ -8,11 +8,26 @@ import { rpcGitMergeBase, rpcGitRevReachable } from "./rpc";
 import { useGitGraphStore } from "./useGitGraphStore";
 import { usePrListStore } from "./usePrListStore";
 
-/** diff の base 端をどこに取るか。
+/** diff の base 端の候補を trunk に近い順で並べた SSOT。UI の並び順もこれに従う。
  *
- * - `pr`: この PR の base (= stack の中では 1 つ下の PR の head)。GitHub の Files changed と同じ範囲
- * - `stack`: この PR が属する stack 全体の base (= trunk 側)。stack の下段を含む累積差分になる */
-export type PrDiffMode = "pr" | "stack";
+ * - `stack`: この PR が属する stack 全体の base (= trunk 側)。stack の下段を含む累積差分になる
+ * - `pr`: この PR の base (= stack の中では 1 つ下の PR の head)。GitHub の Files changed と同じ範囲 */
+const PR_DIFF_MODES = ["stack", "pr"] as const;
+
+export type PrDiffMode = (typeof PR_DIFF_MODES)[number];
+
+/** mode ごとの表示名。通知は「どちらの diff が落ちたか」を運ぶ必要があるため、文言を mode 非依存に
+ * 固定しない。 */
+const MODE_LABEL: Record<PrDiffMode, string> = {
+  stack: "Stack diff",
+  pr: "PR diff",
+};
+
+/** base 端が live から消えた原因。mode によって失われるものが違うため、同じ文言で畳まない。 */
+const MODE_LOST_CAUSE: Record<PrDiffMode, string> = {
+  stack: "the pull request is no longer part of a stack",
+  pr: "no pull request is available for the current branch",
+};
 
 /**
  * mode ごとの base 端 OID を PR から引く。解決できないときは undefined。
@@ -21,8 +36,9 @@ export type PrDiffMode = "pr" | "stack";
  * toggle の活性判定がいずれも mode を意識せずに済む。
  *
  * 空文字を undefined に倒すのは、`GitPullRequest` の OID フィールドが「取れなかった」を空文字で
- * 表す契約のため。空文字をそのまま rev として使うと merge-base 解決が別の意味 (HEAD 起点) に
- * 化ける。
+ * 表す契約のため。空文字は rev として git に渡っても fatal になるだけだが、解決チェーンへ入れると
+ * reachable 判定の失敗から fetch を空撃ちし、その後の merge-base 失敗が `unrelated histories` として
+ * 通知されて原因が誤分類される。
  */
 export function prDiffBaseOid(
   pr: GitPullRequest | undefined,
@@ -76,9 +92,11 @@ export function prDiffBaseOid(
  *   独立して watch する。enable() async 中の dir 切替もこの watcher が `enableSeq` を increment
  *   して破棄する (race 防護)
  * - `gitGraphStore.selectionVersion` の increment: ユーザーが graph で commit を選んだ瞬間
- * - live base OID が `sourceBaseOid` snapshot と変化: base end が動いた / 消失。stack mode では
- *   stack 全体の base が動いた場合が対象で、stack 内の下段 PR が merge されても trunk 側の base が
- *   同じなら差分の範囲は変わらないため OFF にしない
+ * - live base OID が `sourceBaseOid` snapshot と変化: base end が動いた / 消失
+ *
+ * stack mode の base 端は trunk の tip なので、**stack の下段 PR が merge されると必ず OFF になる**。
+ * merge は trunk を前進させ、さらに GitHub は次の未 merge PR を trunk 直下へ rebase する
+ * (= base 端を持つ position 1 の PR 自体が入れ替わる)。どちらの経路でも base 端の OID が動く。
  *
  * いずれも silent drop 禁止規律に従い、`useNotificationStore.info` でユーザーにトースト通知する
  * (toggle の見た目が突然変わるのでユーザーに認知させる必要がある)。ただし enable() async 中で
@@ -132,9 +150,6 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     return prDiffBaseOid(pr.value, target);
   }
 
-  /** 現在 branch の PR の live base OID (mode `pr` 用)。 */
-  const prBaseOid = computed<string | undefined>(() => baseOidOf("pr"));
-
   /** ON 中の mode に対応する live base OID。OFF 時は undefined。auto-off watcher の監視源。 */
   const liveBaseOid = computed<string | undefined>(() => {
     const locked = lockedBase.value;
@@ -142,12 +157,14 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     return baseOidOf(locked.mode);
   });
 
-  /** PR diff toggle が押せるか (PR が見つかり、base OID が解決できているか)。
-   * merge-base 計算は `enable()` 実行時に行うため、ここでは live base OID の有無のみ判定する。 */
-  const canEnable = computed(() => prBaseOid.value !== undefined);
-
-  /** stack diff toggle が押せるか。PR が stack に属し、stack 全体の base OID が取れているとき。 */
-  const canEnableStack = computed(() => baseOidOf("stack") !== undefined);
+  /** 押せる mode を `PR_DIFF_MODES` の順で返す。base 端の OID が解決できているかだけで決まり、
+   * merge-base 計算は `enable()` 実行時に行う。
+   *
+   * mode ごとの getter に分けない: mode の増減で store と UI の両方に分岐が増え、`prDiffBaseOid` に
+   * 閉じたはずの mode の違いが活性判定として再び散らばる。 */
+  const enabledModes = computed<PrDiffMode[]>(() =>
+    PR_DIFF_MODES.filter((mode) => baseOidOf(mode) !== undefined),
+  );
 
   /** consumer (useChangesStore / PreviewPane / ChangesSummaryItem) が読む起点 OID。
    * **merge-base OID** (= `lockedBase.diffBaseOid`)。OFF 時 undefined。mode によらず同じ意味。 */
@@ -169,6 +186,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     const initialDir = worktreeStore.dir;
     if (initialDir === undefined) return;
 
+    const label = MODE_LABEL[target];
     const seq = ++enableSeq.value;
     enabling.value = true;
     try {
@@ -178,7 +196,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
       );
       if (seq !== enableSeq.value) return;
       if (!reachable.ok) {
-        notify.error("Failed to probe PR diff base reachability", reachable.error);
+        notify.error(`Failed to probe ${label} base reachability`, reachable.error);
         return;
       }
 
@@ -197,7 +215,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
         if (seq !== enableSeq.value) return;
         if (!reachableAfterFetch.ok) {
           notify.error(
-            "Failed to probe PR diff base reachability after fetch",
+            `Failed to probe ${label} base reachability after fetch`,
             reachableAfterFetch.error,
           );
           return;
@@ -206,7 +224,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
           // fetch は成功したが base ref はまだ届かない = remote 側で削除されている可能性が高い。
           // この経路の文言を merge-base 失敗の「unrelated histories?」と分離する。
           notify.error(
-            `PR diff: base commit ${initialBaseOid} not reachable after fetch (base ref may have been removed)`,
+            `${label}: base commit ${initialBaseOid} not reachable after fetch (base ref may have been removed)`,
           );
           return;
         }
@@ -218,14 +236,16 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
       );
       if (seq !== enableSeq.value) return;
       if (!merged.ok) {
-        notify.error("Failed to compute PR diff merge-base", merged.error);
+        notify.error(`Failed to compute ${label} merge-base`, merged.error);
         return;
       }
       const mergeBaseOid = merged.value.mergeBaseOid;
       if (mergeBaseOid === "") {
         // GitOps.mergeBase が空文字を返すのは unrelated histories / validateRev 失敗。reachable は
         // 上で担保済みのため remote 削除経路は除外されており、ここは真に共通祖先が無いケース。
-        notify.error("PR diff: cannot resolve merge-base with PR base (unrelated histories?)");
+        notify.error(
+          `${label}: cannot resolve merge-base with the base commit (unrelated histories?)`,
+        );
         return;
       }
 
@@ -245,6 +265,14 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     // 進行中の enable() を破棄するため increment。`enabling` は触らず、finally に処理を委ねる。
     enableSeq.value++;
     lockedBase.value = undefined;
+  }
+
+  /** ON 中の mode の表示名。OFF 時は undefined。通知は `disable()` の後に出るため、mode が消える前に
+   * これで取り出しておく。 */
+  function lockedMode(): string | undefined {
+    const locked = lockedBase.value;
+    if (locked === undefined) return undefined;
+    return MODE_LABEL[locked.mode];
   }
 
   /** 指定 mode の toggle を押したときの遷移。
@@ -267,9 +295,10 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     () => worktreeStore.dir,
     () => {
       if (!isOn.value && !enabling.value) return;
-      const wasOn = isOn.value;
+      // disable() で mode が消えるため、通知に載せる表示名は先に取る
+      const label = lockedMode();
       disable();
-      if (wasOn) notify.info("PR diff turned off: worktree changed");
+      if (label !== undefined) notify.info(`${label} turned off: worktree changed`);
     },
   );
 
@@ -284,8 +313,9 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
         if (enabling.value) disable();
         return;
       }
+      const label = lockedMode();
       disable();
-      notify.info("PR diff turned off: git-graph selection changed");
+      notify.info(`${label} turned off: git-graph selection changed`);
     },
   );
 
@@ -294,16 +324,21 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   // そのまま「OFF 中は監視しない」になる。
   // enable() 中は post-await チェックで race を処理するため、ここは ON 中のみ対象 (snapshot 有り)。
   watch(liveBaseOid, (current) => {
-    const snapshot = lockedBase.value?.sourceBaseOid;
-    if (snapshot === undefined) return;
+    const locked = lockedBase.value;
+    if (locked === undefined) return;
+    const label = MODE_LABEL[locked.mode];
     if (current === undefined) {
       disable();
-      notify.info("PR diff turned off: pull request no longer available for current branch");
+      // 消えたのが PR 自体か stack の帰属かで原因が違う。mode 別に出さないと、stack が外れただけの
+      // ときに「PR が無くなった」と告げることになる。
+      notify.info(`${label} turned off: ${MODE_LOST_CAUSE[locked.mode]}`);
       return;
     }
-    if (current !== snapshot) {
+    if (current !== locked.sourceBaseOid) {
       disable();
-      notify.info(`PR diff turned off: base commit changed from ${snapshot} to ${current}`);
+      notify.info(
+        `${label} turned off: base commit changed from ${locked.sourceBaseOid} to ${current}`,
+      );
     }
   });
 
@@ -314,8 +349,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     pr,
     stack,
     lockedBaseOid,
-    canEnable,
-    canEnableStack,
+    enabledModes,
     enable,
     disable,
     toggle,

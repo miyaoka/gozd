@@ -142,17 +142,13 @@ export type GitPullRequestCheckState = (typeof GIT_PULL_REQUEST_CHECK_STATES)[nu
  * GitHub の stack UI は「この PR とその下の全 PR」を merge 単位として扱うため、stack として
  * 意味のある差分の起点は自分の直下の PR ではなく **stack 全体の base** になる。 */
 export interface GitPullRequestStack {
-  /** GitHub の stack UI が表示する stack 識別番号。PR 番号とは別の番号空間に属する。 */
-  number: number;
   /** stack に属する PR の総数。 */
   size: number;
   /** stack 内でのこの PR の位置。1 が trunk に最も近い。この PR を merge したときに
    * 同時に merge される PR 数と一致する (stack UI の "Merge stack N" の N)。 */
   position: number;
-  /** stack 全体の base ref 名 (= trunk 側)。この PR 自身の `baseRef` とは異なる。 */
-  baseRef: string;
-  /** stack 全体の base commit OID。`GitPullRequest.baseRefOid` と同じ役割を stack 単位で
-   * 果たし、stack diff の base 端に使う。 */
+  /** stack 全体の base commit OID (= trunk 側の tip)。`GitPullRequest.baseRefOid` と同じ役割を
+   * stack 単位で果たし、stack diff の base 端に使う。 */
   baseRefOid: string;
 }
 

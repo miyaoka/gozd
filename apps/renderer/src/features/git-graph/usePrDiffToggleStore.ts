@@ -141,10 +141,6 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     return prListStore.prByBranch.get(branch);
   });
 
-  /** 現在 branch の PR が属する stack。stack に入っていない PR / PR 不在では undefined。
-   * UI が stack toggle の表示可否と位置表示 (`position` / `size`) に使う。 */
-  const stack = computed(() => pr.value?.stack);
-
   /** mode ごとの **live** base commit OID。enable() の起点 / auto-off の比較対象に使う。 */
   function baseOidOf(target: PrDiffMode): string | undefined {
     return prDiffBaseOid(pr.value, target);
@@ -267,14 +263,6 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     lockedBase.value = undefined;
   }
 
-  /** ON 中の mode の表示名。OFF 時は undefined。通知は `disable()` の後に出るため、mode が消える前に
-   * これで取り出しておく。 */
-  function lockedMode(): string | undefined {
-    const locked = lockedBase.value;
-    if (locked === undefined) return undefined;
-    return MODE_LABEL[locked.mode];
-  }
-
   /** 指定 mode の toggle を押したときの遷移。
    *
    * 同一 mode の再押下は OFF。別 mode の押下は現在の mode を OFF にしてから enable するため、
@@ -294,11 +282,13 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   watch(
     () => worktreeStore.dir,
     () => {
-      if (!isOn.value && !enabling.value) return;
-      // disable() で mode が消えるため、通知に載せる表示名は先に取る
-      const label = lockedMode();
+      // disable() で mode が消えるため、通知に載せる mode は先に narrowing しておく
+      const locked = lockedBase.value;
+      if (locked === undefined && !enabling.value) return;
       disable();
-      if (label !== undefined) notify.info(`${label} turned off: worktree changed`);
+      if (locked !== undefined) {
+        notify.info(`${MODE_LABEL[locked.mode]} turned off: worktree changed`);
+      }
     },
   );
 
@@ -309,13 +299,13 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   watch(
     () => gitGraphStore.selectionVersion,
     () => {
-      if (!isOn.value) {
+      const locked = lockedBase.value;
+      if (locked === undefined) {
         if (enabling.value) disable();
         return;
       }
-      const label = lockedMode();
       disable();
-      notify.info(`${label} turned off: git-graph selection changed`);
+      notify.info(`${MODE_LABEL[locked.mode]} turned off: git-graph selection changed`);
     },
   );
 
@@ -347,7 +337,6 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     mode,
     enabling,
     pr,
-    stack,
     lockedBaseOid,
     enabledModes,
     enable,

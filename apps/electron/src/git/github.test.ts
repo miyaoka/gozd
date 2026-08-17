@@ -52,7 +52,6 @@ function prNode(overrides: Record<string, unknown> = {}): Record<string, unknown
     state: "OPEN",
     isDraft: false,
     headRefName: "feat/x",
-    baseRefName: "main",
     baseRefOid: "abc",
     author: { login: "miyaoka", avatarUrl: "https://example.invalid/a.png" },
     updatedAt: "2026-08-05T00:00:00Z",

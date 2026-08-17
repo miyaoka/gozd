@@ -15,7 +15,6 @@ function pr(overrides: Partial<GitPullRequest> = {}): GitPullRequest {
     state: "OPEN",
     author: "miyaoka",
     headRef: "chore/billing-form-cleanup",
-    baseRef: "fix/billing-submit-and-destroy",
     isDraft: false,
     assignees: [],
     reviewers: [],

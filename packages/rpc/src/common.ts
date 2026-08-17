@@ -160,7 +160,6 @@ export interface GitPullRequest {
   state: string;
   author: string;
   headRef: string;
-  baseRef: string;
   isDraft: boolean;
   assignees: string[];
   reviewers: string[];

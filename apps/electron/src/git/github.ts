@@ -74,7 +74,7 @@ const AVATAR_SIZE = 64;
 // 1 stack から取る entry の上限。現実的な stack の深さを超える値にしておけば base 端を取り逃さない。
 const STACK_ENTRY_LIMIT = 50;
 
-/** trunk に最も近い entry の position。この entry の PR の base が stack 全体の base。 */
+/** trunk に最も近い entry の position。 */
 const STACK_BOTTOM_POSITION = 1;
 
 // `owner { login }` は廃止（fork 判定にはローカルで parse した owner を使う）。
@@ -100,7 +100,6 @@ query($owner: String!, $repo: String!, $limit: Int!) {
         state
         isDraft
         headRefName
-        baseRefName
         baseRefOid
         author { login avatarUrl(size: ${AVATAR_SIZE}) }
         updatedAt
@@ -174,7 +173,6 @@ export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullR
       state: str(getPath(item, "state")),
       author: str(getPath(item, "author", "login")),
       headRef: str(getPath(item, "headRefName")),
-      baseRef: str(getPath(item, "baseRefName")),
       isDraft: getPath(item, "isDraft") === true,
       assignees: logins(getPath(item, "assignees", "nodes"), "login"),
       reviewers: reviewerLogins(getPath(item, "reviewRequests", "nodes")),

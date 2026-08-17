@@ -23,9 +23,6 @@ base ブランチが前進した分は差分に含めない。graph 側の選択
 graph 選択は維持) が、ユーザーが graph で commit を選択した瞬間に toggle は自動 OFF になる。
 SSOT は `usePrDiffToggleStore`。
 
-PR が stack に属するときは Stack 側も選べる。起点が stack 全体の base になり、GitHub の stack UI が
-merge 単位として扱う範囲と一致する累積差分を出す。選択は排他。
-
 ## ヘッダは幅で落とすものを決める
 
 Navigator の最小幅では要素を全部常時出せない。ヘッダを container にし、狭いほど多く落とす。落とす順は

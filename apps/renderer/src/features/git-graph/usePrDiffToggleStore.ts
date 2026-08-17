@@ -95,8 +95,7 @@ export function decidePrDiffFollowUp(params: {
  *
  * ## race token は `enableSeq` 単一
  *
- * 解決チェーンは数秒かかる。enable / 再解決 / disable のいずれもこれを進め、進行中の解決は
- * post-await の比較で結果を捨てる。
+ * 解決チェーンは数秒かかる。
  */
 export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   const gitGraphStore = useGitGraphStore();
@@ -302,7 +301,6 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     },
   );
 
-  /** 起点の入力が動いたときの追従。解決し直して、起点が実際に変わったときだけ OFF にする。 */
   async function reresolveOrigin() {
     const locked = lockedBase.value;
     if (locked === undefined) return;

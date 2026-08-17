@@ -275,7 +275,7 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
         "fetch",
         "skip",
         repo?.repoName ?? dir,
-        repo === undefined ? `untracked dir: ${dir}` : "not a git repo",
+        repo === undefined ? "untracked dir" : "not a git repo",
       );
       return false;
     }

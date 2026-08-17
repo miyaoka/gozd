@@ -53,7 +53,8 @@ export interface WorktreeChangePayload {
 }
 
 /** gitStatusChange push payload。ファイル状態と HEAD は pull (`GitStatusResponse`) と同形で、
- * push はそこへ発火元 dir と branch 名を足して運ぶ。 */
+ * push はそこへ発火元 dir と branch 名を足して運ぶ。`head` は再宣言しない — intersection の
+ * 両側に同じ型を置いても型エラーにならない。 */
 export type GitStatusChangePayload = GitStatusResponse & {
   dir: string;
   /** HEAD が指す branch 名（`git status --porcelain=v2 --branch` の `# branch.head`）。

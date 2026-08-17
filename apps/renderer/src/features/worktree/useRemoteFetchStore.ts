@@ -166,7 +166,7 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
    * 発火元 1 回に寄せると immediate 経路が背景の間引き窓に飲まれ、ユーザー操作への応答が
    * 消えるため、重複のほうを許容する。
    *
-   * non-public: backoff を一切読まないため直接呼びは連射の原因。公開経路とその軸は header の表が
+   * non-public: backoff を一切読まないため直接呼びは連射の原因。公開経路とその軸は header の一覧が
    * SSOT で、ここでは数え直さない。
    */
   function runFetch(rootDir: string): Promise<FetchOutcome> {

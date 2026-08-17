@@ -40,7 +40,6 @@ export function prDiffBaseOid(
   return oid;
 }
 
-/** 起点 `merge-base(HEAD, base)` を決める入力。 */
 export interface PrDiffOrigin {
   dir: string | undefined;
   baseOid: string | undefined;
@@ -107,7 +106,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   const fetchStore = useRemoteFetchStore();
   const notify = useNotificationStore();
 
-  /** ON 時に固定した mode と起点。undefined のとき OFF。 */
+  /** ON 時に固定した mode と起点。 */
   const lockedBase = ref<
     | { mode: PrDiffMode; sourceBaseOid: string; sourceHeadHash: string; diffBaseOid: string }
     | undefined
@@ -117,7 +116,6 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
 
   const mode = computed<PrDiffMode | undefined>(() => lockedBase.value?.mode);
 
-  /** 現在 branch の PR。無ければ undefined。 */
   const pr = computed<GitPullRequest | undefined>(() => {
     const branch = gitGraphStore.currentBranch;
     if (branch === undefined) return undefined;
@@ -147,7 +145,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     PR_DIFF_MODES.filter((mode) => baseOidOf(mode) !== undefined),
   );
 
-  /** consumer が読む起点 OID (= merge-base)。OFF 時 undefined。mode によらず同じ意味。 */
+  /** consumer が読む起点 OID (= merge-base)。mode によらず同じ意味。 */
   const lockedBaseOid = computed<string | undefined>(() => lockedBase.value?.diffBaseOid);
 
   const enableSeq = ref(0);
@@ -268,7 +266,6 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     enabling.value = false;
   }
 
-  /** 同一 mode の再押下は OFF。別 mode は現在の mode を OFF にしてから enable する。 */
   async function toggle(target: PrDiffMode) {
     if (enabling.value || lockedBase.value?.mode === target) {
       disable();

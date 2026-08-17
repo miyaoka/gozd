@@ -89,8 +89,10 @@ const STACK_BOTTOM_POSITION = 1;
 // cost に乗らない。件数系はこの形でだけ取る。
 //
 // `stack.entries` は connection なので cost が 1 増える（`$limit` = 100 の実測で 2 → 3）。増分は
-// `first` の要求値で決まり、stack や PR の実在数には依存しない（stack が 1 本も無い repo でも同じ
-// 3 になる）。stack diff の base 端 OID を得る手段がこれ以外に無いため許容する。
+// **+1 固定**で、`entries` の `first`（10 / 20 / 50 で同値）・PR 件数（2 件でも 100 件でも同値）・
+// stack の実在数（stack が 1 本も無い repo でも同値）のいずれにも依存しない。connection を 1 つ
+// 宣言したことに対する固定費なので、cost を理由に `STACK_ENTRY_LIMIT` を下げても効果は無い。
+// stack diff の base 端 OID を得る手段がこれ以外に無いため許容する。
 const PR_QUERY = `
 query($owner: String!, $repo: String!, $limit: Int!) {
   repository(owner: $owner, name: $repo) {

@@ -23,6 +23,10 @@ export interface GitStatusResponse {
   /** rename / copy エントリの 新パス → 旧パス。`entries` のキーは新パスのみ持つため、
    * 旧パス (HEAD 側の比較元) はこの map で運ぶ。rename が無ければ空。 */
   renameOldPaths: Record<string, string>;
+  /** HEAD が指す commit OID。unborn branch では空文字。
+   * push (`gitStatusChange`) と同じ情報を単発取得でも運ぶ契約 — 片方だけが head を持つと、
+   * 受信側が「どちらの経路で来たか」で更新できるフィールドを変える必要が出る。 */
+  head: string;
 }
 
 // --- main → renderer push payloads (git watch) ---

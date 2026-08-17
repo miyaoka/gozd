@@ -64,6 +64,7 @@ export function useGitStatusSync(options: GitStatusSyncOptions) {
         renameOldPaths: payload.renameOldPaths,
         upstream: payload.upstream,
         latestMtime: payload.latestMtime,
+        head: payload.head,
       });
     });
   });

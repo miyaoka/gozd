@@ -3,7 +3,7 @@ import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { useRemoteFetchStore, useWorktreeStore } from "../worktree";
+import { useGitStatusStore, useRemoteFetchStore, useWorktreeStore } from "../worktree";
 import { rpcGitMergeBase, rpcGitRevReachable } from "./rpc";
 import { useGitGraphStore } from "./useGitGraphStore";
 import { usePrListStore } from "./usePrListStore";
@@ -72,9 +72,9 @@ export interface PrDiffOrigin {
  * 計算した merge-base を固定してしまう。base が同じ PR は「同じ既定ブランチから切った複数の PR」で
  * 日常的に生じるため、この経路は例外ではない。
  *
- * HEAD の **不明 (undefined) は「動いた」と扱わない**。commit グラフのロード中に一時的に解決できない
- * ことがあり、それは UI 側の都合であって HEAD が動いた証拠ではない。dir / base OID の消失は起点の
- * 前提そのものが失われているため stale として扱う。
+ * HEAD の **不明 (undefined) は「動いた」と扱わない**。status を 1 度も取れていない状態であって、
+ * HEAD が動いた証拠ではない。dir / base OID の消失は起点の前提そのものが失われているため stale と
+ * して扱う。
  */
 export function isPrDiffOriginStale(initial: PrDiffOrigin, current: PrDiffOrigin): boolean {
   if (current.dir !== initial.dir) return true;
@@ -126,8 +126,8 @@ export function isPrDiffOriginStale(initial: PrDiffOrigin, current: PrDiffOrigin
  *   して破棄する (race 防護)
  * - `gitGraphStore.selectionVersion` の increment: ユーザーが graph で commit を選んだ瞬間
  * - live base OID が `sourceBaseOid` snapshot と変化: base end が動いた / 消失
- * - `gitGraphStore.headHash` が `sourceHeadHash` snapshot と変化: `merge-base` のもう一方の引数が
- *   動いた (rebase / commit / 同一 dir での branch 切替)
+ * - HEAD が `sourceHeadHash` snapshot と変化: `merge-base` のもう一方の引数が動いた。ここで OFF に
+ *   するのではなく起点を解決し直し、実際に動いていたときだけ OFF にする
  *
  * stack mode の base 端は trunk の tip なので、**stack の下段 PR が merge されると必ず OFF になる**。
  * merge は trunk を前進させ、さらに GitHub は次の未 merge PR を trunk 直下へ rebase する
@@ -151,6 +151,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   const gitGraphStore = useGitGraphStore();
   const prListStore = usePrListStore();
   const worktreeStore = useWorktreeStore();
+  const gitStatusStore = useGitStatusStore();
   const fetchStore = useRemoteFetchStore();
   const notify = useNotificationStore();
 
@@ -188,7 +189,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     return {
       dir: worktreeStore.dir,
       baseOid: baseOidOf(target),
-      headHash: gitGraphStore.headHash,
+      headHash: gitStatusStore.headHash,
     };
   }
 
@@ -304,9 +305,9 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
 
     // 起点は merge-base(HEAD, base) なので HEAD も snapshot する。解決できないまま固定すると
     // 以降の追従判定の基準が無くなるため、silent に進めずここで打ち切る。
-    const initialHeadHash = gitGraphStore.headHash;
+    const initialHeadHash = gitStatusStore.headHash;
     if (initialHeadHash === undefined) {
-      notify.error(`${MODE_LABEL[target]}: cannot resolve HEAD (commit graph is not loaded yet)`);
+      notify.error(`${MODE_LABEL[target]}: cannot resolve HEAD`);
       return;
     }
     const seq = ++enableSeq.value;
@@ -409,9 +410,8 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     const locked = lockedBase.value;
     if (locked === undefined) return;
 
-    const headHash = gitGraphStore.headHash;
-    // 不明は「動いた」と扱わない。commit グラフのロード中に一時的に解決できないのは UI 側の都合で、
-    // HEAD が動いた証拠ではない (`isPrDiffOriginStale` と同じ扱い)。
+    const headHash = gitStatusStore.headHash;
+    // 未取得は「動いた」と扱わない。status を 1 度も取れていない状態は HEAD が動いた証拠ではない。
     if (headHash === undefined) return;
 
     const dir = worktreeStore.dir;
@@ -453,7 +453,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
 
   // 起点の入力 (base 端 / HEAD) の変化を 1 本の watcher で受け、再解決に委ねる。軸ごとに watcher を
   // 分けると、両方が同じ burst で動いたときに再解決が二重に走る。
-  watch([liveBaseOid, () => gitGraphStore.headHash], () => {
+  watch([liveBaseOid, () => gitStatusStore.headHash], () => {
     void reresolveOrigin();
   });
 

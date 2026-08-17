@@ -611,6 +611,7 @@ async function handleGitStatus(body: unknown): Promise<unknown> {
     renameOldPaths: status.renameOldPaths,
     latestMtime: status.latestMtime,
     upstream: status.hasUpstream ? { ahead: status.ahead, behind: status.behind } : undefined,
+    head: status.head,
   } satisfies GitStatusResponse;
 }
 

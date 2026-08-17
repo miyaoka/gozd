@@ -237,7 +237,32 @@ describe("updateRepoData", () => {
     expect(target?.latestMtime).toBe(42);
   });
 
-  test("世代が進んでいない wt はレスポンスの値をそのまま採用する", () => {
+  test("世代エントリを持つ wt でも、往復中に status が走らなければレスポンスを採る", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [{ ...wt("/r1/wt-1", "feat"), head: "old" }],
+    });
+    // 2 回目以降の fetchRepo と同じ状態。updateRepoData は末尾で全 wt の世代を進めるため、
+    // 定常状態では世代エントリが必ず存在する
+    store.setWorktreeGitStatuses("/r1/wt-1", {
+      statuses: {},
+      renameOldPaths: {},
+      upstream: undefined,
+      latestMtime: 0,
+      head: "current",
+    });
+
+    const genSnapshot = new Map([["/r1/wt-1", store.getGitStatusGen("/r1/wt-1")]]);
+    store.updateRepoData("/r1", [{ ...wt("/r1/wt-1", "feat"), head: "fetched" }], genSnapshot);
+
+    expect(store.repos["/r1"]?.worktrees[0]?.head).toBe("fetched");
+  });
+
+  test("世代エントリを持たない wt（hydrate 直後の初回 fetch）はレスポンスを採る", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();
     store.addRepo({

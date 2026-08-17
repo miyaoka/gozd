@@ -131,8 +131,8 @@ export function decidePrDiffFollowUp(params: {
  * ## state の SSOT は `lockedBase`
  *
  * - `enable(mode)` 時に「現在の mode の base OID」を起点に reachable 判定 → fetch (必要なら) →
- *   再 reachable 判定 → merge-base 計算を行い、`{ mode, sourceBaseOid: base OID snapshot,
- *   diffBaseOid: merge-base OID }` を保持する
+ *   再 reachable 判定 → merge-base 計算を行い、結果を `lockedBase` に固定する (保持する値の内訳は
+ *   `lockedBase` 自身の doc が SSOT。ここで数え直すと片方が古くなる)
  * - `isOn` / `mode` / `disable` は `lockedBase` の有無 / 中身 / クリアとして表現する (派生)
  * - 表示用 / per-file 取得用の起点 OID は **`diffBaseOid` (= merge-base)**。consumer は公開 getter
  *   `lockedBaseOid` 経由で読む (実体は `lockedBase.diffBaseOid`)
@@ -261,8 +261,9 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
    *
    * `seq` は呼び出し元が握る race トークン。await ごとに現役かを確かめ、割り込まれたら黙って抜ける。
    *
-   * **fetch の入口は呼び出し元が渡す**。クリック起点はユーザーが結果を待っているので backoff を
-   * bypass する経路、自動追従は待っていないので背景経路。解決手順は共有しつつ、この 1 点だけ分ける。
+   * **fetch の入口は呼び出し元が渡す**。どちらも backoff は bypass する — base 端が local に無い
+   * ことは解決の失敗であって、待てば直るものではない。分けるのは失敗通知の方針だけで、クリック起点は
+   * 即通知、自動追従は間引く。解決手順そのものは共有する。
    */
   async function resolveDiffBase(
     target: PrDiffMode,
@@ -473,7 +474,7 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
       dir,
       baseOid,
       seq,
-      fetchStore.requestBackgroundFetch,
+      fetchStore.requestFollowUpFetch,
     );
     if (seq !== enableSeq.value) return;
     // 再解決の途中で OFF になっていれば結果を捨てる

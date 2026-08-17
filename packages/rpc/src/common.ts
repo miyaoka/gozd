@@ -9,6 +9,10 @@ export type EmptyMessage = Record<string, never>;
 
 export interface WorktreeEntry {
   path: string;
+  /** HEAD が指す commit OID。unborn branch では空文字。
+   * **worktree 一覧の取得と git status の更新の両経路が書く**。どちらも同じ full sha を運ぶため
+   * 後に書いた側の値へ収束する。status 経路が書くのは、commit / rebase で HEAD が動いたことを
+   * commit グラフの描画状態に依存せず観測できるようにするため。 */
   head: string;
   branch: string;
   isMain: boolean;

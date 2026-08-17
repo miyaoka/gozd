@@ -164,8 +164,9 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
    * 発火元 1 回に寄せると immediate 経路が背景の間引き窓に飲まれ、ユーザー操作への応答が
    * 消えるため、重複のほうを許容する。
    *
-   * non-public: backoff を一切読まないため直接呼びは連射の原因。`fetchIfDue` (gate 込み) と
-   * `requestImmediateFetch` (gate bypass 意図) の 2 経路から呼び分ける。
+   * non-public: backoff を一切読まないため直接呼びは連射の原因。呼び分けるのは 3 経路で、軸は
+   * 「backoff に従うか」と「失敗を即通知するか」の 2 つ。`fetchIfDue` (従う / 間引き)、
+   * `requestImmediateFetch` (bypass / 即通知)、`requestFollowUpFetch` (bypass / 間引き)。
    */
   function runFetch(rootDir: string): Promise<FetchOutcome> {
     const name = repoStore.repos[rootDir]?.repoName ?? rootDir;
@@ -260,29 +261,35 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   }
 
   /**
-   * 背景アクター向けの on-demand fetch。任意 dir を repo root に正規化して `fetchIfDue` の
-   * lock / backoff / 通知間引きに載せる。
+   * 自動追従向けの fetch。**backoff は bypass し、失敗通知は間引く**。
    *
-   * **ユーザーが結果を待っていない発火はこちらを使う**。`requestImmediateFetch` は backoff を
-   * bypass し失敗を毎回通知する契約で、それはクリック等に応答するためのもの。自動追従から呼ぶと
-   * ユーザーが何もしていないのに fetch が走り、失敗トーストが間引きなしで積まれる。
+   * 既存 2 経路は「今撃つか」と「ユーザーが待っているか」を 1 つの API に束ねていた。自動追従が
+   * 要るのは「今撃つ・でも騒がない」で、どちらにも当てはまらない。
    *
-   * 不正 path は skip して false。ここは背景経路なので通知を出さない (`fetchIfDue` の skip と同じ
-   * 扱い。観察は event-log 側が担う)。
+   * `fetchIfDue` に載せると **ほぼ常に throttle される**: 背景 poller が同じ 60 秒間隔で lock を
+   * 張り直すため、ad-hoc の呼び出しは lock 期間中に当たる。さらに in-flight でも即 false を返すので、
+   * 呼び出し側は「撃たなかった」と「撃ったが失敗した」を区別できず、fetch の不発を自分の解決失敗と
+   * 誤って解釈する。
+   *
+   * in-flight は `runFetch` の dedup が待つため、同 repo の fetch が走っていればその結果を使う。
+   *
+   * 不正 path は skip して false。背景側の方針に合わせて通知は出さない (観察は event-log が担う)。
    */
-  async function requestBackgroundFetch(dir: string): Promise<boolean> {
+  async function requestFollowUpFetch(dir: string): Promise<boolean> {
     const repo = repoStore.findRepoOwning(dir);
     if (repo === undefined || !repo.isGitRepo) {
-      logEvent("fetch", "skip", dir);
+      logEvent("fetch", "skip", repo?.repoName ?? dir);
       return false;
     }
-    return fetchIfDue(repo.rootDir);
+    const outcome = await runFetch(repo.rootDir);
+    if (!outcome.ok) notifyBackgroundFailure(repo.rootDir, outcome.detail);
+    return outcome.ok;
   }
 
   return {
     fetchIfDue,
     requestImmediateFetch,
-    requestBackgroundFetch,
+    requestFollowUpFetch,
   };
 });
 

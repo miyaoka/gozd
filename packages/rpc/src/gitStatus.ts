@@ -54,11 +54,13 @@ export interface WorktreeChangePayload {
   dir: string;
 }
 
-/** gitStatusChange push payload。ファイル状態は pull (`GitStatusResponse`) と同形で、
- * push はそこへ発火元 dir と HEAD 情報を足して運ぶ。 */
+/** gitStatusChange push payload。ファイル状態と HEAD は pull (`GitStatusResponse`) と同形で、
+ * push はそこへ発火元 dir と branch 名を足して運ぶ。
+ *
+ * `head` を基底型側に置くのは、push と pull のどちらで届いても受信側が同じフィールドを更新できる
+ * ようにするため。両方で宣言すると doc が片方だけ更新されて無言で乖離する。 */
 export type GitStatusChangePayload = GitStatusResponse & {
   dir: string;
-  head: string;
   /** HEAD が指す branch 名（`git status --porcelain=v2 --branch` の `# branch.head`）。
    * `git branch -m` は OID を変えないため、rename はこの値の変化で検知する。
    * detached HEAD の場合は空文字。 */

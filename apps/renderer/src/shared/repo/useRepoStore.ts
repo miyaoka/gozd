@@ -388,7 +388,8 @@ export const useRepoStore = defineStore("repo", () => {
         if (beforeGen !== undefined && currentGen !== undefined && currentGen !== beforeGen) {
           // fetch 中に push / 単発更新が走っていた → 現値を保持。
           // `gitStatusFull` 出力の atomic snapshot 契約 (statuses / renameOldPaths /
-          // upstream / latestMtime を 1 セットで扱う) に合わせ、まとめて fresher 由来に倒す。
+          // upstream / latestMtime / head を 1 セットで扱う) に合わせ、まとめて fresher 由来に倒す。
+          // `head` は worktree 一覧側も書くが、往復前に読んだ OID なので採用すると巻き戻る。
           const fresher = current.worktrees.find((w) => w.path === wt.path);
           if (fresher !== undefined) {
             return {
@@ -397,6 +398,7 @@ export const useRepoStore = defineStore("repo", () => {
               renameOldPaths: fresher.renameOldPaths,
               upstream: fresher.upstream,
               latestMtime: fresher.latestMtime,
+              head: fresher.head,
             };
           }
         }

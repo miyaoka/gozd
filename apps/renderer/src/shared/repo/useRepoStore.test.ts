@@ -208,6 +208,52 @@ describe("applyRepoTasks", () => {
   });
 });
 
+describe("updateRepoData", () => {
+  test("世代が進んだ wt は status 経路が書いた snapshot を丸ごと保持する（head も含む）", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [{ ...wt("/r1/wt-1", "feat"), head: "old" }],
+    });
+
+    const genSnapshot = new Map([["/r1/wt-1", store.getGitStatusGen("/r1/wt-1")]]);
+    // rpcGitWorktreeList の往復中に status 経路が HEAD の移動を書く
+    store.setWorktreeGitStatuses("/r1/wt-1", {
+      statuses: { "a.txt": ".M" },
+      renameOldPaths: {},
+      upstream: undefined,
+      latestMtime: 42,
+      head: "new",
+    });
+    // 往復前の HEAD を載せたレスポンスが後着する
+    store.updateRepoData("/r1", [{ ...wt("/r1/wt-1", "feat"), head: "old" }], genSnapshot);
+
+    const target = store.repos["/r1"]?.worktrees[0];
+    expect(target?.head).toBe("new");
+    expect(target?.gitStatuses).toEqual({ "a.txt": ".M" });
+    expect(target?.latestMtime).toBe(42);
+  });
+
+  test("世代が進んでいない wt はレスポンスの値をそのまま採用する", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [{ ...wt("/r1/wt-1", "feat"), head: "old" }],
+    });
+
+    const genSnapshot = new Map([["/r1/wt-1", store.getGitStatusGen("/r1/wt-1")]]);
+    store.updateRepoData("/r1", [{ ...wt("/r1/wt-1", "feat"), head: "fetched" }], genSnapshot);
+
+    expect(store.repos["/r1"]?.worktrees[0]?.head).toBe("fetched");
+  });
+});
+
 describe("setGithubIdentity", () => {
   test("既存 repo に identity を書き、updateRepoData（worktrees 差し替え）後も保持する", () => {
     setActivePinia(createPinia());

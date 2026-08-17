@@ -456,6 +456,8 @@ export const useRepoStore = defineStore("repo", () => {
     /** 変更ファイルの mtime 最大値 (Unix 秒)。clean / 未取得時は 0。
      * `statuses` / `upstream` と原子的に同一 patch で書く契約 (SSOT)。 */
     latestMtime: number;
+    /** HEAD が指す commit OID。契約は `WorktreeEntry.head` を参照。 */
+    head: string;
   }
 
   /**
@@ -484,6 +486,7 @@ export const useRepoStore = defineStore("repo", () => {
       renameOldPaths: patch.renameOldPaths,
       upstream: patch.upstream,
       latestMtime: patch.latestMtime,
+      head: patch.head,
     };
     repos.value[repo.rootDir] = { ...repo, worktrees: next };
   }

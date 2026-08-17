@@ -23,6 +23,8 @@ export interface GitStatusResponse {
   /** rename / copy エントリの 新パス → 旧パス。`entries` のキーは新パスのみ持つため、
    * 旧パス (HEAD 側の比較元) はこの map で運ぶ。rename が無ければ空。 */
   renameOldPaths: Record<string, string>;
+  /** HEAD が指す commit OID。unborn branch では空文字。push と単発で同じ情報を運ぶ。 */
+  head: string;
 }
 
 // --- main → renderer push payloads (git watch) ---
@@ -50,11 +52,11 @@ export interface WorktreeChangePayload {
   dir: string;
 }
 
-/** gitStatusChange push payload。ファイル状態は pull (`GitStatusResponse`) と同形で、
- * push はそこへ発火元 dir と HEAD 情報を足して運ぶ。 */
+/** gitStatusChange push payload。ファイル状態と HEAD は pull (`GitStatusResponse`) と同形で、
+ * push はそこへ発火元 dir と branch 名を足して運ぶ。`head` は再宣言しない — intersection の
+ * 両側に同じ型を置いても型エラーにならない。 */
 export type GitStatusChangePayload = GitStatusResponse & {
   dir: string;
-  head: string;
   /** HEAD が指す branch 名（`git status --porcelain=v2 --branch` の `# branch.head`）。
    * `git branch -m` は OID を変えないため、rename はこの値の変化で検知する。
    * detached HEAD の場合は空文字。 */

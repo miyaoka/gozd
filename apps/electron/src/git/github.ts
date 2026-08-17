@@ -20,6 +20,7 @@ import type {
   GitPullRequest,
   GitPullRequestCheckState,
   GitPullRequestReviewDecision,
+  GitPullRequestStack,
 } from "@gozd/rpc";
 import {
   GIT_MY_WORK_AXIS_KEYS,
@@ -70,6 +71,12 @@ export type GhResult<T> = { ok: true; value: T } | { ok: false; error: GhError }
 // GitHub の avatar 画像サイズ（px）。PR/Issue picker 行の表示サイズに合わせる
 const AVATAR_SIZE = 64;
 
+// 1 stack から取る entry の上限。現実的な stack の深さを超える値にしておけば base 端を取り逃さない。
+const STACK_ENTRY_LIMIT = 50;
+
+/** trunk に最も近い entry の position。 */
+const STACK_BOTTOM_POSITION = 1;
+
 // `owner { login }` は廃止（fork 判定にはローカルで parse した owner を使う）。
 // `assignees` / `reviewRequests` は PR picker の filter 機能で参照するため一覧 query に含める。
 //
@@ -79,6 +86,9 @@ const AVATAR_SIZE = 64;
 // ので、PullRequest 直下の rollup を使う。
 // connection の `totalCount` も `first` / `last` を渡さなければページを 1 枚も要求しないため
 // cost に乗らない。件数系はこの形でだけ取る。
+//
+// `stack.entries` の cost 増は **+1 固定**で、`first` の値にも PR 件数にも stack の実在数にも
+// 依存しない。cost を理由に `STACK_ENTRY_LIMIT` を下げても効果は無い。
 const PR_QUERY = `
 query($owner: String!, $repo: String!, $limit: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -90,7 +100,6 @@ query($owner: String!, $repo: String!, $limit: Int!) {
         state
         isDraft
         headRefName
-        baseRefName
         baseRefOid
         author { login avatarUrl(size: ${AVATAR_SIZE}) }
         updatedAt
@@ -101,6 +110,12 @@ query($owner: String!, $repo: String!, $limit: Int!) {
         comments { totalCount }
         reviews { totalCount }
         reviewThreads { totalCount }
+        stackEntry { position }
+        stack {
+          number
+          size
+          entries(first: ${STACK_ENTRY_LIMIT}) { nodes { position pullRequest { baseRefOid } } }
+        }
       }
     }
   }
@@ -158,7 +173,6 @@ export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullR
       state: str(getPath(item, "state")),
       author: str(getPath(item, "author", "login")),
       headRef: str(getPath(item, "headRefName")),
-      baseRef: str(getPath(item, "baseRefName")),
       isDraft: getPath(item, "isDraft") === true,
       assignees: logins(getPath(item, "assignees", "nodes"), "login"),
       reviewers: reviewerLogins(getPath(item, "reviewRequests", "nodes")),
@@ -167,9 +181,47 @@ export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullR
       baseRefOid: str(getPath(item, "baseRefOid")),
       checkState: checkState(getPath(item, "statusCheckRollup", "state"), "prList"),
       commentCount: commentCount(item),
+      stack: parseStack(item),
     });
   }
   return prs;
+}
+
+/**
+ * PR node の stack 情報を変換する。stack に属さない PR は `stack` が null で来る。
+ *
+ * base 端の OID は position 1 の PR の `baseRefOid` から取る。`PullRequestStack` は OID を返す
+ * field を持たず、ref 名から引くには PR ごとに名前が変わる query が要って単一 query に載らない。
+ * 順序を保証する記述が schema に無いため、先頭要素ではなく position 1 を明示的に探す。
+ */
+function parseStack(item: unknown): GitPullRequestStack | undefined {
+  const stack = getPath(item, "stack");
+  if (typeof stack !== "object" || stack === null) return undefined;
+
+  const number = int(getPath(stack, "number"));
+  const position = int(getPath(item, "stackEntry", "position"));
+  const baseRefOid = stackBaseRefOid(getPath(stack, "entries", "nodes"));
+  // 誤った起点で差分を出すより stack なしに倒す。無音だと「stack なのに toggle が出ない」が
+  // 診断不能になるためログは残す。
+  if (position === 0 || baseRefOid === "") {
+    console.error(
+      `[parseStack] incomplete stack: stackNumber=${number} position=${position} baseRefOid='${baseRefOid}'`,
+    );
+    return undefined;
+  }
+
+  return {
+    size: int(getPath(stack, "size")),
+    position,
+    baseRefOid,
+  };
+}
+
+/** stack 全体の base commit OID。解決できないときは空文字。 */
+function stackBaseRefOid(nodes: unknown): string {
+  if (!Array.isArray(nodes)) return "";
+  const bottom = nodes.find((node) => int(getPath(node, "position")) === STACK_BOTTOM_POSITION);
+  return str(getPath(bottom, "pullRequest", "baseRefOid"));
 }
 
 /** open issue 一覧 */

@@ -53,6 +53,21 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
   });
 
   /**
+   * active dir の HEAD が指す commit OID。未取得 / unborn branch では undefined。
+   *
+   * `useGitGraphStore.headHash` と違い**描画状態に依存しない**（あちらは表示用 commit リストからの
+   * 派生でグラフ未ロード中は解決できない）。HEAD の移動を追従の signal に使う側はこちらを見る。
+   */
+  const headHash = computed<string | undefined>(() => {
+    const dir = repoStore.selectedDir;
+    if (dir === undefined) return undefined;
+    const repo = repoStore.findRepoOwning(dir);
+    const head = repo?.worktrees.find((w) => w.path === dir)?.head;
+    if (head === undefined || head === "") return undefined;
+    return head;
+  });
+
+  /**
    * active dir の git status を rpcGitStatus で取得し直して repoStore を更新する。
    * dir 切替時 / Claude state 遷移時 / Filer の初期読み込みで呼ばれる。
    *
@@ -73,6 +88,7 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
         renameOldPaths: result.value.renameOldPaths,
         upstream: result.value.upstream,
         latestMtime: result.value.latestMtime,
+        head: result.value.head,
       });
     } else {
       const notify = useNotificationStore();
@@ -80,7 +96,7 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     }
   }
 
-  return { gitStatuses, renameOldPaths, workingTreeMtime, loadGitStatus };
+  return { gitStatuses, renameOldPaths, workingTreeMtime, headHash, loadGitStatus };
 });
 
 if (import.meta.hot) {

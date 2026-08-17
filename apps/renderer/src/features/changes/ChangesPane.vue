@@ -23,6 +23,17 @@ base ブランチが前進した分は差分に含めない。graph 側の選択
 graph 選択は維持) が、ユーザーが graph で commit を選択した瞬間に toggle は自動 OFF になる。
 SSOT は `usePrDiffToggleStore`。
 
+## ヘッダは幅で落とすものを決める
+
+Navigator の最小幅では要素を全部常時出せない。ヘッダを container にし、狭いほど多く落とす。落とす順は
+件数 → セグメントのラベル → View all のラベル (閾値は template が持つ)。
+
+落とさないのは **パネル名の "Changes"** (無いと何の一覧か判定できない) と **操作** (どの幅でも
+アイコンで残す。畳まれた識別子は title が持つ)。
+
+**パネル名の隣にアイコンを置かない**。アイコンと名前は同じ「どのパネルか」を二重に運び、最小幅では
+その冗長が入らない。同じ列の Files ヘッダは名前と省略可能な状態テキストだけなので余地がある。
+
 ## View all
 
 ヘッダーの View all ボタンは `viewAll` を emit する。summary 表示モードと preview popover の
@@ -34,14 +45,11 @@ summary 有効時は preview ペインに全変更の縦並び diff が表示さ
 <script setup lang="ts">
 import { ref } from "vue";
 import type { FileContextMenuPayload } from "../filer";
-import { usePrDiffToggleStore } from "../git-graph";
 import ChangesTreeItem from "./ChangesTreeItem.vue";
+import PrDiffSegmented from "./PrDiffSegmented.vue";
 import { useChangesStore } from "./useChangesStore";
 import { useChangesSummaryStore } from "./useChangesSummaryStore";
 import IconLucideFileDiff from "~icons/lucide/file-diff";
-import IconLucideGitBranch from "~icons/lucide/git-branch";
-import IconLucideGitPullRequest from "~icons/lucide/git-pull-request";
-import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 
 const emit = defineEmits<{
   select: [relPath: string];
@@ -53,7 +61,6 @@ const emit = defineEmits<{
 
 const changesStore = useChangesStore();
 const summaryStore = useChangesSummaryStore();
-const prDiffToggle = usePrDiffToggleStore();
 
 /** 折りたたみ中フォルダの fullPath 集合（デフォルトは全展開） */
 const collapsedFolders = ref<Set<string>>(new Set());
@@ -77,50 +84,32 @@ function onClickViewAll() {
   <div
     class="flex size-full flex-col overflow-hidden border-l border-border bg-background text-foreground"
   >
-    <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
-      <IconLucideGitBranch class="size-4 text-foreground-low" />
-      <span class="text-xs font-semibold text-foreground-low">Changes</span>
-      <span v-if="changesStore.orderedFileChanges.length > 0" class="text-xs text-foreground-low"
+    <div
+      class="@container flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs whitespace-nowrap"
+    >
+      <span class="shrink-0 font-semibold text-foreground-low">Changes</span>
+      <span
+        v-if="changesStore.orderedFileChanges.length > 0"
+        class="hidden text-foreground-low @min-[220px]:inline"
         >({{ changesStore.orderedFileChanges.length }})</span
       >
-      <button
-        v-if="prDiffToggle.canEnable"
-        type="button"
-        class="ml-auto flex items-center gap-1 px-2 py-0.5 text-xs transition-colors disabled:cursor-progress disabled:text-foreground-muted"
-        :class="
-          prDiffToggle.isOn ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
-        "
-        :title="
-          prDiffToggle.enabling
-            ? 'Resolving PR diff base...'
-            : prDiffToggle.isOn
-              ? 'Showing PR diff (base..working tree, includes untracked)'
-              : 'Show PR diff (base..working tree, includes untracked)'
-        "
-        :disabled="prDiffToggle.enabling"
-        :aria-busy="prDiffToggle.enabling"
-        aria-label="Toggle PR diff"
-        @click="prDiffToggle.toggle"
-      >
-        <IconLucideLoaderCircle v-if="prDiffToggle.enabling" class="size-3.5 animate-spin" />
-        <IconLucideGitPullRequest v-else class="size-3.5" />
-        PR #{{ prDiffToggle.pr?.number }}
-      </button>
-      <button
-        type="button"
-        class="flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
-        :class="[
-          summaryStore.enabled ? 'text-primary-text' : 'text-foreground-low hover:text-foreground',
-          prDiffToggle.canEnable ? '' : 'ml-auto',
-        ]"
-        :disabled="changesStore.orderedFileChanges.length === 0"
-        title="Show all diffs in preview"
-        aria-label="Toggle changes summary"
-        @click="onClickViewAll"
-      >
-        <IconLucideFileDiff class="size-3.5" />
-        View all
-      </button>
+      <div class="flex flex-1 items-center justify-end gap-1">
+        <PrDiffSegmented />
+        <button
+          type="button"
+          class="flex shrink-0 items-center gap-1 px-1.5 py-0.5 transition-colors"
+          :class="
+            summaryStore.enabled ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
+          "
+          :disabled="changesStore.orderedFileChanges.length === 0"
+          title="Show all diffs in preview"
+          aria-label="Toggle changes summary"
+          @click="onClickViewAll"
+        >
+          <IconLucideFileDiff class="size-3.5 shrink-0" />
+          <span class="hidden @min-[330px]:inline">View all</span>
+        </button>
+      </div>
     </div>
 
     <div v-if="changesStore.loading" class="flex-1 overflow-y-auto p-2">

@@ -9,6 +9,9 @@ export type EmptyMessage = Record<string, never>;
 
 export interface WorktreeEntry {
   path: string;
+  /** HEAD が指す commit OID。unborn branch では空文字。
+   * **worktree 一覧の取得と git status の更新の両経路が書く**（同じ full sha なので後勝ちで収束）。
+   * status 経路が書くのは、HEAD の移動を commit グラフの描画状態に依存せず観測するため。 */
   head: string;
   branch: string;
   isMain: boolean;
@@ -136,6 +139,20 @@ export const GIT_PULL_REQUEST_CHECK_STATES = [
 
 export type GitPullRequestCheckState = (typeof GIT_PULL_REQUEST_CHECK_STATES)[number];
 
+/** PR が属する stacked PR の連鎖。各 PR の base は 1 つ下の PR の head になる。
+ *
+ * stack UI は「この PR とその下の全 PR」を merge 単位として扱うため、stack として意味のある差分の
+ * 起点は直下の PR ではなく **stack 全体の base**。 */
+export interface GitPullRequestStack {
+  /** stack に属する PR の総数。 */
+  size: number;
+  /** stack 内での位置。1 が trunk に最も近い。この PR を merge したとき同時に merge される PR 数と
+   * 一致する (stack UI の "Merge stack N" の N)。 */
+  position: number;
+  /** stack 全体の base commit OID (= trunk 側の tip)。stack diff の base 端。 */
+  baseRefOid: string;
+}
+
 export interface GitPullRequest {
   number: number;
   title: string;
@@ -143,7 +160,6 @@ export interface GitPullRequest {
   state: string;
   author: string;
   headRef: string;
-  baseRef: string;
   isDraft: boolean;
   assignees: string[];
   reviewers: string[];
@@ -160,6 +176,8 @@ export interface GitPullRequest {
    * スレッドへの返信は 1 件のレビュー送信として送られるため、返信も 1 と数える。
    * 解決しても減らないため未読や残作業の数ではないが、コメントが削除されれば減る。 */
   commentCount: number;
+  /** この PR が属する stack。stack に入っていない PR では undefined。 */
+  stack?: GitPullRequestStack;
 }
 
 export interface GitIssue {

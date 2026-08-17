@@ -50,6 +50,34 @@ export function prDiffBaseOid(
   return oid;
 }
 
+/** 起点 (`merge-base(HEAD, base)`) を決める入力の集合。dir が repo を、base OID と HEAD が
+ * merge-base の 2 引数を表す。 */
+export interface PrDiffOrigin {
+  dir: string | undefined;
+  baseOid: string | undefined;
+  headHash: string | undefined;
+}
+
+/**
+ * 固定した起点が現在の入力に対して古くなったかを判定する。`enable()` の await 中の破棄判定が使う。
+ * ON 中の追従は原因ごとに通知を分けるため watcher を個別に持つが、判定軸 (dir / base / HEAD) は同じ。
+ *
+ * **HEAD を入力に含める**のが要点。起点は `merge-base(HEAD, base)` なので base だけを見ていると、
+ * 同じ dir で branch が切り替わって base OID が同値のまま HEAD だけ動いた場合に、古い HEAD から
+ * 計算した merge-base を固定してしまう。base が同じ PR は「同じ既定ブランチから切った複数の PR」で
+ * 日常的に生じるため、この経路は例外ではない。
+ *
+ * HEAD の **不明 (undefined) は「動いた」と扱わない**。commit グラフのロード中に一時的に解決できない
+ * ことがあり、それは UI 側の都合であって HEAD が動いた証拠ではない。dir / base OID の消失は起点の
+ * 前提そのものが失われているため stale として扱う。
+ */
+export function isPrDiffOriginStale(initial: PrDiffOrigin, current: PrDiffOrigin): boolean {
+  if (current.dir !== initial.dir) return true;
+  if (current.baseOid !== initial.baseOid) return true;
+  if (current.headHash !== undefined && current.headHash !== initial.headHash) return true;
+  return false;
+}
+
 /**
  * PR diff モード (ChangesPane / PreviewPane を「base..working tree」表示に切り替える) の SSOT。
  *
@@ -82,8 +110,8 @@ export function prDiffBaseOid(
  * - `isOn` / `mode` / `disable` は `lockedBase` の有無 / 中身 / クリアとして表現する (派生)
  * - 表示用 / per-file 取得用の起点 OID は **`diffBaseOid` (= merge-base)**。consumer は公開 getter
  *   `lockedBaseOid` 経由で読む (実体は `lockedBase.diffBaseOid`)
- * - auto-off の比較対象は **`sourceBaseOid` (= base OID snapshot)**。ON 中の mode に対応する live
- *   base OID がこの snapshot と変われば「base 端が動いた」とみなして auto-off する
+ * - auto-off の比較対象は **`sourceBaseOid` と `sourceHeadHash`**。起点は `merge-base` の 2 引数から
+ *   決まるので、片方だけを追うと同じ base OID のまま HEAD が動いた場合を取りこぼす
  *
  * ## auto-off の一次トリガ
  *
@@ -93,6 +121,8 @@ export function prDiffBaseOid(
  *   して破棄する (race 防護)
  * - `gitGraphStore.selectionVersion` の increment: ユーザーが graph で commit を選んだ瞬間
  * - live base OID が `sourceBaseOid` snapshot と変化: base end が動いた / 消失
+ * - `gitGraphStore.headHash` が `sourceHeadHash` snapshot と変化: `merge-base` のもう一方の引数が
+ *   動いた (rebase / commit / 同一 dir での branch 切替)
  *
  * stack mode の base 端は trunk の tip なので、**stack の下段 PR が merge されると必ず OFF になる**。
  * merge は trunk を前進させ、さらに GitHub は次の未 merge PR を trunk 直下へ rebase する
@@ -119,13 +149,15 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   const fetchStore = useRemoteFetchStore();
   const notify = useNotificationStore();
 
-  /** ON 時に snapshot された mode と 2 つの OID。undefined のとき OFF (== `isOn=false`)。
+  /** ON 時に snapshot された mode と起点の入力。undefined のとき OFF (== `isOn=false`)。
    *
    * - `mode`: どちらの base 端を起点にしたか。auto-off 判定で live 値を引く先を決める
    * - `sourceBaseOid`: enable 時の live base OID。auto-off 判定で live 値と比較する
+   * - `sourceHeadHash`: enable 時の HEAD。`merge-base` のもう一方の引数なので、これも追従対象
    * - `diffBaseOid`: `merge-base(HEAD, sourceBaseOid)`。diff / per-file 取得の起点 */
   const lockedBase = ref<
-    { mode: PrDiffMode; sourceBaseOid: string; diffBaseOid: string } | undefined
+    | { mode: PrDiffMode; sourceBaseOid: string; sourceHeadHash: string; diffBaseOid: string }
+    | undefined
   >(undefined);
 
   /** PR diff モードが ON か。`lockedBase` の有無で一意に決まる派生値。 */
@@ -144,6 +176,15 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   /** mode ごとの **live** base commit OID。enable() の起点 / auto-off の比較対象に使う。 */
   function baseOidOf(target: PrDiffMode): string | undefined {
     return prDiffBaseOid(pr.value, target);
+  }
+
+  /** 現在の起点入力。`enable()` の破棄判定が snapshot と突き合わせる相手。 */
+  function currentOrigin(target: PrDiffMode): PrDiffOrigin {
+    return {
+      dir: worktreeStore.dir,
+      baseOid: baseOidOf(target),
+      headHash: gitGraphStore.headHash,
+    };
   }
 
   /** ON 中の mode に対応する live base OID。OFF 時は undefined。auto-off watcher の監視源。 */
@@ -183,6 +224,13 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     if (initialDir === undefined) return;
 
     const label = MODE_LABEL[target];
+    // 起点は merge-base(HEAD, base) なので HEAD も snapshot する。解決できないまま固定すると
+    // 以降の追従判定の基準が無くなるため、silent に進めずここで打ち切る。
+    const initialHeadHash = gitGraphStore.headHash;
+    if (initialHeadHash === undefined) {
+      notify.error(`${label}: cannot resolve HEAD (commit graph is not loaded yet)`);
+      return;
+    }
     const seq = ++enableSeq.value;
     enabling.value = true;
     try {
@@ -245,11 +293,20 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
         return;
       }
 
-      // 4. final race check: await 中に live base OID / dir が変わっていないか
-      if (initialBaseOid !== baseOidOf(target)) return;
-      if (initialDir !== worktreeStore.dir) return;
+      // 4. final race check: await 中に起点の入力 (dir / base / HEAD) が動いていないか
+      const initialOrigin = {
+        dir: initialDir,
+        baseOid: initialBaseOid,
+        headHash: initialHeadHash,
+      };
+      if (isPrDiffOriginStale(initialOrigin, currentOrigin(target))) return;
 
-      lockedBase.value = { mode: target, sourceBaseOid: initialBaseOid, diffBaseOid: mergeBaseOid };
+      lockedBase.value = {
+        mode: target,
+        sourceBaseOid: initialBaseOid,
+        sourceHeadHash: initialHeadHash,
+        diffBaseOid: mergeBaseOid,
+      };
     } finally {
       // seq 一致 = この enable() が現役。disable() / 他経路の `enableSeq++` が割り込んだ場合は
       // 他の write 主体が後続 enable() を始めるのでこの finally は触らない。
@@ -331,6 +388,24 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
       );
     }
   });
+
+  // HEAD は `merge-base` のもう一方の引数なので、動けば固定した起点が古くなる。rebase / commit /
+  // 同一 dir での branch 切替が対象。stack mode は起点が trunk 側にあり HEAD からの距離が長いため、
+  // 取りこぼすと「取り込んだ trunk の変更が自分の変更として出る」形で差分が壊れる。
+  watch(
+    () => gitGraphStore.headHash,
+    (current) => {
+      const locked = lockedBase.value;
+      if (locked === undefined) return;
+      // ロード中の不明は HEAD が動いた証拠ではない (`isPrDiffOriginStale` と同じ扱い)
+      if (current === undefined) return;
+      if (current === locked.sourceHeadHash) return;
+      disable();
+      notify.info(
+        `${MODE_LABEL[locked.mode]} turned off: HEAD moved from ${locked.sourceHeadHash} to ${current}`,
+      );
+    },
+  );
 
   return {
     isOn,

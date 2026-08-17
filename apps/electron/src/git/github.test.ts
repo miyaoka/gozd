@@ -131,6 +131,105 @@ describe("parsePullRequestNodes", () => {
   });
 });
 
+/** stack 全体の base commit OID。position 1 の PR の base として応答に現れる */
+const STACK_BASE_OID = "db45e9d81f80091fd0357aa834030cf0fb29ca9b";
+
+/** 4 段 stack の position 2 に居る PR の応答 snapshot。stack の中身だけ差し替えられる */
+function stackFields(stackOverrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    stackEntry: { position: 2 },
+    stack: {
+      number: 17638,
+      size: 4,
+      baseRefName: "dev",
+      entries: {
+        nodes: [
+          { position: 1, pullRequest: { baseRefOid: STACK_BASE_OID } },
+          { position: 2, pullRequest: { baseRefOid: "66098eb6" } },
+          { position: 3, pullRequest: { baseRefOid: "2f68f122" } },
+          { position: 4, pullRequest: { baseRefOid: "878532b8" } },
+        ],
+      },
+      ...stackOverrides,
+    },
+  };
+}
+
+describe("parsePullRequestNodes の stack", () => {
+  test("stack に属さない PR は stack が undefined になり、ログも出ない", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const [nullStack] = parsePullRequestNodes([prNode({ stack: null })], OWNER);
+      const [missing] = parsePullRequestNodes([prNode()], OWNER);
+      expect(nullStack.stack).toBeUndefined();
+      expect(missing.stack).toBeUndefined();
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("base 端の OID は position 1 の PR の base になる（自分の直下の PR ではない）", () => {
+    const [pr] = parsePullRequestNodes(
+      [prNode({ ...stackFields(), baseRefOid: "878532b8" })],
+      OWNER,
+    );
+    expect(pr.stack).toEqual({
+      number: 17638,
+      size: 4,
+      position: 2,
+      baseRef: "dev",
+      baseRefOid: STACK_BASE_OID,
+    });
+    // PR 自身の base 端は stack の base 端と別物として残る
+    expect(pr.baseRefOid).toBe("878532b8");
+  });
+
+  test("entries が position 昇順で並んでいなくても position 1 を base 端に選ぶ", () => {
+    const shuffled = stackFields({
+      entries: {
+        nodes: [
+          { position: 3, pullRequest: { baseRefOid: "2f68f122" } },
+          { position: 1, pullRequest: { baseRefOid: STACK_BASE_OID } },
+          { position: 2, pullRequest: { baseRefOid: "66098eb6" } },
+        ],
+      },
+    });
+    const [pr] = parsePullRequestNodes([prNode(shuffled)], OWNER);
+    expect(pr.stack?.baseRefOid).toBe(STACK_BASE_OID);
+  });
+
+  test("position 1 の entry が無ければ stack なしに倒し、観察ログを残す", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const truncated = stackFields({
+        entries: { nodes: [{ position: 2, pullRequest: { baseRefOid: "66098eb6" } }] },
+      });
+      const [pr] = parsePullRequestNodes([prNode(truncated)], OWNER);
+      expect(pr.stack).toBeUndefined();
+      expect(spy).toHaveBeenCalledWith(
+        "[parseStack] incomplete stack: stackNumber=17638 position=2 baseRefOid=''",
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("stack があるのに位置が取れなければ stack なしに倒し、観察ログを残す", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const nodes = [prNode({ ...stackFields(), stackEntry: null })];
+      const [pr] = parsePullRequestNodes(nodes, OWNER);
+      expect(pr.stack).toBeUndefined();
+      expect(spy).toHaveBeenCalledWith(
+        `[parseStack] incomplete stack: stackNumber=17638 position=0 baseRefOid='${STACK_BASE_OID}'`,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 /** my work の PR node snapshot。実応答（`search(type: ISSUE)` の PullRequest 側）に合わせる */
 function myWorkPrNode(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

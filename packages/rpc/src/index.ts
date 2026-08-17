@@ -49,6 +49,7 @@ export type {
   GitIssue,
   GitPullRequest,
   GitPullRequestCheckState,
+  GitPullRequestStack,
   Task,
   UpstreamStatus,
   WireBytes,

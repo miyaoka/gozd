@@ -136,6 +136,26 @@ export const GIT_PULL_REQUEST_CHECK_STATES = [
 
 export type GitPullRequestCheckState = (typeof GIT_PULL_REQUEST_CHECK_STATES)[number];
 
+/** PR が属する stacked PR の連鎖。GitHub の stack 機能 (`gh stack` / stack UI) に対応する。
+ *
+ * stack は trunk から積み上がる PR の列で、各 PR の base は 1 つ下の PR の head になる。
+ * GitHub の stack UI は「この PR とその下の全 PR」を merge 単位として扱うため、stack として
+ * 意味のある差分の起点は自分の直下の PR ではなく **stack 全体の base** になる。 */
+export interface GitPullRequestStack {
+  /** GitHub の stack UI が表示する stack 識別番号。PR 番号とは別の番号空間に属する。 */
+  number: number;
+  /** stack に属する PR の総数。 */
+  size: number;
+  /** stack 内でのこの PR の位置。1 が trunk に最も近い。この PR を merge したときに
+   * 同時に merge される PR 数と一致する (stack UI の "Merge stack N" の N)。 */
+  position: number;
+  /** stack 全体の base ref 名 (= trunk 側)。この PR 自身の `baseRef` とは異なる。 */
+  baseRef: string;
+  /** stack 全体の base commit OID。`GitPullRequest.baseRefOid` と同じ役割を stack 単位で
+   * 果たし、stack diff の base 端に使う。 */
+  baseRefOid: string;
+}
+
 export interface GitPullRequest {
   number: number;
   title: string;
@@ -160,6 +180,8 @@ export interface GitPullRequest {
    * スレッドへの返信は 1 件のレビュー送信として送られるため、返信も 1 と数える。
    * 解決しても減らないため未読や残作業の数ではないが、コメントが削除されれば減る。 */
   commentCount: number;
+  /** この PR が属する stack。stack に入っていない PR では undefined。 */
+  stack?: GitPullRequestStack;
 }
 
 export interface GitIssue {

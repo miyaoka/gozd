@@ -8,17 +8,50 @@ import { rpcGitMergeBase, rpcGitRevReachable } from "./rpc";
 import { useGitGraphStore } from "./useGitGraphStore";
 import { usePrListStore } from "./usePrListStore";
 
+/** diff の base 端をどこに取るか。
+ *
+ * - `pr`: この PR の base (= stack の中では 1 つ下の PR の head)。GitHub の Files changed と同じ範囲
+ * - `stack`: この PR が属する stack 全体の base (= trunk 側)。stack の下段を含む累積差分になる */
+export type PrDiffMode = "pr" | "stack";
+
 /**
- * PR diff モード (ChangesPane / PreviewPane を「PR base..working tree」表示に切り替える) の SSOT。
+ * mode ごとの base 端 OID を PR から引く。解決できないときは undefined。
+ *
+ * mode の違いをこの 1 関数に閉じることで、解決チェーン (reachable → fetch → merge-base)・auto-off・
+ * toggle の活性判定がいずれも mode を意識せずに済む。
+ *
+ * 空文字を undefined に倒すのは、`GitPullRequest` の OID フィールドが「取れなかった」を空文字で
+ * 表す契約のため。空文字をそのまま rev として使うと merge-base 解決が別の意味 (HEAD 起点) に
+ * 化ける。
+ */
+export function prDiffBaseOid(
+  pr: GitPullRequest | undefined,
+  mode: PrDiffMode,
+): string | undefined {
+  if (pr === undefined) return undefined;
+  const oid = mode === "stack" ? pr.stack?.baseRefOid : pr.baseRefOid;
+  if (oid === undefined || oid === "") return undefined;
+  return oid;
+}
+
+/**
+ * PR diff モード (ChangesPane / PreviewPane を「base..working tree」表示に切り替える) の SSOT。
  *
  * 既存の gitGraphStore 選択経路を一切上書きしない (= graph 側の見た目・state は不変)。
  * ChangesPane / PreviewPane / useChangesStore はこのストアの `isOn` / `lockedBaseOid` を見て
  * 表示ソースを分岐する。toggle ON 中も graph 側 selection はユーザーが触ったままの値で残る。
  *
+ * ## mode は base 端の出自だけを変える
+ *
+ * `pr` / `stack` の違いは **どの OID を base 端に選ぶか** に閉じる。reachable 判定 → fetch →
+ * merge-base 計算の解決チェーンも、下流 (`lockedBaseOid` の consumer) から見える形も両者で同一。
+ * stack diff は「stack 全体の base から working tree まで」で、GitHub の stack UI が「この PR と
+ * その下の全 PR」を merge 単位として扱うのと同じ範囲になる。
+ *
  * ## 起点は merge-base (= GitHub Files changed と同じ 3-dot semantics)
  *
- * `lockedBaseOid` は `baseRefOid` ではなく **`merge-base(HEAD, baseRefOid)`** を保持する。
- * `baseRefOid` を直接起点にすると、PR 分岐後に base ブランチが前進した分が逆向きに差分として
+ * `lockedBaseOid` は base ref の OID ではなく **`merge-base(HEAD, base)`** を保持する。
+ * base の OID を直接起点にすると、PR 分岐後に base ブランチが前進した分が逆向きに差分として
  * 混入する (= 「自分のブランチに含まれていない main の変更」が PR diff に紛れ込む)。
  *
  * 3-dot **構文** (`<base>...<head>`) は両辺 commit を要求し working tree を含められないが、
@@ -27,23 +60,25 @@ import { usePrListStore } from "./usePrListStore";
  *
  * ## state の SSOT は `lockedBase`
  *
- * - `enable()` 時に「現在の `baseRefOid`」を起点に reachable 判定 → fetch (必要なら) → 再 reachable
- *   判定 → merge-base 計算を行い、`{ sourceBaseOid: baseRefOid snapshot, diffBaseOid: merge-base OID }`
- *   を保持する
- * - `isOn` / `disable` は `lockedBase` の有無 / クリアとして表現する (派生)
+ * - `enable(mode)` 時に「現在の mode の base OID」を起点に reachable 判定 → fetch (必要なら) →
+ *   再 reachable 判定 → merge-base 計算を行い、`{ mode, sourceBaseOid: base OID snapshot,
+ *   diffBaseOid: merge-base OID }` を保持する
+ * - `isOn` / `mode` / `disable` は `lockedBase` の有無 / 中身 / クリアとして表現する (派生)
  * - 表示用 / per-file 取得用の起点 OID は **`diffBaseOid` (= merge-base)**。consumer は公開 getter
  *   `lockedBaseOid` 経由で読む (実体は `lockedBase.diffBaseOid`)
- * - auto-off の比較対象は **`sourceBaseOid` (= baseRefOid snapshot)**。live `baseRefOid` がこの
- *   snapshot と変われば「PR base 端が動いた」とみなして auto-off する
+ * - auto-off の比較対象は **`sourceBaseOid` (= base OID snapshot)**。ON 中の mode に対応する live
+ *   base OID がこの snapshot と変われば「base 端が動いた」とみなして auto-off する
  *
  * ## auto-off の一次トリガ
  *
- * - `worktreeStore.dir` の変化: enable() の起点入力が変わるため一次トリガ。`baseRefOid` 経由の
- *   間接判定だと「別 worktree の PR の `baseRefOid` が偶然同値」の場合に取りこぼすため、dir 変化は
+ * - `worktreeStore.dir` の変化: enable() の起点入力が変わるため一次トリガ。base OID 経由の
+ *   間接判定だと「別 worktree の PR の base OID が偶然同値」の場合に取りこぼすため、dir 変化は
  *   独立して watch する。enable() async 中の dir 切替もこの watcher が `enableSeq` を increment
  *   して破棄する (race 防護)
  * - `gitGraphStore.selectionVersion` の increment: ユーザーが graph で commit を選んだ瞬間
- * - live `baseRefOid` が `sourceBaseOid` snapshot と変化: PR base end が動いた / 消失
+ * - live base OID が `sourceBaseOid` snapshot と変化: base end が動いた / 消失。stack mode では
+ *   stack 全体の base が動いた場合が対象で、stack 内の下段 PR が merge されても trunk 側の base が
+ *   同じなら差分の範囲は変わらないため OFF にしない
  *
  * いずれも silent drop 禁止規律に従い、`useNotificationStore.info` でユーザーにトースト通知する
  * (toggle の見た目が突然変わるのでユーザーに認知させる必要がある)。ただし enable() async 中で
@@ -66,14 +101,20 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   const fetchStore = useRemoteFetchStore();
   const notify = useNotificationStore();
 
-  /** ON 時に snapshot された 2 つの OID のペア。undefined のとき OFF (== `isOn=false`)。
+  /** ON 時に snapshot された mode と 2 つの OID。undefined のとき OFF (== `isOn=false`)。
    *
-   * - `sourceBaseOid`: enable 時の live `baseRefOid`。auto-off 判定で live 値と比較する
+   * - `mode`: どちらの base 端を起点にしたか。auto-off 判定で live 値を引く先を決める
+   * - `sourceBaseOid`: enable 時の live base OID。auto-off 判定で live 値と比較する
    * - `diffBaseOid`: `merge-base(HEAD, sourceBaseOid)`。diff / per-file 取得の起点 */
-  const lockedBase = ref<{ sourceBaseOid: string; diffBaseOid: string } | undefined>(undefined);
+  const lockedBase = ref<
+    { mode: PrDiffMode; sourceBaseOid: string; diffBaseOid: string } | undefined
+  >(undefined);
 
   /** PR diff モードが ON か。`lockedBase` の有無で一意に決まる派生値。 */
   const isOn = computed(() => lockedBase.value !== undefined);
+
+  /** ON 中の mode。OFF 時は undefined。UI がどちらの toggle を点灯させるかの判定軸。 */
+  const mode = computed<PrDiffMode | undefined>(() => lockedBase.value?.mode);
 
   /** 現在 branch (HEAD が指すブランチ) の PR。無ければ undefined。 */
   const pr = computed<GitPullRequest | undefined>(() => {
@@ -82,25 +123,38 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     return prListStore.prByBranch.get(branch);
   });
 
-  /** 現在 branch の PR の **live** base commit OID (= `baseRefOid`)。enable() の起点 / auto-off の
-   * 比較対象に使う。 */
-  const baseOid = computed<string | undefined>(() => {
-    const value = pr.value;
-    if (value === undefined) return undefined;
-    if (value.baseRefOid === "") return undefined;
-    return value.baseRefOid;
+  /** 現在 branch の PR が属する stack。stack に入っていない PR / PR 不在では undefined。
+   * UI が stack toggle の表示可否と位置表示 (`position` / `size`) に使う。 */
+  const stack = computed(() => pr.value?.stack);
+
+  /** mode ごとの **live** base commit OID。enable() の起点 / auto-off の比較対象に使う。 */
+  function baseOidOf(target: PrDiffMode): string | undefined {
+    return prDiffBaseOid(pr.value, target);
+  }
+
+  /** 現在 branch の PR の live base OID (mode `pr` 用)。 */
+  const prBaseOid = computed<string | undefined>(() => baseOidOf("pr"));
+
+  /** ON 中の mode に対応する live base OID。OFF 時は undefined。auto-off watcher の監視源。 */
+  const liveBaseOid = computed<string | undefined>(() => {
+    const locked = lockedBase.value;
+    if (locked === undefined) return undefined;
+    return baseOidOf(locked.mode);
   });
 
-  /** toggle ON が成立しうるか (PR が見つかり、base OID が解決できているか)。
-   * merge-base 計算は `enable()` 実行時に行うため、ここでは live `baseRefOid` の有無のみ判定する。 */
-  const canEnable = computed(() => baseOid.value !== undefined);
+  /** PR diff toggle が押せるか (PR が見つかり、base OID が解決できているか)。
+   * merge-base 計算は `enable()` 実行時に行うため、ここでは live base OID の有無のみ判定する。 */
+  const canEnable = computed(() => prBaseOid.value !== undefined);
+
+  /** stack diff toggle が押せるか。PR が stack に属し、stack 全体の base OID が取れているとき。 */
+  const canEnableStack = computed(() => baseOidOf("stack") !== undefined);
 
   /** consumer (useChangesStore / PreviewPane / ChangesSummaryItem) が読む起点 OID。
-   * **merge-base OID** (= `lockedBase.diffBaseOid`)。OFF 時 undefined。 */
+   * **merge-base OID** (= `lockedBase.diffBaseOid`)。OFF 時 undefined。mode によらず同じ意味。 */
   const lockedBaseOid = computed<string | undefined>(() => lockedBase.value?.diffBaseOid);
 
   /** enable() async race を破棄するための単調 increment counter。disable() / 連続 enable() /
-   * auto-off 経由 disable() / dir 変化 / baseRefOid 変化 のいずれでも increment され、
+   * auto-off 経由 disable() / dir 変化 / base OID 変化 のいずれでも increment され、
    * 進行中の enable() は post-await の `seq !== enableSeq.value` チェックで結果を捨てる。 */
   const enableSeq = ref(0);
   /** enable() async の進行中フラグ。ChangesPane の toggle button の disabled gate に使う。
@@ -108,9 +162,9 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
    * 書かない (= race トークン = enableSeq に所有を集約)。 */
   const enabling = ref(false);
 
-  async function enable() {
+  async function enable(target: PrDiffMode) {
     if (isOn.value || enabling.value) return;
-    const initialBaseOid = baseOid.value;
+    const initialBaseOid = baseOidOf(target);
     if (initialBaseOid === undefined) return;
     const initialDir = worktreeStore.dir;
     if (initialDir === undefined) return;
@@ -175,11 +229,11 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
         return;
       }
 
-      // 4. final race check: await 中に live `baseRefOid` / dir が変わっていないか
-      if (initialBaseOid !== baseOid.value) return;
+      // 4. final race check: await 中に live base OID / dir が変わっていないか
+      if (initialBaseOid !== baseOidOf(target)) return;
       if (initialDir !== worktreeStore.dir) return;
 
-      lockedBase.value = { sourceBaseOid: initialBaseOid, diffBaseOid: mergeBaseOid };
+      lockedBase.value = { mode: target, sourceBaseOid: initialBaseOid, diffBaseOid: mergeBaseOid };
     } finally {
       // seq 一致 = この enable() が現役。disable() / 他経路の `enableSeq++` が割り込んだ場合は
       // 他の write 主体が後続 enable() を始めるのでこの finally は触らない。
@@ -193,12 +247,17 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     lockedBase.value = undefined;
   }
 
-  async function toggle() {
-    if (isOn.value || enabling.value) {
+  /** 指定 mode の toggle を押したときの遷移。
+   *
+   * 同一 mode の再押下は OFF。別 mode の押下は現在の mode を OFF にしてから enable するため、
+   * 2 つの mode が同時に ON になることはない (base 端は常に 1 つ)。 */
+  async function toggle(target: PrDiffMode) {
+    if (enabling.value || lockedBase.value?.mode === target) {
       disable();
-    } else {
-      await enable();
+      return;
     }
+    if (isOn.value) disable();
+    await enable(target);
   }
 
   // worktree dir 変化は一次の auto-off トリガ。enable() async 中も dir 変化 → enableSeq increment
@@ -230,32 +289,33 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
     },
   );
 
-  // live `baseRefOid` を snapshot (`sourceBaseOid`) と比較し、消失 / 変化のいずれかで auto-off。
+  // ON 中の mode に対応する live base OID を snapshot (`sourceBaseOid`) と比較し、消失 / 変化の
+  // いずれかで auto-off。`liveBaseOid` は OFF 時 undefined なので、snapshot 不在の早期 return が
+  // そのまま「OFF 中は監視しない」になる。
   // enable() 中は post-await チェックで race を処理するため、ここは ON 中のみ対象 (snapshot 有り)。
-  watch(
-    () => baseOid.value,
-    (current) => {
-      const snapshot = lockedBase.value?.sourceBaseOid;
-      if (snapshot === undefined) return;
-      if (current === undefined) {
-        disable();
-        notify.info("PR diff turned off: pull request no longer available for current branch");
-        return;
-      }
-      if (current !== snapshot) {
-        disable();
-        notify.info(`PR diff turned off: PR base commit changed from ${snapshot} to ${current}`);
-      }
-    },
-  );
+  watch(liveBaseOid, (current) => {
+    const snapshot = lockedBase.value?.sourceBaseOid;
+    if (snapshot === undefined) return;
+    if (current === undefined) {
+      disable();
+      notify.info("PR diff turned off: pull request no longer available for current branch");
+      return;
+    }
+    if (current !== snapshot) {
+      disable();
+      notify.info(`PR diff turned off: base commit changed from ${snapshot} to ${current}`);
+    }
+  });
 
   return {
     isOn,
+    mode,
     enabling,
     pr,
-    baseOid,
+    stack,
     lockedBaseOid,
     canEnable,
+    canEnableStack,
     enable,
     disable,
     toggle,

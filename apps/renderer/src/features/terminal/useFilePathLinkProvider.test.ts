@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { findAbsolutePathMatches } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
-import { clipMatchToCurrentLine, resolveRelativePathTarget } from "./useFilePathLinkProvider";
+import {
+  clipMatchToCurrentLine,
+  resolveRelativePathTarget,
+  selectBestCandidates,
+  type PathCandidate,
+} from "./useFilePathLinkProvider";
 
 describe("resolveRelativePathTarget", () => {
   const dirPrefix = "/Users/foo/repo/";
@@ -543,5 +548,72 @@ describe("clipMatchToCurrentLine", () => {
     // 現在行 [11,14) で match.totalEnd=11 → 範囲外
     const clipped = clipMatchToCurrentLine(match, 11, 3);
     expect(clipped).toBeNull();
+  });
+});
+
+describe("selectBestCandidates", () => {
+  const candidate = (linkStart: number, absPath: string): PathCandidate => ({
+    linkStart,
+    linkEnd: linkStart + 1,
+    absPath,
+    selection: { kind: "absolute", absPath },
+  });
+
+  test("範囲が重なるなら実在する長いほうを採る（折り返しが正しく結合されたケース）", () => {
+    const joined = candidate(0, "/tmp/dir/8990ba67/scratchpad/x.html");
+    const lineOnly = candidate(0, "/tmp/dir/8");
+    expect(selectBestCandidates([joined, lineOnly], [true, true])).toEqual([joined]);
+  });
+
+  test("結合版が実在しなければ現在行版を採る（結合しすぎたケース）", () => {
+    const joined = candidate(0, "/Users/me/a.txtnext");
+    const lineOnly = candidate(0, "/Users/me/a.txt");
+    expect(selectBestCandidates([joined, lineOnly], [false, true])).toEqual([lineOnly]);
+  });
+
+  test("どちらも実在しなければ候補を残さない", () => {
+    const joined = candidate(0, "/nope/aaa");
+    const lineOnly = candidate(0, "/nope/a");
+    expect(selectBestCandidates([joined, lineOnly], [false, false])).toEqual([]);
+  });
+
+  test("開始位置が違う候補はそれぞれ残る", () => {
+    const first = candidate(0, "/tmp/a.txt");
+    const second = candidate(20, "/tmp/b.txt");
+    expect(selectBestCandidates([first, second], [true, true])).toEqual([first, second]);
+  });
+
+  test("長いほうが実在せず短いほうが実在するなら短いほうを採る", () => {
+    const longer = candidate(5, "/tmp/a.txt.bak");
+    const shorter = candidate(5, "/tmp/a.txt");
+    expect(selectBestCandidates([longer, shorter], [false, true])).toEqual([shorter]);
+  });
+});
+
+describe("selectBestCandidates（相対パスとの競合）", () => {
+  test("範囲が重なる絶対パスと相対パスは絶対パスを採る", () => {
+    const absolute: PathCandidate = {
+      linkStart: 0,
+      linkEnd: 20,
+      absPath: "/Users/me/repo/src/x.ts",
+      selection: { kind: "absolute", absPath: "/Users/me/repo/src/x.ts" },
+    };
+    const relative: PathCandidate = {
+      linkStart: 10,
+      linkEnd: 20,
+      absPath: "/Users/me/repo/src/x.ts",
+      selection: { kind: "worktreeRelative", relPath: "src/x.ts" },
+    };
+    expect(selectBestCandidates([relative, absolute], [true, true])).toEqual([absolute]);
+  });
+
+  test("実在しない相対パス断片は落とす（折り返しで切れたケース）", () => {
+    const fragment: PathCandidate = {
+      linkStart: 0,
+      linkEnd: 18,
+      absPath: "/Users/me/repo/tchpad/rfc3986.txt",
+      selection: { kind: "worktreeRelative", relPath: "tchpad/rfc3986.txt" },
+    };
+    expect(selectBestCandidates([fragment], [false])).toEqual([]);
   });
 });

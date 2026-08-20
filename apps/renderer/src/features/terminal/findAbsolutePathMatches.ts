@@ -8,7 +8,7 @@ import { parseLineNumberSuffix } from "./parseLineNumberSuffix";
  * （`<` `>` `?` `\s` `!` `` ` `` `&` `*` `(` `)` `'` `"` `:` `;` `\`）。
  * リダイレクト / サブシェル / コマンド置換 / glob / 履歴展開 / エスケープ / 引用符 / 行番号区切り。
  *
- * gozd 独自の追加（存在検証をしないため誤検出を区切りで抑える）:
+ * gozd 独自の追加:
  * - `#`: コメント / URL fragment
  * - `|` `$`: パイプ / 変数展開（VS Code Unix 版には無いが強い区切り）
  * - `{` `}` `[` `]` `,`: log 出力がパスを囲む慣習への対応（開き／閉じ対称に扱う）
@@ -74,12 +74,11 @@ function indexOfWithBoundary(text: string, prefix: string, start: number): numbe
  * 意味を持つ）ため除外しない。新規偽陽性が見つかった場合は、上記原理（path 先頭シグナルとして
  * 無意味化されるか）に照らして判断する。
  *
- * 実在検証はしない契約。単一セグメント `/etc` `/tmp` 等は `absolute` として返す（クリック時の
- * Preview 側で実在しない / ディレクトリの場合はエラーとして notification される）。一方、root
- * `/` 単独 / `/<terminator>` / `///` `////` のような連続 slash のみで構成されるケースは「`/` 以外の
- * path 文字を 1 つも含まない」ため path として構造的に意味を持たず、findAbsolutePathMatches 側で
- * push 直前に弾く（VSCode の unixLocalLinkClause `(\/+ Char+)+` が「1 つ以上の `/` + 1 つ以上の
- * path 文字」を最低 1 セグメント構造要求するのと等価）。
+ * ここは候補を出す層で、実在確認は呼び出し側が行う。単一セグメント `/etc` `/tmp` 等も
+ * `absolute` として返す。一方、root `/` 単独 / `/<terminator>` / `///` `////` のような連続 slash
+ * のみで構成されるケースは「`/` 以外の path 文字を 1 つも含まない」ため path として構造的に
+ * 意味を持たず、push 直前に弾く（VSCode の unixLocalLinkClause `(\/+ Char+)+` が「1 つ以上の
+ * `/` + 1 つ以上の path 文字」を最低 1 セグメント構造要求するのと等価）。
  */
 function indexOfGenericSlash(text: string, start: number): number {
   let idx = text.indexOf("/", start);
@@ -196,9 +195,8 @@ export function findAbsolutePathMatches(
     // (`/foo`) を要求する。VSCode の unixLocalLinkClause `(\/+ Char+)+` は「1 つ以上の `/` +
     // 1 つ以上の path 文字」を最低 1 セグメント構造要求するので、これと等価に「`/` 以外の
     // path 文字を 1 つ以上含む」ことを要求する。`/` 単独 / `/<terminator>` / `///` `////` のような
-    // 連続 slash のみで構成されるケースは弾く。VSCode は最後に stat で実在検証して短い偽
-    // パスを弾けるが、gozd には検証層が無いため、検出側で path 構造として無意味なケースだけ
-    // は明示的に除外する。
+    // 連続 slash のみで構成されるケースは弾く。実在確認を通せば落ちるが、path として構造的に
+    // 意味を持たない候補を問い合わせに載せる理由が無い。
     if (prefixLen === 0 && !hasNonSlashChar(text, idx, pathEnd)) {
       searchStart = idx + 1;
       continue;

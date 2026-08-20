@@ -112,6 +112,19 @@ export function stat(dir: string, path: string): FsStatResult {
   };
 }
 
+/**
+ * 絶対パスの存在確認（dir 制約なし）。ターミナルのパスリンクが候補を実在で選別するために使う。
+ *
+ * 1 リンク候補につき数件をまとめて問い合わせるため配列で受ける。存在判定だけを返し、
+ * 種別や size は返さない（選別に要らないものを渡さない）。
+ */
+export function existsAbsolute(absolutePaths: string[]): boolean[] {
+  return absolutePaths.map((path) => {
+    if (!isAbsolute(path)) return false;
+    return tryCatch(() => statSync(path)).ok;
+  });
+}
+
 export async function readDir(dir: string, path: string): Promise<FsReadDirResult> {
   const target = resolveSafe(dir, path);
   const listed = tryCatch(() => readdirSync(target, { withFileTypes: true }));

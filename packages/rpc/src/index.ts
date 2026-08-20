@@ -65,6 +65,8 @@ export type {
   FsReadFileAbsoluteResponse,
   FsReadFileRequest,
   FsReadFileResponse,
+  FsStatAbsoluteRequest,
+  FsStatAbsoluteResponse,
   FsStatRequest,
   FsStatResponse,
   FsUnwatchAllRequest,

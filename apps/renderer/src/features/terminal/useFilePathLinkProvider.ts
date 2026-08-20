@@ -1,3 +1,4 @@
+import { tryCatch } from "@gozd/shared";
 import type { IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { usePreviewStore } from "../preview";
 import {
@@ -7,7 +8,7 @@ import {
   useWorktreeStore,
   type PathTarget,
 } from "../worktree";
-import { collectIndentedBlock } from "./collectIndentedBlock";
+import { collectJoinCandidates } from "./collectJoinCandidates";
 import type { CwdTracker } from "./cwdTracker";
 import {
   type AbsolutePathMatch,
@@ -15,6 +16,7 @@ import {
   resolveHomeDir,
 } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
+import { rpcFsStatAbsolute } from "./rpc";
 
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。
@@ -26,7 +28,11 @@ import { findRelativePaths } from "./findRelativePaths";
  * - 相対パスは「その行が出力された時点のシェル cwd」（OSC 7 遷移を cwdTracker が行位置つきで
  *   追跡）を基準に解決する。cwd 不明（OSC 7 を送らないシェル / 最初の遷移より前の行）は
  *   worktree root 基準に fallback する
- * - Claude Code が明示的改行+インデントで折り返した長いパスも結合して検出
+ * - 複数行に折り返された長いパスは結合して検出する
+ *
+ * 折り返しがどこから始まりどこで終わるかはバッファの形状から判別できない（折り返し幅は
+ * 出力時の端末幅で決まり、その後のリサイズで痕跡が消える）。そのため**結合範囲を変えた候補を
+ * すべて出し、実在するものを採用する**。結合しない範囲も候補の 1 つとして含む。
  */
 export function createFilePathLinkProvider(
   terminal: Terminal,
@@ -54,69 +60,138 @@ export function createFilePathLinkProvider(
       const dirPrefix = dir.endsWith("/") ? dir : `${dir}/`;
       const homeDir = resolveHomeDir(dirPrefix);
 
-      // 現在行 + インデント付き継続行を結合したテキストでパスを検索する。
-      // dirPrefix が長く1行に収まらない場合に備え、上方向にも辿る。
-      const [joinedText, currentLineOffset] = collectIndentedBlock(buf, bufferLineNumber - 1);
-
-      const links: ILink[] = [];
-
-      // 絶対パスの検出（結合テキストから検索し、現在行に範囲があるもののみリンク化）
-      findAbsolutePathLinks(
-        joinedText,
-        currentLineOffset,
-        text.length,
-        dirPrefix,
-        homeDir,
-        bufLine,
-        bufferLineNumber,
-        previewStore,
-        links,
+      // 結合範囲を変えた候補をすべて集める（現在行のみの範囲も含む）
+      const candidates: PathCandidate[] = collectJoinCandidates(buf, bufferLineNumber - 1).flatMap(
+        (joined) =>
+          absolutePathCandidates(
+            joined.text,
+            joined.currentLineOffset,
+            text.length,
+            dirPrefix,
+            homeDir,
+          ),
       );
 
-      // 相対パスの検出（現在行のテキストのみ）
       const cwd = cwdTracker.cwdAtLine(bufferLineNumber - 1);
-      findRelativePathLinks(text, dirPrefix, cwd, bufLine, bufferLineNumber, previewStore, links);
+      candidates.push(...relativePathCandidates(text, dirPrefix, cwd));
 
-      callback(links.length > 0 ? links : undefined);
+      void selectExisting(candidates).then((selected) => {
+        const links: ILink[] = [];
+
+        for (const candidate of selected) {
+          pushLink(
+            bufLine,
+            bufferLineNumber,
+            candidate.linkStart,
+            candidate.linkEnd,
+            pathTargetToString(candidate.selection),
+            (event) => {
+              if (!event.shiftKey) return;
+              previewStore.requestSelect(candidate.selection, candidate.lineNumber);
+            },
+            links,
+          );
+        }
+
+        callback(links.length > 0 ? links : undefined);
+      });
     },
   };
 }
 
+/** 現在行に重なるパス候補。絶対パス経路と相対パス経路で共通 */
+export interface PathCandidate {
+  /** 現在行を起点 (0-based) とした string 範囲 */
+  linkStart: number;
+  linkEnd: number;
+  /** 実在確認に使う絶対パス */
+  absPath: string;
+  selection: PathTarget;
+  lineNumber?: number;
+}
+
 /**
- * 結合テキストから絶対パスを検出してリンクを作成する。
- * currentLineOffset/currentLineLength で現在行の範囲を指定し、
- * パスが現在行に重なる場合のみリンク化する。
+ * テキストから絶対パス候補を集め、現在行に重なるものだけ返す。
+ * currentLineOffset / currentLineLength で現在行の範囲を指定する。
  */
-function findAbsolutePathLinks(
-  joinedText: string,
+function absolutePathCandidates(
+  text: string,
   currentLineOffset: number,
   currentLineLength: number,
   dirPrefix: string,
   homeDir: string,
-  bufLine: IBufferLine,
-  lineNumber: number,
-  previewStore: ReturnType<typeof usePreviewStore>,
-  links: ILink[],
-): void {
-  const matches = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
+): PathCandidate[] {
+  const candidates: PathCandidate[] = [];
 
-  for (const match of matches) {
+  for (const match of findAbsolutePathMatches(text, dirPrefix, homeDir)) {
     const clipped = clipMatchToCurrentLine(match, currentLineOffset, currentLineLength);
     if (!clipped) continue;
 
-    pushLink(
-      bufLine,
-      lineNumber,
-      clipped.linkStart,
-      clipped.linkEnd,
-      pathTargetToString(match.selection),
-      (event) => {
-        if (!event.shiftKey) return;
-        previewStore.requestSelect(match.selection, match.lineNumber);
-      },
-      links,
-    );
+    candidates.push({
+      linkStart: clipped.linkStart,
+      linkEnd: clipped.linkEnd,
+      absPath: absPathOf(match.selection, dirPrefix),
+      selection: match.selection,
+      lineNumber: match.lineNumber,
+    });
   }
+
+  return candidates;
+}
+
+/** 候補の実在を問い合わせ、選別して返す */
+async function selectExisting(candidates: PathCandidate[]): Promise<PathCandidate[]> {
+  if (candidates.length === 0) return [];
+
+  const absolutePaths = candidates.map((c) => c.absPath);
+  const stat = await tryCatch(rpcFsStatAbsolute({ absolutePaths }));
+  if (!stat.ok) {
+    console.error(`[filePathLinkProvider] fsStatAbsolute failed: ${stat.error}`);
+    return [];
+  }
+
+  const selected = selectBestCandidates(candidates, stat.value.exists);
+  // 候補はあったのに 1 つも実在しないと、リンクが無音で消える。検出は当たっているのに
+  // 解決先が誤っているケースと区別できるよう、落ちた候補を残す
+  if (selected.length === 0) {
+    console.error(`[filePathLinkProvider] no candidate exists: ${absolutePaths.join(" ")}`);
+  }
+  return selected;
+}
+
+/**
+ * 実在する候補だけを残し、範囲が重なるものは 1 つに絞る。
+ *
+ * 優先は「行の上でより広く覆うもの」、同率なら「解決先のパスが長いもの」。前者は絶対パスと
+ * 相対パスの競合を決める（`/Users/me/src/x.ts` は `src/x.ts` を含む）。後者は結合テキストと
+ * 現在行の競合を決める（覆う範囲は同じで、結合が正しければ解決先が行をまたいで長くなる）。
+ *
+ * export は test 可能性のためであり、feature 内部の他モジュールから再利用する想定はない
+ * （`clipMatchToCurrentLine` と同じ規律）。
+ */
+export function selectBestCandidates(
+  candidates: PathCandidate[],
+  exists: boolean[],
+): PathCandidate[] {
+  const existing = candidates
+    .filter((_, i) => exists[i])
+    .sort(
+      (a, b) =>
+        b.linkEnd - b.linkStart - (a.linkEnd - a.linkStart) || b.absPath.length - a.absPath.length,
+    );
+
+  const selected: PathCandidate[] = [];
+  for (const candidate of existing) {
+    if (selected.some((s) => overlapsCandidate(s, candidate))) continue;
+    selected.push(candidate);
+  }
+
+  return selected;
+}
+
+/** 現在行内の string 範囲が重なるか */
+function overlapsCandidate(a: PathCandidate, b: PathCandidate): boolean {
+  return a.linkStart < b.linkEnd && b.linkStart < a.linkEnd;
 }
 
 /**
@@ -168,45 +243,36 @@ function pushLink(
   });
 }
 
-/** 相対パスを検出してリンクを作成する */
-function findRelativePathLinks(
+/** 現在行のテキストから相対パス候補を集める */
+function relativePathCandidates(
   text: string,
   dirPrefix: string,
   cwd: string | undefined,
-  bufLine: IBufferLine,
-  lineNumber: number,
-  previewStore: ReturnType<typeof usePreviewStore>,
-  links: ILink[],
-): void {
-  for (const { path: relPath, startIdx, endIdx, lineNumber: lineNum } of findRelativePaths(text)) {
-    // 直前の文字が ~ / なら絶対パスの一部（findAbsolutePathLinks で処理済み）
+): PathCandidate[] {
+  const candidates: PathCandidate[] = [];
+
+  for (const { path: relPath, startIdx, endIdx, lineNumber } of findRelativePaths(text)) {
+    // 直前の文字が ~ / なら絶対パスの一部（絶対パス候補として処理済み）
     const preceding = startIdx > 0 ? text[startIdx - 1] : "";
     if (preceding === "~" || preceding === "/") continue;
 
-    // 絶対パスリンクと重複する場合はスキップ
-    if (links.some((l) => overlapsRange(l, startIdx, endIdx, lineNumber))) {
-      continue;
-    }
-
-    const startCellX = mapStringIndexToCellX(bufLine, startIdx);
-    const endCellX = mapStringIndexToCellX(bufLine, endIdx - 1);
-
-    if (startCellX === -1 || endCellX === -1) continue;
-
-    const target = resolveRelativePathTarget(relPath, dirPrefix, cwd);
-
-    links.push({
-      range: {
-        start: { x: startCellX + 1, y: lineNumber },
-        end: { x: endCellX + 1, y: lineNumber },
-      },
-      text: pathTargetToString(target),
-      activate: (event) => {
-        if (!event.shiftKey) return;
-        previewStore.requestSelect(target, lineNum);
-      },
+    const selection = resolveRelativePathTarget(relPath, dirPrefix, cwd);
+    candidates.push({
+      linkStart: startIdx,
+      linkEnd: endIdx,
+      absPath: absPathOf(selection, dirPrefix),
+      selection,
+      lineNumber,
     });
   }
+
+  return candidates;
+}
+
+/** 実在確認に使う絶対パスを求める */
+function absPathOf(selection: PathTarget, dirPrefix: string): string {
+  if (selection.kind === "absolute") return selection.absPath;
+  return `${dirPrefix}${selection.relPath}`;
 }
 
 /**
@@ -233,13 +299,6 @@ export function resolveRelativePathTarget(
     return { kind: "worktreeRelative", relPath: absPath.slice(dirPrefix.length) };
   }
   return { kind: "absolute", absPath };
-}
-
-/** リンクの範囲が指定区間と重複するか判定する（同一行のみ） */
-function overlapsRange(link: ILink, startIdx: number, endIdx: number, lineNumber: number): boolean {
-  const { start, end } = link.range;
-  if (start.y !== lineNumber || end.y !== lineNumber) return false;
-  return startIdx < end.x && endIdx > start.x - 1;
 }
 
 /**

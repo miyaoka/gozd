@@ -77,6 +77,36 @@ const STACK_ENTRY_LIMIT = 50;
 /** trunk に最も近い entry の position。 */
 const STACK_BOTTOM_POSITION = 1;
 
+/**
+ * 消費した point を応答自身に載せる field。connection ではないため cost に乗らず、常設できる。
+ */
+export const RATE_LIMIT_FIELD = "rateLimit { cost remaining }";
+
+/**
+ * 観察ログの 1 行を組み立てる。
+ *
+ * `cost` / `remaining` を 0 に倒さない。契約は docs/git.md の「観察可能性」節。
+ */
+export function formatGhCostLine(parsed: unknown, tag: string): string {
+  const cost = getPath(parsed, "data", "rateLimit", "cost");
+  const remaining = getPath(parsed, "data", "rateLimit", "remaining");
+  if (typeof cost !== "number" || typeof remaining !== "number") {
+    return `[${tag}] rateLimit missing in response`;
+  }
+  return `[${tag}] cost=${cost} remaining=${remaining}`;
+}
+
+/** 応答に載った消費量を観察ログへ流す。 */
+function logGhCost(tag: string, rawJson: string): void {
+  const parsed = tryCatch(() => JSON.parse(rawJson) as unknown);
+  if (!parsed.ok) {
+    // 読めなかったのは rateLimit ではなく応答全体。直後の parse も必ず失敗する
+    console.error(`[${tag}] response unreadable: ${parsed.error}`);
+    return;
+  }
+  console.error(formatGhCostLine(parsed.value, tag));
+}
+
 // `owner { login }` は廃止（fork 判定にはローカルで parse した owner を使う）。
 // `assignees` / `reviewRequests` は PR picker の filter 機能で参照するため一覧 query に含める。
 //
@@ -89,8 +119,9 @@ const STACK_BOTTOM_POSITION = 1;
 //
 // `stack.entries` の cost 増は **+1 固定**で、`first` の値にも PR 件数にも stack の実在数にも
 // 依存しない。cost を理由に `STACK_ENTRY_LIMIT` を下げても効果は無い。
-const PR_QUERY = `
+export const PR_QUERY = `
 query($owner: String!, $repo: String!, $limit: Int!) {
+  ${RATE_LIMIT_FIELD}
   repository(owner: $owner, name: $repo) {
     pullRequests(first: $limit, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
@@ -121,8 +152,9 @@ query($owner: String!, $repo: String!, $limit: Int!) {
   }
 }`;
 
-const ISSUE_QUERY = `
+export const ISSUE_QUERY = `
 query($owner: String!, $repo: String!, $limit: Int!) {
+  ${RATE_LIMIT_FIELD}
   repository(owner: $owner, name: $repo) {
     issues(first: $limit, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
@@ -146,6 +178,7 @@ export async function prList(dir: string): Promise<GhResult<GitPullRequest[]>> {
   const { owner, repo } = identity.value;
   const raw = await runGhCategorized(graphqlArgs(owner, repo, PR_QUERY), dir);
   if (!raw.ok) return raw;
+  logGhCost("prList", raw.value);
   const nodes = nodesAt(raw.value, "pullRequests");
   if (nodes === undefined) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
@@ -231,6 +264,7 @@ export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
   const { owner, repo } = identity.value;
   const raw = await runGhCategorized(graphqlArgs(owner, repo, ISSUE_QUERY), dir);
   if (!raw.ok) return raw;
+  logGhCost("issueList", raw.value);
   const nodes = nodesAt(raw.value, "issues");
   if (nodes === undefined) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
@@ -365,6 +399,7 @@ function myWorkWebLinks(search: MyWorkSearch): GitMyWorkWebLink[] {
  */
 export const MY_WORK_QUERY = `
 query($limit: Int!, ${GIT_MY_WORK_AXIS_KEYS.map((key) => `$${key}: String!`).join(", ")}) {
+  ${RATE_LIMIT_FIELD}
 ${GIT_MY_WORK_AXIS_KEYS.map(
   (key) => `  ${key}: search(type: ISSUE, query: $${key}, first: $limit) {
     issueCount
@@ -418,6 +453,7 @@ export async function myWork(): Promise<GhResult<MyWork>> {
   ];
   const raw = await runGhCategorized(args, homedir());
   if (!raw.ok) return raw;
+  logGhCost("myWork", raw.value);
 
   const parsed = tryCatch(() => JSON.parse(raw.value) as unknown);
   if (!parsed.ok) {

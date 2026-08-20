@@ -1,7 +1,11 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import {
   emptyMyWork,
+  formatGhCostLine,
+  ISSUE_QUERY,
   MY_WORK_QUERY,
+  PR_QUERY,
+  RATE_LIMIT_FIELD,
   parseGitHubOwnerRepo,
   parseMyWorkNodes,
   parseMyWorkResponse,
@@ -488,5 +492,43 @@ describe("emptyMyWork", () => {
     const empty = emptyMyWork();
     expect(empty.authoredPrs).not.toBe(empty.authoredIssues);
     expect(empty.authoredPrs.items).not.toBe(empty.authoredIssues.items);
+  });
+});
+
+describe("formatGhCostLine", () => {
+  const response = (rateLimit: unknown) => ({ data: { rateLimit } });
+
+  test("消費量と残量を tag 付きで並べる", () => {
+    expect(formatGhCostLine(response({ cost: 3, remaining: 4961 }), "prList")).toBe(
+      "[prList] cost=3 remaining=4961",
+    );
+  });
+
+  test("残量 0 は観測できた値なので、そのまま出す", () => {
+    expect(formatGhCostLine(response({ cost: 1, remaining: 0 }), "prList")).toBe(
+      "[prList] cost=1 remaining=0",
+    );
+  });
+
+  test.each([
+    ["rateLimit が null", response(null)],
+    ["rateLimit が不在", response(undefined)],
+    ["remaining が欠けている", response({ cost: 3 })],
+    ["cost が number でない", response({ cost: "3", remaining: 1 })],
+    ["応答がオブジェクトですらない", "not an object"],
+  ])("%s なら値を作らず、取れなかったことを出す", (_name, parsed) => {
+    expect(formatGhCostLine(parsed, "prList")).toBe("[prList] rateLimit missing in response");
+  });
+});
+
+describe("GraphQL query の rateLimit", () => {
+  // fixture は data.rateLimit を直接持つため、query 側の selection から落ちても
+  // formatGhCostLine のテストは落ちない。消費を観測できる状態の結合点をここで固定する
+  test.each([
+    ["PR_QUERY", PR_QUERY],
+    ["ISSUE_QUERY", ISSUE_QUERY],
+    ["MY_WORK_QUERY", MY_WORK_QUERY],
+  ])("%s は rateLimit を要求する", (_name, query) => {
+    expect(query).toContain(RATE_LIMIT_FIELD);
   });
 });

@@ -96,3 +96,41 @@ export function computeDisplayRefs(
 
   return result;
 }
+
+/**
+ * ref バッジが PR を引くときの branch 名。tag は branch ではないので undefined。
+ *
+ * PR は branch 名 (`headRefName`) に紐づくので、local と origin は同じ名前へ寄せる。ref が
+ * どちらの側かは PR の有無と無関係。
+ */
+export function prLookupBranch(displayRef: DisplayRef): string | undefined {
+  if (displayRef.type === "tag") return undefined;
+  if (displayRef.type === "remote") return displayRef.label.slice("origin/".length);
+  return displayRef.label;
+}
+
+/** 種別の追加を型で強制するためのテーブル。意味は `hasOriginRef` の doc。 */
+const HAS_ORIGIN_REF: Record<DisplayRef["type"], boolean> = {
+  synced: true,
+  remote: true,
+  local: false,
+  tag: false,
+};
+
+/**
+ * この ref と同じ branch の `origin/<branch>` が、同じ commit に載っているか。判定は ref 単位で、
+ * 同じ行にある別の ref は見ない。`synced` は local と origin が同一 commit に居ることの定義その
+ * もの、`remote` は origin ref 自身。`local` は載っていない状態で、**未 push と、origin が別
+ * commit に居るという 2 系統を含む**。
+ *
+ * CI の総合結果は **PR head ref の commit** に対する値なので、origin が載っている ref にだけ
+ * 描く。それ以外に描くと「head ではない commit の CI 結果」という存在しない事実になる（`local` には
+ * origin より後ろに居る = push 済みの状態も含まれるので、理由は push の有無ではない）。
+ *
+ * **origin ref が PR head を指しているかまでは見ない。**origin ref も PR の取得結果もそれぞれ
+ * 取得時点のスナップショットなので、branch の指す先が動いた直後は両者がずれ、その間は別 commit
+ * の CI が描かれる。commit で判定するには PR head の OID が要る。
+ */
+export function hasOriginRef(displayRef: DisplayRef): boolean {
+  return HAS_ORIGIN_REF[displayRef.type];
+}

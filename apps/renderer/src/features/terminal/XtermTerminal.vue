@@ -33,9 +33,9 @@ import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { LINK_OPEN_FAILED_MESSAGE, openExternal } from "../../shared/rpc";
 import { createCwdTracker } from "./cwdTracker";
+import { createOsc8Normalizer } from "./normalizeOsc8";
 import { parseOsc7Cwd } from "./parseOsc7Cwd";
 import { rpcPtyResize, rpcPtyWrite } from "./rpc";
-import { stripTrailingPunctuation } from "./stripTrailingPunctuation";
 import {
   currentTheme,
   terminalFontFamily,
@@ -286,10 +286,7 @@ onMounted(async () => {
   // 行末まで飲み込む（terminalUrlRegex.ts）
   terminal.loadAddon(new WebLinksAddon(openLink, { urlRegex: TERMINAL_URL_REGEX }));
   terminal.options.linkHandler = {
-    // OSC 8 は出力側が URI を宣言する契約だが、文中の URL を OSC 8 化するプログラムは終端を
-    // 誤り後続の約物を含めることがある。下線範囲は ILinkHandler から変えられないため、
-    // 開く URL だけを正す（stripTrailingPunctuation.ts）
-    activate: (event, text) => openLink(event, stripTrailingPunctuation(text)),
+    activate: (event, text) => openLink(event, text),
   };
 
   // zsh の chpwd hook（_gozd_osc7_cwd）が送る OSC 7 からシェルの cwd 遷移を
@@ -434,12 +431,16 @@ onMounted(async () => {
   });
   writeParsedDisposer = () => writeParsedSubscription.dispose();
 
+  // 出力側が範囲を誤って宣言した OSC 8 を、xterm に届く前に正しい終端へ書き直す
+  // （宣言された範囲がそのまま下線になり、受け取ってからは直せないため）
+  const normalizeOsc8 = createOsc8Normalizer();
+
   detachDisposer = terminalStore.attachTerminal(props.leafId, (data) => {
     captureViewportIntent();
     // write 前にフラグを立てる。write() callback と onWriteParsed の発火順序は
     // API 仕様で担保されていないため、callback ではなくここで立てる
     parsedSinceLastRestore = true;
-    term.write(data);
+    term.write(normalizeOsc8(data));
   });
 
   // xterm → PTY

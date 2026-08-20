@@ -77,9 +77,23 @@ describe("collectJoinCandidates", () => {
   test("現在行のオフセットは結合範囲ごとに正しい", () => {
     const head = "/tmp/head";
     const buf = mockBuffer([{ text: head }, { text: "/tail.txt" }]);
-    const candidates = collectJoinCandidates(buf, 1);
-    for (const c of candidates) {
+    for (const c of collectJoinCandidates(buf, 1)) {
       expect(c.text.slice(c.currentLineOffset)).toBe("/tail.txt");
     }
+  });
+
+  test("インデント継続でも、落とした幅を戻せば raw 行と一致する", () => {
+    const current = "  ng/file.ts";
+    const buf = mockBuffer([{ text: "/Users/me/proj/src/very/lo" }, { text: current }]);
+    for (const c of collectJoinCandidates(buf, 1)) {
+      expect(c.text.slice(c.currentLineOffset)).toBe(current.slice(c.currentLineTrimmed));
+    }
+  });
+
+  test("落としたインデント幅を報告する（リンク範囲を raw 行へ戻すため）", () => {
+    const buf = mockBuffer([{ text: "/Users/me/proj/src/very/lo" }, { text: "  ng/file.ts" }]);
+    const joined = collectJoinCandidates(buf, 1);
+    // 現在行のみの範囲は trim されない。上と結合した範囲だけインデントが落ちる
+    expect(joined.map((c) => c.currentLineTrimmed).sort()).toEqual([0, 2]);
   });
 });

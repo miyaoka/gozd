@@ -1,42 +1,43 @@
+import { BRACKET_PARTNER, NON_ASCII_PUNCTUATION, TRAILING_EXCLUDED_ASCII } from "./urlBoundary";
+
 /**
- * URL 末尾に紛れ込んだ約物を落とす。OSC 8 ハイパーリンクの URI に適用する。
+ * URL 末尾に紛れ込んだ約物を落とす。OSC 8 ハイパーリンクの URI が信頼できるかの判定に使う
+ * （落とした結果が元と違えば、その宣言は範囲を誤っている）。
  *
  * OSC 8 は出力側が URI を宣言する契約だが、文中の URL を検出して OSC 8 化するプログラムは
  * 終端の判定を誤り、`http://example.com)` のように後続の約物を URI へ含めることがある。
- * 宣言をそのまま開くと存在しない URL に飛ぶため、開く直前に落とす。
  *
- * 閉じ括弧は URL 内に対応する開き括弧が無いときだけ落とす。`…/Rust_(video_game)` のような
- * 括弧を含む URL は RFC 3986 上も合法で、これを壊さない。
+ * 括弧は対応が取れていないときだけ落とす。`…/Rust_(video_game)` のような括弧を含む URL は
+ * RFC 3986 上も合法で、これを誤りと判定しない。判定は開き / 閉じで対称に行う。
  */
-
-/** 閉じ括弧 → 対応する開き括弧 */
-const CLOSING_TO_OPENING: Record<string, string> = {
-  ")": "(",
-  "]": "[",
-  "}": "{",
-};
-
-/** URL の末尾に意味を持たない ASCII 約物 */
-const STRIPPABLE_ASCII = new Set([".", ",", ";", ":", "!", "?", "'", '"']);
-
-/** 非 ASCII の約物。全角括弧や句読点が該当する */
-const NON_ASCII_PUNCTUATION = /[[\p{P}\p{S}]--[\x00-\x7F]]/v;
-
-const countChar = (text: string, char: string): number =>
-  [...text].filter((c) => c === char).length;
-
-/** 末尾 1 文字が URL の一部でないと判定できるか */
-const isStrippable = (url: string, char: string): boolean => {
-  const opening = CLOSING_TO_OPENING[char];
-  // 対応する開き括弧より閉じ括弧が多いなら、その閉じ括弧は URL の外側のもの
-  if (opening !== undefined) return countChar(url, opening) < countChar(url, char);
-  if (STRIPPABLE_ASCII.has(char)) return true;
-  return NON_ASCII_PUNCTUATION.test(char);
-};
-
 export function stripTrailingPunctuation(url: string): string {
-  const last = url.at(-1);
-  if (last === undefined) return url;
-  if (!isStrippable(url, last)) return url;
-  return stripTrailingPunctuation(url.slice(0, -1));
+  // 括弧の数は末尾を削っても変わらないため、先に 1 度だけ数える
+  const counts = countBrackets(url);
+
+  let end = url.length;
+  while (end > 0) {
+    const char = url[end - 1];
+    if (!isStrippableEnd(char, counts)) break;
+    if (char in BRACKET_PARTNER) counts.set(char, (counts.get(char) ?? 0) - 1);
+    end--;
+  }
+
+  return url.slice(0, end);
+}
+
+/** 末尾 1 文字を URL の外側と判定できるか */
+function isStrippableEnd(char: string, counts: ReadonlyMap<string, number>): boolean {
+  const partner = BRACKET_PARTNER[char];
+  // 相方より多い括弧は対応が取れていない＝ URL の外側のもの
+  if (partner !== undefined) return (counts.get(partner) ?? 0) < (counts.get(char) ?? 0);
+  return TRAILING_EXCLUDED_ASCII.has(char) || NON_ASCII_PUNCTUATION.test(char);
+}
+
+/** 括弧の出現回数を数える */
+function countBrackets(url: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const char of url) {
+    if (char in BRACKET_PARTNER) counts.set(char, (counts.get(char) ?? 0) + 1);
+  }
+  return counts;
 }

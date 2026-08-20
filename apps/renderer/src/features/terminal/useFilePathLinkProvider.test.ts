@@ -296,7 +296,7 @@ describe("findAbsolutePathMatches", () => {
       ]);
     });
 
-    test("`/etc` のような単一セグメントも absolute として返す（実在検証は契約外）", () => {
+    test("`/etc` のような単一セグメントも absolute として返す（実在確認は呼び出し側の責務）", () => {
       const matches = findAbsolutePathMatches("cd /etc", dirPrefix, homeDir);
       expect(matches[0]?.selection).toEqual({ kind: "absolute", absPath: "/etc" });
     });
@@ -551,6 +551,10 @@ describe("clipMatchToCurrentLine", () => {
   });
 });
 
+/** 候補と実在フラグを並びで対応させて Map を作る */
+const existsMap = (candidates: PathCandidate[], flags: boolean[]): Map<string, boolean> =>
+  new Map(candidates.map((c, i) => [c.absPath, flags[i]]));
+
 describe("selectBestCandidates", () => {
   const candidate = (linkStart: number, absPath: string): PathCandidate => ({
     linkStart,
@@ -559,34 +563,44 @@ describe("selectBestCandidates", () => {
     selection: { kind: "absolute", absPath },
   });
 
-  test("範囲が重なるなら実在する長いほうを採る（折り返しが正しく結合されたケース）", () => {
+  test("覆う幅が同じなら解決先の長いほうを採る（折り返しが正しく結合されたケース）", () => {
     const joined = candidate(0, "/tmp/dir/8990ba67/scratchpad/x.html");
     const lineOnly = candidate(0, "/tmp/dir/8");
-    expect(selectBestCandidates([joined, lineOnly], [true, true])).toEqual([joined]);
+    expect(
+      selectBestCandidates([joined, lineOnly], existsMap([joined, lineOnly], [true, true])),
+    ).toEqual([joined]);
   });
 
   test("結合版が実在しなければ現在行版を採る（結合しすぎたケース）", () => {
     const joined = candidate(0, "/Users/me/a.txtnext");
     const lineOnly = candidate(0, "/Users/me/a.txt");
-    expect(selectBestCandidates([joined, lineOnly], [false, true])).toEqual([lineOnly]);
+    expect(
+      selectBestCandidates([joined, lineOnly], existsMap([joined, lineOnly], [false, true])),
+    ).toEqual([lineOnly]);
   });
 
   test("どちらも実在しなければ候補を残さない", () => {
     const joined = candidate(0, "/nope/aaa");
     const lineOnly = candidate(0, "/nope/a");
-    expect(selectBestCandidates([joined, lineOnly], [false, false])).toEqual([]);
+    expect(
+      selectBestCandidates([joined, lineOnly], existsMap([joined, lineOnly], [false, false])),
+    ).toEqual([]);
   });
 
   test("開始位置が違う候補はそれぞれ残る", () => {
     const first = candidate(0, "/tmp/a.txt");
     const second = candidate(20, "/tmp/b.txt");
-    expect(selectBestCandidates([first, second], [true, true])).toEqual([first, second]);
+    expect(selectBestCandidates([first, second], existsMap([first, second], [true, true]))).toEqual(
+      [first, second],
+    );
   });
 
   test("長いほうが実在せず短いほうが実在するなら短いほうを採る", () => {
     const longer = candidate(5, "/tmp/a.txt.bak");
     const shorter = candidate(5, "/tmp/a.txt");
-    expect(selectBestCandidates([longer, shorter], [false, true])).toEqual([shorter]);
+    expect(
+      selectBestCandidates([longer, shorter], existsMap([longer, shorter], [false, true])),
+    ).toEqual([shorter]);
   });
 });
 
@@ -604,7 +618,9 @@ describe("selectBestCandidates（相対パスとの競合）", () => {
       absPath: "/Users/me/repo/src/x.ts",
       selection: { kind: "worktreeRelative", relPath: "src/x.ts" },
     };
-    expect(selectBestCandidates([relative, absolute], [true, true])).toEqual([absolute]);
+    expect(
+      selectBestCandidates([relative, absolute], existsMap([relative, absolute], [true, true])),
+    ).toEqual([absolute]);
   });
 
   test("実在しない相対パス断片は落とす（折り返しで切れたケース）", () => {
@@ -614,6 +630,6 @@ describe("selectBestCandidates（相対パスとの競合）", () => {
       absPath: "/Users/me/repo/tchpad/rfc3986.txt",
       selection: { kind: "worktreeRelative", relPath: "tchpad/rfc3986.txt" },
     };
-    expect(selectBestCandidates([fragment], [false])).toEqual([]);
+    expect(selectBestCandidates([fragment], existsMap([fragment], [false]))).toEqual([]);
   });
 });

@@ -24,10 +24,10 @@ import type {
   FsReadDirResponse,
   FsReadFileAbsoluteRequest,
   FsReadFileAbsoluteResponse,
+  FsExistsAbsoluteRequest,
+  FsExistsAbsoluteResponse,
   FsReadFileRequest,
   FsReadFileResponse,
-  FsStatAbsoluteRequest,
-  FsStatAbsoluteResponse,
   FsStatRequest,
   FsStatResponse,
   FsUnwatchAllResponse,
@@ -606,9 +606,9 @@ function handleFsStat(body: unknown): unknown {
   return stat(req.dir, req.path) satisfies FsStatResponse;
 }
 
-function handleFsStatAbsolute(body: unknown): unknown {
-  const req = body as FsStatAbsoluteRequest;
-  return { exists: existsAbsolute(req.absolutePaths) } satisfies FsStatAbsoluteResponse;
+function handleFsExistsAbsolute(body: unknown): unknown {
+  const req = body as FsExistsAbsoluteRequest;
+  return { exists: existsAbsolute(req.absolutePaths) } satisfies FsExistsAbsoluteResponse;
 }
 
 async function handleGitStatus(body: unknown): Promise<unknown> {
@@ -1253,7 +1253,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/fs/writeFile", handleFsWriteFile],
   ["/fs/writeFileAbsolute", handleFsWriteFileAbsolute],
   ["/fs/stat", handleFsStat],
-  ["/fs/statAbsolute", handleFsStatAbsolute],
+  ["/fs/existsAbsolute", handleFsExistsAbsolute],
   ["/fs/watch", handleFsWatch],
   ["/fs/unwatch", handleFsUnwatch],
   ["/fs/unwatchAll", handleFsUnwatchAll],

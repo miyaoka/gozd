@@ -1,3 +1,10 @@
+import {
+  INNER_EXCLUDED_ASCII,
+  NON_ASCII_PUNCTUATION_SOURCE,
+  TRAILING_EXCLUDED_ASCII,
+  toClassSource,
+} from "./urlBoundary";
+
 /**
  * ターミナル出力中の URL を検出する正規表現。`WebLinksAddon` の `urlRegex` に渡す。
  *
@@ -13,21 +20,35 @@
  * `…/Rust_(video_game)` を `…/Rust_` で切ると別のページが開いて誤りに気づけない。
  */
 
-/** 非 ASCII の約物。`v` フラグの差集合で ASCII 側を落とす（`/` `-` `.` 等は URL に必要） */
-const NON_ASCII_PUNCTUATION = String.raw`[[\p{P}\p{S}]--[\x00-\x7F]]`;
+/** URL の内部に来られない文字。空白と、URL を囲う / シェルで意味を持つ記号 */
+const EXCLUDED =
+  String.raw`\s` +
+  toClassSource(INNER_EXCLUDED_ASCII) +
+  toClassSource("[]") +
+  NON_ASCII_PUNCTUATION_SOURCE;
 
-/** URL の内部に来られない文字 */
-const EXCLUDED = String.raw`\s"'!*\(\)\{\}\|\\^<>\`` + NON_ASCII_PUNCTUATION;
+/** URL の末尾に来られない文字。終端の集合に、対応の取れない括弧と空白を足す */
+const EXCLUDED_AT_END =
+  String.raw`\s` +
+  toClassSource(TRAILING_EXCLUDED_ASCII) +
+  toClassSource("()[]{}") +
+  NON_ASCII_PUNCTUATION_SOURCE;
 
-/** URL の末尾に来られない文字。文末の約物と、URL を囲うのに使われる括弧を落とす */
-const EXCLUDED_AT_END = String.raw`\s"':,.!?\{\}\|\\^~\[\]\`\(\)<>` + NON_ASCII_PUNCTUATION;
-
-/** URL 内で開いて閉じた括弧の一区切り。入れ子は扱わない */
-const BALANCED_PAREN = String.raw`\([^\s\(\)]*\)`;
+/**
+ * URL 内で開いて閉じた括弧の一区切り。入れ子は扱わない。
+ *
+ * 3 種すべてを扱うのは、括弧の判定を経路間で揃えるため（`urlBoundary.ts`）。角括弧は
+ * IPv6 リテラル `http://[::1]/` でも現れる。
+ */
+const BALANCED_BRACKET = [
+  String.raw`\([^\s\(\)]*\)`,
+  String.raw`\[[^\s\[\]]*\]`,
+  String.raw`\{[^\s\{\}]*\}`,
+].join("|");
 
 export const TERMINAL_URL_REGEX = new RegExp(
   String.raw`(https?|HTTPS?):[\/]{2}` +
-    String.raw`(?:[^${EXCLUDED}]|${BALANCED_PAREN})*` +
-    String.raw`(?:${BALANCED_PAREN}|[^${EXCLUDED_AT_END}])`,
+    String.raw`(?:[^${EXCLUDED}]|${BALANCED_BRACKET})*` +
+    String.raw`(?:${BALANCED_BRACKET}|[^${EXCLUDED_AT_END}])`,
   "v",
 );

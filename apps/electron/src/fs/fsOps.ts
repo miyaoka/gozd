@@ -120,7 +120,8 @@ export function stat(dir: string, path: string): FsStatResult {
  */
 export function existsAbsolute(absolutePaths: string[]): boolean[] {
   return absolutePaths.map((path) => {
-    if (!isAbsolute(path)) return false;
+    // 非絶対パスは first-party 呼び出しのバグ。false に倒すと「実在しない」と区別できない
+    if (!isAbsolute(path)) throw new Error(`notAbsolutePath: ${path}`);
     return tryCatch(() => statSync(path)).ok;
   });
 }

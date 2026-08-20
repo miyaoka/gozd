@@ -140,12 +140,12 @@ export interface FsStatResponse {
   modifiedAt: string;
 }
 
-/** fsStatAbsolute: 絶対パスの存在確認（dir 外を許可）。ターミナルのパスリンクが、検出した
+/** fsExistsAbsolute: 絶対パスの存在確認（dir 外を許可）。ターミナルのパスリンクが、検出した
  * 候補を実在で選別するために使う。path traversal の責任は呼び出し側に移譲する。 */
-export interface FsStatAbsoluteRequest {
+export interface FsExistsAbsoluteRequest {
   absolutePaths: string[];
 }
-export interface FsStatAbsoluteResponse {
+export interface FsExistsAbsoluteResponse {
   /** absolutePaths と同じ並びで、各パスが存在するか */
   exists: boolean[];
 }

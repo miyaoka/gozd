@@ -2,8 +2,8 @@
 import {
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
-  FsStatAbsoluteRequest,
-  FsStatAbsoluteResponse,
+  FsExistsAbsoluteRequest,
+  FsExistsAbsoluteResponse,
   PtyKillRequest,
   PtyKillResponse,
   PtyResizeRequest,
@@ -29,5 +29,5 @@ export const rpcPtyResize = (req: PtyResizeRequest) => rpc<PtyResizeResponse>("/
 
 export const rpcPtyKill = (req: PtyKillRequest) => rpc<PtyKillResponse>("/pty/kill", req);
 
-export const rpcFsStatAbsolute = (req: FsStatAbsoluteRequest) =>
-  rpc<FsStatAbsoluteResponse>("/fs/statAbsolute", req);
+export const rpcFsExistsAbsolute = (req: FsExistsAbsoluteRequest) =>
+  rpc<FsExistsAbsoluteResponse>("/fs/existsAbsolute", req);

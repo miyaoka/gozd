@@ -1,5 +1,6 @@
 import { tryCatch } from "@gozd/shared";
 import type { IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
+import { logEvent } from "../../shared/debug";
 import { usePreviewStore } from "../preview";
 import {
   joinAbsRel,
@@ -8,7 +9,7 @@ import {
   useWorktreeStore,
   type PathTarget,
 } from "../worktree";
-import { collectJoinCandidates } from "./collectJoinCandidates";
+import { collectJoinCandidates, type JoinedText } from "./collectJoinCandidates";
 import type { CwdTracker } from "./cwdTracker";
 import {
   type AbsolutePathMatch,
@@ -16,7 +17,7 @@ import {
   resolveHomeDir,
 } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
-import { rpcFsStatAbsolute } from "./rpc";
+import { rpcFsExistsAbsolute } from "./rpc";
 
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。
@@ -62,14 +63,7 @@ export function createFilePathLinkProvider(
 
       // 結合範囲を変えた候補をすべて集める（現在行のみの範囲も含む）
       const candidates: PathCandidate[] = collectJoinCandidates(buf, bufferLineNumber - 1).flatMap(
-        (joined) =>
-          absolutePathCandidates(
-            joined.text,
-            joined.currentLineOffset,
-            text.length,
-            dirPrefix,
-            homeDir,
-          ),
+        (joined) => absolutePathCandidates(joined, text.length, dirPrefix, homeDir),
       );
 
       const cwd = cwdTracker.cwdAtLine(bufferLineNumber - 1);
@@ -111,25 +105,28 @@ export interface PathCandidate {
 }
 
 /**
- * テキストから絶対パス候補を集め、現在行に重なるものだけ返す。
- * currentLineOffset / currentLineLength で現在行の範囲を指定する。
+ * 結合テキストから絶対パス候補を集め、現在行に重なるものだけ返す。
+ *
+ * 範囲は raw 行（`translateToString` した現在行）を起点に返す。結合でインデントを落として
+ * いる場合、結合テキスト上の index は落とした幅だけ手前にずれているため、戻して合わせる。
  */
 function absolutePathCandidates(
-  text: string,
-  currentLineOffset: number,
-  currentLineLength: number,
+  joined: JoinedText,
+  rawLineLength: number,
   dirPrefix: string,
   homeDir: string,
 ): PathCandidate[] {
   const candidates: PathCandidate[] = [];
+  // 結合テキスト中で現在行が占める長さ。インデントを落とした分だけ raw より短い
+  const currentLineLength = rawLineLength - joined.currentLineTrimmed;
 
-  for (const match of findAbsolutePathMatches(text, dirPrefix, homeDir)) {
-    const clipped = clipMatchToCurrentLine(match, currentLineOffset, currentLineLength);
+  for (const match of findAbsolutePathMatches(joined.text, dirPrefix, homeDir)) {
+    const clipped = clipMatchToCurrentLine(match, joined.currentLineOffset, currentLineLength);
     if (!clipped) continue;
 
     candidates.push({
-      linkStart: clipped.linkStart,
-      linkEnd: clipped.linkEnd,
+      linkStart: clipped.linkStart + joined.currentLineTrimmed,
+      linkEnd: clipped.linkEnd + joined.currentLineTrimmed,
       absPath: absPathOf(match.selection, dirPrefix),
       selection: match.selection,
       lineNumber: match.lineNumber,
@@ -139,24 +136,59 @@ function absolutePathCandidates(
   return candidates;
 }
 
+/**
+ * 1 hover で実在確認する一意パスの上限。端末出力は untrusted で、行に並ぶパス風トークンの
+ * 数を出力側が決められる。main 側の存在確認は同期呼び出しのため、上限を置かないと
+ * 1 度の hover が main の停止時間を伸ばす。
+ */
+const MAX_VERIFIED_PATHS = 32;
+
 /** 候補の実在を問い合わせ、選別して返す */
 async function selectExisting(candidates: PathCandidate[]): Promise<PathCandidate[]> {
   if (candidates.length === 0) return [];
 
-  const absolutePaths = candidates.map((c) => c.absPath);
-  const stat = await tryCatch(rpcFsStatAbsolute({ absolutePaths }));
+  // 結合範囲が違っても同じパスに解決する候補が多いため、問い合わせは一意なパスに畳む
+  const uniquePaths = [...new Set(candidates.map((c) => c.absPath))];
+  const absolutePaths = uniquePaths.slice(0, MAX_VERIFIED_PATHS);
+  if (uniquePaths.length > absolutePaths.length) {
+    logEvent(
+      "terminal-link",
+      "verify-truncated",
+      "",
+      `unique=${uniquePaths.length} limit=${MAX_VERIFIED_PATHS}`,
+    );
+  }
+
+  const stat = await tryCatch(rpcFsExistsAbsolute({ absolutePaths }));
   if (!stat.ok) {
-    console.error(`[filePathLinkProvider] fsStatAbsolute failed: ${stat.error}`);
+    logEvent("terminal-link", "verify-failed", "", String(stat.error));
     return [];
   }
 
-  const selected = selectBestCandidates(candidates, stat.value.exists);
+  // index ではなくパス自体で引く。候補と応答の並びがずれても無関係なパスに解決しない
+  const existsByPath = new Map(absolutePaths.map((path, i) => [path, stat.value.exists[i]]));
+  const selected = selectBestCandidates(candidates, existsByPath);
+
   // 候補はあったのに 1 つも実在しないと、リンクが無音で消える。検出は当たっているのに
-  // 解決先が誤っているケースと区別できるよう、落ちた候補を残す
-  if (selected.length === 0) {
-    console.error(`[filePathLinkProvider] no candidate exists: ${absolutePaths.join(" ")}`);
-  }
+  // 解決先が誤っているケースと区別できるよう、落ちた候補を残す。
+  // 同じ行への hover は同じ候補集合を繰り返すため、連続する重複は畳む（イベントログは
+  // 全 feature 共有の ring buffer で、高頻度の発火が他チャンネルの記録を押し出す）
+  if (selected.length === 0) logMissingCandidates(absolutePaths);
   return selected;
+}
+
+/** 直近に記録した「実在しなかった候補集合」。連続する同一集合を畳むために持つ */
+let lastMissingKey = "";
+
+/** 候補が 1 つも実在しなかったことを記録する。直前と同じ集合なら畳む */
+function logMissingCandidates(absolutePaths: string[]): void {
+  const key = absolutePaths.join(" ");
+  if (key === lastMissingKey) return;
+  lastMissingKey = key;
+
+  const shown = absolutePaths.slice(0, 3).join(" ");
+  const detail = absolutePaths.length > 3 ? `n=${absolutePaths.length}: ${shown} …` : shown;
+  logEvent("terminal-link", "no-candidate-exists", "", detail);
 }
 
 /**
@@ -171,10 +203,10 @@ async function selectExisting(candidates: PathCandidate[]): Promise<PathCandidat
  */
 export function selectBestCandidates(
   candidates: PathCandidate[],
-  exists: boolean[],
+  existsByPath: ReadonlyMap<string, boolean>,
 ): PathCandidate[] {
   const existing = candidates
-    .filter((_, i) => exists[i])
+    .filter((c) => existsByPath.get(c.absPath) === true)
     .sort(
       (a, b) =>
         b.linkEnd - b.linkStart - (a.linkEnd - a.linkStart) || b.absPath.length - a.absPath.length,
@@ -198,9 +230,10 @@ function overlapsCandidate(a: PathCandidate, b: PathCandidate): boolean {
  * 結合テキスト中の絶対パス match を「現在行の string 範囲」に切り取る。
  * 現在行範囲と一切重ならない match は null を返す。範囲跨ぎは現在行内に収まる部分だけを返す。
  *
- * - currentLineOffset: 結合テキスト中で現在行が始まる string 位置
- * - currentLineLength: 現在行の string 長
- * - 返り値の linkStart / linkEnd: 現在行を起点 (0-based) とした string 範囲
+ * - currentLineOffset: 結合テキスト中で現在行の中身が始まる string 位置
+ * - currentLineLength: 結合テキスト中で現在行が占める長さ（インデントを落とした後の長さ）
+ * - 返り値の linkStart / linkEnd: 結合テキスト上の現在行を起点 (0-based) とした範囲。
+ *   raw 行の index へ戻すのは呼び出し側の責務（落とした幅を足す）
  *
  * export は test 可能性のためであり、feature 内部の他モジュールから再利用する想定はない。
  * 外部 feature からの利用は terminal feature の barrel (`index.ts`) に載せないことで防ぐ。

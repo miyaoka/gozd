@@ -24,6 +24,8 @@ import type {
   FsReadDirResponse,
   FsReadFileAbsoluteRequest,
   FsReadFileAbsoluteResponse,
+  FsExistsAbsoluteRequest,
+  FsExistsAbsoluteResponse,
   FsReadFileRequest,
   FsReadFileResponse,
   FsStatRequest,
@@ -161,6 +163,7 @@ import { isValidPreviewId, pathToPreviewUrl } from "./previewUrl";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import {
+  existsAbsolute,
   readDir,
   readFile,
   readFileAbsolute,
@@ -601,6 +604,11 @@ function handleFsWriteFileAbsolute(body: unknown): unknown {
 function handleFsStat(body: unknown): unknown {
   const req = body as FsStatRequest;
   return stat(req.dir, req.path) satisfies FsStatResponse;
+}
+
+async function handleFsExistsAbsolute(body: unknown): Promise<unknown> {
+  const req = body as FsExistsAbsoluteRequest;
+  return { exists: await existsAbsolute(req.absolutePaths) } satisfies FsExistsAbsoluteResponse;
 }
 
 async function handleGitStatus(body: unknown): Promise<unknown> {
@@ -1245,6 +1253,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/fs/writeFile", handleFsWriteFile],
   ["/fs/writeFileAbsolute", handleFsWriteFileAbsolute],
   ["/fs/stat", handleFsStat],
+  ["/fs/existsAbsolute", handleFsExistsAbsolute],
   ["/fs/watch", handleFsWatch],
   ["/fs/unwatch", handleFsUnwatch],
   ["/fs/unwatchAll", handleFsUnwatchAll],

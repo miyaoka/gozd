@@ -63,6 +63,8 @@ export type {
   FsReadDirResponse,
   FsReadFileAbsoluteRequest,
   FsReadFileAbsoluteResponse,
+  FsExistsAbsoluteRequest,
+  FsExistsAbsoluteResponse,
   FsReadFileRequest,
   FsReadFileResponse,
   FsStatRequest,
@@ -162,6 +164,7 @@ export type {
   WorktreeChangePayload,
   GitStatusChangePayload,
 } from "./gitStatus";
+export { FS_EXISTS_ABSOLUTE_MAX_PATHS } from "./fs";
 export { GIT_PULL_REQUEST_CHECK_STATES } from "./common";
 export { GIT_MY_WORK_AXIS_KEYS, GIT_PULL_REQUEST_REVIEW_DECISIONS } from "./gitOps";
 export { ghRefForIssue, ghRefForPr, ghRefLabel } from "./helpers";

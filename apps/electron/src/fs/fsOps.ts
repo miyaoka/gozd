@@ -6,6 +6,7 @@
 //   renderer は削除ノードとして扱い、エラートーストを出さない規律
 
 import type { FileReadResult, FsReadDirEntry, FsReadDirRealTarget } from "@gozd/rpc";
+import { FS_EXISTS_ABSOLUTE_MAX_PATHS } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import type { Dirent } from "node:fs";
 import {
@@ -18,6 +19,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { stat as statAsync } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { checkIgnore, listGitlinks } from "../git/gitOps";
 import { toWireBytes } from "../wireBytes";
@@ -110,6 +112,32 @@ export function stat(dir: string, path: string): FsStatResult {
     size: link.size,
     modifiedAt: link.mtime.toISOString(),
   };
+}
+
+/**
+ * 絶対パスの存在確認（dir 制約なし）。ターミナルのパスリンクが候補を実在で選別するために使う。
+ *
+ * 1 リンク候補につき数件をまとめて問い合わせるため配列で受ける。存在判定だけを返し、
+ * 種別や size は返さない（選別に要らないものを渡さない）。
+ *
+ * 同期版を使わないのは、問い合わせ対象が端末出力に現れた任意のパスで、応答しないネットワーク
+ * マウント（`/Volumes/...` や File Provider 配下）を含みうるため。1 件の stat が長引いても
+ * main の他の処理（RPC / git / PTY / hook 受付）を止めない。
+ */
+export async function existsAbsolute(absolutePaths: string[]): Promise<boolean[]> {
+  // 呼び出し側も同じ上限で切り詰めるが、境界の内側でも拒む。要求件数を決めるのは
+  // 端末出力に現れたトークンの数であり、呼び出し側の実装だけに委ねない
+  if (absolutePaths.length > FS_EXISTS_ABSOLUTE_MAX_PATHS) {
+    throw new Error(`tooManyPaths: ${absolutePaths.length} > ${FS_EXISTS_ABSOLUTE_MAX_PATHS}`);
+  }
+
+  return Promise.all(
+    absolutePaths.map(async (path) => {
+      // 非絶対パスは first-party 呼び出しのバグ。false に倒すと「実在しない」と区別できない
+      if (!isAbsolute(path)) throw new Error(`notAbsolutePath: ${path}`);
+      return (await tryCatch(statAsync(path))).ok;
+    }),
+  );
 }
 
 export async function readDir(dir: string, path: string): Promise<FsReadDirResult> {

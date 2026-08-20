@@ -1,6 +1,7 @@
 // fsOps の統合テスト。Swift 版 `FSOpsTests.swift` のケースを対で移植し、
 // notFound 規律 / path traversal 拒否 / `.git` 完全一致除外の契約を固定する。
 
+import { FS_EXISTS_ABSOLUTE_MAX_PATHS } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runFixtureGit } from "../testGitFixture";
@@ -17,7 +18,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readDir, readFile, writeFileAbsolute } from "./fsOps";
+import { existsAbsolute, readDir, readFile, writeFileAbsolute } from "./fsOps";
 
 describe("FSOps", () => {
   const tempDirs: string[] = [];
@@ -446,5 +447,59 @@ describe("FSOps", () => {
     const dir = makeTempDir();
     const result = tryCatch(() => writeFileAbsolute(join(dir, "missing", "a.txt"), "x"));
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("existsAbsolute", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("存在するパスと存在しないパスを並びどおりに返す", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gozd-exists-test-"));
+    tempDirs.push(dir);
+    const present = join(dir, "present.txt");
+    writeFileSync(present, "x");
+
+    expect(await existsAbsolute([present, join(dir, "missing.txt"), dir])).toEqual([
+      true,
+      false,
+      true,
+    ]);
+  });
+
+  test("dangling symlink は辿った先が無いので false", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gozd-exists-test-"));
+    tempDirs.push(dir);
+    const link = join(dir, "dangling");
+    symlinkSync(join(dir, "no-such-target"), link);
+
+    expect(await existsAbsolute([link])).toEqual([false]);
+  });
+
+  test("上限を超える件数は throw する（要求件数を呼び出し側だけに委ねない）", async () => {
+    const paths = Array.from(
+      { length: FS_EXISTS_ABSOLUTE_MAX_PATHS + 1 },
+      (_, i) => `/gozd-exists-test-${i}`,
+    );
+    const result = await tryCatch(existsAbsolute(paths));
+    expect(result.ok).toBe(false);
+    expect(String(result.ok ? "" : result.error)).toContain("tooManyPaths");
+  });
+
+  test("上限ちょうどの件数は受け付ける", async () => {
+    const paths = Array.from(
+      { length: FS_EXISTS_ABSOLUTE_MAX_PATHS },
+      (_, i) => `/gozd-exists-test-${i}`,
+    );
+    expect(await existsAbsolute(paths)).toHaveLength(FS_EXISTS_ABSOLUTE_MAX_PATHS);
+  });
+
+  test("非絶対パスは throw する（実在しないと区別できないため）", async () => {
+    const result = await tryCatch(existsAbsolute(["relative/path.txt"]));
+    expect(result.ok).toBe(false);
+    expect(String(result.ok ? "" : result.error)).toContain("notAbsolutePath");
   });
 });

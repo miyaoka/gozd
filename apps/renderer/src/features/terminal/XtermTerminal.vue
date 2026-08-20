@@ -33,6 +33,7 @@ import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { LINK_OPEN_FAILED_MESSAGE, openExternal } from "../../shared/rpc";
 import { createCwdTracker } from "./cwdTracker";
+import { createOsc8Normalizer } from "./normalizeOsc8";
 import { parseOsc7Cwd } from "./parseOsc7Cwd";
 import { rpcPtyResize, rpcPtyWrite } from "./rpc";
 import {
@@ -41,6 +42,7 @@ import {
   terminalFontSize,
   terminalScrollback,
 } from "./terminalConfig";
+import { TERMINAL_URL_REGEX } from "./terminalUrlRegex";
 import { createFilePathLinkProvider } from "./useFilePathLinkProvider";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -280,7 +282,9 @@ onMounted(async () => {
       }
     });
   };
-  terminal.loadAddon(new WebLinksAddon(openLink));
+  // 検出範囲は addon の既定値ではなく gozd 側で決める。既定値は日本語文中の URL を
+  // 行末まで飲み込む（terminalUrlRegex.ts）
+  terminal.loadAddon(new WebLinksAddon(openLink, { urlRegex: TERMINAL_URL_REGEX }));
   terminal.options.linkHandler = {
     activate: (event, text) => openLink(event, text),
   };
@@ -427,12 +431,16 @@ onMounted(async () => {
   });
   writeParsedDisposer = () => writeParsedSubscription.dispose();
 
+  // 出力側が範囲を誤って宣言した OSC 8 を、xterm に届く前に正しい終端へ書き直す
+  // （宣言された範囲がそのまま下線になり、受け取ってからは直せないため）
+  const normalizeOsc8 = createOsc8Normalizer();
+
   detachDisposer = terminalStore.attachTerminal(props.leafId, (data) => {
     captureViewportIntent();
     // write 前にフラグを立てる。write() callback と onWriteParsed の発火順序は
     // API 仕様で担保されていないため、callback ではなくここで立てる
     parsedSinceLastRestore = true;
-    term.write(data);
+    term.write(normalizeOsc8(data));
   });
 
   // xterm → PTY

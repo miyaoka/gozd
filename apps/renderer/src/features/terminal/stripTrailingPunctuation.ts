@@ -16,13 +16,26 @@ export function stripTrailingPunctuation(url: string): string {
 
   let end = url.length;
   while (end > 0) {
-    const char = url[end - 1];
+    const start = lastCodePointStart(url, end);
+    const char = url.slice(start, end);
     if (!isStrippableEnd(char, counts)) break;
     if (char in BRACKET_PARTNER) counts.set(char, (counts.get(char) ?? 0) - 1);
-    end--;
+    end = start;
   }
 
   return url.slice(0, end);
+}
+
+/**
+ * 末尾 1 文字の開始位置。BMP 外の文字はサロゲートペアで表されるため、code unit 単位で
+ * 取ると下位サロゲート単体になり、`\p{P}` / `\p{S}` の判定に掛からない。
+ */
+function lastCodePointStart(text: string, end: number): number {
+  const low = text.charCodeAt(end - 1);
+  if (end < 2 || low < 0xdc00 || low > 0xdfff) return end - 1;
+
+  const high = text.charCodeAt(end - 2);
+  return high >= 0xd800 && high <= 0xdbff ? end - 2 : end - 1;
 }
 
 /** 末尾 1 文字を URL の外側と判定できるか */

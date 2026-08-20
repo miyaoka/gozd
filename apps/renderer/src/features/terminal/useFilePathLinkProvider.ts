@@ -1,3 +1,4 @@
+import { FS_EXISTS_ABSOLUTE_MAX_PATHS } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import type { IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { logEvent } from "../../shared/debug";
@@ -136,26 +137,21 @@ function absolutePathCandidates(
   return candidates;
 }
 
-/**
- * 1 hover で実在確認する一意パスの上限。端末出力は untrusted で、行に並ぶパス風トークンの
- * 数を出力側が決められる。main 側の存在確認は同期呼び出しのため、上限を置かないと
- * 1 度の hover が main の停止時間を伸ばす。
- */
-const MAX_VERIFIED_PATHS = 32;
-
 /** 候補の実在を問い合わせ、選別して返す */
 async function selectExisting(candidates: PathCandidate[]): Promise<PathCandidate[]> {
   if (candidates.length === 0) return [];
 
   // 結合範囲が違っても同じパスに解決する候補が多いため、問い合わせは一意なパスに畳む
+  // 端末出力は untrusted で、行に並ぶパス風トークンの数を出力側が決められる。
+  // 受け側も同じ上限で拒むため、超える要求は送らずここで切り詰める
   const uniquePaths = [...new Set(candidates.map((c) => c.absPath))];
-  const absolutePaths = uniquePaths.slice(0, MAX_VERIFIED_PATHS);
+  const absolutePaths = uniquePaths.slice(0, FS_EXISTS_ABSOLUTE_MAX_PATHS);
   if (uniquePaths.length > absolutePaths.length) {
     logEvent(
       "terminal-link",
       "verify-truncated",
       "",
-      `unique=${uniquePaths.length} limit=${MAX_VERIFIED_PATHS}`,
+      `unique=${uniquePaths.length} limit=${FS_EXISTS_ABSOLUTE_MAX_PATHS}`,
     );
   }
 

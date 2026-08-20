@@ -48,6 +48,30 @@ describe("URL の終端は経路によらず一致する", () => {
     expect(stripTrailingPunctuation(`${base}${char}`)).toBe(base);
   });
 
+  // 終端集合は \p{P} と \p{S} の 2 つからなる。BMP 外について両方を踏む
+  test.each(["\u{1039F}", "\u{11047}", "\u{16E97}"])(
+    "BMP 外の約物（\\p{P}）%s も両経路とも落とす",
+    (char) => {
+      expect(detect(`${base}${char} rest`)).toBe(base);
+      expect(stripTrailingPunctuation(`${base}${char}`)).toBe(base);
+    },
+  );
+
+  test.each(["\u{1F600}", "\u{1F680}", "\u{1F676}"])(
+    "BMP 外の記号（\\p{S}）%s も両経路とも落とす",
+    (char) => {
+      expect(detect(`${base}${char} rest`)).toBe(base);
+      expect(stripTrailingPunctuation(`${base}${char}`)).toBe(base);
+    },
+  );
+
+  test("BMP 外の文字（約物でない）は両経路とも残す", () => {
+    // U+20BB7（CJK 拡張 B の漢字）は Lo なので URL の構成要素として通る
+    const url = `${base}/\u{20BB7}`;
+    expect(detect(`${url} rest`)).toBe(url);
+    expect(stripTrailingPunctuation(url)).toBe(url);
+  });
+
   test("対応の取れた角括弧・波括弧も両経路とも残す", () => {
     for (const url of [`${base}/[a]`, `${base}/{a}`]) {
       expect(detect(`${url} rest`)).toBe(url);

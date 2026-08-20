@@ -606,9 +606,9 @@ function handleFsStat(body: unknown): unknown {
   return stat(req.dir, req.path) satisfies FsStatResponse;
 }
 
-function handleFsExistsAbsolute(body: unknown): unknown {
+async function handleFsExistsAbsolute(body: unknown): Promise<unknown> {
   const req = body as FsExistsAbsoluteRequest;
-  return { exists: existsAbsolute(req.absolutePaths) } satisfies FsExistsAbsoluteResponse;
+  return { exists: await existsAbsolute(req.absolutePaths) } satisfies FsExistsAbsoluteResponse;
 }
 
 async function handleGitStatus(body: unknown): Promise<unknown> {

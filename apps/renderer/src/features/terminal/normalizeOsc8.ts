@@ -1,4 +1,5 @@
 import { logEvent } from "../../shared/debug";
+import { toRegExpSource } from "./regexSource";
 import { stripTrailingPunctuation } from "./stripTrailingPunctuation";
 
 /**
@@ -17,18 +18,17 @@ const OSC_8_STARTS = ["\x1b]8;", "\x9d8;"];
  */
 const OSC_TERMINATORS = ["\x1b", "\x07", "\x9c", "\x18", "\x1a"];
 
-/** 文字を正規表現へ安全に埋め込む形にする */
-const toEscapedSource = (text: string): string =>
-  [...text].map((char) => `\\u{${char.codePointAt(0)?.toString(16)}}`).join("");
-
 /**
  * 開始マーカーと終端を、それぞれ 1 パスで探すためのパターン。定義の配列から導出する。
  *
  * 候補ごとに `indexOf` を呼ぶと、出現しない候補のぶんだけ残りを走査する。この層は端末出力の
  * 全バイトを通り、gozd は OSC 8 の出力を促しているため、宣言が密な出力は想定の範囲にある。
+ *
+ * `lastIndex` は可変状態で、全ターミナルの正規化器がこの 2 つを共有する。呼び出しごとに
+ * 代入し、代入から `exec` までの間に yield を挟まない — 挟むと別の走査位置が混ざる。
  */
-const START_PATTERN = new RegExp(OSC_8_STARTS.map(toEscapedSource).join("|"), "gu");
-const TERMINATOR_PATTERN = new RegExp(`[${OSC_TERMINATORS.map(toEscapedSource).join("")}]`, "gu");
+const START_PATTERN = new RegExp(OSC_8_STARTS.map(toRegExpSource).join("|"), "gu");
+const TERMINATOR_PATTERN = new RegExp(`[${OSC_TERMINATORS.map(toRegExpSource).join("")}]`, "gu");
 
 /**
  * 未完のシーケンスを保持する上限。超えたらそのまま流す。

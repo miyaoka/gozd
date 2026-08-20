@@ -5,7 +5,7 @@
  * 一方は正規表現の文字クラス、他方は文字ごとの述語として使うため、表現は違うが集合は同じ。
  * 片方だけを直すと、同じ URL が経路によって違う終端になる。
  *
- * 文字クラスは素の文字を並べず `toClassSource` で機械展開する。集合を変えたときに
+ * 文字クラスは素の文字を並べず `regexSource.ts` で機械展開する。集合を変えたときに
  * エスケープ規則を意識せずに済ませるため。
  */
 
@@ -37,18 +37,6 @@ export const BRACKET_PARTNER: Record<string, string> = {
   "[": "]",
   "{": "}",
 };
-
-/**
- * 文字の集合を正規表現の文字クラス片へ変換する。
- *
- * 各文字を `\u{...}` に展開するのは、`v` フラグがエスケープできる記号を限定しており
- * （`\^` は不正、`/` はエスケープ必須など）、素の文字を並べる方式では集合を変えるたびに
- * 構文エラーの可能性が生じるため。桁数固定の `\uXXXX` ではなく `\u{...}` を使うのは、
- * BMP 外の文字が静かに別の集合として解釈されるのを防ぐため。
- */
-export function toClassSource(chars: Iterable<string>): string {
-  return [...chars].map((char) => `\\u{${char.codePointAt(0)?.toString(16)}}`).join("");
-}
 
 /** URL の内部に来られない ASCII 文字。空白は別途 `\s` で扱う */
 export const INNER_EXCLUDED_ASCII = new Set([...(String.raw`"'!*(){}|\^<>` + "`")]);

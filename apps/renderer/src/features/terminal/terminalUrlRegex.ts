@@ -1,8 +1,8 @@
+import { toRegExpSource } from "./regexSource";
 import {
   INNER_EXCLUDED_ASCII,
   NON_ASCII_PUNCTUATION_SOURCE,
   TRAILING_EXCLUDED_ASCII,
-  toClassSource,
 } from "./urlBoundary";
 
 /**
@@ -23,15 +23,15 @@ import {
 /** URL の内部に来られない文字。空白と、URL を囲う / シェルで意味を持つ記号 */
 const EXCLUDED =
   String.raw`\s` +
-  toClassSource(INNER_EXCLUDED_ASCII) +
-  toClassSource("[]") +
+  toRegExpSource(INNER_EXCLUDED_ASCII) +
+  toRegExpSource("[]") +
   NON_ASCII_PUNCTUATION_SOURCE;
 
 /** URL の末尾に来られない文字。終端の集合に、対応の取れない括弧と空白を足す */
 const EXCLUDED_AT_END =
   String.raw`\s` +
-  toClassSource(TRAILING_EXCLUDED_ASCII) +
-  toClassSource("()[]{}") +
+  toRegExpSource(TRAILING_EXCLUDED_ASCII) +
+  toRegExpSource("()[]{}") +
   NON_ASCII_PUNCTUATION_SOURCE;
 
 /**

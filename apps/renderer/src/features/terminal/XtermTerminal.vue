@@ -35,12 +35,14 @@ import { LINK_OPEN_FAILED_MESSAGE, openExternal } from "../../shared/rpc";
 import { createCwdTracker } from "./cwdTracker";
 import { parseOsc7Cwd } from "./parseOsc7Cwd";
 import { rpcPtyResize, rpcPtyWrite } from "./rpc";
+import { stripTrailingPunctuation } from "./stripTrailingPunctuation";
 import {
   currentTheme,
   terminalFontFamily,
   terminalFontSize,
   terminalScrollback,
 } from "./terminalConfig";
+import { TERMINAL_URL_REGEX } from "./terminalUrlRegex";
 import { createFilePathLinkProvider } from "./useFilePathLinkProvider";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -280,9 +282,14 @@ onMounted(async () => {
       }
     });
   };
-  terminal.loadAddon(new WebLinksAddon(openLink));
+  // 検出範囲は addon の既定値ではなく gozd 側で決める。既定値は日本語文中の URL を
+  // 行末まで飲み込む（terminalUrlRegex.ts）
+  terminal.loadAddon(new WebLinksAddon(openLink, { urlRegex: TERMINAL_URL_REGEX }));
   terminal.options.linkHandler = {
-    activate: (event, text) => openLink(event, text),
+    // OSC 8 は出力側が URI を宣言する契約だが、文中の URL を OSC 8 化するプログラムは終端を
+    // 誤り後続の約物を含めることがある。下線範囲は ILinkHandler から変えられないため、
+    // 開く URL だけを正す（stripTrailingPunctuation.ts）
+    activate: (event, text) => openLink(event, stripTrailingPunctuation(text)),
   };
 
   // zsh の chpwd hook（_gozd_osc7_cwd）が送る OSC 7 からシェルの cwd 遷移を

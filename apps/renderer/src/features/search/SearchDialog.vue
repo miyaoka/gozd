@@ -107,7 +107,10 @@ const selectableIndices = computed(() =>
   rows.value.flatMap((row, i) => (row.kind === "line" ? [i] : [])),
 );
 
-const { selectedIndex, move, movePage, reset, scrollToSelected } = useListNavigation({
+// 選択が selectable 集合の外に落ちたときのスナップはここが持つ。ローカルに watcher を足さない。
+// 結果の出現（0 は file ヘッダなので selectable 外 → 先頭マッチへ）・ストリーム中の追記・検索
+// 条件の変更（結果を空にしてから埋める）は、どれもこの 1 つの判定で足りる。
+const { selectedIndex, move, movePage, scrollToSelected } = useListNavigation({
   listRef,
   itemCount,
   selectableIndices,
@@ -123,14 +126,6 @@ const statusMessage = computed(() => {
   const base = `${store.matchCount} results in ${store.fileCount} files${store.limitHit ? " (limited)" : ""}`;
   // 描画キャップに達したら、全件は出していないことを明示する
   return truncated.value ? `${base} · showing first ${MAX_RENDERED_LINES}` : base;
-});
-
-// 選択が selectable 集合の外に落ちたときだけ先頭 line 行へスナップする。
-// - 結果が現れた瞬間: 0（file ヘッダ）は selectable 外 → 先頭マッチ行へスナップ（事前選択）
-// - ストリーム中: 選択がまだ有効なら動かさない（結果到着中の矢印移動が跳ねない）
-// - 検索条件変更で結果が入れ替わり旧 index が新集合に無い: 先頭へスナップ
-watch(selectableIndices, (indices) => {
-  if (!indices.includes(selectedIndex.value)) reset();
 });
 
 // command からの show 要求で dialog を開き、入力へ focus + select する

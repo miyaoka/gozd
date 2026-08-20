@@ -146,10 +146,8 @@ watch(query, (q) => {
   reset();
 });
 
-// 行の削除 (task remove / worktree 削除) で選択が末尾からはみ出したときだけ clamp する
-watch(itemCount, (count) => {
-  if (selectedIndex.value >= count) selectedIndex.value = Math.max(0, count - 1);
-});
+// 行の削除 (task remove / worktree 削除) で選択が選択可能でなくなったときの引き戻しは
+// useListNavigation が持つ。全 picker と同じく先頭へ戻す
 
 watch(showSignal, () => {
   const dialog = dialogRef.value;

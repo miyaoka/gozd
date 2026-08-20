@@ -19,12 +19,13 @@ repo に task がある」表示へ変わり、次に選ぶと既存 task への
 
 <script setup lang="ts">
 import type { GitPullRequest } from "@gozd/rpc";
-import { useEventListener } from "@vueuse/core";
+import { useEventListener, useInfiniteScroll } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
 import { fuzzyMatch } from "../../fuzzyMatch";
 import { useInFlightGhRefs } from "../../inFlightGhRefs";
 import { useListNavigation } from "../../useListNavigation";
+import { prPickerCountsLabel, prPickerEmptyMessage } from "./prPickerListDisplay";
 import PrPickerRow from "./PrPickerRow.vue";
 import { usePrPicker } from "./usePrPicker";
 import type { PrPickerItem } from "./usePrPicker";
@@ -35,7 +36,20 @@ const dialogRef = useTemplateRef<HTMLDialogElement>("dialog");
 const inputRef = useTemplateRef<HTMLInputElement>("input");
 const listRef = useTemplateRef<HTMLDivElement>("list");
 
-const { items: prItems, viewer, status, showSignal, hideSignal, accept } = usePrPicker();
+const {
+  items: prItems,
+  viewer,
+  status,
+  loadingMore,
+  hasMore,
+  totalCount,
+  pagedOnce,
+  showSignal,
+  hideSignal,
+  requestMore,
+  markClosed,
+  accept,
+} = usePrPicker();
 
 const query = ref("");
 const filterAssignee = ref(false);
@@ -47,6 +61,14 @@ const inFlightGhRefs = useInFlightGhRefs();
 function searchText(pr: GitPullRequest): string {
   return `#${pr.number} ${pr.title} ${pr.headRef} ${pr.author}`;
 }
+
+/** 空白だけの入力は絞り込みではない。絞り込みの判定と実際の絞り込みが同じ値を見る */
+const activeQuery = computed(() => query.value.trim());
+
+/** 絞り込みが掛かっているか。掛かっている間は続きを取りに行かない。 */
+const isFiltered = computed(
+  () => activeQuery.value !== "" || filterAssignee.value || filterReviewer.value,
+);
 
 const filteredPrs = computed((): PrPickerItem[] => {
   const v = viewer.value;
@@ -60,7 +82,7 @@ const filteredPrs = computed((): PrPickerItem[] => {
     items = items.filter((item) => item.pr.reviewers.includes(v));
   }
 
-  const q = query.value;
+  const q = activeQuery.value;
   if (q === "") return items;
 
   const scored: Array<{ item: PrPickerItem; score: number }> = [];
@@ -78,12 +100,39 @@ const itemCount = computed(() => filteredPrs.value.length);
 const { selectedIndex, move, movePage, reset, scrollToSelected } = useListNavigation({
   listRef,
   itemCount,
+  // 継ぎ足しで伸びる一覧なので下端は終端ではない。回り込むと「続きを見に行く」操作が
+  // 先頭への移動になる
+  wrap: false,
 });
 
-/** 取得結果自体が空か、フィルタで 0 件になったかで文言を分ける。 */
-const emptyMessage = computed(() =>
-  prItems.value.length === 0 ? "No open pull requests" : "No matching pull requests",
-);
+/** 件数と空文言の判定は `prPickerListDisplay` が持つ（組合せをテストで固定するため）。 */
+const listState = computed(() => ({
+  isFiltered: isFiltered.value,
+  shownCount: filteredPrs.value.length,
+  loadedCount: prItems.value.length,
+  totalCount: totalCount.value,
+  hasMore: hasMore.value,
+}));
+
+const emptyMessage = computed(() => prPickerEmptyMessage(listState.value));
+
+const countsLabel = computed(() => prPickerCountsLabel(listState.value));
+
+/**
+ * 末尾に近づいたら次のページを要求する。
+ *
+ * スクロール量を自前で測らない。`useInfiniteScroll` は到達判定に加えて、**一覧が伸びなかった
+ * 場合の再判定**と**コンテナがスクロールできない場合の取得**を持つ。自前の scroll ハンドラは
+ * どちらも取りこぼし、fork PR だけのページを足して DOM が 1px も動かないと次の契機が永久に
+ * 来なくなる。
+ *
+ * **絞り込み中は取りに行かない**（契約は docs/git.md の「PR の取得は問いごとに分ける」）。
+ */
+const LOAD_MORE_DISTANCE_PX = 200;
+useInfiniteScroll(listRef, () => requestMore(), {
+  distance: LOAD_MORE_DISTANCE_PX,
+  canLoadMore: () => !isFiltered.value && hasMore.value,
+});
 
 /**
  * 常設 live region に出す status テキスト。一覧表示中は空文字。
@@ -91,13 +140,33 @@ const emptyMessage = computed(() =>
  * (loading→empty / loading→list) を確実に読み上げる（live region は「先在する
  * region の内容変化」を監視する仕様。同時挿入は取りこぼす）。
  */
-const statusMessage = computed(() => {
+const visibleStatus = computed(() => {
   if (status.value === "loading") return "Loading pull requests...";
   if (filteredPrs.value.length === 0) return emptyMessage.value;
   return "";
 });
 
-watch(filteredPrs, () => {
+/**
+ * live region が読み上げる状態。**見せる状態の上位集合。**
+ *
+ * 継ぎ足しは末尾のフッタで見せるが、あちらは role を持たない装飾要素なので支援技術には届かない。
+ * かといってこの region の可視表示に載せると、一覧が出ている最中に高さのあるブロックが割り込んで
+ * 読んでいる位置が跳ねる。読み上げだけを足し、見た目は `visibleStatus` が決める。
+ */
+const statusMessage = computed(() => {
+  if (visibleStatus.value !== "") return visibleStatus.value;
+  if (loadingMore.value) return "Loading more pull requests...";
+  return "";
+});
+
+/**
+ * 選択位置は**絞り込み条件が変わったときだけ**先頭へ戻す。
+ *
+ * 一覧そのもの (`filteredPrs`) を監視すると、続きのページを足しただけで選択が先頭へ飛ぶ。
+ * 追記は同じ問いに対する結果が伸びただけで、別の答えに変わったわけではない。条件が変われば
+ * 結果集合は別物になり、そのときは範囲外を指しうるので先頭へ戻す。
+ */
+watch([query, filterAssignee, filterReviewer], () => {
   reset();
 });
 
@@ -121,9 +190,21 @@ watch(hideSignal, () => {
   close();
 });
 
+/**
+ * dialog が閉じたときの状態遷移。**Esc は native の cancel → close で閉じるため `close()` を
+ * 通らない。**閉じ方によらず必ず通る `@close` に集約する。
+ */
+function handleClose() {
+  // close イベントはタスクとしてキューされるため、閉じた直後に開き直すと開いた後の dialog へ
+  // 届く。仕様上 `open` は close イベントを queue する前に落ちるので、届いた時点でまだ開いて
+  // いれば、それは自分より後の表示に追い越された古い通知
+  if (dialogRef.value?.open === true) return;
+  markClosed();
+  contextKeys.set("prPickerVisible", false);
+}
+
 function close() {
   dialogRef.value?.close();
-  contextKeys.set("prPickerVisible", false);
 }
 
 /**
@@ -181,7 +262,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
     class="_pr-picker-dialog"
     aria-label="Pull request picker"
     @keydown="handleKeydown"
-    @close="contextKeys.set('prPickerVisible', false)"
+    @close="handleClose"
   >
     <div
       class="w-[960px] overflow-hidden rounded-lg border border-border-strong bg-panel shadow-2xl"
@@ -230,9 +311,9 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
         aria-live="polite"
         aria-atomic="true"
         :class="
-          statusMessage
+          visibleStatus
             ? 'flex items-center justify-center gap-2 px-3 py-8 text-sm text-foreground-low'
-            : ''
+            : 'sr-only'
         "
       >
         <IconLucideLoaderCircle
@@ -242,11 +323,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
         />
         {{ statusMessage }}
       </div>
-      <div
-        v-if="status === 'ready' && filteredPrs.length > 0"
-        ref="list"
-        class="max-h-[400px] overflow-y-auto py-1"
-      >
+      <div v-if="status === 'ready'" ref="list" class="max-h-[400px] overflow-y-auto py-1">
         <div
           v-for="(item, i) in filteredPrs"
           :key="item.pr.number"
@@ -273,6 +350,32 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             :creating="inFlightGhRefs.has(item.refKey)"
           />
         </div>
+        <!--
+          一覧の末尾に「この先どうなっているか」を置く。何も無いと、末尾が母集合の終端なのか
+          未取得が残っているのかが画面から判別できない。ページに分かれていない取得では
+          問い自体が立たないので出さない。
+        -->
+        <div
+          v-if="pagedOnce && (loadingMore || !hasMore)"
+          class="flex items-center justify-center gap-2 px-3 py-2 text-xs text-foreground-low"
+        >
+          <template v-if="loadingMore">
+            <IconLucideLoaderCircle aria-hidden="true" class="size-3 animate-spin" />
+            Loading more...
+          </template>
+          <template v-else-if="!hasMore">
+            <span aria-hidden="true" class="h-px w-6 bg-border-strong" />
+            End of list
+            <span aria-hidden="true" class="h-px w-6 bg-border-strong" />
+          </template>
+        </div>
+      </div>
+      <!-- 絞り込み後 / 取得済み / 総数 -->
+      <div
+        v-if="countsLabel !== ''"
+        class="border-t border-border px-3 py-1 text-right text-xs text-foreground-low"
+      >
+        {{ countsLabel }}
       </div>
     </div>
   </dialog>

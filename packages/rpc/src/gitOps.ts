@@ -264,14 +264,24 @@ export type GhErrorKind =
   | "network"
   | "other";
 
-// gitPrList: repo の open PR 一覧（選ばせるための母集合）
+// gitPrList: repo の open PR 一覧（選ばせるための母集合）を 1 ページ返す
+//
+// **ページ送りは呼び出し側が回す。**全ページを取り切ってから返すと、最初の 1 ページが手元に
+// あるのに何も出せない。途中経過を表示できるのは表示側だけなので、繰り返しの制御もそちらに置く。
 export interface GitPrListRequest {
   dir: string;
+  /** 続きを取るカーソル。先頭ページでは未設定 */
+  after?: string;
 }
 export interface GitPrListResponse {
   /** ok=false は gh CLI 未認証 / rate limit / repo 不在 等で取得不能を示す */
   ok: boolean;
   prs: GitPullRequest[];
+  /** 次ページのカーソル。空文字は「続きが無い」 */
+  nextCursor: string;
+  /** open PR の総数。取得済み件数と並べて進捗を示す。
+   * fork PR を除外する前の数なので、取得済み件数がここへ到達しないことがある。 */
+  totalCount: number;
   errorKind: GhErrorKind;
   /** 表示しないが debug 用に stderr の冒頭を載せる（最大 512B 程度に切り詰める想定） */
   errorDetail: string;

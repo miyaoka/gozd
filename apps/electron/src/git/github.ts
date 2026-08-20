@@ -206,15 +206,20 @@ ${PR_BADGE_FRAGMENT}`;
 // fork 判定は remote URL から local に解決した owner で行うため、query が持つ owner は head 側だけ。
 // `assignees` / `reviewRequests` は picker の絞り込みが参照するのでここに含める。
 //
-// cost は 1（pullRequests）+ 100（assignees）+ 100（reviewRequests）= 201 → **2**（実測 2）。
+// cost は 1（pullRequests）+ 100（assignees）+ 100（reviewRequests）= 201 → **2**（実測 2。この
+// 2 フィールドを外すと 1）。`total` を足しても 2 のまま、応答時間も 1576ms → 1578ms で動かない
+// （実測。規則は上のコスト式コメント）。`total` は fork PR を除外する前の数なので、取得済み件数と
+// の比較では一致しないことがある。
 //
 // `statusCheckRollup` と会話数は cost を増やさないが、100 件ぶんを GitHub が解決するため応答が
 // 1.6 秒伸びる（実測）。picker はどちらも描かないので、載せると描かないものを待つことになる。
 export const PR_LIST_QUERY = `
-query($owner: String!, $repo: String!, $limit: Int!) {
+query($owner: String!, $repo: String!, $limit: Int!, $after: String) {
   ${RATE_LIMIT_FIELD}
   repository(owner: $owner, name: $repo) {
-    pullRequests(first: $limit, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    total: pullRequests(states: OPEN) { totalCount }
+    pullRequests(first: $limit, after: $after, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage endCursor }
       nodes {
         number
         title
@@ -355,21 +360,58 @@ export function aliasedNodes(parsed: unknown, count: number): unknown[] | undefi
 /**
  * open PR 一覧の 1 ページ。PR picker が「選ばせる母集合」として使う経路で、定期取得はしない。
  *
- * 1 往復で先頭 100 件（connection の上限）を返す。
+ * 1 往復で 1 ページ（100 件 = connection の上限）を返す。`after` を渡すとその続きから返す。
  */
-export async function prList(dir: string): Promise<GhResult<GitPullRequest[]>> {
+export async function prList(
+  dir: string,
+  after?: string,
+): Promise<GhResult<{ prs: GitPullRequest[]; nextCursor: string; totalCount: number }>> {
   const identity = await resolveGitHubRepoOrError(dir);
   if (!identity.ok) return identity;
   const { owner, repo } = identity.value;
-  const raw = await runGhCategorized(graphqlArgs(owner, repo, PR_LIST_QUERY), dir);
+  const raw = await runGhCategorized(graphqlArgs(owner, repo, PR_LIST_QUERY, after), dir);
   if (!raw.ok) return raw;
-  const parsed = parseGhResponse("prList", raw.value);
+  const parsed = parseGhResponse(
+    "prList",
+    raw.value,
+    after === undefined ? "page=first" : "page=next",
+  );
   if (!parsed.ok) return parsed;
-  const nodes = nodesAt(parsed.value, "pullRequests");
-  if (nodes === undefined) {
+  return parsePrListResponse(parsed.value, owner);
+}
+
+/** PR 一覧 1 ページ。`nextCursor` が空文字なら続きは無い。 */
+export interface PrListPage {
+  prs: GitPullRequest[];
+  nextCursor: string;
+  totalCount: number;
+}
+
+/**
+ * PR 一覧 query の応答（parse 済み JSON）を 1 ページへ変換する pure 関数。取得経路はこれを
+ * 経由する SSOT で、応答 shape に対する境界の振る舞いをここに閉じる。
+ *
+ * `nodes` と `totalCount` は同じ 1 応答から来る同格の必須フィールドなので、どちらの欠落も
+ * 応答 shape エラーにする。`totalCount` を 0 に倒すと「行が並んでいるのに総件数 0」という
+ * 事実でない要約が描かれる。
+ */
+export function parsePrListResponse(response: unknown, owner: string): GhResult<PrListPage> {
+  const connection = connectionAt(response, "pullRequests");
+  if (connection === undefined) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
   }
-  return { ok: true, value: parsePullRequestNodes(nodes, owner) };
+  const totalCount = getPath(response, "data", "repository", "total", "totalCount");
+  if (typeof totalCount !== "number") {
+    return { ok: false, error: { kind: "other", detail: "missing totalCount" } };
+  }
+  return {
+    ok: true,
+    value: {
+      prs: parsePullRequestNodes(connection.nodes, owner),
+      nextCursor: connection.nextCursor ?? "",
+      totalCount,
+    },
+  };
 }
 
 /**
@@ -471,11 +513,19 @@ export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
   if (!raw.ok) return raw;
   const parsed = parseGhResponse("issueList", raw.value);
   if (!parsed.ok) return parsed;
-  const nodes = nodesAt(parsed.value, "issues");
-  if (nodes === undefined) {
+  return parseIssueListResponse(parsed.value);
+}
+
+/**
+ * issue 一覧 query の応答（parse 済み JSON）を `GitIssue[]` へ変換する pure 関数。取得経路は
+ * これを経由する SSOT で、応答 shape に対する境界の振る舞いをここに閉じる。
+ */
+export function parseIssueListResponse(response: unknown): GhResult<GitIssue[]> {
+  const connection = connectionAt(response, "issues");
+  if (connection === undefined) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
   }
-  const issues: GitIssue[] = nodes.map((item) => ({
+  const issues: GitIssue[] = connection.nodes.map((item) => ({
     number: int(getPath(item, "number")),
     title: str(getPath(item, "title")),
     url: str(getPath(item, "url")),
@@ -784,8 +834,10 @@ async function resolveGitHubRepoOrError(
 }
 
 // `-F` は型推論で number/bool を渡しうるため、string にしたい owner/repo/query は `-f` を使う。
-// limit のみ Int として渡したいので `-F` で渡す
-function graphqlArgs(owner: string, repo: string, query: string): string[] {
+// limit のみ Int として渡したいので `-F` で渡す。
+//
+// `after` は未設定を undefined で表す契約（architecture.md）なので、未指定のときは変数ごと渡さない。
+function graphqlArgs(owner: string, repo: string, query: string, after?: string): string[] {
   return [
     "api",
     "graphql",
@@ -795,6 +847,7 @@ function graphqlArgs(owner: string, repo: string, query: string): string[] {
     `repo=${repo}`,
     "-F",
     "limit=100",
+    ...(after === undefined ? [] : ["-f", `after=${after}`]),
     "-f",
     `query=${query}`,
   ];
@@ -963,9 +1016,28 @@ function reviewerLogins(nodes: unknown): string[] {
     .filter((login) => login !== "");
 }
 
-function nodesAt(parsed: unknown, key: "pullRequests" | "issues"): unknown[] | undefined {
-  const nodes = getPath(parsed, "data", "repository", key, "nodes");
-  return Array.isArray(nodes) ? nodes : undefined;
+interface Connection {
+  nodes: unknown[];
+  /** 次ページのカーソル。次が無い / query が `pageInfo` を要求していないときは undefined */
+  nextCursor: string | undefined;
+}
+
+export function connectionAt(
+  parsed: unknown,
+  key: "pullRequests" | "issues",
+): Connection | undefined {
+  const connection = getPath(parsed, "data", "repository", key);
+  const nodes = getPath(connection, "nodes");
+  if (!Array.isArray(nodes)) return undefined;
+  const hasNextPage = getPath(connection, "pageInfo", "hasNextPage") === true;
+  const endCursor = str(getPath(connection, "pageInfo", "endCursor"));
+  if (hasNextPage && endCursor === "") {
+    // 続きがあるのに要求する手段が無い。これを「続きなし」に倒すと、母集合が切れているのに
+    // 一覧の末尾が「取り切った」と描かれる
+    console.error(`[connectionAt] hasNextPage=true but endCursor is empty: ${key}`);
+    return undefined;
+  }
+  return { nodes, nextCursor: hasNextPage ? endCursor : undefined };
 }
 
 /**

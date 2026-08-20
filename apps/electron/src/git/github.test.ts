@@ -1,20 +1,23 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import {
   aliasedNodes,
+  parseIssueListResponse,
+  parsePrListResponse,
   BADGE_PR_WINDOW,
   badgeQuery,
+  connectionAt,
   emptyMyWork,
   formatGhCostLine,
   ISSUE_QUERY,
   MY_WORK_QUERY,
   newestPerBranch,
-  PR_LIST_QUERY,
   RATE_LIMIT_FIELD,
   parseGitHubOwnerRepo,
   parseMyWorkNodes,
   parseMyWorkResponse,
   parsePullRequestBadgeNodes,
   parsePullRequestNodes,
+  PR_LIST_QUERY,
 } from "./github";
 
 describe("parseGitHubOwnerRepo", () => {
@@ -556,6 +559,59 @@ describe("GraphQL query の rateLimit", () => {
   });
 });
 
+describe("PR_LIST_QUERY", () => {
+  // cursor を渡す口と次ページの有無が query から落ちると、取得は 1 ページ目だけを返して
+  // 成功する。上限を超えた PR が「PR を持たない branch」と同じ見た目で消えるため、
+  // ページングの結合点をここで固定する
+  test("cursor を受け取り次ページの有無を返す", () => {
+    expect(PR_LIST_QUERY).toContain("$after: String");
+    expect(PR_LIST_QUERY).toContain("after: $after");
+    expect(PR_LIST_QUERY).toContain("pageInfo { hasNextPage endCursor }");
+  });
+});
+
+describe("connectionAt", () => {
+  const response = (pullRequests: unknown) => ({ data: { repository: { pullRequests } } });
+
+  test("次ページがあれば cursor を返す", () => {
+    const parsed = response({
+      pageInfo: { hasNextPage: true, endCursor: "Y3Vyc29y" },
+      nodes: [{}],
+    });
+    expect(connectionAt(parsed, "pullRequests")).toEqual({ nodes: [{}], nextCursor: "Y3Vyc29y" });
+  });
+
+  test("次ページが無ければ cursor は undefined", () => {
+    const parsed = response({ pageInfo: { hasNextPage: false, endCursor: "Y3Vyc29y" }, nodes: [] });
+    expect(connectionAt(parsed, "pullRequests")?.nextCursor).toBeUndefined();
+  });
+
+  // 続きがあるのに要求する手段が無い状態。「続きなし」に倒すと、切れた一覧が「取り切った」と
+  // 描かれる
+  test("次ページがあるのに cursor が空なら応答形式の異常として扱い、観察ログを残す", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const parsed = response({ pageInfo: { hasNextPage: true, endCursor: "" }, nodes: [] });
+      expect(connectionAt(parsed, "pullRequests")).toBeUndefined();
+      expect(spy).toHaveBeenCalledWith(
+        "[connectionAt] hasNextPage=true but endCursor is empty: pullRequests",
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("pageInfo を持たない query では cursor は undefined", () => {
+    const parsed = response({ nodes: [{}] });
+    expect(connectionAt(parsed, "pullRequests")).toEqual({ nodes: [{}], nextCursor: undefined });
+  });
+
+  test("nodes が配列でなければ応答形式の異常として undefined", () => {
+    expect(connectionAt(response({ nodes: null }), "pullRequests")).toBeUndefined();
+    expect(connectionAt("not an object", "pullRequests")).toBeUndefined();
+  });
+});
+
 describe("badgeQuery", () => {
   // branch 名を query 文字列へ埋め込むと、名前に引用符が入った瞬間に構文が壊れる。
   // 変数宣言と参照が対で出ることを結合点として固定する
@@ -648,5 +704,83 @@ describe("aliasedNodes", () => {
     expect(aliasedNodes(response({ b0: { nodes: [] } }), 2)).toBeUndefined();
     expect(aliasedNodes(response({ b0: { nodes: null } }), 1)).toBeUndefined();
     expect(aliasedNodes("not an object", 1)).toBeUndefined();
+  });
+});
+
+describe("parsePrListResponse", () => {
+  const response = (over: Record<string, unknown> = {}) => ({
+    data: {
+      repository: {
+        total: { totalCount: 152 },
+        pullRequests: {
+          pageInfo: { hasNextPage: true, endCursor: "Y3Vyc29y" },
+          nodes: [prNode({ number: 7 })],
+        },
+        ...over,
+      },
+    },
+  });
+
+  test("1 ページを prs / nextCursor / totalCount へ畳む", () => {
+    const result = parsePrListResponse(response(), OWNER);
+    expect(result.ok && result.value).toEqual({
+      prs: parsePullRequestNodes([prNode({ number: 7 })], OWNER),
+      nextCursor: "Y3Vyc29y",
+      totalCount: 152,
+    });
+  });
+
+  // 0 に倒すと「行が並んでいるのに総件数 0」という事実でない要約が描かれる
+  test("totalCount が number でなければ応答形式の異常にする", () => {
+    for (const total of [undefined, null, {}, { totalCount: "152" }]) {
+      const result = parsePrListResponse(response({ total }), OWNER);
+      expect(result.ok).toBe(false);
+    }
+  });
+
+  test("Result で包んだ値を渡しても総件数を拾わない（包みを剥がす契約）", () => {
+    const wrapped = { ok: true, value: response() };
+    expect(parsePrListResponse(wrapped, OWNER).ok).toBe(false);
+  });
+
+  test("nodes が無ければ応答形式の異常にする", () => {
+    expect(parsePrListResponse(response({ pullRequests: { nodes: null } }), OWNER).ok).toBe(false);
+  });
+});
+
+describe("parseIssueListResponse", () => {
+  const response = (issues: unknown) => ({ data: { repository: { issues } } });
+
+  test("nodes を GitIssue へ畳む", () => {
+    const parsed = response({
+      nodes: [
+        {
+          number: 3,
+          title: "t",
+          url: "https://github.com/o/r/issues/3",
+          state: "OPEN",
+          author: { login: "miyaoka", avatarUrl: "https://example.invalid/a.png" },
+          updatedAt: "2026-08-05T00:00:00Z",
+          labels: { nodes: [{ name: "bug" }] },
+          assignees: { nodes: [{ login: "miyaoka" }] },
+        },
+      ],
+    });
+    const result = parseIssueListResponse(parsed);
+    expect(result.ok && result.value[0]).toMatchObject({
+      number: 3,
+      title: "t",
+      labels: ["bug"],
+      assignees: ["miyaoka"],
+    });
+  });
+
+  test("Result で包んだ値を渡すと応答形式の異常になる（包みを剥がす契約）", () => {
+    const wrapped = { ok: true, value: response({ nodes: [] }) };
+    expect(parseIssueListResponse(wrapped).ok).toBe(false);
+  });
+
+  test("nodes が無ければ応答形式の異常にする", () => {
+    expect(parseIssueListResponse(response({ nodes: null })).ok).toBe(false);
   });
 });

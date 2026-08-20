@@ -850,18 +850,22 @@ async function handleGitPrsForBranches(body: unknown): Promise<unknown> {
 
 async function handleGitPrList(body: unknown): Promise<unknown> {
   const req = body as GitPrListRequest;
-  const result = await prList(req.dir);
+  const result = await prList(req.dir, req.after);
   if (!result.ok) {
     return {
       ok: false,
       prs: [],
+      nextCursor: "",
+      totalCount: 0,
       errorKind: result.error.kind,
       errorDetail: result.error.detail,
     } satisfies GitPrListResponse;
   }
   return {
     ok: true,
-    prs: result.value,
+    prs: result.value.prs,
+    nextCursor: result.value.nextCursor,
+    totalCount: result.value.totalCount,
     errorKind: "ok",
     errorDetail: "",
   } satisfies GitPrListResponse;

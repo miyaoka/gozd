@@ -17,6 +17,19 @@ const OSC_8_STARTS = ["\x1b]8;", "\x9d8;"];
  */
 const OSC_TERMINATORS = ["\x1b", "\x07", "\x9c", "\x18", "\x1a"];
 
+/** 文字を正規表現へ安全に埋め込む形にする */
+const toEscapedSource = (text: string): string =>
+  [...text].map((char) => `\\u{${char.codePointAt(0)?.toString(16)}}`).join("");
+
+/**
+ * 開始マーカーと終端を、それぞれ 1 パスで探すためのパターン。定義の配列から導出する。
+ *
+ * 候補ごとに `indexOf` を呼ぶと、出現しない候補のぶんだけ残りを走査する。この層は端末出力の
+ * 全バイトを通り、gozd は OSC 8 の出力を促しているため、宣言が密な出力は想定の範囲にある。
+ */
+const START_PATTERN = new RegExp(OSC_8_STARTS.map(toEscapedSource).join("|"), "gu");
+const TERMINATOR_PATTERN = new RegExp(`[${OSC_TERMINATORS.map(toEscapedSource).join("")}]`, "gu");
+
 /**
  * 未完のシーケンスを保持する上限。超えたらそのまま流す。
  *
@@ -84,14 +97,10 @@ function normalize(input: string): { output: string; pending: string } {
 
 /** `cursor` 以降で最初に現れる OSC 8 の開始 */
 function findStart(input: string, cursor: number): { start: number; marker: string } | undefined {
-  let found: { start: number; marker: string } | undefined;
-
-  for (const marker of OSC_8_STARTS) {
-    const start = input.indexOf(marker, cursor);
-    if (start === -1) continue;
-    if (found === undefined || start < found.start) found = { start, marker };
-  }
-  return found;
+  START_PATTERN.lastIndex = cursor;
+  const match = START_PATTERN.exec(input);
+  if (match === null) return undefined;
+  return { start: match.index, marker: match[0] };
 }
 
 /** 末尾が開始マーカーの途中なら、その長さ。次のチャンクと繋ぐために保留する */
@@ -111,12 +120,11 @@ function danglingStartLength(input: string): number {
  * 終端が `ESC` で後続が未着のときは、`ESC \` の途中かもしれないため判断を保留する。
  */
 function findTerminator(input: string, from: number): { bodyEnd: number; end: number } | undefined {
-  const positions = OSC_TERMINATORS.map((char) => input.indexOf(char, from)).filter(
-    (index) => index !== -1,
-  );
-  if (positions.length === 0) return undefined;
+  TERMINATOR_PATTERN.lastIndex = from;
+  const match = TERMINATOR_PATTERN.exec(input);
+  if (match === null) return undefined;
 
-  const bodyEnd = Math.min(...positions);
+  const bodyEnd = match.index;
   if (input[bodyEnd] !== "\x1b") return { bodyEnd, end: bodyEnd + 1 };
 
   const next = input[bodyEnd + 1];

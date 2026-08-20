@@ -82,6 +82,15 @@ describe("createOsc8Normalizer", () => {
       );
     });
 
+    test("裸の ESC が次の宣言の開始でもある場合、両方の宣言が残る", () => {
+      const normalize = createOsc8Normalizer();
+      // 1 本目は終端を持たず、次の宣言の ESC がそのまま終端になる
+      const input = `${ESC}]8;;http://a.example.com${ESC}]8;;http://b.example.com)${ST}B`;
+      expect(normalize(input)).toBe(
+        `${ESC}]8;;http://a.example.com${ESC}]8;;http://b.example.com${ST}B`,
+      );
+    });
+
     test("C1 の OSC で始まる宣言も書き直す", () => {
       const normalize = createOsc8Normalizer();
       expect(normalize(`\x9d8;;http://example.com)${ST}`)).toBe(`\x9d8;;http://example.com${ST}`);

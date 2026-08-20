@@ -1,18 +1,27 @@
 import { logEvent } from "../../shared/debug";
 import { stripTrailingPunctuation } from "./stripTrailingPunctuation";
 
-/** OSC 8 の開始。`ESC ] 8 ;` */
-const OSC_8_START = "\x1b]8;";
+/**
+ * OSC 8 の開始。`ESC ]` と C1 の OSC（`0x9d`）の 2 形式がある。
+ *
+ * 境界の定義は端末側のパーサに合わせる。ずれると「gozd が 1 つのシーケンスだと思う範囲」と
+ * 「端末がそう扱う範囲」が食い違い、表示テキストを書き換えたり正規化を素通ししたりする。
+ */
+const OSC_8_STARTS = ["\x1b]8;", "\x9d8;"];
 
-/** シーケンスの終端。`ESC \` と BEL のどちらも使われる */
-const ST_ESC = "\x1b\\";
-const ST_BEL = "\x07";
+/**
+ * OSC を終端する文字。端末側のパーサが OSC 文字列状態から抜ける集合と同じ。
+ *
+ * `ESC` は後ろが `\` でなくても終端になる（別のシーケンスの開始として扱われる）。
+ * CAN / SUB はシーケンスを破棄する終端だが、そこで切れる点は同じ。
+ */
+const OSC_TERMINATORS = ["\x1b", "\x07", "\x9c", "\x18", "\x1a"];
 
 /**
  * 未完のシーケンスを保持する上限。超えたらそのまま流す。
  *
  * 端末出力は untrusted で、終端の来ないシーケンスを無限に送れる。保持を打ち切っても
- * xterm 側のパーサが独自の上限で処理するため、表示は壊れない。
+ * 端末側のパーサが独自の上限で処理するため、表示は壊れない。
  */
 const MAX_PENDING = 8192;
 
@@ -24,10 +33,11 @@ const MAX_PENDING = 8192;
  * 宣言された範囲はそのまま下線になるため、受け取ってから直す手段が無い
  * （`ILinkHandler` は範囲を受け取るだけで変えられない）。書き込む前に直す。
  *
- * **宣言を落とすのではなく書き直す。** xterm は新しい宣言が来たとき前のリンクを暗黙に閉じる
+ * **宣言を落とすのではなく書き直す。** 端末は新しい宣言が来たとき前のリンクを暗黙に閉じる
  * ため、宣言を握り潰すと閉じ損ね、後続のテキストが前の URL のリンクになる。
  *
- * PTY の出力は任意の境界で分割されるため、終端が未着のシーケンスは次のチャンクまで保持する。
+ * PTY の出力は任意の境界で分割される。開始マーカーの途中で切れた場合も終端が未着の場合も、
+ * 次のチャンクと繋いでから判断する。
  */
 export function createOsc8Normalizer(): (chunk: string) => string {
   let pending = "";
@@ -44,42 +54,79 @@ export function createOsc8Normalizer(): (chunk: string) => string {
   };
 }
 
-/** 正規化した出力と、終端が未着で持ち越す断片 */
+/** 正規化した出力と、判断を次のチャンクまで保留する断片 */
 function normalize(input: string): { output: string; pending: string } {
   let output = "";
   let cursor = 0;
 
   for (;;) {
-    const start = input.indexOf(OSC_8_START, cursor);
-    if (start === -1) return { output: output + input.slice(cursor), pending: "" };
+    const found = findStart(input, cursor);
+    if (found === undefined) {
+      // 開始マーカーの途中で終わっていれば、そこから先は次のチャンクと繋いで判断する
+      const cut = Math.max(cursor, input.length - danglingStartLength(input));
+      return { output: output + input.slice(cursor, cut), pending: input.slice(cut) };
+    }
 
-    output += input.slice(cursor, start);
+    output += input.slice(cursor, found.start);
 
-    const bounds = findTerminator(input, start + OSC_8_START.length);
+    const bounds = findTerminator(input, found.start + found.marker.length);
     // 終端が未着。シーケンスの途中で切らず、次のチャンクと繋いでから処理する
-    if (bounds === undefined) return { output, pending: input.slice(start) };
+    if (bounds === undefined) return { output, pending: input.slice(found.start) };
 
     output += rewriteDeclaration(
-      input.slice(start, bounds.bodyEnd),
+      input.slice(found.start, bounds.bodyEnd),
+      found.marker,
       input.slice(bounds.bodyEnd, bounds.end),
     );
     cursor = bounds.end;
   }
 }
 
-/** シーケンス終端の位置。`bodyEnd` は終端の開始、`end` は終端の直後 */
-function findTerminator(input: string, from: number): { bodyEnd: number; end: number } | undefined {
-  const esc = input.indexOf(ST_ESC, from);
-  const bel = input.indexOf(ST_BEL, from);
+/** `cursor` 以降で最初に現れる OSC 8 の開始 */
+function findStart(input: string, cursor: number): { start: number; marker: string } | undefined {
+  let found: { start: number; marker: string } | undefined;
 
-  if (esc !== -1 && (bel === -1 || esc < bel)) return { bodyEnd: esc, end: esc + ST_ESC.length };
-  if (bel !== -1) return { bodyEnd: bel, end: bel + ST_BEL.length };
-  return undefined;
+  for (const marker of OSC_8_STARTS) {
+    const start = input.indexOf(marker, cursor);
+    if (start === -1) continue;
+    if (found === undefined || start < found.start) found = { start, marker };
+  }
+  return found;
+}
+
+/** 末尾が開始マーカーの途中なら、その長さ。次のチャンクと繋ぐために保留する */
+function danglingStartLength(input: string): number {
+  for (const marker of OSC_8_STARTS) {
+    for (let length = marker.length - 1; length > 0; length--) {
+      if (input.endsWith(marker.slice(0, length))) return length;
+    }
+  }
+  return 0;
+}
+
+/**
+ * シーケンス終端の位置。`bodyEnd` は終端の開始、`end` は次に処理を再開する位置。
+ *
+ * 裸の `ESC` は終端であると同時に次のシーケンスの開始なので消費しない（`end === bodyEnd`）。
+ * 終端が `ESC` で後続が未着のときは、`ESC \` の途中かもしれないため判断を保留する。
+ */
+function findTerminator(input: string, from: number): { bodyEnd: number; end: number } | undefined {
+  const positions = OSC_TERMINATORS.map((char) => input.indexOf(char, from)).filter(
+    (index) => index !== -1,
+  );
+  if (positions.length === 0) return undefined;
+
+  const bodyEnd = Math.min(...positions);
+  if (input[bodyEnd] !== "\x1b") return { bodyEnd, end: bodyEnd + 1 };
+
+  const next = input[bodyEnd + 1];
+  if (next === undefined) return undefined;
+  return { bodyEnd, end: next === "\\" ? bodyEnd + 2 : bodyEnd };
 }
 
 /** 宣言 1 つを、URI の終端が誤っていれば正しい終端へ書き直す */
-function rewriteDeclaration(declaration: string, terminator: string): string {
-  const body = declaration.slice(OSC_8_START.length);
+function rewriteDeclaration(declaration: string, marker: string, terminator: string): string {
+  const body = declaration.slice(marker.length);
   const separator = body.indexOf(";");
   // params と URI の区切りが無いものは OSC 8 の形を成していない。判断せずそのまま流す
   if (separator === -1) return declaration + terminator;
@@ -90,5 +137,5 @@ function rewriteDeclaration(declaration: string, terminator: string): string {
 
   // 書き直しは出力側の宣言を gozd の判断で変える操作。誤判定したときに事後で辿れるよう残す
   logEvent("terminal-link", "osc8-rewritten", "", `${uri} -> ${corrected}`);
-  return OSC_8_START + body.slice(0, separator + 1) + corrected + terminator;
+  return marker + body.slice(0, separator + 1) + corrected + terminator;
 }

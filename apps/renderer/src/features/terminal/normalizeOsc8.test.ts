@@ -56,6 +56,38 @@ describe("createOsc8Normalizer", () => {
     expect(output).toBe(`${osc8("https://a.example.com")}A${osc8("https://b.example.com")}B`);
   });
 
+  describe("シーケンスの終端", () => {
+    test("裸の ESC も終端として扱い、後続の表示テキストを削らない", () => {
+      const normalize = createOsc8Normalizer();
+      // 端末は ESC で OSC を終端する。SGR 以降は宣言の外側で、書き換えの対象にならない
+      const input = `${ESC}]8;;http://example.com${ESC}[31mRED.${BEL}`;
+      expect(normalize(input)).toBe(input);
+    });
+
+    test("裸の ESC 終端でも URI の書き直しは効く", () => {
+      const normalize = createOsc8Normalizer();
+      expect(normalize(`${ESC}]8;;http://example.com)${ESC}[0m`)).toBe(
+        `${ESC}]8;;http://example.com${ESC}[0m`,
+      );
+    });
+
+    test.each([
+      ["C1 の ST", "\x9c"],
+      ["CAN", "\x18"],
+      ["SUB", "\x1a"],
+    ])("%s も終端として扱う", (_label, terminator) => {
+      const normalize = createOsc8Normalizer();
+      expect(normalize(`${ESC}]8;;http://example.com)${terminator}rest`)).toBe(
+        `${ESC}]8;;http://example.com${terminator}rest`,
+      );
+    });
+
+    test("C1 の OSC で始まる宣言も書き直す", () => {
+      const normalize = createOsc8Normalizer();
+      expect(normalize(`\x9d8;;http://example.com)${ST}`)).toBe(`\x9d8;;http://example.com${ST}`);
+    });
+  });
+
   test("1 チャンクに複数の宣言があっても全部処理する", () => {
     const normalize = createOsc8Normalizer();
     const input = `${osc8("http://a.example.com)")}A${osc8("")}mid${osc8("http://b.example.com.")}B`;
@@ -77,6 +109,23 @@ describe("createOsc8Normalizer", () => {
       const normalize = createOsc8Normalizer();
       expect(normalize(`${ESC}]8;;http://example.com)${ESC}`)).toBe("");
       expect(normalize(`\\LINK`)).toBe(`${osc8("http://example.com")}LINK`);
+    });
+
+    test("開始マーカーの途中で分割されても素通ししない", () => {
+      const normalize = createOsc8Normalizer();
+      // `\x1b` / `\x1b]` / `\x1b]8` はマーカーの途中。判断を次のチャンクへ持ち越す
+      expect(normalize(`text${ESC}`)).toBe("text");
+      expect(normalize(`]8;;http://example.com)${ST}LINK`)).toBe(
+        `${osc8("http://example.com")}LINK`,
+      );
+    });
+
+    test.each([1, 2, 3])("開始マーカーを %i 文字目で切っても繋ぐ", (cut) => {
+      const normalize = createOsc8Normalizer();
+      const declaration = `${ESC}]8;;http://example.com)${ST}`;
+      const first = normalize(declaration.slice(0, cut));
+      const second = normalize(declaration.slice(cut));
+      expect(first + second).toBe(osc8("http://example.com"));
     });
 
     test("保留が上限を超えたらそのまま流す", () => {

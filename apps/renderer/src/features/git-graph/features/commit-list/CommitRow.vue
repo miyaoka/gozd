@@ -5,7 +5,7 @@ contextmenu は preventDefault し anchor / 座標をその場で snapshot し�
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit, GitPullRequest } from "@gozd/rpc";
+import type { GitCommit, GitPullRequestBadge } from "@gozd/rpc";
 import { computed } from "vue";
 import { formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
@@ -26,7 +26,7 @@ const props = defineProps<{
   /** ローカルとリモートが別コミットに分かれているブランチ名の集合 */
   outOfSyncBranches: Set<string>;
   /** ブランチ名 → PR のマップ (RefBadge が PR バッジを出すのに使う) */
-  prByBranch: Map<string, GitPullRequest>;
+  prByBranch: Map<string, GitPullRequestBadge>;
   /** linkify 済みのコミットメッセージ segments */
   segments: CommitMessageSegment[];
 }>();

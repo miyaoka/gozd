@@ -4,6 +4,7 @@ import type { DisplayRef } from "./displayRef";
 import {
   computeDisplayRefs,
   computeOutOfSyncBranches,
+  graphBranchNames,
   hasOriginRef,
   prLookupBranch,
 } from "./graphRefs";
@@ -163,5 +164,23 @@ describe("hasOriginRef", () => {
 
   test("tag には origin が無い", () => {
     expect(hasOriginRef(displayRef({ type: "tag", label: "v1.0.0" }))).toBe(false);
+  });
+});
+
+describe("graphBranchNames", () => {
+  test("local と remote を同じ branch 名に寄せる", () => {
+    const names = graphBranchNames([
+      commit("a1", ["feat/a"]),
+      commit("b2", ["origin/feat/a", "origin/b"]),
+    ]);
+    expect(names.sort()).toEqual(["b", "feat/a"]);
+  });
+
+  test("HEAD / origin/HEAD / tag は branch ではない", () => {
+    expect(graphBranchNames([commit("a1", ["HEAD", "origin/HEAD", "tag:v1.0.0"])])).toEqual([]);
+  });
+
+  test("ref を持たない commit だけなら空", () => {
+    expect(graphBranchNames([commit("a1", [])])).toEqual([]);
   });
 });

@@ -1,6 +1,29 @@
 import type { GitCommit } from "@gozd/rpc";
 import type { DisplayRef } from "./displayRef";
 
+/** `git log --decorate` の ref を分類した結果。`name` は `origin/` / `tag:` を剥がした裸の名前。 */
+interface ClassifiedRef {
+  kind: "local" | "remote" | "tag";
+  name: string;
+}
+
+/**
+ * `git log --decorate` の ref 文字列を分類する (純関数)。**生 ref の分類はここだけが持つ。**
+ * 同じ判定を写すと、片方だけ直された状態が生まれる。
+ *
+ * `HEAD` / `origin/HEAD` は undefined。HEAD は → マーカーが別途示すため ref バッジに出さず、
+ * branch 名としても引かない。
+ *
+ * `origin/` は剥がして local と同じ名前へ寄せる。PR は branch 名 (`headRefName`) に紐づくので、
+ * 同じ branch の 2 つの位置を別の名前にしない。
+ */
+function classifyRef(ref: string): ClassifiedRef | undefined {
+  if (ref === "HEAD" || ref === "origin/HEAD") return undefined;
+  if (ref.startsWith("tag:")) return { kind: "tag", name: ref.slice("tag:".length) };
+  if (ref.startsWith("origin/")) return { kind: "remote", name: ref.slice("origin/".length) };
+  return { kind: "local", name: ref };
+}
+
 /**
  * ローカルとリモートが異なるコミットに存在するブランチ名の Set を導出する (純関数)。
  * 同じコミットにローカルとリモートが両方あれば synced（computeDisplayRefs で処理）。
@@ -16,14 +39,10 @@ export function computeOutOfSyncBranches(commits: GitCommit[]): Set<string> {
 
   for (const commit of commits) {
     for (const r of commit.refs) {
-      if (r === "HEAD" || r === "origin/HEAD") continue;
-      if (r.startsWith("tag:")) continue;
-      if (r.startsWith("origin/")) {
-        const name = r.slice("origin/".length);
-        remoteCommits.set(name, commit.hash);
-      } else {
-        localCommits.set(r, commit.hash);
-      }
+      const classified = classifyRef(r);
+      if (classified === undefined || classified.kind === "tag") continue;
+      const side = classified.kind === "remote" ? remoteCommits : localCommits;
+      side.set(classified.name, commit.hash);
     }
   }
 
@@ -47,12 +66,10 @@ export function computeDisplayRefs(
   defaultBranchName?: string,
   outOfSyncSet?: Set<string>,
 ): DisplayRef[] {
-  const filtered = refs.filter((r) => r !== "HEAD" && r !== "origin/HEAD");
-  const locals = new Set(filtered.filter((r) => !r.startsWith("origin/") && !r.startsWith("tag:")));
-  const remotes = new Set(
-    filtered.filter((r) => r.startsWith("origin/")).map((r) => r.slice("origin/".length)),
-  );
-  const tags = filtered.filter((r) => r.startsWith("tag:"));
+  const classified = refs.map(classifyRef).filter((r) => r !== undefined);
+  const locals = new Set(classified.filter((r) => r.kind === "local").map((r) => r.name));
+  const remotes = new Set(classified.filter((r) => r.kind === "remote").map((r) => r.name));
+  const tags = classified.filter((r) => r.kind === "tag").map((r) => r.name);
 
   const result: DisplayRef[] = [];
 
@@ -85,7 +102,7 @@ export function computeDisplayRefs(
   // タグ
   for (const tag of tags) {
     result.push({
-      label: tag.slice("tag:".length),
+      label: tag,
       type: "tag",
       isSynced: false,
       isOutOfSync: false,
@@ -102,6 +119,10 @@ export function computeDisplayRefs(
  *
  * PR は branch 名 (`headRefName`) に紐づくので、local と origin は同じ名前へ寄せる。ref が
  * どちらの側かは PR の有無と無関係。
+ *
+ * **`computeDisplayRefs` が組み立てた `label` を読み戻す**（remote は `origin/` を付けて作り、
+ * ここで剥がす）。取得側は `classifyRef` が生 ref から同じ名前を導くので、`label` の表記を
+ * 変えるとこの対がずれ、fetch は走るのに map から引けずバッジだけが黙って消える。
  */
 export function prLookupBranch(displayRef: DisplayRef): string | undefined {
   if (displayRef.type === "tag") return undefined;
@@ -133,4 +154,21 @@ const HAS_ORIGIN_REF: Record<DisplayRef["type"], boolean> = {
  */
 export function hasOriginRef(displayRef: DisplayRef): boolean {
   return HAS_ORIGIN_REF[displayRef.type];
+}
+
+/**
+ * グラフに描かれる branch 名の集合 (純関数)。分類は `classifyRef` に従う。
+ *
+ * PR バッジの取得はこの集合を名指しで引く。描いていない branch の PR は誰も読まない。
+ */
+export function graphBranchNames(commits: GitCommit[]): string[] {
+  const names = new Set<string>();
+  for (const commit of commits) {
+    for (const r of commit.refs) {
+      const classified = classifyRef(r);
+      if (classified === undefined || classified.kind === "tag") continue;
+      names.add(classified.name);
+    }
+  }
+  return [...names];
 }

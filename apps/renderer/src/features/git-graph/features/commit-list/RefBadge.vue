@@ -41,7 +41,7 @@ local と remote が無関係な 2 つに見える。
 </doc>
 
 <script setup lang="ts">
-import type { GitPullRequest } from "@gozd/rpc";
+import type { GitPullRequestBadge } from "@gozd/rpc";
 import { computed } from "vue";
 import { activateExternalLink, CHECK_STATE_DISPLAY } from "../../../github-item";
 import type { DisplayRef } from "./displayRef";
@@ -53,7 +53,7 @@ import IconLucideMessageSquare from "~icons/lucide/message-square";
 
 const props = defineProps<{
   displayRef: DisplayRef;
-  prByBranch: Map<string, GitPullRequest>;
+  prByBranch: Map<string, GitPullRequestBadge>;
 }>();
 
 /** DisplayRef からブランチ名を抽出し、対応する PR を返す */

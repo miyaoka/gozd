@@ -23,7 +23,7 @@
 //   path 分類は「ref store が動いた候補」までしか分からず（reftable backend は local /
 //   remote / HEAD が 1 テーブルに同居）、candidate が立った primary watcher で
 //   `refDigest` を読み、前回値と差があるカテゴリだけ dispatch する。これが無いと commit の
-//   たびに remoteRefsChange が飛び、renderer の `gh pr list` が GitHub rate limit を食い潰す。
+//   たびに remoteRefsChange が飛び、renderer の PR 取得が GitHub rate limit を食い潰す。
 // - **repo-scope event は primary watcher（main worktree）1 つに collapse**。同 repo を
 //   共有する N worktree の watcher が同じ common git dir event で同時発火するため。
 // - **working-tree 由来の git status は trailing-debounce**。checkout flood の N バッチを

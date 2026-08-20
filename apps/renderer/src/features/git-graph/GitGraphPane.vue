@@ -35,26 +35,28 @@ import { ResizeHandle } from "../../shared/ui";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import CommitDetailPane from "./CommitDetailPane.vue";
 import { CommitContextMenu, useCommitContextMenuTrigger } from "./features/commit-context-menu";
-import { CommitGraphList } from "./features/commit-list";
+import { CommitGraphList, graphBranchNames } from "./features/commit-list";
 import GitGraphToolbar from "./GitGraphToolbar.vue";
 import { buildRepoBaseUrl } from "./linkifyCommitMessage";
 import { rpcGitLog } from "./rpc";
 import { useGitGraphStore } from "./useGitGraphStore";
-import { usePrListStore } from "./usePrListStore";
+import { usePrBadgeStore } from "./usePrBadgeStore";
 
 const rootRef = useTemplateRef<HTMLElement>("root");
 const { width: rootWidth } = useElementSize(rootRef);
 const worktreeStore = useWorktreeStore();
 const gitGraphStore = useGitGraphStore();
-const prListStore = usePrListStore();
+const prBadgeStore = usePrBadgeStore();
 const notify = useNotificationStore();
 const repoStore = useRepoStore();
-const { prByBranch } = storeToRefs(prListStore);
+const { prByBranch } = storeToRefs(prBadgeStore);
 const { commits } = storeToRefs(gitGraphStore);
 /** window focus 状態。背景 PR poll は focus 中のみ（blur 中の GitHub API 消費 / 失敗トースト堆積を止める）。 */
 const focused = useWindowFocus();
 
 const defaultBranch = ref<string | undefined>();
+/** 現在の `commits` を取った worktree dir。PR の問いを立てる repo 同一性の判定に使う。 */
+const commitsDir = ref<string | undefined>();
 const firstParentOnly = ref(false);
 // SSOT: ワイヤ型 SortMode / BranchScope をそのまま UI 状態として持ち、RPC 呼び出しで変換不要にする。
 const sortMode = ref<SortMode>("date");
@@ -142,6 +144,7 @@ async function runLoadLog(): Promise<boolean> {
     // 対する破壊操作が走る事故源になる。fail-soft で空状態に揃え、notify.error で観察可能化。
     notify.error("Failed to load git graph", rpcResult.error);
     commits.value = [];
+    commitsDir.value = undefined;
     defaultBranch.value = undefined;
     lastHead = "";
     lastBranchHead = "";
@@ -153,6 +156,7 @@ async function runLoadLog(): Promise<boolean> {
 
   const loaded = result.commits;
   commits.value = loaded;
+  commitsDir.value = dir;
   defaultBranch.value = result.defaultBranch === "" ? undefined : result.defaultBranch;
   const headCommit = findHeadCommit(loaded);
   lastHead = headCommit?.hash ?? "";
@@ -251,7 +255,7 @@ const disposeRemoteRefsChange = onMessage<RemoteRefsChangePayload>(
     scheduleLoadLog();
     // remote-tracking ref が動いた = push/fetch 直後で PR 状態が変わり得る。active repo を
     // 取り直す。freshness lock を尊重するため 60s 内の連続 ref 変化では撃ち直さない。
-    refreshActivePrList();
+    refreshPrBadges();
   },
 );
 onUnmounted(disposeRemoteRefsChange);
@@ -264,12 +268,12 @@ const disposeFsWatchReady = onMessage<FsWatchReadyPayload>("fsWatchReady", ({ di
 });
 onUnmounted(disposeFsWatchReady);
 
-// --- PR 情報（active repo のみ・per-repo キャッシュ + freshness lock。SSOT は `usePrListStore`） ---
+// --- PR バッジ（active repo のみ・per-repo キャッシュ + freshness lock。SSOT は `usePrBadgeStore`） ---
 //
 // PR badge は active worktree の git graph にしか出ないため poll 対象は active repo のみ。
-// repo 切替では prListStore が repo 単位キャッシュを即表示し（表示は `selectedRootDir` から
-// 導出）、60s lock を抜けた repo だけ再取得する（claude terminals の高頻度 repo 切替で
-// `gh pr list` を撃ち続けない）。window focus は可視性の一部として扱う（`useRemoteFetchSync`
+// repo 切替では prBadgeStore が repo 単位キャッシュを即表示し（表示は `selectedRootDir` から
+// 導出）、60 秒以内に引いた branch は引き直さない（claude terminals の高頻度 repo 切替で
+// GitHub を撃ち続けない）。window focus は可視性の一部として扱う（`useRemoteFetchSync`
 // と同じ規律）: blur 中は「見ていない」ので対象を undefined にし、focus 復帰は対象の出入りとして
 // watch に乗って catch-up する。focus 専用の発火トリガは持たない。
 
@@ -278,25 +282,41 @@ onUnmounted(disposeFsWatchReady);
 // `selectedRootDir` は worktree path / rootDir 直指定 / fetch 前 fallback を吸収する SSOT。
 const pollTargetRootDir = computed(() => (focused.value ? repoStore.selectedRootDir : undefined));
 
+/**
+ * 取得したい branch。グラフに描かれている ref そのもので、scope 変更や再 walk で入れ替わる。
+ *
+ * **active repo の commits でなければ問いを立てない。**`selectedRootDir` は切替と同時に変わるが
+ * `commits` は git log の往復が終わるまで前の repo のままで、その隙に撃つと「新 repo に、旧 repo の
+ * branch 名で」引くことになる。
+ */
+const graphBranches = computed(() => {
+  const dir = commitsDir.value;
+  if (dir === undefined || !repoStore.isSameRepoAsActive(dir)) return [];
+  return graphBranchNames(commits.value);
+});
+
 // 既 push branch での `gh pr create` / `edit` / `comment` は local refs を動かさず push 経路で
 // 到達不能なため、interval が PR 状態変化を反映する唯一の経路。
-const PR_LIST_POLL_INTERVAL_MS = 60_000;
+const PR_BADGE_POLL_INTERVAL_MS = 60_000;
 
-/** active repo の PR 一覧を lock 越しに取り直す。store の 60s lock が実 fetch を絞るため高頻度
+/** active repo のバッジを lock 越しに取り直す。store の 60s lock が実 fetch を絞るため高頻度
  *  切替でも撃ち続けない。lock 中 / blur 中 (target undefined) はキャッシュのまま no-op。 */
-function refreshActivePrList() {
+function refreshPrBadges() {
   const rootDir = pollTargetRootDir.value;
   const dir = worktreeStore.dir;
   if (rootDir === undefined || dir === undefined) return;
-  prListStore.fetchIfDue(rootDir, dir);
+  if (graphBranches.value.length === 0) return;
+  prBadgeStore.fetchIfDue(rootDir, dir, graphBranches.value);
 }
 
-// 対象の出入り（repo 切替 / focus 復帰・喪失）で再取得。focus 復帰は undefined→rootDir の変化として
-// ここに乗り catch-up する（表示は `prByBranch` が `selectedRootDir` から自動追従）。
-watch(pollTargetRootDir, refreshActivePrList, { immediate: true });
+// 対象の出入り（repo 切替 / focus 復帰・喪失）と、描く branch の入れ替わりで再取得。focus 復帰は
+// undefined→rootDir の変化としてここに乗り catch-up する（表示は `prByBranch` が
+// `selectedRootDir` から自動追従）。branch 集合の変化で撃つのは、新しく現れた ref のバッジを
+// lock の残り時間だけ欠けさせないため（取得済みで新しい branch は store 側が落とす）。
+watch([pollTargetRootDir, graphBranches], refreshPrBadges, { immediate: true });
 
 // 一定間隔更新。active repo を lock 越しに取り直す（60s 経過分だけ実 fetch）。
-useIntervalFn(refreshActivePrList, PR_LIST_POLL_INTERVAL_MS, { immediateCallback: false });
+useIntervalFn(refreshPrBadges, PR_BADGE_POLL_INTERVAL_MS, { immediateCallback: false });
 
 // --- GitHub repo identity (コミットメッセージ `#N` リンク化) ---
 

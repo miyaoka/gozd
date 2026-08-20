@@ -7,6 +7,7 @@ import type {
   GitFileChange,
   GitIssue,
   GitPullRequest,
+  GitPullRequestBadge,
   GitPullRequestCheckState,
   WorktreeEntry,
 } from "./common";
@@ -263,7 +264,7 @@ export type GhErrorKind =
   | "network"
   | "other";
 
-// gitPrList: gh pr list
+// gitPrList: repo の open PR 一覧（選ばせるための母集合）
 export interface GitPrListRequest {
   dir: string;
 }
@@ -273,6 +274,24 @@ export interface GitPrListResponse {
   prs: GitPullRequest[];
   errorKind: GhErrorKind;
   /** 表示しないが debug 用に stderr の冒頭を載せる（最大 512B 程度に切り詰める想定） */
+  errorDetail: string;
+}
+
+// gitPrsForBranches: 指定した branch に紐づく open PR（グラフのバッジ用）
+//
+// 一覧取得と型を共有せず別の request として持つ。問いが違うため運ぶ範囲も発火の頻度も違う
+// （docs/git.md「PR の取得は問いごとに分ける」）。
+export interface GitPrsForBranchesRequest {
+  dir: string;
+  /** 引きたい branch 名。`origin/` 接頭辞は含めない */
+  branches: string[];
+}
+export interface GitPrsForBranchesResponse {
+  ok: boolean;
+  /** 要求した branch のうち open PR を持つものだけが、**1 branch につき最大 1 件**返る。
+   * 同じ head に複数の open PR があるときは最新の 1 件。順序は保証しない */
+  prs: GitPullRequestBadge[];
+  errorKind: GhErrorKind;
   errorDetail: string;
 }
 

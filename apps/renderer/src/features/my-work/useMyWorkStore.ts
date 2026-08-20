@@ -13,9 +13,8 @@ import { rpcGitMyWork } from "./rpc";
  *
  * ## なぜ repo 単位キャッシュを持たないか
  *
- * `usePrListStore` は repo をキーにキャッシュするが、こちらの取得単位は **認証ユーザー**で、
- * repo をまたいだ 1 つの結果しか存在しない。キーが 1 つなのでキャッシュはスカラで足り、
- * repo 切替や worktree 切替では何も起きない。
+ * 取得単位は **認証ユーザー**で、repo をまたいだ 1 つの結果しか存在しない。キーが 1 つなので
+ * キャッシュはスカラで足り、repo 切替や worktree 切替では何も起きない。
  *
  * ## 取得のかかり方
  *
@@ -25,8 +24,8 @@ import { rpcGitMyWork } from "./rpc";
  * - パネルを開いた瞬間: lock を抜けていれば即時取得、抜けていなければキャッシュ表示のまま
  * - 開いている間: 60 秒間隔で再取得
  *
- * の両方が 1 つの入口で成り立つ。`usePrListStore` と同じ規律で、focus 専用の発火トリガは
- * 持たない（blur は「対象が消える」ものとして呼び出し側が扱う）。
+ * の両方が 1 つの入口で成り立つ。focus 専用の発火トリガは持たない（blur は「対象が消える」
+ * ものとして呼び出し側が扱う）。
  *
  * ## 取れなかったことを画面に残す
  *
@@ -46,7 +45,7 @@ const FETCH_FAILED_MESSAGE = "Failed to load my work";
 
 /**
  * 「いま取得すべきか」を決める純関数。lock (`allowedAt`) が未来なら抑制期間中。
- * `isPrListFetchDue` と同型（対象の選定は呼び出し側が持ち、これは lock だけ見る）。
+ * 対象の選定は呼び出し側が持ち、これは lock だけ見る。
  */
 export function isMyWorkFetchDue(args: { allowedAt: number | undefined; now: number }): boolean {
   const { allowedAt, now } = args;

@@ -74,6 +74,8 @@ import type {
   GitPrDiffFilesResponse,
   GitPrListRequest,
   GitPrListResponse,
+  GitPrsForBranchesRequest,
+  GitPrsForBranchesResponse,
   GitReadBlobRequest,
   GitReadBlobResponse,
   GitResetMixedRequest,
@@ -196,7 +198,15 @@ import {
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
-import { emptyMyWork, issueList, myWork, prList, repoOwnerName, viewer } from "./git/github";
+import {
+  emptyMyWork,
+  issueList,
+  myWork,
+  prList,
+  prsForBranches,
+  repoOwnerName,
+  viewer,
+} from "./git/github";
 import { submoduleBrowseUrl } from "./git/submodule";
 import { buildPtyEnv } from "./gozdEnv";
 import { buildGozdOpenPayload } from "./openTarget";
@@ -819,6 +829,25 @@ async function handleGitLsFiles(body: unknown): Promise<unknown> {
   return { files: await lsFiles(req.dir) } satisfies GitLsFilesResponse;
 }
 
+async function handleGitPrsForBranches(body: unknown): Promise<unknown> {
+  const req = body as GitPrsForBranchesRequest;
+  const result = await prsForBranches(req.dir, req.branches);
+  if (!result.ok) {
+    return {
+      ok: false,
+      prs: [],
+      errorKind: result.error.kind,
+      errorDetail: result.error.detail,
+    } satisfies GitPrsForBranchesResponse;
+  }
+  return {
+    ok: true,
+    prs: result.value,
+    errorKind: "ok",
+    errorDetail: "",
+  } satisfies GitPrsForBranchesResponse;
+}
+
 async function handleGitPrList(body: unknown): Promise<unknown> {
   const req = body as GitPrListRequest;
   const result = await prList(req.dir);
@@ -1272,6 +1301,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/createWorktree", handleCreateWorktree],
   ["/git/worktreeRemove", handleWorktreeRemove],
   ["/git/prList", handleGitPrList],
+  ["/git/prsForBranches", handleGitPrsForBranches],
   ["/git/issueList", handleGitIssueList],
   ["/git/myWork", handleGitMyWork],
   ["/git/viewer", handleGitViewer],

@@ -8,7 +8,7 @@ import { rpcGitFetchRemotes } from "./rpc";
 /**
  * 背景 fetch の再取得周期 (ms)。**成功・失敗を区別せず単一周期**で回す（VSCode autofetch と同じ。
  * `autofetch.ts` は成否問わず `git.autofetchPeriod` を待つだけで、失敗専用 backoff を持たない）。
- * 値は PR poll (`gh pr list`, 60s) と揃える: all ブランチ表示で他人の branch の PR バッジは、その
+ * 値は PR バッジの取得 (60s) と揃える: all ブランチ表示で他人の branch の PR バッジは、その
  * `origin/*` ref が fetch 済みであることに依存するため、ref (fetch) と PR (poll) の鮮度を同一周期に
  * 揃えると整合が最良になる。gozd は fetch を可視 ∪ active repo に絞るため母数が小さく、VSCode の
  * 全 repo 180s より 60s でも負荷は同等以下。`useRemoteFetchSync` の poll tick もこの値。

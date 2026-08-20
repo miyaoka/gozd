@@ -18,6 +18,7 @@ import type {
   GitMyWorkItem,
   GitMyWorkWebLink,
   GitPullRequest,
+  GitPullRequestBadge,
   GitPullRequestCheckState,
   GitPullRequestReviewDecision,
   GitPullRequestStack,
@@ -87,39 +88,129 @@ export const RATE_LIMIT_FIELD = "rateLimit { cost remaining }";
  *
  * `cost` / `remaining` を 0 に倒さない。契約は docs/git.md の「観察可能性」節。
  */
-export function formatGhCostLine(parsed: unknown, tag: string): string {
+export function formatGhCostLine(parsed: unknown, tag: string, detail = ""): string {
   const cost = getPath(parsed, "data", "rateLimit", "cost");
   const remaining = getPath(parsed, "data", "rateLimit", "remaining");
   if (typeof cost !== "number" || typeof remaining !== "number") {
     return `[${tag}] rateLimit missing in response`;
   }
-  return `[${tag}] cost=${cost} remaining=${remaining}`;
+  return [`[${tag}]`, `cost=${cost}`, `remaining=${remaining}`, detail]
+    .filter((part) => part !== "")
+    .join(" ");
 }
 
-/** 応答に載った消費量を観察ログへ流す。 */
-function logGhCost(tag: string, rawJson: string): void {
+/**
+ * gh の応答を 1 度だけ parse する。**観察ログはここで出す。**
+ *
+ * 応答を各所で parse し直すと、同じ文字列を何度も読み直すうえに「消費を記録したか」が
+ * 呼び出しごとの作法になる。取得の入口を 1 本にして、parse とログをそこに閉じる。
+ */
+function parseGhResponse(tag: string, rawJson: string, detail = ""): GhResult<unknown> {
   const parsed = tryCatch(() => JSON.parse(rawJson) as unknown);
   if (!parsed.ok) {
-    // 読めなかったのは rateLimit ではなく応答全体。直後の parse も必ず失敗する
+    // 読めなかったのは rateLimit ではなく応答全体。以降の取り出しも必ず失敗する
     console.error(`[${tag}] response unreadable: ${parsed.error}`);
-    return;
+    return { ok: false, error: { kind: "other", detail: "unreadable response" } };
   }
-  console.error(formatGhCostLine(parsed.value, tag));
+  console.error(formatGhCostLine(parsed.value, tag, detail));
+  return { ok: true, value: parsed.value };
 }
 
-// `owner { login }` は廃止（fork 判定にはローカルで parse した owner を使う）。
-// `assignees` / `reviewRequests` は PR picker の filter 機能で参照するため一覧 query に含める。
+/**
+ * バッジ取得 1 往復あたりの branch 数。
+ *
+ * cost は branch 数に比例して伸びる（下のコスト式を参照）。100 を単位にする理由は cost ではなく、
+ * グラフに載る ref が git log の取得窓（`maxCount`）に由来して高々数百本であり、100 なら
+ * 1〜数往復で収まるため。
+ */
+const BADGE_BRANCH_CHUNK = 100;
+
+// GraphQL の rate limit cost は「各 connection を満たすのに必要な request 数の合計を 100 で割って
+// 四捨五入（最小 1）」。**connection 1 つの request 数は親ノード数**（祖先の `first` の積）で決まり、
+// 返ってきた件数では決まらない。自分の `first` は自分の request 数には掛からず、子の親ノード数を
+// 決めるだけ。
 //
-// GraphQL の rate limit cost は connection 1 つにつき「親の件数ぶんの request」で積まれ、
-// その合計を 100 で割って算出される。`statusCheckRollup` は connection ではないため cost に
-// 乗らない。CI 結果を `commits(last: 1)` 経由で取ると connection が 1 つ増えて cost が上がる
-// ので、PullRequest 直下の rollup を使う。
-// connection の `totalCount` も `first` / `last` を渡さなければページを 1 枚も要求しないため
-// cost に乗らない。件数系はこの形でだけ取る。
+// バッジ query は「alias N 本（親は repository の 1 ノード）= N」＋「各 PR 直下の `stack.entries`
+// （親は N×窓 の PR ノード）= N×窓」で **N×(1+窓)**。窓 3 の実測は 10 本 1 / 47 本 2 / 55 本 2 /
+// 80 本 3 / 100 本 4 で、窓 30・100 本の 31 まで含めて式と一致する。
 //
-// `stack.entries` の cost 増は **+1 固定**で、`first` の値にも PR 件数にも stack の実在数にも
-// 依存しない。cost を理由に `STACK_ENTRY_LIMIT` を下げても効果は無い。
-export const PR_QUERY = `
+// **cost を削るノブは `BADGE_PR_WINDOW`**。request 数の 3/4 を `stack.entries` が占めるが、その数は
+// 窓に比例し `STACK_ENTRY_LIMIT` には依存しない。上限を下げても cost は動かない。
+//
+// `statusCheckRollup` は connection ではないため乗らない。CI 結果を `commits(last: 1)` 経由で
+// 取ると connection が 1 つ増えるので、PullRequest 直下の rollup を使う。connection の
+// `totalCount` も `first` / `last` を渡さなければページを要求しないため乗らない。
+const PR_BADGE_FRAGMENT = `
+fragment badge on PullRequest {
+  number
+  url
+  isDraft
+  headRefName
+  baseRefOid
+  headRepository { owner { login } }
+  statusCheckRollup { state }
+  comments { totalCount }
+  reviews { totalCount }
+  reviewThreads { totalCount }
+  stackEntry { position }
+  stack {
+    number
+    size
+    entries(first: ${STACK_ENTRY_LIMIT}) { nodes { position pullRequest { baseRefOid } } }
+  }
+}`;
+
+/**
+ * 1 branch あたりに引く open PR の数。
+ *
+ * **1 では足りない。**`headRefName` の絞り込みは base repo の PR を返すため fork の同名 branch も
+ * 含み、取得後に head owner で捨てる。窓が 1 だと、捨てられる PR 1 件で窓が埋まった瞬間に
+ * 自 repo の PR が見えなくなり、「PR を持たない branch」と区別が付かなくなる。
+ *
+ * 窓は「捨てうる数 + 1」以上が要る。gh CLI は 1 branch を単独で引くため 30、VS Code の GitHub PR
+ * 拡張は 3 を使う。gozd は N branch を 1 往復に束ねるので cost が N×(1+窓) で効き（実測: N=100 で
+ * 窓 3 なら cost 4、窓 30 なら 31）、束ね取得で成立する 3 を採る。
+ */
+export const BADGE_PR_WINDOW = 3;
+
+/**
+ * 指定した branch に紐づく open PR を 1 往復で引く query を組み立てる。
+ *
+ * branch 名は変数で渡す。query 文字列へ埋め込むと、名前に引用符やバックスラッシュが入った
+ * 瞬間に GraphQL の構文が壊れる（`MY_WORK_QUERY` の軸と同じ規律）。
+ *
+ * 同じ head を持つ open PR は複数あり得るので、どれを取るかを `orderBy` で固定する。
+ */
+export function badgeQuery(count: number): string {
+  // 0 本だと変数宣言が空になり、末尾のカンマで構文が壊れた query を返す。引く branch が無いのは
+  // 呼び出し側のバグなので、壊れた成果物を静かに返さず invariant 違反として落とす
+  if (count < 1) throw new Error(`badgeQuery: count must be >= 1, got ${count}`);
+  const decl = Array.from({ length: count }, (_, i) => `$b${i}: String!`).join(", ");
+  const fields = Array.from(
+    { length: count },
+    (_, i) =>
+      `    b${i}: pullRequests(headRefName: $b${i}, first: ${BADGE_PR_WINDOW}, states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}) { nodes { ...badge } }`,
+  ).join("\n");
+  return `
+query($owner: String!, $repo: String!, ${decl}) {
+  ${RATE_LIMIT_FIELD}
+  repository(owner: $owner, name: $repo) {
+${fields}
+  }
+}
+${PR_BADGE_FRAGMENT}`;
+}
+
+// picker の行が描くものだけ。バッジ用の fragment は取り込まない。
+//
+// fork 判定は remote URL から local に解決した owner で行うため、query が持つ owner は head 側だけ。
+// `assignees` / `reviewRequests` は picker の絞り込みが参照するのでここに含める。
+//
+// cost は 1（pullRequests）+ 100（assignees）+ 100（reviewRequests）= 201 → **2**（実測 2）。
+//
+// `statusCheckRollup` と会話数は cost を増やさないが、100 件ぶんを GitHub が解決するため応答が
+// 1.6 秒伸びる（実測）。picker はどちらも描かないので、載せると描かないものを待つことになる。
+export const PR_LIST_QUERY = `
 query($owner: String!, $repo: String!, $limit: Int!) {
   ${RATE_LIMIT_FIELD}
   repository(owner: $owner, name: $repo) {
@@ -128,25 +219,13 @@ query($owner: String!, $repo: String!, $limit: Int!) {
         number
         title
         url
-        state
         isDraft
         headRefName
-        baseRefOid
-        author { login avatarUrl(size: ${AVATAR_SIZE}) }
         updatedAt
         headRepository { owner { login } }
+        author { login avatarUrl(size: ${AVATAR_SIZE}) }
         assignees(first: 100) { nodes { login } }
         reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } } } }
-        statusCheckRollup { state }
-        comments { totalCount }
-        reviews { totalCount }
-        reviewThreads { totalCount }
-        stackEntry { position }
-        stack {
-          number
-          size
-          entries(first: ${STACK_ENTRY_LIMIT}) { nodes { position pullRequest { baseRefOid } } }
-        }
       }
     }
   }
@@ -171,15 +250,122 @@ query($owner: String!, $repo: String!, $limit: Int!) {
   }
 }`;
 
-/** open PR 一覧 */
+/**
+ * 指定した branch に紐づく open PR。グラフのバッジが使う取得経路。
+ *
+ * **消費が repo の PR 総数から切り離される。**引く branch の数だけで決まり、一覧を取ってから
+ * 突き合わせる形のように「上限で切れて PR を持たない branch と区別が付かない」状態が起こらない。
+ *
+ * **branch ごとに最大 1 件**へ畳んで返す。窓を広く取るのは fork を捨てるための内部都合なので、
+ * 複数件を呼び出し側へ流さない。
+ */
+export async function prsForBranches(
+  dir: string,
+  branches: string[],
+): Promise<GhResult<GitPullRequestBadge[]>> {
+  if (branches.length === 0) return { ok: true, value: [] };
+  const identity = await resolveGitHubRepoOrError(dir);
+  if (!identity.ok) return identity;
+  const { owner, repo } = identity.value;
+
+  const prs: GitPullRequestBadge[] = [];
+  // 直列に撃つ。GitHub は secondary rate limit を避けるため並列ではなく直列を推奨している
+  for (let start = 0; start < branches.length; start += BADGE_BRANCH_CHUNK) {
+    const chunk = await badgePrsForChunk(dir, owner, repo, branches, start);
+    if (!chunk.ok) {
+      // 完走した往復の結果はここで捨てられる。呼び出し側は要求した全 branch の鮮度を進めるため、
+      // 取れていた PR が次の窓まで「PR 無し」と同じ見た目になる。失敗の脱出はこの 1 点だけに
+      // 置く。分岐ごとに告知を書くと、片方だけ無音のまま残る
+      if (prs.length > 0) {
+        console.error(
+          `[prsForBranches] discarding ${prs.length} prs from completed chunks: chunk at ${start} failed kind=${chunk.error.kind} detail=${chunk.error.detail}`,
+        );
+      }
+      return chunk;
+    }
+    prs.push(...chunk.value);
+  }
+  return { ok: true, value: newestPerBranch(prs) };
+}
+
+/**
+ * バッジ取得の 1 往復。`start` から `BADGE_BRANCH_CHUNK` 本ぶんの branch を 1 つの query に束ねる。
+ *
+ * 失敗の種別を呼び出し側へそのまま返す。ここで告知すると、完走した往復をいくつ捨てたかを
+ * 知らないまま書くことになる。
+ */
+async function badgePrsForChunk(
+  dir: string,
+  owner: string,
+  repo: string,
+  branches: string[],
+  start: number,
+): Promise<GhResult<GitPullRequestBadge[]>> {
+  const chunk = branches.slice(start, start + BADGE_BRANCH_CHUNK);
+  const args = [
+    "api",
+    "graphql",
+    "-f",
+    `owner=${owner}`,
+    "-f",
+    `repo=${repo}`,
+    ...chunk.flatMap((branch, i) => ["-f", `b${i}=${branch}`]),
+    "-f",
+    `query=${badgeQuery(chunk.length)}`,
+  ];
+  const raw = await runGhCategorized(args, dir);
+  if (!raw.ok) return raw;
+  const parsed = parseGhResponse("prsForBranches", raw.value, `branches=${chunk.length}`);
+  if (!parsed.ok) return parsed;
+  const nodes = aliasedNodes(parsed.value, chunk.length);
+  if (nodes === undefined) {
+    return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
+  }
+  return { ok: true, value: parsePullRequestBadgeNodes(nodes, owner) };
+}
+
+/**
+ * branch ごとに 1 件だけ残す。node は alias 順・alias 内 `CREATED_AT DESC` 順で並ぶので、
+ * **先勝ちが最新**になる。
+ *
+ * 窓を 1 より広く取るのは fork を捨てても自 repo の PR が残るようにするための内部都合で、
+ * 呼び出し側は 1 branch につき 1 個のバッジしか描かない。畳まずに流すと、受け側が Map へ
+ * 詰めた時点で後勝ち = 最古が選ばれる。
+ */
+export function newestPerBranch(prs: GitPullRequestBadge[]): GitPullRequestBadge[] {
+  const seen = new Set<string>();
+  return prs.filter((pr) => {
+    if (seen.has(pr.headRef)) return false;
+    seen.add(pr.headRef);
+    return true;
+  });
+}
+
+/** alias `b0..b{count-1}` の nodes を 1 本に潰す。1 つでも欠けていれば応答形式の異常。 */
+export function aliasedNodes(parsed: unknown, count: number): unknown[] | undefined {
+  const nodes: unknown[] = [];
+  for (let i = 0; i < count; i++) {
+    const alias = getPath(parsed, "data", "repository", `b${i}`, "nodes");
+    if (!Array.isArray(alias)) return undefined;
+    nodes.push(...alias);
+  }
+  return nodes;
+}
+
+/**
+ * open PR 一覧の 1 ページ。PR picker が「選ばせる母集合」として使う経路で、定期取得はしない。
+ *
+ * 1 往復で先頭 100 件（connection の上限）を返す。
+ */
 export async function prList(dir: string): Promise<GhResult<GitPullRequest[]>> {
   const identity = await resolveGitHubRepoOrError(dir);
   if (!identity.ok) return identity;
   const { owner, repo } = identity.value;
-  const raw = await runGhCategorized(graphqlArgs(owner, repo, PR_QUERY), dir);
+  const raw = await runGhCategorized(graphqlArgs(owner, repo, PR_LIST_QUERY), dir);
   if (!raw.ok) return raw;
-  logGhCost("prList", raw.value);
-  const nodes = nodesAt(raw.value, "pullRequests");
+  const parsed = parseGhResponse("prList", raw.value);
+  if (!parsed.ok) return parsed;
+  const nodes = nodesAt(parsed.value, "pullRequests");
   if (nodes === undefined) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
   }
@@ -187,12 +373,36 @@ export async function prList(dir: string): Promise<GhResult<GitPullRequest[]>> {
 }
 
 /**
- * PR 一覧 query の nodes を `GitPullRequest` へ変換する pure 関数。取得経路はすべてこれを
- * 経由する SSOT で、snapshot 入力に対する境界の振る舞いをここに閉じる。
+ * PR node をバッジの範囲へ変換する pure 関数。バッジ経路の変換をここに閉じ、snapshot 入力に
+ * 対する境界の振る舞いを 1 箇所で決める。
  *
  * fork PR（head owner ≠ local owner）は除外する: worktree 作成側が `origin/<headRef>` を
  * startPoint に使うため、fork からの PR は ref 解決に失敗する。`owner` は remote URL から
- * local に解決した値を渡す。
+ * local に解決した値を渡す。`headRefName` での絞り込みは fork の同名 branch も拾うため、
+ * バッジ経路でも同じ除外が要る。
+ */
+export function parsePullRequestBadgeNodes(nodes: unknown[], owner: string): GitPullRequestBadge[] {
+  const prs: GitPullRequestBadge[] = [];
+  for (const item of nodes) {
+    const headOwner = str(getPath(item, "headRepository", "owner", "login"));
+    if (headOwner !== owner) continue;
+    prs.push({
+      number: int(getPath(item, "number")),
+      url: str(getPath(item, "url")),
+      headRef: str(getPath(item, "headRefName")),
+      isDraft: getPath(item, "isDraft") === true,
+      baseRefOid: str(getPath(item, "baseRefOid")),
+      checkState: checkState(getPath(item, "statusCheckRollup", "state"), "prsForBranches"),
+      commentCount: commentCount(item),
+      stack: parseStack(item),
+    });
+  }
+  return prs;
+}
+
+/**
+ * PR 一覧 query の nodes を picker の範囲へ変換する。fork PR の除外はバッジ経路と同じ理由
+ * （worktree 作成が `origin/<headRef>` を startPoint に使うため、fork では ref 解決に失敗する）。
  */
 export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullRequest[] {
   const prs: GitPullRequest[] = [];
@@ -203,18 +413,13 @@ export function parsePullRequestNodes(nodes: unknown[], owner: string): GitPullR
       number: int(getPath(item, "number")),
       title: str(getPath(item, "title")),
       url: str(getPath(item, "url")),
-      state: str(getPath(item, "state")),
-      author: str(getPath(item, "author", "login")),
       headRef: str(getPath(item, "headRefName")),
       isDraft: getPath(item, "isDraft") === true,
+      author: str(getPath(item, "author", "login")),
+      authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
       assignees: logins(getPath(item, "assignees", "nodes"), "login"),
       reviewers: reviewerLogins(getPath(item, "reviewRequests", "nodes")),
       updatedAt: str(getPath(item, "updatedAt")),
-      authorAvatarUrl: str(getPath(item, "author", "avatarUrl")),
-      baseRefOid: str(getPath(item, "baseRefOid")),
-      checkState: checkState(getPath(item, "statusCheckRollup", "state"), "prList"),
-      commentCount: commentCount(item),
-      stack: parseStack(item),
     });
   }
   return prs;
@@ -264,8 +469,9 @@ export async function issueList(dir: string): Promise<GhResult<GitIssue[]>> {
   const { owner, repo } = identity.value;
   const raw = await runGhCategorized(graphqlArgs(owner, repo, ISSUE_QUERY), dir);
   if (!raw.ok) return raw;
-  logGhCost("issueList", raw.value);
-  const nodes = nodesAt(raw.value, "issues");
+  const parsed = parseGhResponse("issueList", raw.value);
+  if (!parsed.ok) return parsed;
+  const nodes = nodesAt(parsed.value, "issues");
   if (nodes === undefined) {
     return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
   }
@@ -453,12 +659,8 @@ export async function myWork(): Promise<GhResult<MyWork>> {
   ];
   const raw = await runGhCategorized(args, homedir());
   if (!raw.ok) return raw;
-  logGhCost("myWork", raw.value);
-
-  const parsed = tryCatch(() => JSON.parse(raw.value) as unknown);
-  if (!parsed.ok) {
-    return { ok: false, error: { kind: "other", detail: "unexpected response shape" } };
-  }
+  const parsed = parseGhResponse("myWork", raw.value);
+  if (!parsed.ok) return parsed;
   return parseMyWorkResponse(parsed.value);
 }
 
@@ -761,10 +963,8 @@ function reviewerLogins(nodes: unknown): string[] {
     .filter((login) => login !== "");
 }
 
-function nodesAt(rawJson: string, key: "pullRequests" | "issues"): unknown[] | undefined {
-  const parsed = tryCatch(() => JSON.parse(rawJson) as unknown);
-  if (!parsed.ok) return undefined;
-  const nodes = getPath(parsed.value, "data", "repository", key, "nodes");
+function nodesAt(parsed: unknown, key: "pullRequests" | "issues"): unknown[] | undefined {
+  const nodes = getPath(parsed, "data", "repository", key, "nodes");
   return Array.isArray(nodes) ? nodes : undefined;
 }
 

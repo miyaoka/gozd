@@ -1,4 +1,4 @@
-import type { GitPullRequest } from "@gozd/rpc";
+import type { GitPullRequestBadge } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import type { PrDiffOrigin } from "./usePrDiffToggleStore";
 import { decidePrDiffFollowUp, isPrDiffOriginStale, prDiffBaseOid } from "./usePrDiffToggleStore";
@@ -7,19 +7,12 @@ const PR_BASE_OID = "878532b8b72fa424e9daf50261e1fe752e5ada6b";
 const STACK_BASE_OID = "db45e9d81f80091fd0357aa834030cf0fb29ca9b";
 
 /** PR の snapshot。base 端の解決に関わるフィールドだけ差し替える */
-function pr(overrides: Partial<GitPullRequest> = {}): GitPullRequest {
+function pr(overrides: Partial<GitPullRequestBadge> = {}): GitPullRequestBadge {
   return {
     number: 17637,
-    title: "chore: cleanup",
     url: "https://github.com/o/r/pull/17637",
-    state: "OPEN",
-    author: "miyaoka",
     headRef: "chore/billing-form-cleanup",
     isDraft: false,
-    assignees: [],
-    reviewers: [],
-    updatedAt: "2026-08-17T07:43:47Z",
-    authorAvatarUrl: "https://example.invalid/a.png",
     baseRefOid: PR_BASE_OID,
     commentCount: 0,
     ...overrides,
@@ -27,7 +20,9 @@ function pr(overrides: Partial<GitPullRequest> = {}): GitPullRequest {
 }
 
 /** 4 段 stack の最上段に居る PR */
-function stackedPr(stackOverrides: Partial<GitPullRequest["stack"]> = {}): GitPullRequest {
+function stackedPr(
+  stackOverrides: Partial<GitPullRequestBadge["stack"]> = {},
+): GitPullRequestBadge {
   return pr({
     stack: {
       size: 4,

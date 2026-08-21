@@ -1,4 +1,4 @@
-import type { GitPullRequest } from "@gozd/rpc";
+import type { GitPullRequestBadge } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
@@ -6,7 +6,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { useGitStatusStore, useRemoteFetchStore, useWorktreeStore } from "../worktree";
 import { rpcGitMergeBase, rpcGitRevReachable } from "./rpc";
 import { useGitGraphStore } from "./useGitGraphStore";
-import { usePrListStore } from "./usePrListStore";
+import { usePrBadgeStore } from "./usePrBadgeStore";
 
 /** base 端の候補を trunk に近い順で並べる。UI の並び順もこれに従う。 */
 const PR_DIFF_MODES = ["stack", "pr"] as const;
@@ -31,7 +31,7 @@ const MODE_LOST_CAUSE: Record<PrDiffMode, string> = {
  * `unrelated histories` として通知され、原因が誤分類されるため。
  */
 export function prDiffBaseOid(
-  pr: GitPullRequest | undefined,
+  pr: GitPullRequestBadge | undefined,
   mode: PrDiffMode,
 ): string | undefined {
   if (pr === undefined) return undefined;
@@ -99,7 +99,7 @@ export function decidePrDiffFollowUp(params: {
  */
 export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
   const gitGraphStore = useGitGraphStore();
-  const prListStore = usePrListStore();
+  const prBadgeStore = usePrBadgeStore();
   const worktreeStore = useWorktreeStore();
   const gitStatusStore = useGitStatusStore();
   const fetchStore = useRemoteFetchStore();
@@ -115,10 +115,10 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
 
   const mode = computed<PrDiffMode | undefined>(() => lockedBase.value?.mode);
 
-  const pr = computed<GitPullRequest | undefined>(() => {
+  const pr = computed<GitPullRequestBadge | undefined>(() => {
     const branch = gitGraphStore.currentBranch;
     if (branch === undefined) return undefined;
-    return prListStore.prByBranch.get(branch);
+    return prBadgeStore.prByBranch.get(branch);
   });
 
   function baseOidOf(target: PrDiffMode): string | undefined {

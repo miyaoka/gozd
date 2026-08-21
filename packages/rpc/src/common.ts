@@ -154,19 +154,18 @@ export interface GitPullRequestStack {
   baseRefOid: string;
 }
 
-export interface GitPullRequest {
+/**
+ * グラフの ref バッジが運ぶ範囲。「この branch に PR はあるか、いまどんな状態か」だけを持つ。
+ *
+ * picker の範囲 (`GitPullRequest`) と別の型にする。運ぶ範囲が違うものを 1 つの型にまとめると、
+ * 片方の取得で埋まらないフィールドが空文字のまま型を通り、描画されたときに「取れなかった」と
+ * 「空だった」が区別できなくなる。
+ */
+export interface GitPullRequestBadge {
   number: number;
-  title: string;
   url: string;
-  state: string;
-  author: string;
   headRef: string;
   isDraft: boolean;
-  assignees: string[];
-  reviewers: string[];
-  /** ISO 8601 */
-  updatedAt: string;
-  authorAvatarUrl: string;
   /** base branch の commit OID (immutable identifier)。base ref 名と異なり、
    * fork PR / base force-push / base rename にまたがって安定して base 端を識別できる。
    * PR diff 表示モードで「base..working tree」の base 端に使う SSOT。 */
@@ -179,6 +178,30 @@ export interface GitPullRequest {
   commentCount: number;
   /** この PR が属する stack。stack に入っていない PR では undefined。 */
   stack?: GitPullRequestStack;
+}
+
+/**
+ * PR を選ばせるための範囲。picker の行が描くものと、選んだ結果 worktree を作るのに要るものだけ。
+ *
+ * `GitPullRequestBadge` とフィールドを共有しない。重なるのは `number` / `headRef` / `isDraft`
+ * だけで、どちらももう片方を含まない。片方の形をもう片方から作ると、一方だけが要るフィールドが
+ * もう片方の取得に載り、**描かないものを待つ**ことになる。実測で `statusCheckRollup` と会話数は
+ * cost を増やさないまま応答を 1.6 秒伸ばす（cost と応答時間は別の軸で、狭さは cost だけでは
+ * 測れない）。
+ */
+export interface GitPullRequest {
+  number: number;
+  title: string;
+  /** 選択後に Claude セッションへ渡す */
+  url: string;
+  headRef: string;
+  isDraft: boolean;
+  author: string;
+  authorAvatarUrl: string;
+  assignees: string[];
+  reviewers: string[];
+  /** ISO 8601 */
+  updatedAt: string;
 }
 
 export interface GitIssue {

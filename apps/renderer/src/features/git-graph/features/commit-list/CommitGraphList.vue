@@ -21,7 +21,7 @@ flush: "post"。
 </doc>
 
 <script setup lang="ts">
-import type { GitPullRequest } from "@gozd/rpc";
+import type { GitPullRequestBadge } from "@gozd/rpc";
 import { useElementSize, useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
@@ -43,8 +43,8 @@ const props = defineProps<{
   defaultBranch?: string;
   /** GitHub repo base URL (コミットメッセージ `#N` リンク化)。親が repo identity から導出 */
   issueLinkBaseUrl?: string;
-  /** ブランチ名 → PR のマップ。親が prListStore から渡す */
-  prByBranch: Map<string, GitPullRequest>;
+  /** ブランチ名 → PR のマップ。親が prBadgeStore から渡す */
+  prByBranch: Map<string, GitPullRequestBadge>;
 }>();
 
 const emit = defineEmits<{

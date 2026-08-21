@@ -7,6 +7,7 @@ import type {
   GitFileChange,
   GitIssue,
   GitPullRequest,
+  GitPullRequestBadge,
   GitPullRequestCheckState,
   WorktreeEntry,
 } from "./common";
@@ -263,16 +264,44 @@ export type GhErrorKind =
   | "network"
   | "other";
 
-// gitPrList: gh pr list
+// gitPrList: repo の open PR 一覧（選ばせるための母集合）を 1 ページ返す
+//
+// **ページ送りは呼び出し側が回す。**全ページを取り切ってから返すと、最初の 1 ページが手元に
+// あるのに何も出せない。途中経過を表示できるのは表示側だけなので、繰り返しの制御もそちらに置く。
 export interface GitPrListRequest {
   dir: string;
+  /** 続きを取るカーソル。先頭ページでは未設定 */
+  after?: string;
 }
 export interface GitPrListResponse {
   /** ok=false は gh CLI 未認証 / rate limit / repo 不在 等で取得不能を示す */
   ok: boolean;
   prs: GitPullRequest[];
+  /** 次ページのカーソル。空文字は「続きが無い」 */
+  nextCursor: string;
+  /** open PR の総数。取得済み件数と並べて進捗を示す。
+   * fork PR を除外する前の数なので、取得済み件数がここへ到達しないことがある。 */
+  totalCount: number;
   errorKind: GhErrorKind;
   /** 表示しないが debug 用に stderr の冒頭を載せる（最大 512B 程度に切り詰める想定） */
+  errorDetail: string;
+}
+
+// gitPrsForBranches: 指定した branch に紐づく open PR（グラフのバッジ用）
+//
+// 一覧取得と型を共有せず別の request として持つ。問いが違うため運ぶ範囲も発火の頻度も違う
+// （docs/git.md「PR の取得は問いごとに分ける」）。
+export interface GitPrsForBranchesRequest {
+  dir: string;
+  /** 引きたい branch 名。`origin/` 接頭辞は含めない */
+  branches: string[];
+}
+export interface GitPrsForBranchesResponse {
+  ok: boolean;
+  /** 要求した branch のうち open PR を持つものだけが、**1 branch につき最大 1 件**返る。
+   * 同じ head に複数の open PR があるときは最新の 1 件。順序は保証しない */
+  prs: GitPullRequestBadge[];
+  errorKind: GhErrorKind;
   errorDetail: string;
 }
 

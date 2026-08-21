@@ -7,6 +7,8 @@ import {
   GitMergeBaseResponse,
   GitPrDiffFilesRequest,
   GitPrDiffFilesResponse,
+  GitPrsForBranchesRequest,
+  GitPrsForBranchesResponse,
   GitReadBlobRequest,
   GitReadBlobResponse,
   GitResetMixedRequest,
@@ -36,3 +38,7 @@ export const rpcGitMergeBase = (req: GitMergeBaseRequest) =>
 
 export const rpcGitResetMixed = (req: GitResetMixedRequest) =>
   rpc<GitResetMixedResponse>("/git/resetMixed", req);
+
+/** グラフのバッジ用。描いている branch を名指しで引く（`usePrBadgeStore` の doc 参照） */
+export const rpcGitPrsForBranches = (req: GitPrsForBranchesRequest) =>
+  rpc<GitPrsForBranchesResponse>("/git/prsForBranches", req);

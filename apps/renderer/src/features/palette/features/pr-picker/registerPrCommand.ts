@@ -4,6 +4,7 @@
  * PR を選択して worktree を作成する。既にブランチの worktree が存在する場合はそちらに切り替える。
  */
 
+import type { GitPullRequest } from "@gozd/rpc";
 import { ghRefForPr } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
@@ -19,6 +20,7 @@ import {
   rpcGitWorktreeList,
   useWorktreeStore,
 } from "../../../worktree";
+import type { ListPickerPage } from "../../createListPicker";
 import { inFlightKey, useInFlightGhRefs } from "../../inFlightGhRefs";
 import { buildTaskIndexByGhRef, ghRefKey } from "../../taskIndexByGhRef";
 import { usePrPicker } from "./usePrPicker";
@@ -27,7 +29,7 @@ import { fetchViewer } from "./useViewer";
 
 export function registerPrCommand(): () => void {
   const registry = useCommandRegistry();
-  const { open, setResult, hide } = usePrPicker();
+  const { open, setResult, setTotalCount, setPageSource, hide } = usePrPicker();
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
@@ -72,11 +74,13 @@ export function registerPrCommand(): () => void {
         // 色を変え、選択時は新規作成ではなく既存 task の worktree 表示に倒す。
         const owningRepo = repoStore.findRepoOwning(dir);
         const taskByGhRef = buildTaskIndexByGhRef(owningRepo?.worktrees ?? []);
-        const items = prsRes.prs.map((pr): PrPickerItem => ({
-          pr,
-          existingTask: taskByGhRef.get(ghRefKey(ghRefForPr(pr.number))),
-          refKey: inFlightKey(owningRepo?.rootDir ?? dir, ghRefForPr(pr.number)),
-        }));
+        const toItems = (prs: GitPullRequest[]): PrPickerItem[] =>
+          prs.map((pr) => ({
+            pr,
+            existingTask: taskByGhRef.get(ghRefKey(ghRefForPr(pr.number))),
+            refKey: inFlightKey(owningRepo?.rootDir ?? dir, ghRefForPr(pr.number)),
+          }));
+        const items = toItems(prsRes.prs);
 
         // accept の実体。失敗はすべて notify 済みで resolve する (throw しない) 契約。
         // 完了時に item.existingTask へ task を書き戻す (item は dialog が picker.items
@@ -180,6 +184,19 @@ export function registerPrCommand(): () => void {
             notify.error("Failed to process pull request selection", accepted.error);
           }
         });
+
+        // 総数は 1 ページで収まった取得でも意味を持つ（表示は「絞り込み後 / 取得済み / 総数」）
+        setTotalCount(gen, prsRes.totalCount);
+
+        // 続きは picker が要求する（契約は docs/git.md の「PR の取得は問いごとに分ける」）
+        if (prsRes.nextCursor !== "") {
+          setPageSource(
+            gen,
+            nextPageFetcher(dir, prsRes.nextCursor, toItems, (message, cause) =>
+              notify.error(message, cause),
+            ),
+          );
+        }
       })();
 
       return true;
@@ -187,4 +204,38 @@ export function registerPrCommand(): () => void {
   });
 
   return dispose;
+}
+
+/**
+ * 次のページを取る関数を作る。カーソルはここに閉じ込め、呼ばれるたびに 1 ページ進める。
+ *
+ * 取り切りも失敗も `done: true` で打ち切る。失敗は通知する: 打ち切られた一覧は見た目が正常なので、
+ * 黙って止めると「これで全部」と読める。
+ */
+function nextPageFetcher(
+  dir: string,
+  firstCursor: string,
+  toItems: (prs: GitPullRequest[]) => PrPickerItem[],
+  onError: (message: string, cause?: unknown) => void,
+): () => Promise<ListPickerPage<PrPickerItem>> {
+  let cursor = firstCursor;
+  return async () => {
+    const result = await tryCatch(rpcGitPrList({ dir, after: cursor }));
+    if (!result.ok) {
+      onError("Failed to load more pull requests", result.error);
+      return { items: [], done: true };
+    }
+    const res = result.value;
+    if (!res.ok) {
+      onError(
+        ghErrorMessage(res.errorKind, "Failed to load more pull requests"),
+        res.errorDetail || undefined,
+      );
+      return { items: [], done: true };
+    }
+    // 最終ページは「項目があり、かつこれで終わり」。done を同時に返さないと、同じカーソルを
+    // もう一度引いて同じページを二重に足す
+    cursor = res.nextCursor;
+    return { items: toItems(res.prs), done: res.nextCursor === "" };
+  };
 }

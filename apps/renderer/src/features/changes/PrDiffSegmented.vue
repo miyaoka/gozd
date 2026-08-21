@@ -13,7 +13,7 @@ diff の base 端を選ぶセグメントコントロール。
 </doc>
 
 <script setup lang="ts">
-import type { GitPullRequest } from "@gozd/rpc";
+import type { GitPullRequestBadge } from "@gozd/rpc";
 import type { FunctionalComponent, SVGAttributes } from "vue";
 import { computed } from "vue";
 import type { PrDiffMode } from "../git-graph";
@@ -30,7 +30,7 @@ const MODE_TEXT: Record<
     icon: FunctionalComponent<SVGAttributes>;
     label: string;
     /** title に出す比較対象。出典が mode ごとに違うため PR から引く */
-    target: (pr: GitPullRequest) => string;
+    target: (pr: GitPullRequestBadge) => string;
   }
 > = {
   stack: {

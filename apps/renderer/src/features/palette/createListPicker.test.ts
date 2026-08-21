@@ -123,3 +123,136 @@ describe("createListPicker", () => {
     expect(p.hideSignal.value).toBe(before + 1);
   });
 });
+
+describe("createListPicker のページ送り", () => {
+  const noop = () => {};
+  const page = (items: Item[], done = false) => ({ items, done });
+
+  /** 1 ページ目まで出した picker と、渡した順にページを返す source を用意する */
+  function paged(pages: { items: Item[]; done: boolean }[]) {
+    const p = createListPicker<Item>();
+    const gen = p.open();
+    p.setResult(gen, [{ id: 1 }], "", noop);
+    p.setTotalCount(gen, 3);
+    let calls = 0;
+    p.setPageSource(gen, async () => {
+      calls++;
+      return pages.shift() ?? page([], true);
+    });
+    return { p, gen, calls: () => calls };
+  }
+
+  test("requestMore は末尾へ足す（並べ替えない）", async () => {
+    const { p } = paged([page([{ id: 2 }, { id: 3 }])]);
+    await p.requestMore();
+    expect(p.items.value.map((i) => i.id)).toEqual([1, 2, 3]);
+  });
+
+  test("totalCount は setTotalCount が渡した総数", () => {
+    const { p } = paged([]);
+    expect(p.totalCount.value).toBe(3);
+  });
+
+  // 1 ページで収まった取得でも総数は意味を持つ。「続きがあるか」とは別の問い
+  test("続きが無くても totalCount は持てる", () => {
+    const p = createListPicker<Item>();
+    const gen = p.open();
+    p.setResult(gen, [{ id: 1 }], "", noop);
+    p.setTotalCount(gen, 1);
+    expect(p.totalCount.value).toBe(1);
+    expect(p.hasMore.value).toBe(false);
+    expect(p.pagedOnce.value).toBe(false);
+  });
+
+  // スクロールは 1 回の末尾到達で何度も発火する。判定を呼び出し側に出すと同じページを重複取得する
+  test("取得中の再要求は無視する", async () => {
+    const { p, calls } = paged([page([{ id: 2 }]), page([{ id: 3 }])]);
+    const first = p.requestMore();
+    await p.requestMore();
+    await first;
+    expect(calls()).toBe(1);
+  });
+
+  // 最終ページは「項目があり、かつこれで終わり」。done を同時に返せないと二重に足される
+  test("項目を持つ最終ページはその場で打ち切る", async () => {
+    const { p, calls } = paged([page([{ id: 2 }], true)]);
+    await p.requestMore();
+    expect(p.items.value.map((i) => i.id)).toEqual([1, 2]);
+    expect(p.hasMore.value).toBe(false);
+    await p.requestMore();
+    expect(calls()).toBe(1);
+    expect(p.items.value.map((i) => i.id)).toEqual([1, 2]);
+  });
+
+  test("失敗 (items 空 + done) は一覧を保ったまま打ち切る", async () => {
+    const { p } = paged([page([], true)]);
+    await p.requestMore();
+    expect(p.items.value.map((i) => i.id)).toEqual([1]);
+    expect(p.hasMore.value).toBe(false);
+  });
+
+  // 閉じた後も続きを取ると、結果は捨てられるのに消費だけが残る
+  test("閉じた後の requestMore は取りに行かない", async () => {
+    const { p, calls } = paged([page([{ id: 2 }])]);
+    p.markClosed();
+    await p.requestMore();
+    expect(calls()).toBe(0);
+  });
+
+  // 閉じた通知が「いま表示している dialog のものか」は表示側が判定する契約なので、
+  // markClosed 自体は世代を見ない。open() が改めて表示状態にすることだけを固定する
+  test("開き直すと閉じた記録が解除される", async () => {
+    const { p } = paged([]);
+    p.markClosed();
+    const gen = p.open();
+    p.setResult(gen, [{ id: 1 }], "", noop);
+    let calls = 0;
+    p.setPageSource(gen, async () => {
+      calls++;
+      return page([{ id: 2 }]);
+    });
+    await p.requestMore();
+    expect(calls).toBe(1);
+  });
+
+  test("hide も取得を止める", async () => {
+    const { p, gen, calls } = paged([page([{ id: 2 }])]);
+    p.hide(gen);
+    await p.requestMore();
+    expect(calls()).toBe(0);
+  });
+
+  // await 中に開き直された世代の結果は捨てる。捨てないと前の問いの続きが新しい一覧へ混ざる
+  test("取得中に開き直すと、届いたページを捨てる", async () => {
+    const p = createListPicker<Item>();
+    const gen = p.open();
+    p.setResult(gen, [{ id: 1 }], "", noop);
+    let release: (value: { items: Item[]; done: boolean }) => void = () => {};
+    p.setPageSource(gen, () => new Promise((resolve) => (release = resolve)));
+    const pending = p.requestMore();
+    p.open();
+    release(page([{ id: 2 }]));
+    await pending;
+    expect(p.items.value).toEqual([]);
+  });
+
+  test("開き直すとページ送りの状態は消える", async () => {
+    const { p, calls } = paged([page([{ id: 2 }])]);
+    p.open();
+    expect(p.hasMore.value).toBe(false);
+    expect(p.totalCount.value).toBe(0);
+    expect(p.pagedOnce.value).toBe(false);
+    await p.requestMore();
+    expect(calls()).toBe(0);
+  });
+
+  test("古い世代の setPageSource / setTotalCount は無視される", () => {
+    const p = createListPicker<Item>();
+    const gen = p.open();
+    p.open();
+    p.setPageSource(gen, async () => page([], true));
+    p.setTotalCount(gen, 3);
+    expect(p.hasMore.value).toBe(false);
+    expect(p.totalCount.value).toBe(0);
+  });
+});

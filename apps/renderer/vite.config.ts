@@ -3,8 +3,9 @@ import { dirname, join } from "node:path";
 import { docBlockPlugin } from "@miyaoka/vite-plugin-doc-block";
 import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
+import { playwright } from "@vitest/browser-playwright";
 import Icons from "unplugin-icons/vite";
-import { defineConfig } from "vite";
+import { defineConfig, type ViteUserConfig } from "vitest/config";
 
 // material-icon-theme の SVG を import.meta.glob で列挙するための alias。
 // nodeLinker: hoisted ではパッケージ実体が repo root の node_modules に置かれ、
@@ -27,7 +28,7 @@ const materialIconsDir = join(
 // との衝突) は即時 fail させる。fallback すると固定 env を読む Electron が先発の Vite に繋がって
 // 「別 worktree のはずなのに先発の内容が表示される」事故になる。
 
-export default defineConfig(() => {
+export default defineConfig((): ViteUserConfig => {
   const portEnv = process.env.GOZD_DEV_VITE_PORT;
   return {
     // Icons の scale: 1 は icon svg を 1em 基準にする (default は 1.2em)。
@@ -49,6 +50,27 @@ export default defineConfig(() => {
       outDir: "dist",
       // material-icon-theme の SVG（1200+個）がインライン化されて JS が肥大化するのを防ぐ
       assetsInlineLimit: 0,
+    },
+    // browser mode のテスト。実ブラウザ (Chromium) で SFC を描画し、locator 経由で操作する。
+    // DOM シミュレーション環境はレイアウトを持たず `dispatchEvent` を流し込むだけなので、
+    // 「重なって押せない」「見えていない」を検出できない。Playwright の actionability check が
+    // 当たり判定の SSOT になることがこの構成の目的。
+    //
+    // テスト設定をアプリ設定と同じファイルに置くのは、plugin 構成（SFC コンパイル / Tailwind /
+    // icon の virtual module）がアプリと 1 つでも違えば、テストが検証しているのはアプリでは
+    // なくなるため。別ファイルにして片方だけ育つ余地を作らない。
+    test: {
+      // bun の探索パターン（`*.test.*` / `*.spec.*` / `*_test.*` / `*_spec.*`）に一致しない
+      // 命名にして、runner の住み分けを除外設定ではなくファイル名で決める。除外フラグに頼ると、
+      // 命名を外れたファイルが両方の runner で走る
+      include: ["src/**/*.browser-test.ts"],
+      setupFiles: ["vitest-browser-vue", "./vitest.setup.ts"],
+      browser: {
+        enabled: true,
+        provider: playwright(),
+        headless: true,
+        instances: [{ browser: "chromium" }],
+      },
     },
   };
 });

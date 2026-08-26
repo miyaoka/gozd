@@ -1,4 +1,9 @@
-# コミット型の規律
+---
+name: commit
+description: gozd のコミット型の選び方。feat / fix は配布物に現れる変更だけに付ける（canary リリースの発火条件）。
+---
+
+# commit — コミット型の規律
 
 release workflow は main 上の feat / fix commit を検知して canary リリースを自動発行する
 （`.github/workflows/release.yml` の発火判定）。コミット型は変更した領域ではなく

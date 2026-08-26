@@ -16,6 +16,7 @@
     "fix:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run fix",
     "test": "bun test scripts",
     "test:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run test",
+    "test:browser:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run test:browser",
     "typecheck:all": "pnpm -r --include-workspace-root --if-present run typecheck",
     "knip": "knip",
     "prepare": "lefthook install"

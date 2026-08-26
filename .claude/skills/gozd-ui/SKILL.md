@@ -7,6 +7,12 @@ description: gozd の renderer (Vue + Tailwind v4) で UI を書く / 直すと�
 
 renderer (`apps/renderer`) の UI を書く / 直すときの判断基準。色 / token は semantic alias だけを使い、primitive 直参照や raw palette は **構造的に書けない** (ESLint error)。
 
+## Spacing
+
+- 非対称な padding を作らない（単辺 `pt` / `pr` / `pb` / `pl` を使わない）
+- `margin` を使わない
+- 要素間の間隔は `gap` で作る
+
 ## 3-tier token system
 
 ```text
@@ -281,6 +287,12 @@ primary と info は同じ青系だが意味階層が異なる。同一 toolbar 
 ## Click handler は `<button type="button">`
 
 click handler を持つ要素は必ず `<button type="button">`。`<div>` に `role="button"` + `tabindex="0"` + 手動 keydown handler の ARIA shim は禁止。`<button>` で書けば semantic / keyboard navigation / accessibility がすべて OS + browser の提供で自動成立する。form 内で使うときは `type="button"` を明示 (submit 暴発防止)。
+
+## 押下中の当たり判定
+
+button は押下中にわずかに縮む（`main.css` の `button:active`）。当たり判定は疑似要素が元の矩形に
+据え置くが、**button 自身に `overflow` を切る指定を足すと疑似要素がクリップされ、押下中だけ端の
+数 px が押せなくなる**。端に小さな的（開閉 chevron 等）を置く面では `overflow` を切らない。
 
 ## Keyboard navigation container は ARIA role を持つ
 

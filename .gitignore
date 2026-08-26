@@ -6,3 +6,7 @@ apps/desktop/artifacts
 .DS_Store
 *.log*
 .eslintcache
+
+# vitest browser mode が失敗時に残す証跡 (スクリーンショット / 添付)
+__screenshots__
+.vitest-attachments

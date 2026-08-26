@@ -26,7 +26,7 @@ Electron バイナリに元から入っている ad-hoc 署名が残ることで
 
 - **canary の発火判定**: 直近の tag から HEAD までに feat / fix があればリリースする。
   **依存更新の commit は scope の除外で落ちる。前提となる契約は「人間は依存更新用の scope を
-  feat / fix で使わない」**（[コミット型の規律](../.claude/rules/commit.md)）
+  feat / fix で使わない」**（[コミット型の規律](../.claude/skills/commit/SKILL.md)）
 - **canary の採番**: 「最新 stable の次 patch + UTC 日時」。semver の順序が
   stable < canary < 次 stable で単調になり、**prerelease フラグだけでチャンネルを選べる**
   - **タグ名の文字列順が時系列と一致することを保証する**。パッケージマネージャは版を並べ替えず

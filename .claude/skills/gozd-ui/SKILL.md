@@ -7,6 +7,12 @@ description: gozd の renderer (Vue + Tailwind v4) で UI を書く / 直すと�
 
 renderer (`apps/renderer`) の UI を書く / 直すときの判断基準。色 / token は semantic alias だけを使い、primitive 直参照や raw palette は **構造的に書けない** (ESLint error)。
 
+## Spacing
+
+- 非対称な padding を作らない（単辺 `pt` / `pr` / `pb` / `pl` を使わない）
+- `margin` を使わない
+- 要素間の間隔は `gap` で作る
+
 ## 3-tier token system
 
 ```text

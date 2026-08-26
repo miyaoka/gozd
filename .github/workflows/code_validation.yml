@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ルートの集約スクリプトは 6 種あるが、matrix は fix を除いた 5 本。自動修正できる
+          # ルートの集約スクリプトは 7 種あるが、matrix は fix を除いた 6 本。自動修正できる
           # 違反で PR を止めず、daily-fix workflow が日次の全件実行で返済する
           # （.github/workflows/daily-fix.yml）
           #
@@ -49,6 +49,13 @@ jobs:
           - name: test
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only test
             full_command: pnpm run test:all
+
+          # 実ブラウザ (Chromium) で動かすテストは別レーンに置く。chromium という
+          # 別ランタイムを要するのはこのレーンだけで、混ぜると取得が壊れた日に
+          # unit test の信号まで巻き添えで止まり、切り分けもできなくなる
+          - name: test:browser
+            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only test:browser
+            full_command: pnpm run test:browser:all
 
           # bundler だけが検査できる領域の gate。import 指定子の解決（`?worker` や
           # ambient `declare module` で型付けした deep import は typecheck から不可視で、
@@ -75,6 +82,13 @@ jobs:
           show-progress: false
 
       - uses: ./.github/actions/setup-environment
+
+      # ブラウザ実行レーン用: Playwright の chromium headless shell を入れる
+      # ブラウザバイナリはキャッシュしない（Playwright 公式が非推奨: 復元時間が
+      # ダウンロードと同程度で、Linux の OS 依存はそもそもキャッシュできないため）
+      - name: Install Chromium headless shell
+        if: matrix.name == 'test:browser'
+        run: pnpm --filter @gozd/renderer run test:browser:setup
 
       # ルート設定ファイルの変更を検出
       # pnpm-workspace.yaml: catalog でバージョン管理、各 package.json は catalog: 参照のため差分が出ない

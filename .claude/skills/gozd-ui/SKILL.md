@@ -288,6 +288,12 @@ primary と info は同じ青系だが意味階層が異なる。同一 toolbar 
 
 click handler を持つ要素は必ず `<button type="button">`。`<div>` に `role="button"` + `tabindex="0"` + 手動 keydown handler の ARIA shim は禁止。`<button>` で書けば semantic / keyboard navigation / accessibility がすべて OS + browser の提供で自動成立する。form 内で使うときは `type="button"` を明示 (submit 暴発防止)。
 
+## 押下中の当たり判定
+
+button は押下中にわずかに縮む（`main.css` の `button:active`）。当たり判定は疑似要素が元の矩形に
+据え置くが、**button 自身に `overflow` を切る指定を足すと疑似要素がクリップされ、押下中だけ端の
+数 px が押せなくなる**。端に小さな的（開閉 chevron 等）を置く面では `overflow` を切らない。
+
 ## Keyboard navigation container は ARIA role を持つ
 
 `<div tabindex="0">` + `@keydown` で矢印キー navigation する custom container は WAI-ARIA role 必須。role 無しは screen reader で widget 種別が判別できない silent semantic 違反。

@@ -339,10 +339,40 @@
     scrollbar-gutter: stable;
   }
 
-  /* ゲームジュース: ボタン押下の物理感。押した瞬間にわずかに沈む。
-     transition は付けない (離した瞬間に即復帰する方がゲーム的に歯切れが良い) */
+  /* ゲームジュース: ボタン押下の物理感。押した瞬間にわずかに縮む。
+     transition は付けない (離した瞬間に即復帰する方がゲーム的に歯切れが良い)。
+
+     縮小は内向きなので枠の外へはみ出さない。外向きの変位だと、横 padding の無いスクロール
+     コンテナで押下中だけスクロール量が増える (子の box は end 側だけ scrollable overflow に
+     算入される)。同じ理由で、下の疑似要素も end 側へは広げない。
+
+     ヒットテストは変形後の箱で行われる。縮んだ分だけ押下点が要素から外れると mouseup が
+     別要素に落ち、click は mousedown と mouseup の共通祖先へ発火してボタンのハンドラが
+     呼ばれない。幅いっぱいの行ほど縁の移動量が大きく、行の左端の小さな的 (ツリーの
+     開閉 chevron 等) が押せなくなる。
+
+     そこで押下中だけ元の矩形を覆う疑似要素を置き、見た目が動いても当たり判定を据え置く。
+     疑似要素には逆スケールを掛ける。縮小量は幅に比例するため、固定 px の inset では
+     戻しきれない。start 側だけ一回り外へ取るのは、疑似要素の基準が padding box で、border を
+     持つボタンでは border 幅ぶん内側から始まるため。押下中のそのボタンにしか出ないので、
+     元の矩形を数 px 越えても誤爆しない。end 側の border 幅ぶんは死角として受け入れる。
+     変形中の要素は abspos の containing block になるため position 指定は要らない。
+     疑似要素を持つ既存の演出 (_fx-shine) と衝突しないよう ::before を使う。
+
+     要素自身が overflow を切る場合は clip 矩形も一緒に縮むため、疑似要素が箱の外へ出られず
+     周囲に縮小量ぶんの死角が残る。祖先の clip では起きない (疑似要素は押下前の矩形に
+     着地し、そこは押下前から clip の内側にある)。 */
   button:active:not(:disabled) {
-    transform: scale(0.95);
+    --button-press-scale: 0.98;
+
+    scale: var(--button-press-scale);
+  }
+
+  button:active:not(:disabled)::before {
+    content: "";
+    position: absolute;
+    inset: -2px 0 0 -2px;
+    scale: calc(1 / var(--button-press-scale));
   }
 }
 

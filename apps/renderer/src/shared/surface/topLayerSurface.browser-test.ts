@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { render } from "vitest-browser-vue";
 import { type Ref, defineComponent, h, ref, shallowRef } from "vue";
 import { pinSurface, unpinSurface } from "./topLayerSurface";
@@ -30,7 +30,7 @@ const MID_Y_PX = 100;
 const TALL_CONTENT_HEIGHT_PX = 1000;
 const SCROLL_OFFSET_PX = 120;
 
-function surfaceStyle(left: number): Record<string, string> {
+function boxStyle(left: number): Record<string, string> {
   return {
     position: "fixed",
     top: "0px",
@@ -45,9 +45,9 @@ function surfaceStyle(left: number): Record<string, string> {
 }
 
 /**
- * サーフェス 1 枚。実際の配線と同じく root を `popover="manual"` + `tabindex="-1"` にし、
- * 前面化は `pointerdown` のキャプチャに繋ぐ (テストから raise を直接呼ぶと、クリック経路が
- * 壊れても気付けない)。
+ * サーフェス 1 枚。本番と同じ形で root を `popover="manual"` + `tabindex="-1"` にし、
+ * 前面化を root の pointerdown キャプチャへ繋ぐ。テストから `raise` を直接呼ぶと、
+ * この配線が壊れても気付けない。
  */
 function defineSurface(name: string, left: number, isOpen: Ref<boolean>, raiseSignal: Ref<number>) {
   return defineComponent({
@@ -69,7 +69,7 @@ function defineSurface(name: string, left: number, isOpen: Ref<boolean>, raiseSi
             popover: "manual",
             tabindex: -1,
             "data-testid": `surface-${name}`,
-            style: surfaceStyle(left),
+            style: boxStyle(left),
             onPointerdownCapture: raise,
           },
           [
@@ -91,21 +91,36 @@ const openB = ref(false);
 const raiseA = ref(0);
 const raiseB = ref(0);
 
-/** 2 枚のサーフェスと、サーフェス外のフォーカス先を 1 つ持つ器 */
+/**
+ * サーフェス 2 枚、サーフェス外のフォーカス先、pin 対象を 1 つずつ持つ器。
+ *
+ * pin 対象は `useSurface` を通さない素の popover にする。本番で pin されるのはトーストだけで、
+ * それは前面順の列に加わらない非サーフェスだから (`topLayerSurface` の pin セクション)。
+ * サーフェスを pin すると、列の控えでは B が最前面なのに DOM では pin が最前面という、
+ * 本番では起きない乖離をテストが正常系として固定してしまう。
+ */
 const Harness = defineComponent({
   setup() {
     const SurfaceA = defineSurface("a", A_LEFT_PX, openA, raiseA);
     const SurfaceB = defineSurface("b", B_LEFT_PX, openB, raiseB);
     return () =>
-      h("div", [h("button", { "data-testid": "outside" }, "outside"), h(SurfaceA), h(SurfaceB)]);
+      h("div", [
+        h("button", { "data-testid": "outside" }, "outside"),
+        h("div", {
+          "data-testid": "toast",
+          popover: "manual",
+          style: boxStyle(B_LEFT_PX),
+        }),
+        h(SurfaceA),
+        h(SurfaceB),
+      ]);
   },
 });
 
-/** 座標を占めているサーフェスの名前。何も無ければ undefined */
-function surfaceAt(x: number, y: number): string | undefined {
+/** 座標を占めている要素の testid。何も無ければ undefined */
+function topAt(x: number, y: number): string | undefined {
   const hit = document.elementFromPoint(x, y);
-  const surface = hit?.closest<HTMLElement>('[data-testid^="surface-"]');
-  return surface?.dataset.testid?.replace("surface-", "");
+  return hit?.closest<HTMLElement>("[data-testid]")?.dataset.testid;
 }
 
 function elByTestId<T extends HTMLElement>(testId: string): T {
@@ -117,79 +132,88 @@ function elByTestId<T extends HTMLElement>(testId: string): T {
 const surfaceEl = (name: string) => elByTestId(`surface-${name}`);
 const inputEl = (name: string) => elByTestId<HTMLInputElement>(`input-${name}`);
 
-beforeEach(() => {
-  openA.value = false;
-  openB.value = false;
-});
-
-test("後から開いたサーフェスが重なりの手前に来る", async () => {
-  render(Harness);
-
+/**
+ * A → B の順に開き、B が重なりの手前・A の露出部が A であることを確かめる。
+ *
+ * 事前状態を固定しないと、以降の「A が手前に来る」assert は B が一度も開かなくても通る。
+ */
+function openBothWithBInFront(): void {
   openA.value = true;
   openB.value = true;
+  expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("surface-b");
+  expect(topAt(A_EXPOSED_X_PX, MID_Y_PX)).toBe("surface-a");
+}
 
-  expect(surfaceAt(OVERLAP_X_PX, MID_Y_PX)).toBe("b");
+afterEach(() => {
+  // 後始末はコンポーネントが生きているうちに行う。次のテストの beforeEach まで遅らせると
+  // 先に unmount され、閉じられなかったサーフェスが前面順の控えに残る
+  openA.value = false;
+  openB.value = false;
+  // pin は module singleton に溜まる。assert が落ちた回でも確実に外す
+  const toast = document.querySelector<HTMLElement>('[data-testid="toast"]');
+  if (toast !== null) unpinSurface(toast);
+});
+
+test("後から開いたサーフェスが重なりの手前に来る", () => {
+  render(Harness);
+
+  openBothWithBInFront();
 });
 
 test("覆われたサーフェスをクリックすると前面へ来る", async () => {
   const screen = render(Harness);
-  openA.value = true;
-  openB.value = true;
+  openBothWithBInFront();
 
-  // B に覆われていない A の領域を突く。実配線の pointerdown capture を通す経路
+  // B に覆われていない A の領域を突く。root の pointerdown キャプチャを通る経路
   await screen.getByTestId("surface-a").click({ position: { x: A_EXPOSED_X_PX, y: MID_Y_PX } });
 
-  expect(surfaceAt(OVERLAP_X_PX, MID_Y_PX)).toBe("a");
+  expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("surface-a");
 });
 
-test("pin したサーフェスは後から開いたサーフェスより手前に残る", async () => {
+test("pin した要素はサーフェスを開いても最前面に残る", () => {
   render(Harness);
+  const toast = elByTestId("toast");
+  toast.showPopover();
+  pinSurface(toast);
+
+  // サーフェスの show のたびに pin を積み直すので、開いた面が pin を越えない
   openA.value = true;
-  const pinned = surfaceEl("a");
-  pinSurface(pinned);
-
-  // pin 済みが開いている状態で別のサーフェスを開くと、show の後に pin が積み直される
+  expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("toast");
   openB.value = true;
-
-  expect(surfaceAt(OVERLAP_X_PX, MID_Y_PX)).toBe("a");
-  unpinSurface(pinned);
+  expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("toast");
 });
 
-test("前面化してもサーフェス内の入力先が変わらない", async () => {
+test("前面化してもサーフェス内の入力先が変わらない", () => {
   render(Harness);
-  openA.value = true;
-  openB.value = true;
+  openBothWithBInFront();
   inputEl("a").focus();
 
   // クリック経由だと押した root へフォーカスが移るのが自然な挙動なので、
   // 入力先の保持を見るにはクリックを介さない前面化要求を使う (Monaco 編集中の reveal 相当)
   raiseA.value += 1;
 
-  expect(surfaceAt(OVERLAP_X_PX, MID_Y_PX)).toBe("a");
+  expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("surface-a");
   // 積み直し (hide → show) でフォーカスが落ちても、掴んでいた要素へ戻す契約
   expect(document.activeElement).toBe(inputEl("a"));
 });
 
-test("前面化してもスクロール位置が保たれる", async () => {
+test("前面化してもスクロール位置が保たれる", () => {
   render(Harness);
-  openA.value = true;
-  openB.value = true;
+  openBothWithBInFront();
   const a = surfaceEl("a");
   a.scrollTop = SCROLL_OFFSET_PX;
 
   raiseA.value += 1;
 
-  // 前面化は hide → show の積み直しでしか表現できない。積み直しが起きたうえで
-  // 中身の読み位置が巻き戻らないことを見る (前面化の assert が無いと、raise が
-  // まるごと no-op に退行しても素通りする)
-  expect(surfaceAt(OVERLAP_X_PX, MID_Y_PX)).toBe("a");
+  // 前面化は hide → show の積み直しでしか表現できない。積み直しを経ても
+  // 中身の読み位置が巻き戻らないことを見る
+  expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("surface-a");
   expect(a.scrollTop).toBe(SCROLL_OFFSET_PX);
 });
 
-test("フォーカスを持つサーフェスを閉じると次の前面へフォーカスが移る", async () => {
+test("フォーカスを持つサーフェスを閉じると次の前面へフォーカスが移る", () => {
   render(Harness);
-  openA.value = true;
-  openB.value = true;
+  openBothWithBInFront();
   inputEl("b").focus();
 
   openB.value = false;
@@ -197,10 +221,9 @@ test("フォーカスを持つサーフェスを閉じると次の前面へフ�
   expect(document.activeElement).toBe(surfaceEl("a"));
 });
 
-test("フォーカスを持たないサーフェスを閉じてもフォーカスは動かない", async () => {
+test("フォーカスを持たないサーフェスを閉じてもフォーカスは動かない", () => {
   render(Harness);
-  openA.value = true;
-  openB.value = true;
+  openBothWithBInFront();
   const outside = elByTestId("outside");
   outside.focus();
 
@@ -208,5 +231,20 @@ test("フォーカスを持たないサーフェスを閉じてもフォーカ�
 
   // close は worktree 切替のようなユーザー操作と無関係な経路からも来る。
   // 無条件にフォーカスを移すとターミナルから入力先を引き剥がす
+  expect(document.activeElement).toBe(outside);
+});
+
+test("最後の 1 枚を閉じると開く前のフォーカス元へ戻る", () => {
+  render(Harness);
+  const outside = elByTestId("outside");
+  outside.focus();
+
+  // 1 枚も開いていない状態から開くときだけ、開く前のフォーカス元を控える
+  openA.value = true;
+  surfaceEl("a").focus();
+
+  openA.value = false;
+
+  // ターミナルのリンクから preview を開いて閉じると、入力がターミナルへ戻る経路
   expect(document.activeElement).toBe(outside);
 });

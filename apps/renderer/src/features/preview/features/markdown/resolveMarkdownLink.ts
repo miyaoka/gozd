@@ -5,7 +5,7 @@ import type { PathTarget } from "../../../worktree";
  * Markdown プレビュー内 `<a>` の href を解決し、内部遷移 / 素通し / 無効のいずれかを返す。
  *
  * 「OS へ渡してよい URL」の判定はここでは行わない。外部送りは MarkdownBody が
- * `shared/rpc` の `openExternal` で済ませており、本関数に届くのは内部リンクだけ
+ * `shared/rpc` の `openExternalOrNotify` で済ませており、本関数に届くのは内部リンクだけ
  * (allowlist の判定点を 1 つに保つ契約)。
  *
  * 残る scheme 判定は信頼境界としての拒否側だけ。Markdown プレビューはリポジトリ内ファイル

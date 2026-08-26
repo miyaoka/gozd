@@ -13,14 +13,14 @@
 // VS Code も allowlist を `mainThreadWebviews.isSupportedLink`（リンククリックを受け取る層）に
 // 置いている。
 import type { OpenExternalRequest, OpenExternalResponse } from "@gozd/rpc";
-import { isExternalUrl } from "@gozd/shared";
+import { isExternalUrl, tryCatch } from "@gozd/shared";
 import { rpc } from "./client";
 
 /**
  * URL を OS のデフォルトアプリで開く。allowlist 外の scheme は開かずに reject する
- * （呼び出し側が通知に倒せるよう、silent drop ではなくエラーにする）。
+ * （`openExternalOrNotify` が通知に倒せるよう、silent drop ではなくエラーにする）。
  */
-export async function openExternal(url: string): Promise<void> {
+async function openExternal(url: string): Promise<void> {
   if (!isExternalUrl(url)) {
     throw new Error(`openExternal refused: scheme not allowed: ${url}`);
   }
@@ -50,4 +50,21 @@ export function isLinkActivation(event: MouseEvent): boolean {
  * リンクを開けなかったときの通知 message。URL は message ではなく cause に載せる
  * （message を可変にすると toast の文言が毎回変わって読み取れなくなる。URL は Details から辿れる）。
  */
-export const LINK_OPEN_FAILED_MESSAGE = "Could not open link in the browser";
+const LINK_OPEN_FAILED_MESSAGE = "Could not open link in the browser";
+
+/** 失敗を通知する関数。`useNotificationStore` の `error` がそのまま渡る形。 */
+type NotifyError = (message: string, cause?: unknown) => void;
+
+/**
+ * URL を OS のブラウザで開き、失敗したら通知する。**リンク起動層はすべてこれを通す**
+ * （層ごとに `openExternal` を直接呼ぶと、message の文言と cause の載せ方が層の数だけ分岐し、
+ * 片方だけ直る形の劣化が起きる）。
+ *
+ * 通知役を引数で受けるのは、`shared` のモジュールが互いに依存できないため
+ * （`isolateModules`。この層から `shared/notification` は参照できない）。
+ */
+export async function openExternalOrNotify(url: string, notifyError: NotifyError): Promise<void> {
+  const opened = await tryCatch(openExternal(url));
+  if (opened.ok) return;
+  notifyError(LINK_OPEN_FAILED_MESSAGE, new Error(`url=${url}`, { cause: opened.error }));
+}

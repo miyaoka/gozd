@@ -27,7 +27,7 @@
  * (内部で現在テーマを追跡するための hijack) が、wrap の深さ = セッション中に開いた言語種数で
  * 高々数十、各層は delegate するだけなので許容する。
  */
-import { isExternalUrl, tryCatch } from "@gozd/shared";
+import { isExternalUrl } from "@gozd/shared";
 import { shikiToMonaco } from "@shikijs/monaco";
 import { useEventListener } from "@vueuse/core";
 import * as monaco from "monaco-editor";
@@ -43,7 +43,7 @@ import jsonWorker from "monaco-editor/languages/features/json/json.worker?worker
 import tsWorker from "monaco-editor/languages/features/typescript/ts.worker?worker";
 import { getSingletonHighlighter } from "shiki";
 import { useNotificationStore } from "../../shared/notification";
-import { LINK_OPEN_FAILED_MESSAGE, openExternal } from "../../shared/rpc";
+import { openExternalOrNotify } from "../../shared/rpc";
 import { detectLang, SHIKI_THEME } from "./useHighlight";
 
 // `monaco-editor` の default エントリーポイントは全言語 contribution を読む「全部入り」。
@@ -107,11 +107,7 @@ monaco.editor.registerLinkOpener({
   open(resource) {
     const url = encodeURI(resource.toString(true));
     if (!isExternalUrl(url)) return false;
-    const notify = useNotificationStore();
-    void tryCatch(openExternal(url)).then((opened) => {
-      if (opened.ok) return;
-      notify.error(LINK_OPEN_FAILED_MESSAGE, new Error(`url=${url}`, { cause: opened.error }));
-    });
+    void openExternalOrNotify(url, useNotificationStore().error);
     return true;
   },
 });

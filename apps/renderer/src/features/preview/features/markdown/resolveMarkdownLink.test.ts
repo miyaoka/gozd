@@ -73,7 +73,7 @@ function expectInternalAbs(
 
 describe("resolveMarkdownLink", () => {
   describe("外部送り対象の scheme", () => {
-    // MarkdownBody が openExternal で先に処理するため本関数には来ないが、届いた場合は
+    // MarkdownBody が openExternalOrNotify で先に処理するため本関数には来ないが、届いた場合は
     // 内部経路として扱わない (invalid) ことを固定する
     test("http(s) / mailto: は invalid (信頼境界の外)", () => {
       expect(resolve("https://example.com/", relBase("docs/preview.md")).kind).toBe("invalid");

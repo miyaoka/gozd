@@ -7,7 +7,7 @@ Markdown 文字列を marked で HTML 変換し DOMPurify でサニタイズし�
 navigation に委ねる経路を残さないのは、consumer によって委ねた先が消えるため
 （contenteditable host では既定挙動が起きず、main の防壁も UI 面を守る側なので外部送りしない）。
 
-その上で「OS へ渡してよい URL」は本コンポーネントが `openExternal` で開き、それ以外の href は
+その上で「OS へ渡してよい URL」は本コンポーネントが `openExternalOrNotify` で開き、それ以外の href は
 `linkClick` で上位に委譲する。外部送りを consumer 任せにすると、購読しない consumer
 （SessionLogMessageBody 等）でリンクが黙って死ぬ。VS Code の webview host が全リンククリックを
 `preventDefault` して host へ転送するのと同じ位置づけ。
@@ -29,7 +29,7 @@ import DOMPurify from "dompurify";
 import { marked, type MarkedExtension } from "marked";
 import { nextTick, ref, watch } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
-import { isLinkActivation, LINK_OPEN_FAILED_MESSAGE, openExternal } from "../../../../shared/rpc";
+import { isLinkActivation, openExternalOrNotify } from "../../../../shared/rpc";
 
 const props = defineProps<{
   content: string;
@@ -69,11 +69,7 @@ function onLinkActivate(event: MouseEvent) {
     emit("linkClick", href);
     return;
   }
-  void tryCatch(openExternal(href)).then((opened) => {
-    if (!opened.ok) {
-      notify.error(LINK_OPEN_FAILED_MESSAGE, new Error(`url=${href}`, { cause: opened.error }));
-    }
-  });
+  void openExternalOrNotify(href, notify.error);
 }
 
 /** YAML frontmatter を ```yaml コードブロックに変換して表示する */

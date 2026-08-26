@@ -19,21 +19,26 @@ import { useSurface } from "./useSurface";
 /** 2 枚が横に半分ずつ重なる配置。重なり領域のヒットテストで前後を判定する */
 const SURFACE_WIDTH_PX = 200;
 const SURFACE_HEIGHT_PX = 200;
-const OVERLAP_X_PX = 150;
 const A_LEFT_PX = 0;
 const B_LEFT_PX = 100;
-/** A だけが占める領域。B に覆われていないのでクリックが A へ届く */
-const A_EXPOSED_X_PX = 50;
-/** B だけが占める領域 */
-const B_EXPOSED_X_PX = 250;
-const MID_Y_PX = 100;
+const A_RIGHT_PX = A_LEFT_PX + SURFACE_WIDTH_PX;
+const B_RIGHT_PX = B_LEFT_PX + SURFACE_WIDTH_PX;
 
 /**
- * pin 対象は重なり領域だけを覆う。A / B それぞれの露出部を pin の外に残しておかないと、
- * 「pin が最前面」の assert がサーフェスの開閉と無関係に通ってしまう
+ * pin 対象は重なり領域 (B の左端から A の右端まで) をちょうど覆う。A / B それぞれの露出部を
+ * pin の外に残しておかないと、「pin が最前面」の assert がサーフェスの開閉と無関係に通る。
  */
-const PIN_LEFT_PX = 100;
-const PIN_WIDTH_PX = 100;
+const PIN_LEFT_PX = B_LEFT_PX;
+const PIN_WIDTH_PX = A_RIGHT_PX - B_LEFT_PX;
+
+/**
+ * プローブ座標は各領域の中点。配置を動かしても「露出部が pin の外」の関係が保たれるよう、
+ * リテラルではなく配置から導く
+ */
+const A_EXPOSED_X_PX = (A_LEFT_PX + B_LEFT_PX) / 2;
+const OVERLAP_X_PX = (B_LEFT_PX + A_RIGHT_PX) / 2;
+const B_EXPOSED_X_PX = (A_RIGHT_PX + B_RIGHT_PX) / 2;
+const MID_Y_PX = SURFACE_HEIGHT_PX / 2;
 
 /** スクロール位置の保持を見るため、器より十分高い中身を入れる */
 const TALL_CONTENT_HEIGHT_PX = 1000;

@@ -224,9 +224,7 @@ const internalViewMode = ref<"split" | "unified">("split");
 const viewMode = computed(() => props.externalViewMode ?? internalViewMode.value);
 
 /**
- * 展開済み hunk-bar のキャッシュ。key は `barKey`、value は `rpcGitDiffExpandLines` 結果の行配列。
- * key には oldStart / newStart / lines を全て含めるので、再 fetch で bar 構成が変わった場合は
- * 自動的にキャッシュが効かなくなる (key が一致しないため undefined 扱い)。
+ * 展開済み hunk-bar のキャッシュ。key の構成と、bar 構成が変わったときに外れる性質は `barKey` 側。
  *
  * 行配列のキャッシュ。renderer 側で `text.split("\n")` を回すと CRLF / 末尾改行で
  * main 側 `countDiffLines` と末尾 1 行ずれる (countDiffLines は末尾 `\n` ありなら最後の空要素を除外

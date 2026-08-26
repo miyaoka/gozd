@@ -2,23 +2,25 @@ import type { DiffExpandedLine, DiffHunk } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import {
   type DiffBarItem,
-  type DiffSplitViewItem,
-  type DiffViewItem,
+  type DiffLineItem,
+  type DiffSplitRowItem,
   type IntraLineRangeMaps,
   barKey,
   barLabel,
   buildBaseItems,
-  buildRenderedLine,
-  buildRenderedSplitRow,
   buildSplitRenderRows,
   buildUnifiedRenderRows,
-  collectHunkSegments,
-  expandHunkLinesSplit,
-  expandHunkLinesUnified,
   lineNoWidth,
   splitIntoSections,
 } from "./diffViewModel";
 import type { ThemedToken } from "./useHighlight";
+
+/**
+ * 検証はモジュールの公開 API (`buildBaseItems` / `buildUnifiedRenderRows` /
+ * `buildSplitRenderRows` / `splitIntoSections`) からのみ行う。内部の分解 (hunk の走査、
+ * unified / split への展開、1 行分の組み立て) をテストのために export すると、モジュールの
+ * 公開 API がテストの都合で決まり、内部の作り替えがテストを壊すようになる。
+ */
 
 const ctx = (text: string) => ({ kind: "context" as const, text });
 const del = (text: string) => ({ kind: "removed" as const, text });
@@ -34,12 +36,12 @@ function hunk(
   return { oldStart, oldLines, newStart, newLines, lines };
 }
 
-/** 行内 range を持たない空マップ。token 埋め込みだけを見るテストで使う */
+/** 行内 range を持たない空マップ。token の埋め込みだけを見るときに使う */
 function noRanges(): IntraLineRangeMaps {
   return { old: new Map(), new: new Map() };
 }
 
-/** 行 1 つ分のトークン列。content だけが識別できればよいので他の属性は持たせない */
+/** 行 1 つ分のトークン列。content だけ識別できればよいので他の属性は持たせない */
 function token(content: string): ThemedToken {
   return { content, offset: 0 };
 }
@@ -99,68 +101,50 @@ describe("buildBaseItems", () => {
       /trailing invariant violation/,
     );
   });
-});
 
-describe("collectHunkSegments", () => {
-  test("context 行は old / new 両方の行番号を進める", () => {
-    const segments = collectHunkSegments(hunk(10, 2, 20, 2, [ctx("a"), ctx("b")]));
-
-    expect(segments).toEqual([
-      { kind: "context", oldLineNo: 10, newLineNo: 20, text: "a" },
-      { kind: "context", oldLineNo: 11, newLineNo: 21, text: "b" },
-    ]);
-  });
-
-  test("連続する removed と added を 1 つの run にまとめる", () => {
-    const segments = collectHunkSegments(
-      hunk(1, 2, 1, 2, [del("x"), del("y"), add("X"), add("Y")]),
+  test("context は両側の行番号を持ち、変更行は片側だけを持つ", () => {
+    // 先行 hunk で new 側だけ 1 行増やし、以降の old / new の行番号をずらす。
+    // 単一 hunk で開始行をずらすと先頭 gap が食い違い、unified diff として成立しない
+    const { items } = buildBaseItems(
+      [
+        hunk(1, 1, 1, 2, [ctx("head"), add("inserted")]),
+        hunk(3, 2, 4, 2, [ctx("c"), del("a"), add("A")]),
+      ],
+      4,
+      5,
     );
 
-    expect(segments).toEqual([
-      {
-        kind: "run",
-        removeds: [
-          { lineNo: 1, text: "x" },
-          { lineNo: 2, text: "y" },
-        ],
-        addeds: [
-          { lineNo: 1, text: "X" },
-          { lineNo: 2, text: "Y" },
-        ],
-      },
+    // unified では変更行を対応する側でしか表示しないため、反対側の行番号は持たない。
+    // run は git の unified diff と同じく removed → added の順
+    expect(items).toEqual([
+      { type: "line", kind: "unchanged", text: "head", oldLineNo: 1, newLineNo: 1 },
+      { type: "line", kind: "added", text: "inserted", newLineNo: 2 },
+      { type: "hunk-bar", oldStart: 2, newStart: 3, lines: 1 },
+      { type: "line", kind: "unchanged", text: "c", oldLineNo: 3, newLineNo: 4 },
+      { type: "line", kind: "removed", text: "a", oldLineNo: 4 },
+      { type: "line", kind: "added", text: "A", newLineNo: 5 },
     ]);
   });
 
-  test("added だけの run は removeds が空になる", () => {
-    const [segment] = collectHunkSegments(hunk(5, 0, 5, 1, [add("new")]));
-
-    expect(segment).toEqual({ kind: "run", removeds: [], addeds: [{ lineNo: 5, text: "new" }] });
-  });
-});
-
-describe("expandHunkLinesUnified", () => {
-  test("context は両側の行番号を持ち、run は removed を先に added を後に並べる", () => {
-    const items: DiffViewItem[] = [];
-    expandHunkLinesUnified(
-      collectHunkSegments(hunk(10, 2, 20, 2, [ctx("c"), del("a"), add("A")])),
-      items,
+  test("run の中でも行番号は 1 行ずつ進む", () => {
+    const { items } = buildBaseItems(
+      [hunk(1, 2, 1, 2, [del("x"), del("y"), add("X"), add("Y")])],
+      2,
+      2,
     );
 
-    // 変更行は片側の行番号しか持たない (unified では対応する側だけを表示する)
     expect(items).toEqual([
-      { type: "line", kind: "unchanged", text: "c", oldLineNo: 10, newLineNo: 20 },
-      { type: "line", kind: "removed", text: "a", oldLineNo: 11 },
-      { type: "line", kind: "added", text: "A", newLineNo: 21 },
+      { type: "line", kind: "removed", text: "x", oldLineNo: 1 },
+      { type: "line", kind: "removed", text: "y", oldLineNo: 2 },
+      { type: "line", kind: "added", text: "X", newLineNo: 1 },
+      { type: "line", kind: "added", text: "Y", newLineNo: 2 },
     ]);
   });
-});
 
-describe("expandHunkLinesSplit", () => {
-  test("removed run と added run を左右にペアリングする", () => {
-    const items: DiffSplitViewItem[] = [];
-    expandHunkLinesSplit(collectHunkSegments(hunk(1, 1, 1, 1, [del("a"), add("A")])), items);
+  test("split は removed run と added run を左右にペアリングする", () => {
+    const { splitItems } = buildBaseItems([hunk(1, 1, 1, 1, [del("a"), add("A")])], 1, 1);
 
-    expect(items).toEqual([
+    expect(splitItems).toEqual([
       {
         type: "split-row",
         kind: "modified",
@@ -172,135 +156,45 @@ describe("expandHunkLinesSplit", () => {
     ]);
   });
 
-  test("run 長が不揃いなら余りは片側だけの row になる", () => {
-    const items: DiffSplitViewItem[] = [];
-    expandHunkLinesSplit(
-      collectHunkSegments(hunk(1, 1, 1, 2, [del("a"), add("A"), add("B")])),
-      items,
+  test("split で run 長が不揃いなら余りは片側だけの row になる", () => {
+    const { splitItems } = buildBaseItems([hunk(1, 1, 1, 2, [del("a"), add("A"), add("B")])], 1, 2);
+
+    expect(splitItems.at(-1)).toEqual({
+      type: "split-row",
+      kind: "modified",
+      oldLineNo: undefined,
+      oldText: undefined,
+      newLineNo: 2,
+      newText: "B",
+    });
+  });
+
+  test("変更ブロックの行内 range を絶対行番号を key にして積む", () => {
+    // 行内 diff の中身は intraLineDiff 側の担当。ここが守るのは
+    // 「呼ばれていること」と「key が run 内 index ではなく絶対行番号であること」
+    const { ranges } = buildBaseItems(
+      [hunk(10, 1, 10, 1, [del("const foo = 1;"), add("const bar = 1;")])],
+      10,
+      10,
     );
 
-    expect(items).toEqual([
-      {
-        type: "split-row",
-        kind: "modified",
-        oldLineNo: 1,
-        oldText: "a",
-        newLineNo: 1,
-        newText: "A",
-      },
-      {
-        type: "split-row",
-        kind: "modified",
-        oldLineNo: undefined,
-        oldText: undefined,
-        newLineNo: 2,
-        newText: "B",
-      },
-    ]);
+    expect(ranges.old.get(10)).toEqual([{ start: 7, end: 10 }]);
+    expect(ranges.new.get(10)).toEqual([{ start: 7, end: 10 }]);
+    // run 内 index を key にする退行を弾く (この hunk の run は 0 番目から始まる)
+    expect(ranges.old.has(0)).toBe(false);
+  });
+
+  test("片側しか無い run には行内 range を積まない", () => {
+    // 対応する相手がいないので文字単位の比較対象が無い
+    const { ranges } = buildBaseItems([hunk(0, 0, 1, 2, [add("a"), add("b")])], 0, 2);
+
+    expect(ranges.old.size).toBe(0);
+    expect(ranges.new.size).toBe(0);
   });
 });
 
-describe("buildRenderedLine", () => {
-  const orig = [token("old-1"), token("old-2")].map((t) => [t]);
-  const curr = [token("new-1"), token("new-2")].map((t) => [t]);
-
-  test("removed 行は 1-based の行番号で original 側トークンを引く", () => {
-    const line = buildRenderedLine(
-      { type: "line", kind: "removed", text: "x", oldLineNo: 2 },
-      orig,
-      curr,
-      noRanges(),
-    );
-
-    expect(line.tokens).toEqual([token("old-2")]);
-  });
-
-  test("added 行は 1-based の行番号で current 側トークンを引く", () => {
-    const line = buildRenderedLine(
-      { type: "line", kind: "added", text: "x", newLineNo: 1 },
-      orig,
-      curr,
-      noRanges(),
-    );
-
-    expect(line.tokens).toEqual([token("new-1")]);
-  });
-
-  test("片側のトークンしか揃っていなければ埋めない", () => {
-    const line = buildRenderedLine(
-      { type: "line", kind: "added", text: "x", newLineNo: 1 },
-      orig,
-      undefined,
-      noRanges(),
-    );
-
-    expect(line.tokens).toBeUndefined();
-  });
-
-  test("行内 range は kind に対応する側のマップから引く", () => {
-    const ranges: IntraLineRangeMaps = {
-      old: new Map([[2, [{ start: 1, end: 3 }]]]),
-      new: new Map(),
-    };
-    const line = buildRenderedLine(
-      { type: "line", kind: "removed", text: "x", oldLineNo: 2 },
-      orig,
-      curr,
-      ranges,
-    );
-
-    expect(line.innerRanges).toEqual([{ start: 1, end: 3 }]);
-  });
-});
-
-describe("buildRenderedSplitRow", () => {
-  test("context 行には行内 range を付けない", () => {
-    // 行内 range は modified 行にしか積まれない。context の行番号で引くと別の行の range を拾う
-    const ranges: IntraLineRangeMaps = {
-      old: new Map([[1, [{ start: 0, end: 2 }]]]),
-      new: new Map([[1, [{ start: 0, end: 2 }]]]),
-    };
-    const row = buildRenderedSplitRow(
-      {
-        type: "split-row",
-        kind: "context",
-        oldLineNo: 1,
-        oldText: "a",
-        newLineNo: 1,
-        newText: "a",
-      },
-      undefined,
-      undefined,
-      ranges,
-    );
-
-    expect(row.oldInnerRanges).toBeUndefined();
-    expect(row.newInnerRanges).toBeUndefined();
-  });
-
-  test("modified 行には両側の行内 range が付く", () => {
-    const ranges: IntraLineRangeMaps = {
-      old: new Map([[1, [{ start: 0, end: 2 }]]]),
-      new: new Map([[1, [{ start: 0, end: 3 }]]]),
-    };
-    const row = buildRenderedSplitRow(
-      {
-        type: "split-row",
-        kind: "modified",
-        oldLineNo: 1,
-        oldText: "ab",
-        newLineNo: 1,
-        newText: "abc",
-      },
-      undefined,
-      undefined,
-      ranges,
-    );
-
-    expect(row.oldInnerRanges).toEqual([{ start: 0, end: 2 }]);
-    expect(row.newInnerRanges).toEqual([{ start: 0, end: 3 }]);
-  });
-});
+const ORIG_TOKENS = [[token("old-1")], [token("old-2")]];
+const CURR_TOKENS = [[token("new-1")], [token("new-2")]];
 
 const BAR: DiffBarItem = { type: "hunk-bar", oldStart: 1, newStart: 1, lines: 2 };
 
@@ -310,6 +204,61 @@ const EXPANDED: DiffExpandedLine[] = [
 ];
 
 describe("buildUnifiedRenderRows", () => {
+  const removedLine: DiffLineItem = { type: "line", kind: "removed", text: "x", oldLineNo: 2 };
+  const addedLine: DiffLineItem = { type: "line", kind: "added", text: "x", newLineNo: 1 };
+
+  test("removed 行は 1-based の行番号で original 側トークンを引く", () => {
+    const [row] = buildUnifiedRenderRows(
+      [removedLine],
+      ORIG_TOKENS,
+      CURR_TOKENS,
+      noRanges(),
+      new Map(),
+    );
+
+    expect(row).toMatchObject({ tokens: [token("old-2")] });
+  });
+
+  test("added 行は 1-based の行番号で current 側トークンを引く", () => {
+    const [row] = buildUnifiedRenderRows(
+      [addedLine],
+      ORIG_TOKENS,
+      CURR_TOKENS,
+      noRanges(),
+      new Map(),
+    );
+
+    expect(row).toMatchObject({ tokens: [token("new-1")] });
+  });
+
+  test("片側のトークンしか揃っていなければ埋めない", () => {
+    const [row] = buildUnifiedRenderRows(
+      [addedLine],
+      ORIG_TOKENS,
+      undefined,
+      noRanges(),
+      new Map(),
+    );
+
+    expect(row).toMatchObject({ tokens: undefined });
+  });
+
+  test("行内 range は kind に対応する側のマップから引く", () => {
+    const ranges: IntraLineRangeMaps = {
+      old: new Map([[2, [{ start: 1, end: 3 }]]]),
+      new: new Map(),
+    };
+    const [row] = buildUnifiedRenderRows(
+      [removedLine],
+      ORIG_TOKENS,
+      CURR_TOKENS,
+      ranges,
+      new Map(),
+    );
+
+    expect(row).toMatchObject({ innerRanges: [{ start: 1, end: 3 }] });
+  });
+
   test("展開済みバーは unchanged 行に置き換わる", () => {
     const rows = buildUnifiedRenderRows(
       [BAR],
@@ -330,6 +279,55 @@ describe("buildUnifiedRenderRows", () => {
 });
 
 describe("buildSplitRenderRows", () => {
+  const contextRow: DiffSplitRowItem = {
+    type: "split-row",
+    kind: "context",
+    oldLineNo: 1,
+    oldText: "a",
+    newLineNo: 1,
+    newText: "a",
+  };
+  const modifiedRow: DiffSplitRowItem = {
+    type: "split-row",
+    kind: "modified",
+    oldLineNo: 1,
+    oldText: "ab",
+    newLineNo: 1,
+    newText: "abc",
+  };
+  const ranges: IntraLineRangeMaps = {
+    old: new Map([[1, [{ start: 0, end: 2 }]]]),
+    new: new Map([[1, [{ start: 0, end: 3 }]]]),
+  };
+
+  test("context 行には行内 range を付けない", () => {
+    // 行内 range は modified 行にしか積まれない。context の行番号で引くと別の行の range を拾う
+    const [row] = buildSplitRenderRows([contextRow], undefined, undefined, ranges, new Map());
+
+    expect(row).toMatchObject({ oldInnerRanges: undefined, newInnerRanges: undefined });
+  });
+
+  test("modified 行には両側の行内 range が付く", () => {
+    const [row] = buildSplitRenderRows([modifiedRow], undefined, undefined, ranges, new Map());
+
+    expect(row).toMatchObject({
+      oldInnerRanges: [{ start: 0, end: 2 }],
+      newInnerRanges: [{ start: 0, end: 3 }],
+    });
+  });
+
+  test("両側のトークンをそれぞれの行番号で引く", () => {
+    const [row] = buildSplitRenderRows(
+      [{ ...modifiedRow, oldLineNo: 2, newLineNo: 1 }],
+      ORIG_TOKENS,
+      CURR_TOKENS,
+      noRanges(),
+      new Map(),
+    );
+
+    expect(row).toMatchObject({ oldTokens: [token("old-2")], newTokens: [token("new-1")] });
+  });
+
   test("展開済みバーは両側にテキストを持つ context row に置き換わる", () => {
     const [first] = buildSplitRenderRows(
       [BAR],

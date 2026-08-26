@@ -1,7 +1,3 @@
-import type { DiffExpandedLine, DiffHunk } from "@gozd/rpc";
-import { type ColRange, computeIntraLineRanges } from "./intraLineDiff";
-import type { ThemedToken } from "./useHighlight";
-
 /**
  * git が返す hunk 列を diff ビューの描画アイテムへ変換する純ロジック。
  *
@@ -13,6 +9,9 @@ import type { ThemedToken } from "./useHighlight";
  * unified diff の invariant (hunk 間 / 末尾の unchanged 行数が old / new で一致する) が
  * 破れた入力は throw する。呼び出し側はこれを error UI へ倒す。
  */
+import type { DiffExpandedLine, DiffHunk } from "@gozd/rpc";
+import { type ColRange, computeIntraLineRanges } from "./intraLineDiff";
+import type { ThemedToken } from "./useHighlight";
 
 export type DiffLineKindName = "added" | "removed" | "unchanged";
 
@@ -115,7 +114,7 @@ export function lineNoWidth(oldTotal: number, newTotal: number): string {
  * 1 変更ブロック。unified / split の展開と行内 diff の run 対象抽出が同じ走査を必要と
  * するため、hunk lines の走査 (絶対行番号の採番 + run のグルーピング) をここに一本化する。
  */
-export type HunkSegment =
+type HunkSegment =
   | { kind: "context"; oldLineNo: number; newLineNo: number; text: string }
   | {
       kind: "run";
@@ -123,7 +122,7 @@ export type HunkSegment =
       addeds: { lineNo: number; text: string }[];
     };
 
-export function collectHunkSegments(h: DiffHunk): HunkSegment[] {
+function collectHunkSegments(h: DiffHunk): HunkSegment[] {
   const segments: HunkSegment[] = [];
   let oldLine = h.oldStart;
   let newLine = h.newStart;
@@ -159,7 +158,7 @@ export function collectHunkSegments(h: DiffHunk): HunkSegment[] {
  * 1 hunk のセグメント列を unified 行アイテムに展開する。
  * run は removed → added の順に並べる (git の unified diff 出力と同じ並び)。
  */
-export function expandHunkLinesUnified(segments: HunkSegment[], items: DiffViewItem[]): void {
+function expandHunkLinesUnified(segments: HunkSegment[], items: DiffViewItem[]): void {
   for (const seg of segments) {
     if (seg.kind === "context") {
       items.push({
@@ -186,7 +185,7 @@ export function expandHunkLinesUnified(segments: HunkSegment[], items: DiffViewI
  * 貪欲にペアリングして同じ row に左右配置する。run 長が不揃いの場合は
  * 余った片側だけの row が並ぶ。
  */
-export function expandHunkLinesSplit(segments: HunkSegment[], items: DiffSplitViewItem[]): void {
+function expandHunkLinesSplit(segments: HunkSegment[], items: DiffSplitViewItem[]): void {
   for (const seg of segments) {
     if (seg.kind === "context") {
       items.push({
@@ -337,7 +336,7 @@ export function buildBaseItems(hs: DiffHunk[], oldTotal: number, newTotal: numbe
   return { items, splitItems, ranges: { old: oldInnerRanges, new: newInnerRanges } };
 }
 
-export function buildRenderedLine(
+function buildRenderedLine(
   item: DiffLineItem,
   orig: ThemedToken[][] | undefined,
   curr: ThemedToken[][] | undefined,
@@ -360,7 +359,7 @@ export function buildRenderedLine(
   return { ...item, tokens, innerRanges };
 }
 
-export function buildRenderedSplitRow(
+function buildRenderedSplitRow(
   row: DiffSplitRowItem,
   orig: ThemedToken[][] | undefined,
   curr: ThemedToken[][] | undefined,
@@ -469,20 +468,24 @@ export function buildSplitRenderRows(
  * hunk-bar の前後関係 / 末尾 trailing は flat 配列にそのまま現れるため、template の v-for
  * 1 段で素直に描ける。
  */
-export function splitIntoSections<T extends { type: string }>(
-  rows: (T | DiffBarItem)[],
+function isBar(row: { type: string }): row is DiffBarItem {
+  return row.type === "hunk-bar";
+}
+
+export function splitIntoSections<T extends { type: "line" | "split-row" }>(
+  rows: readonly (T | DiffBarItem)[],
 ): (DiffBarItem | DiffSection<T>)[] {
   const out: (DiffBarItem | DiffSection<T>)[] = [];
   let current: T[] = [];
   for (const row of rows) {
-    if (row.type === "hunk-bar") {
+    if (isBar(row)) {
       if (current.length > 0) {
         out.push({ type: "section", lines: current });
         current = [];
       }
-      out.push(row as DiffBarItem);
+      out.push(row);
     } else {
-      current.push(row as T);
+      current.push(row);
     }
   }
   if (current.length > 0) out.push({ type: "section", lines: current });

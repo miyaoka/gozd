@@ -72,7 +72,7 @@ docs/filer.md の「symlink の表示」が SSOT。本 component 固有の点だ
 import { tryCatch } from "@gozd/shared";
 import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { openExternal } from "../../shared/rpc";
+import { openExternalOrNotify } from "../../shared/rpc";
 import {
   resolveDirectoryGitChange,
   resolveFileGitChange,
@@ -310,8 +310,7 @@ async function openSubmoduleRepo() {
     notify.info(`No GitHub repository URL for submodule: ${props.path}`);
     return;
   }
-  const opened = await tryCatch(openExternal(url));
-  if (!opened.ok) notify.error(`Failed to open ${url}`, opened.error);
+  await openExternalOrNotify(url, notify.error);
 }
 
 async function loadChildren() {

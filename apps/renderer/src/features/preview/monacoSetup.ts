@@ -1,7 +1,7 @@
 /**
- * Monaco Editor の worker 環境セットアップと Shiki ハイライト統合。preview のコード表示・編集
- * (CodePreview) が `import("./monacoSetup")` で動的 import した時点で 1 度だけ実行される
- * (module 評価は import 時に 1 回)。コードファイルを開かないユーザーはロードしない。
+ * Monaco Editor の worker 環境セットアップ・リンク opener・Shiki ハイライト統合。preview の
+ * コード表示・編集 (CodePreview) が `import("./monacoSetup")` で動的 import した時点で 1 度だけ
+ * 実行される (module 評価は import 時に 1 回)。コードファイルを開かないユーザーはロードしない。
  *
  * Vite plugin (`vite-plugin-monaco-editor-esm` 等) は使わない。最終更新から 1 年以上経過しており
  * 依存先として採用しない (CLAUDE.md 生存判定規律)。代わりに Vite 標準の `?worker` import で
@@ -27,6 +27,7 @@
  * (内部で現在テーマを追跡するための hijack) が、wrap の深さ = セッション中に開いた言語種数で
  * 高々数十、各層は delegate するだけなので許容する。
  */
+import { isExternalUrl } from "@gozd/shared";
 import { shikiToMonaco } from "@shikijs/monaco";
 import { useEventListener } from "@vueuse/core";
 import * as monaco from "monaco-editor";
@@ -41,6 +42,8 @@ import htmlWorker from "monaco-editor/languages/features/html/html.worker?worker
 import jsonWorker from "monaco-editor/languages/features/json/json.worker?worker";
 import tsWorker from "monaco-editor/languages/features/typescript/ts.worker?worker";
 import { getSingletonHighlighter } from "shiki";
+import { useNotificationStore } from "../../shared/notification";
+import { openExternalOrNotify } from "../../shared/rpc";
 import { detectLang, SHIKI_THEME } from "./useHighlight";
 
 // `monaco-editor` の default エントリーポイントは全言語 contribution を読む「全部入り」。
@@ -73,6 +76,41 @@ self.MonacoEnvironment = {
     }
   },
 };
+
+// monaco が検出したリンク (cmd + click の "Follow link") のうち、OS へ渡す scheme のものを
+// ブラウザへ送る。module 評価時に 1 度だけ登録し、以降すべてのエディタに効く
+// (dispose しない = アプリ寿命と同じ)。
+//
+// 登録しないと monaco 標準の OpenerService が http(s) を `window.open(url, "_blank", "noopener")`
+// (vscode の `dom.windowOpenNoOpener`) で開く。main の navigation 防壁は新規ウィンドウ要求を
+// URL を見ずに deny するため、リンクが無音で死ぬ。VS Code 本体も Electron では同じ理由で標準の
+// external opener を差し替え、`nativeHostService.openExternal` (= `shell.openExternal`) へ送る。
+//
+// **引き取るのは OS へ渡す scheme だけで、残りは false で monaco に返す**。ここに積まれる opener
+// は「エディタが検出したリンク」専用ではなく、その realm の monaco が行う全 open 要求の先頭に
+// 立つ (`registerLinkOpener` → `registerOpener` = `_openers.unshift`)。常に true を返すと、hover
+// の marker 遷移や first-party の markdown が持つ `command:` リンク (unicodeHighlighter の
+// "Adjust settings" 等) まで奪って通知に化ける。VS Code 本体が差し替えるのも external opener
+// だけで、内部 open (`CommandOpener` / `EditorOpener`) は monaco に残す。
+//
+// false で返した先で標準 opener が `window.open` に落とす scheme が残っていても、それは main の
+// 防壁が deny して終わる。VS Code と違い gozd の防壁は URL を OS に渡さないため、この分岐の
+// 最悪ケースは「無音で死ぬ」であって allowlist の迂回ではない。
+//
+// URL 文字列化は VS Code の `_doOpenExternal` と同じ `encodeURI(uri.toString(true))`
+// (`encodeURI` は `%` を変換しないため、エンコード済みの URL を二重エンコードしない)。
+//
+// module 評価時に登録するため `StandaloneServices` がここで `initialize({})` される。以降
+// `monaco.editor.create` / `createDiffEditor` に渡す service override は無視されるので、
+// override が要るようになったら登録位置を初期化後へ動かすこと。
+monaco.editor.registerLinkOpener({
+  open(resource) {
+    const url = encodeURI(resource.toString(true));
+    if (!isExternalUrl(url)) return false;
+    void openExternalOrNotify(url, useNotificationStore().error);
+    return true;
+  },
+});
 
 /** ファイルパスから Monaco の言語 ID を逆引きする (Monaco 自身の登録メタデータが SSOT)。 */
 function detectMonacoLanguage(filePath: string): string {

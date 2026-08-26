@@ -24,18 +24,27 @@ const A_LEFT_PX = 0;
 const B_LEFT_PX = 100;
 /** A だけが占める領域。B に覆われていないのでクリックが A へ届く */
 const A_EXPOSED_X_PX = 50;
+/** B だけが占める領域 */
+const B_EXPOSED_X_PX = 250;
 const MID_Y_PX = 100;
+
+/**
+ * pin 対象は重なり領域だけを覆う。A / B それぞれの露出部を pin の外に残しておかないと、
+ * 「pin が最前面」の assert がサーフェスの開閉と無関係に通ってしまう
+ */
+const PIN_LEFT_PX = 100;
+const PIN_WIDTH_PX = 100;
 
 /** スクロール位置の保持を見るため、器より十分高い中身を入れる */
 const TALL_CONTENT_HEIGHT_PX = 1000;
 const SCROLL_OFFSET_PX = 120;
 
-function boxStyle(left: number): Record<string, string> {
+function boxStyle(left: number, width = SURFACE_WIDTH_PX): Record<string, string> {
   return {
     position: "fixed",
     top: "0px",
     left: `${left}px`,
-    width: `${SURFACE_WIDTH_PX}px`,
+    width: `${width}px`,
     height: `${SURFACE_HEIGHT_PX}px`,
     margin: "0",
     padding: "0",
@@ -109,7 +118,7 @@ const Harness = defineComponent({
         h("div", {
           "data-testid": "toast",
           popover: "manual",
-          style: boxStyle(B_LEFT_PX),
+          style: boxStyle(PIN_LEFT_PX, PIN_WIDTH_PX),
         }),
         h(SurfaceA),
         h(SurfaceB),
@@ -117,10 +126,16 @@ const Harness = defineComponent({
   },
 });
 
-/** 座標を占めている要素の testid。何も無ければ undefined */
+/**
+ * 座標を占めている検証対象の testid。対象がその座標に無ければ undefined。
+ *
+ * 器 (`document.body` と render の container) にも testid が振られるため、セレクタは
+ * 検証対象だけに絞る。絞らないと「何も無い」を判定したいときに器を拾う。
+ */
 function topAt(x: number, y: number): string | undefined {
   const hit = document.elementFromPoint(x, y);
-  return hit?.closest<HTMLElement>("[data-testid]")?.dataset.testid;
+  const target = hit?.closest<HTMLElement>('[data-testid^="surface-"], [data-testid="toast"]');
+  return target?.dataset.testid;
 }
 
 function elByTestId<T extends HTMLElement>(testId: string): T {
@@ -176,10 +191,14 @@ test("pin した要素はサーフェスを開いても最前面に残る", () =
   toast.showPopover();
   pinSurface(toast);
 
-  // サーフェスの show のたびに pin を積み直すので、開いた面が pin を越えない
+  // サーフェスの show のたびに pin を積み直すので、開いた面が pin を越えない。
+  // 各段で pin の外の露出部を見て、面が実際に開いたことを確かめてから重なりを判定する
   openA.value = true;
+  expect(topAt(A_EXPOSED_X_PX, MID_Y_PX)).toBe("surface-a");
   expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("toast");
+
   openB.value = true;
+  expect(topAt(B_EXPOSED_X_PX, MID_Y_PX)).toBe("surface-b");
   expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("toast");
 });
 

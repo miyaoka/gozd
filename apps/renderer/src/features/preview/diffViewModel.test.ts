@@ -2,8 +2,8 @@ import type { DiffExpandedLine, DiffHunk } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import {
   type DiffBarItem,
-  type DiffLineItem,
   type DiffSplitRowItem,
+  type DiffViewItem,
   type IntraLineRangeMaps,
   barKey,
   barLabel,
@@ -204,8 +204,8 @@ const EXPANDED: DiffExpandedLine[] = [
 ];
 
 describe("buildUnifiedRenderRows", () => {
-  const removedLine: DiffLineItem = { type: "line", kind: "removed", text: "x", oldLineNo: 2 };
-  const addedLine: DiffLineItem = { type: "line", kind: "added", text: "x", newLineNo: 1 };
+  const removedLine: DiffViewItem = { type: "line", kind: "removed", text: "x", oldLineNo: 2 };
+  const addedLine: DiffViewItem = { type: "line", kind: "added", text: "x", newLineNo: 1 };
 
   test("removed 行は 1-based の行番号で original 側トークンを引く", () => {
     const [row] = buildUnifiedRenderRows(

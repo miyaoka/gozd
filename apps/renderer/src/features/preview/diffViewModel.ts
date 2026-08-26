@@ -15,7 +15,7 @@ import type { ThemedToken } from "./useHighlight";
 
 export type DiffLineKindName = "added" | "removed" | "unchanged";
 
-export interface DiffLineItem {
+interface DiffLineItem {
   type: "line";
   kind: DiffLineKindName;
   text: string;
@@ -60,19 +60,19 @@ export interface IntraLineRangeMaps {
   new: Map<number, ColRange[]>;
 }
 
-export type RenderedUnifiedLine = DiffLineItem & {
+type RenderedUnifiedLine = DiffLineItem & {
   tokens?: ThemedToken[];
   innerRanges?: ColRange[];
 };
 
-export type RenderedSplitLine = DiffSplitRowItem & {
+type RenderedSplitLine = DiffSplitRowItem & {
   oldTokens?: ThemedToken[];
   newTokens?: ThemedToken[];
   oldInnerRanges?: ColRange[];
   newInnerRanges?: ColRange[];
 };
 
-export interface DiffSection<T> {
+interface DiffSection<T> {
   type: "section";
   lines: T[];
 }
@@ -80,7 +80,7 @@ export interface DiffSection<T> {
 export type UnifiedItem = DiffBarItem | DiffSection<RenderedUnifiedLine>;
 export type SplitItem = DiffBarItem | DiffSection<RenderedSplitLine>;
 
-export interface BaseItems {
+interface BaseItems {
   items: DiffViewItem[];
   splitItems: DiffSplitViewItem[];
   ranges: IntraLineRangeMaps;
@@ -89,7 +89,7 @@ export interface BaseItems {
 /**
  * 展開済み hunk-bar のキャッシュ。key は `barKey`、value は `rpcGitDiffExpandLines` の行配列。
  */
-export type ExpansionMap = ReadonlyMap<string, DiffExpandedLine[]>;
+type ExpansionMap = ReadonlyMap<string, DiffExpandedLine[]>;
 
 /**
  * バーの識別子。oldStart / newStart / lines を全て含むので、再 fetch で bar 構成が変わった場合は
@@ -459,6 +459,10 @@ export function buildSplitRenderRows(
   return rendered;
 }
 
+function isBar(row: { type: string }): row is DiffBarItem {
+  return row.type === "hunk-bar";
+}
+
 /**
  * Cmd+A scope を「開かれている可視チャンク 1 つ」に閉じ込めるため、描画行を hunk-bar 境界で
  * section に分割する。section が contenteditable の editing host になり、hunk-bar 自体は
@@ -468,10 +472,6 @@ export function buildSplitRenderRows(
  * hunk-bar の前後関係 / 末尾 trailing は flat 配列にそのまま現れるため、template の v-for
  * 1 段で素直に描ける。
  */
-function isBar(row: { type: string }): row is DiffBarItem {
-  return row.type === "hunk-bar";
-}
-
 export function splitIntoSections<T extends { type: "line" | "split-row" }>(
   rows: readonly (T | DiffBarItem)[],
 ): (DiffBarItem | DiffSection<T>)[] {

@@ -15,7 +15,8 @@ interface UseWorktreeActionsOptions {
  * Worktree の作成・削除・選択。
  *
  * すべての書き込み系操作は `rootDir` を明示的に受け取り、対象 repo を一意に特定する。
- * `worktreeStore.dir`（active）には依存しない。
+ * `worktreeStore.dir`（active）には依存しない。作成後の掲載先だけは応答の `rootDir` から引く
+ * （main が解決した値と store のキーが一致しないことがあるため）。
  */
 export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
   const notify = useNotificationStore();
@@ -48,9 +49,14 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
       const result = await tryCatch(rpcCreateWorktree({ dir: rootDir }));
       if (result.ok && result.value.worktree !== undefined) {
         // 掲載先は store が持つ repo のキーで指す。main が返す rootDir は realpath 解決済みの
-        // main repo root で、store のキーと一致しないことがある（openCreatedWorktree と同じ規律）
+        // main repo root で、store のキーと一致しないことがある。引けないまま activate すると
+        // サイドバーに出ない worktree でターミナルだけが動くので、通知して止める
         const owning = repoStore.findRepoOwning(result.value.rootDir);
-        repoStore.appendWorktree(owning?.rootDir ?? rootDir, result.value.worktree);
+        if (owning === undefined) {
+          notify.error("Worktree created but sidebar could not be updated");
+          return;
+        }
+        repoStore.appendWorktree(owning.rootDir, result.value.worktree);
         // setOpen（activateDir 内）が visit を駆動する前に setup ヒントを立てる
         terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
         activateDir(result.value.dir);

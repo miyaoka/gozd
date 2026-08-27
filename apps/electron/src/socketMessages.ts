@@ -22,7 +22,7 @@ import { ghRefLabel } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { basename } from "node:path";
 import { worktreeList } from "./git/gitOps";
-import { createTaskWorktree } from "./git/taskWorktree";
+import { createTaskWorktree } from "./git/worktreeCreate";
 import { buildGozdOpenPayload } from "./openTarget";
 import {
   asDict,

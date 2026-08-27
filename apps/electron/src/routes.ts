@@ -192,7 +192,11 @@ import {
   type FileChangeInfo,
 } from "./git/gitTree";
 import { validateRev } from "./git/gitValidate";
-import { resolveAndCreateWorktree, createTaskWorktree, toWorktreeEntry } from "./git/taskWorktree";
+import {
+  resolveAndCreateWorktree,
+  createTaskWorktree,
+  toWorktreeEntry,
+} from "./git/worktreeCreate";
 import {
   createWorktree,
   pruneWorktrees,

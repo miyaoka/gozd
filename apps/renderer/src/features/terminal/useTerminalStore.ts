@@ -7,7 +7,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { dispatchMessage, onMessage } from "../../shared/rpc";
 import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
-import { notifyLostPrompt } from "./lostPrompt";
+import { consumeAutostartHint, notifyLostPrompt } from "./lostPrompt";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
 import { rpcClaudeSessionRemoveByPty, rpcPtyKill, rpcPtySpawn } from "./rpc";
@@ -220,10 +220,10 @@ export const useTerminalStore = defineStore("terminal", () => {
       // 包んで stack / 詳細を残す (cause 展開で worktree も診断できる)。
       //
       // 起動できなかった以上 claude は指示文を受け取っていない。ヒントに指示文があれば
-      // 本文を添えて、手で渡し直せる形で残す（requestPtySpawn の reject 直後に同期で
-      // 呼ばれるので、掃除をここへ寄せてもヒントが他経路に漏れる窓は開かない）。
-      const lostPrompt = pendingAutostartByLeafId.value[leafId]?.prompt;
-      delete pendingAutostartByLeafId.value[leafId];
+      // 別の通知として出し、手で渡し直せる形で残す。消費をここに置けるのは
+      // requestPtySpawn の reject 直後に同期で呼ばれるためで、ヒントが他経路に漏れる窓は
+      // 開かない。
+      const lostPrompt = consumeAutostartHint(pendingAutostartByLeafId.value, leafId)?.prompt;
       notify.error(
         "Failed to spawn terminal",
         new Error(`spawn failed; dir=${dir}`, { cause: error }),

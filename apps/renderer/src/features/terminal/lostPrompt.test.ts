@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { notifyLostPrompt, type ErrorNotifier } from "./lostPrompt";
+import { consumeAutostartHint, notifyLostPrompt, type ErrorNotifier } from "./lostPrompt";
 
 /** 通知の発火を記録するだけの notifier */
 function recorder() {
@@ -16,8 +16,6 @@ function recorder() {
 
 describe("notifyLostPrompt", () => {
   test("指示文は message ではなく cause に載る", () => {
-    // message は toast にそのまま描かれ、高さ上限も改行保持も無い。長文・複数行の
-    // 指示文を message へ載せると画面を覆い、改行が潰れてコピーしても元に戻らない
     const { calls, notify } = recorder();
 
     notifyLostPrompt(notify, "1 行目\n2 行目\n3 行目");
@@ -28,8 +26,6 @@ describe("notifyLostPrompt", () => {
   });
 
   test("cause が非 undefined なので詳細パネルと Copy が出る", () => {
-    // 詳細パネルの表示条件は cause !== undefined。ここが undefined だと本文を
-    // コピーする手段が無くなり、「手で渡し直せる」が成立しない
     const { calls, notify } = recorder();
 
     notifyLostPrompt(notify, "指示");
@@ -38,12 +34,34 @@ describe("notifyLostPrompt", () => {
   });
 
   test("指示文が無い経路では通知しない", () => {
-    // picker 経由の作成は prefill だけで prompt を持たない
     const { calls, notify } = recorder();
 
     notifyLostPrompt(notify, undefined);
     notifyLostPrompt(notify, "");
 
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("consumeAutostartHint", () => {
+  test("読み取ると同時に消える", () => {
+    const hints: Record<string, { prompt?: string }> = { leaf: { prompt: "指示" } };
+
+    expect(consumeAutostartHint(hints, "leaf")?.prompt).toBe("指示");
+    expect(hints.leaf).toBeUndefined();
+  });
+
+  test("ヒントの無い leaf では undefined を返す", () => {
+    const hints: Record<string, { prompt?: string }> = {};
+
+    expect(consumeAutostartHint(hints, "leaf")).toBeUndefined();
+  });
+
+  test("他の leaf のヒントは消さない", () => {
+    const hints: Record<string, { prompt?: string }> = { a: { prompt: "A" }, b: { prompt: "B" } };
+
+    consumeAutostartHint(hints, "a");
+
+    expect(hints.b?.prompt).toBe("B");
   });
 });

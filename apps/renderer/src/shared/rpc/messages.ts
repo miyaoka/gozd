@@ -42,7 +42,9 @@ const listeners = new Map<string, Set<AnyListener>>();
  * 指示は戻らない。同じ性質を持つ type は他にもあり（docs/rpc.md の購読契約）、この集合は
  * それらを網羅していない。足すときは pull の相手が無いことを確かめてから足す。
  */
-const UNRECOVERABLE_PUSH_TYPES = new Set<keyof PushPayloadMap>(["newWorktree"]);
+const UNRECOVERABLE_PUSH_TYPES: ReadonlySet<string> = new Set<keyof PushPayloadMap>([
+  "newWorktree",
+]);
 
 /**
  * listener の失敗の追加報告先。feature 層から `setListenerErrorReporter()` で注入する。
@@ -109,7 +111,7 @@ function dispatchToListeners(type: string, payload: unknown): void {
   const fns = listeners.get(type);
   // size 0 は「購読が全部外れた後」。undefined（一度も購読されていない）と区別しない
   if (fns === undefined || fns.size === 0) {
-    if ((UNRECOVERABLE_PUSH_TYPES as ReadonlySet<string>).has(type)) reportUndelivered(type);
+    if (UNRECOVERABLE_PUSH_TYPES.has(type)) reportUndelivered(type);
     return;
   }
   // listener ごとに隔離する。1 つの throw で登録順の後続が同じ event を丸ごと落とすと、

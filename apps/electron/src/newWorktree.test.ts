@@ -145,7 +145,8 @@ describe("createNewWorktreeHandler", () => {
     await Promise.all([
       handle(message({ ghRef: ghRefForIssue(1) }), noPush),
       handle(message({ ghRef: ghRefForIssue(2) }), noPush),
-      // PR と issue は番号空間を共有するので、種別違いの同番号も別鍵でなければならない
+      // 参照の同一性は kind と number の対で決まる（sameGhRef）。鍵の導出もその定義に
+      // 一致していなければならないので、同番号でも kind が違えば別鍵になる
       handle(message({ ghRef: ghRefForPr(1) }), noPush),
     ]);
 
@@ -155,7 +156,7 @@ describe("createNewWorktreeHandler", () => {
   });
 
   test("参照を持たない要求は待ち合わせず、何本でも作れる", async () => {
-    const { deps, created } = createFakeDeps({ createDelayMs: 10 });
+    const { deps, created, counters } = createFakeDeps({ createDelayMs: 10 });
     const handle = createNewWorktreeHandler(deps);
 
     const replies = (
@@ -164,6 +165,9 @@ describe("createNewWorktreeHandler", () => {
 
     expect(created).toHaveLength(2);
     expect(replies.every((reply) => reply.ok)).toBe(true);
+    // 作れた数だけでは、参照なしを固定鍵で逐次化する退行を捕まえられない
+    // （判定を通らないので 2 本とも成功する）。重なりで待ち合わせの不在を固定する
+    expect(counters.maxInFlight).toBe(2);
   });
 
   test("逐次に投入しても既存判定が効く", async () => {

@@ -7,6 +7,11 @@ on:
       - reopened
       - synchronize
 
+# PR trigger で third-party の依存を install して実行するため、job 内に write 権限のトークンを
+# 置かない。repo 既定の継承に委ねると、設定が write に転じても workflow 側から観測できない
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

@@ -34,12 +34,20 @@ export function toWorktreeEntry(info: WorktreeInfo, tasks: Task[]): WorktreeEntr
   };
 }
 
-export async function createTaskWorktree(
-  req: CreateTaskWorktreeRequest,
-): Promise<CreateTaskWorktreeResponse> {
-  // dir は repo 内のどこでもよい契約なので、worktree の配置先と task の projectKey が
-  // 揃うよう先に main repo root へ解決する。呼び出し側（renderer / CLI）に root の
-  // 解決責務を持たせない。
+/** worktree を 1 つ作る。root の解決・起点 ref・leaf 名の決定を main 側に閉じる。
+ *
+ * 呼び出し側は repo 内のどこかの dir を渡すだけでよい。「どこに置くか」「どこから生やすか」
+ * 「何という名前にするか」を各呼び出し側が決めると、同じ規則の写しが増え、規則を変えるたびに
+ * 全部を追う必要が出る。 */
+export async function createManagedWorktree(req: {
+  dir: string;
+  /** 空なら leaf と同じ timestamp を使う */
+  branch: string;
+  /** 空なら default branch を起点にする */
+  startPoint: string;
+}): Promise<{ rootDir: string; info: WorktreeInfo; setupScript: string }> {
+  // dir は repo 内のどこでもよい契約なので、worktree の配置先と projectKey が揃うよう
+  // 先に main repo root へ解決する。
   const rootDir = await resolveMainRepoRoot(req.dir);
   // symlink 適用と setupScript は同じ project 設定なので 1 回の load で両方を賄う。
   const projectConfig = await loadProjectConfig(rootDir);
@@ -58,6 +66,13 @@ export async function createTaskWorktree(
     startPoint,
     symlinks: projectConfig.worktreeSymlinks,
   });
+  return { rootDir, info, setupScript: projectConfig.setupScript };
+}
+
+export async function createTaskWorktree(
+  req: CreateTaskWorktreeRequest,
+): Promise<CreateTaskWorktreeResponse> {
+  const { rootDir, info, setupScript } = await createManagedWorktree(req);
   const task = await taskStore.add({
     dir: rootDir,
     ghTitle: req.ghTitle,
@@ -69,6 +84,6 @@ export async function createTaskWorktree(
     worktree: toWorktreeEntry(info, [task]),
     dir: info.path,
     task,
-    setupScript: projectConfig.setupScript,
+    setupScript,
   };
 }

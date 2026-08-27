@@ -3,8 +3,6 @@ import {
   CreateTaskWorktreeResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
-  GitDefaultBranchRequest,
-  GitDefaultBranchResponse,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
   GitGithubIdentityRequest,
@@ -39,9 +37,6 @@ export const rpcCreateWorktree = (req: CreateWorktreeRequest) =>
 // branch / startPoint は空文字で「main 側で決めろ」を意味する（@gozd/rpc の型を参照）。
 export const rpcCreateTaskWorktree = (req: CreateTaskWorktreeRequest) =>
   rpc<CreateTaskWorktreeResponse>("/git/createTaskWorktree", req);
-
-export const rpcGitDefaultBranch = (req: GitDefaultBranchRequest) =>
-  rpc<GitDefaultBranchResponse>("/git/defaultBranch", req);
 
 export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
   rpc<GitWorktreeRemoveResponse>("/git/worktreeRemove", req);

@@ -1,5 +1,4 @@
 export { UNCOMMITTED_HASH } from "./constants";
-export { generateTimestamp } from "./generateTimestamp";
 export {
   joinAbsRel,
   normalizeAbsolute,
@@ -13,7 +12,6 @@ export { ensureRepoRegistered } from "./ensureRepoRegistered";
 export {
   rpcCreateTaskWorktree,
   rpcCreateWorktree,
-  rpcGitDefaultBranch,
   rpcGitGithubIdentity,
   rpcGitPrList,
   rpcGitWorktreeList,

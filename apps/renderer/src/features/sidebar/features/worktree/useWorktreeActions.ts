@@ -4,12 +4,7 @@ import { ref } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import { activateDir, useTerminalStore } from "../../../terminal";
-import {
-  generateTimestamp,
-  rpcCreateWorktree,
-  rpcGitDefaultBranch,
-  rpcGitWorktreeRemove,
-} from "../../../worktree";
+import { rpcCreateWorktree, rpcGitWorktreeRemove } from "../../../worktree";
 import { worktreeDisplayName } from "../../utils";
 
 interface UseWorktreeActionsOptions {
@@ -45,30 +40,13 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   // --- 作成・削除 ---
 
-  /** タイムスタンプで即座に新規 worktree を作成する（Task なし） */
+  /** 新規 worktree を即座に作成する（Task なし）。起点 ref と名前は main 側が決める */
   async function addWorktree(rootDir: string) {
     if (creatingRootDirs.value.has(rootDir)) return;
     creatingRootDirs.value.add(rootDir);
     try {
-      // default branch を起点にする。main 側で `origin/HEAD` を優先し、未設定
-      // （remote 無し / push 前 repo）の場合は main repo root 自身の current branch に
-      // fallback した ref を受け取り、`startPoint` に渡す。
-      const branchResult = await tryCatch(rpcGitDefaultBranch({ dir: rootDir }));
-      if (!branchResult.ok || branchResult.value.branch === "") {
-        notify.error(
-          "Failed to resolve default branch",
-          branchResult.ok ? undefined : branchResult.error,
-        );
-        return;
-      }
-      const timestamp = generateTimestamp();
       const result = await tryCatch(
-        rpcCreateWorktree({
-          dir: rootDir,
-          worktreeDir: timestamp,
-          branch: timestamp,
-          startPoint: branchResult.value.branch,
-        }),
+        rpcCreateWorktree({ dir: rootDir, branch: "", startPoint: "" }),
       );
       if (result.ok && result.value.worktree !== undefined) {
         repoStore.appendWorktree(rootDir, result.value.worktree);

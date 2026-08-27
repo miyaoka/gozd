@@ -466,23 +466,13 @@ export interface GitGithubIdentityResponse {
   repo: string;
 }
 
-// gitDefaultBranch: `git worktree add -b <new> <abs> <ref>` の `<ref>` にそのまま渡せる
-// 「default branch ref」を返す。新規 worktree 作成時の起点を一意に決めるために使う。
-// 解決順序は二段 fallback:
-//   (1) `git symbolic-ref --short refs/remotes/origin/HEAD` で `origin/main` 等（push 済み repo）
-//   (2) 失敗したら `git symbolic-ref --short HEAD` で `main` 等（remote 未設定 / push 前 repo）
-//   (3) どちらも失敗（detached HEAD / unborn branch）なら空文字列を返し、呼び出し側が通知 + 中止
-export interface GitDefaultBranchRequest {
-  dir: string;
-}
-export interface GitDefaultBranchResponse {
-  branch: string;
-}
-
-// createWorktree: 新規 worktree を作成
+// createWorktree: Task を伴わない worktree を作成する。
+//
+// branch / startPoint は空文字が「main 側で決めろ」を意味する（createTaskWorktree と同じ契約）。
+// 置き場所と leaf 名は常に main が決めるため、呼び出し側は指定しない。
 export interface CreateWorktreeRequest {
+  /** repo 内の任意の dir。main 側で main repo root に解決する */
   dir: string;
-  worktreeDir: string;
   branch: string;
   startPoint: string;
 }

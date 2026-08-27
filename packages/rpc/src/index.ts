@@ -107,8 +107,6 @@ export type {
   GitBlameLineResponse,
   GitCommitFilesRequest,
   GitCommitFilesResponse,
-  GitDefaultBranchRequest,
-  GitDefaultBranchResponse,
   GitDiffExpandLinesRequest,
   GitDiffExpandLinesResponse,
   GitDiffHunksRequest,

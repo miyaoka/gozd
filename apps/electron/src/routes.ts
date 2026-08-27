@@ -179,7 +179,6 @@ import { createWatcherClient } from "./fs/watcherClient";
 import { createPtyClient } from "./pty/ptyClient";
 import { cancelSearch, searchText } from "./search/ripgrepSearch";
 import { blameLine, logFile, logLine } from "./git/gitBlame";
-import { resolveStartPoint } from "./git/gitBranch";
 import { diffHunks, expandDiffLines } from "./git/gitDiff";
 import { log, mergeBase, resetMixed, revReachable } from "./git/gitLog";
 import { lsFiles } from "./git/gitLsFiles";

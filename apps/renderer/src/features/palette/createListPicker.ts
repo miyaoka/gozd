@@ -173,8 +173,8 @@ export function createListPicker<T>() {
   }
 
   /** 選択 item に callback を適用する。返り値の promise は callback の完了（成功 / 失敗を
-   * 問わず）を表す。利用は任意で、実行中の対象をどう扱うかはコマンド層が
-   * inFlightGhRefs で決める。sync callback / 未束縛（loading 中 / open で破棄済み）は即 resolve。 */
+   * 問わず）を表す。完了を待つかは呼び出し側が決める（production は待たない）。
+   * sync callback / 未束縛（loading 中 / open で破棄済み）は即 resolve。 */
   function accept(item: T): Promise<void> {
     return Promise.resolve(acceptCallback?.(item));
   }

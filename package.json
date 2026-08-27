@@ -10,7 +10,7 @@
     "build:all": "pnpm -r --include-workspace-root --if-present run build",
     "build:app": "pnpm --filter @gozd/electron build:app",
     "open:app": "open \"apps/electron/out/mac-arm64/Gozd Local.app\"",
-    "lint": "oxlint --type-aware",
+    "lint": "oxlint --type-aware --ignore-pattern 'apps/**' --ignore-pattern 'packages/**'",
     "fix": "oxfmt '!apps/**' '!packages/**'",
     "lint:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run lint",
     "fix:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run fix",

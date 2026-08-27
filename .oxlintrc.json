@@ -1,4 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": [".gozd/", "**/*.vue"]
+  "ignorePatterns": [".gozd/", "**/*.vue"],
+  "options": {
+    "denyWarnings": true
+  }
 }

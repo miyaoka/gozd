@@ -52,8 +52,11 @@ pre-commit:
             stage_fixed: true
 
           # Linter + Formatter
+          #
+          # root runner が担うのは workspace の外にある .ts。範囲は root の package.json の
+          # lint と揃える（片方にしか無い範囲は「ローカルで通って CI で落ちる」を作る）
           - name: oxlint-root
-            glob: "*.ts"
+            glob: "**/*.ts"
             exclude:
               - "apps/**"
               - "packages/**"
@@ -84,11 +87,15 @@ pre-commit:
             run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
             stage_fixed: true
 
-          # apps/renderer: .ts / .vue とも eslint で fix する。renderer の lint/fix SSOT は
-          # eslint (package.json: lint=`eslint .` / fix=`eslint . -c eslint.config.fix.ts`)。
-          # .ts を oxlint に回すと eslint 専用ルール (import-x/order 等) が .ts で抜け、
-          # CI の fix:all (eslint 全ファイル) でのみ差分が出て「ローカルは通るが CI が落ちる」
-          # ギャップになるため、CI と同じ eslint に揃える。oxfmt は全対象拡張子に適用。
+          # apps/renderer: eslint が .ts / .vue の全ファイルを見る。ここから .ts を外して oxlint
+          # だけに回すと eslint 専用ルール (import-x/order 等) が .ts で抜け、CI の fix:all
+          # (eslint 全ファイル) でのみ差分が出て「ローカルは通るが CI が落ちる」ギャップになる。
+          # oxlint は .ts の type-aware ルールを見る担当として eslint に重ねる (eslint の
+          # recommended は型情報を使わないため)。規則集合は一部重なるが、重なる側 (未使用変数
+          # 等) の fix は oxlint 側で suggestion 扱いなので `--fix` は適用せず、eslint が直した
+          # ものを書き戻さない。`--fix-suggestions` / `--fix-dangerously` を足すとこれが崩れる。
+          # ジョブの並びは renderer の fix スクリプトと同じにして、pre-commit と fix:all が
+          # 同じ結果へ収束するようにする。
           # 同一ファイルへの競合を避けるため piped で直列実行。
           # 親 group には glob を置かない: lefthook の group は親 glob と子 glob を
           # OR（和集合）で連結するため、親 glob は子を絞り込めず追加にしかならない。
@@ -107,8 +114,16 @@ pre-commit:
                   # 解決しないため、binary 直呼びの参照は repo root 帰属になり未宣言扱いになる
                   run: pnpm run fix:staged {staged_files}
                   stage_fixed: true
+                # .ts の type-aware 検査と自動修正。renderer の fix スクリプトと同じ順序で
+                # 並べ、pre-commit と fix:all が同じ結果に収束するようにする。
+                # .vue は oxlint の ignorePatterns で除外済み
+                - name: oxlint
+                  glob: "**/*.ts"
+                  run: pnpm exec oxlint --type-aware --fix {staged_files}
+                  stage_fixed: true
                 # oxfmt は対象拡張子を明示。glob 無しだと .json/.svg/.png まで
                 # 受けて exit 2 で落ちるため {ts,vue,css,md} に限定する。
+                # 整形が最後に走ることで 1 パスで固定点に達する
                 - name: oxfmt
                   glob: "**/*.{ts,vue,css,md}"
                   run: pnpm exec oxfmt {staged_files}

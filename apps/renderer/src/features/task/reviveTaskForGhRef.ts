@@ -5,7 +5,7 @@ import { useRepoStore } from "../../shared/repo";
 import { rpcTaskAdd } from "./rpc";
 
 /**
- * PR / issue picker の「既存に切り替える」ルート用ヘルパー。
+ * PR picker の「既存に切り替える」ルート用ヘルパー。
  *
  * 既に worktree / task がある PR・issue を再選択した時に、terminal close で
  * `closed_by_user=true` 化された既存 task を server 側 `TaskStore.add` の upsert
@@ -15,11 +15,11 @@ import { rpcTaskAdd } from "./rpc";
  * 成功後は `repoStore.requestRefresh(rootDir)` で SSOT 取り直しを `useSidebarData` に
  * 依頼する (楽観更新で `repos[...]` を直書きしない)。
  *
- * 呼び出し元は両 picker の既存 task hit ルートと、PR picker の branch hit ルート
+ * 呼び出し元は PR picker の既存 task hit ルートと branch hit ルート
  * (task は消えたが同 branch の worktree が残っている場合)。
  *
  * 蘇生後の task を返す (失敗時は undefined)。picker が連続選択モードで item に
- * 書き戻し、行表示と再選択挙動を即追従させるために使う。
+ * 書き戻し、行表示を即追従させるために使う。
  */
 export async function reviveTaskForGhRef(params: {
   existingDir: string;

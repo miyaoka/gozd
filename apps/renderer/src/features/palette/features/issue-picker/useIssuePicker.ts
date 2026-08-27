@@ -9,7 +9,7 @@ import type { GitIssue, Task } from "@gozd/rpc";
 import { createListPicker } from "../../createListPicker";
 
 /** picker 行 1 件分。fetch 時に repo 内の既存 task を ghRef で JOIN 済みの形で持つ。
- * existingTask を持つ issue は選択時に worktree を作成せず、その task の worktree を表示する。 */
+ * existingTask を持つ issue は行の表示が変わるだけで、選択すれば新しい worktree を作る。 */
 export interface IssuePickerItem {
   issue: GitIssue;
   existingTask?: Task;

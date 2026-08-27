@@ -1,7 +1,7 @@
 /**
  * Issue 選択コマンド。
  * コマンドパレットから "Workspace: New Worktree from Issue" を実行すると issue picker が開き、
- * issue を選択して worktree を作成する。既に task がある issue はそちらの worktree に切り替える。
+ * issue を選択して worktree を作成する。既に task がある issue でも新しく作る。
  */
 
 import { ghRefForIssue } from "@gozd/rpc";

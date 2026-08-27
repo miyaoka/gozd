@@ -11,7 +11,8 @@ open な issue を選んで作業先の worktree を開くダイアログ。番�
 
 **修飾キーを併用した受理だけは閉じずに走らせる**。複数の issue から続けて worktree を作る操作
 を 1 回の起動で済ませるためで、ダイアログはユーザーが閉じるまで残る。作成が終わった行は「この
-repo に task がある」表示へ変わり、次に選ぶと既存 task への切り替えになる。
+repo に task がある」表示へ変わる。表示が変わっても選択の挙動は変わらず、次に選べば
+もう 1 本 worktree を作る。
 
 受理が走っている間、その行は**受理できない**（選択とハイライトは止めない）。進行中であることを
 行の上に出し、この表示は picker を閉じて開き直しても残る。
@@ -121,14 +122,12 @@ function close() {
 
 /**
  * keepOpen (Shift 選択) は dialog を閉じずに accept し、連続作成に使う。
- * 同一 item の accept 実行中だけ再 accept をブロックする (同 issue の worktree 二重作成に
- * なるため)。別 item は並行に accept できる。実行中判定はコマンド層所有の共有集合を
- * 参照する (dialog ローカルだと close / 開き直しで破棄され、通常選択の実行中を塞げない)。
+ * 実行中の判定はここでは行わない — 弾くのは連打で意図しない本数が増えるのを防ぐためで、
+ * その判断と通知はコマンド層が持つ。ここで先回りすると通知ごと握りつぶす。
  */
 function acceptSelected(keepOpen: boolean) {
   const item = filteredIssues.value[selectedIndex.value];
   if (!item) return;
-  if (inFlightGhRefs.has(item.refKey)) return;
   if (!keepOpen) {
     close();
   }

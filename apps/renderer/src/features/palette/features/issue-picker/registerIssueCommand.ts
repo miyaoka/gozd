@@ -10,8 +10,7 @@ import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import { ghErrorMessage } from "../../../github-item";
-import { reviveTaskForGhRef } from "../../../task";
-import { activateDir, openCreatedWorktree } from "../../../terminal";
+import { openCreatedWorktree } from "../../../terminal";
 import { rpcCreateTaskWorktree, useWorktreeStore } from "../../../worktree";
 import { inFlightKey, useInFlightGhRefs } from "../../inFlightGhRefs";
 import { buildTaskIndexByGhRef, ghRefKey } from "../../taskIndexByGhRef";
@@ -59,7 +58,7 @@ export function registerIssueCommand(): () => void {
         }
 
         // repo 内の既存 task を ghRef で JOIN する。dialog は existingTask の有無で行の
-        // 色を変え、選択時は新規作成ではなく既存 task の worktree 表示に倒す。
+        // 色を変え、「この issue には既に作業がある」ことを示す。選択の挙動は変えない。
         const owningRepo = repoStore.findRepoOwning(dir);
         const taskByGhRef = buildTaskIndexByGhRef(owningRepo?.worktrees ?? []);
         const items = issuesRes.issues.map((issue): IssuePickerItem => ({
@@ -70,26 +69,12 @@ export function registerIssueCommand(): () => void {
 
         // accept の実体。失敗はすべて notify 済みで resolve する (throw しない) 契約。
         // 完了時に item.existingTask へ task を書き戻す (item は dialog が picker.items
-        // (reactive) から渡す proxy) ことで、開いたままの一覧の行が作成済み表示に変わり、
-        // 同 issue の再選択が既存切り替えルートに倒れる。
+        // (reactive) から渡す proxy) ことで、開いたままの一覧の行が作成済み表示に変わる。
         const acceptIssue = async (item: IssuePickerItem): Promise<void> => {
           const { issue } = item;
-          // 既存 task がある issue は新規 worktree を作らず、その task の worktree に
-          // 切り替える。terminal close で closed_by_user 化されている可能性があるため
-          // 同 ghRef の upsert (reviveTaskForGhRef) で蘇生する (PR picker の既存
-          // worktree hit ルートと同じ挙動)。
-          const existing = item.existingTask;
-          if (existing !== undefined) {
-            const revived = await reviveTaskForGhRef({
-              existingDir: existing.worktreeDir,
-              ghTitle: issue.title,
-              ghRef: ghRefForIssue(issue.number),
-              errorLabel: "Failed to revive task for issue",
-            });
-            if (revived !== undefined) item.existingTask = revived;
-            activateDir(existing.worktreeDir);
-            return;
-          }
+          // 既存 task があっても新規に作る。issue の branch は timestamp なので同じ issue に
+          // 何本でも worktree を持てる（別のアプローチを並行して試す用途）。既存の作業へ
+          // 戻る導線はサイドバーの Task 行が担う。
           // worktree は default branch 起点、branch 名は timestamp（main 側の既定）。
           // issue 番号を branch 名に埋め込まないため、task を削除した後に同じ issue から
           // 作り直しても branch 名が衝突しない。

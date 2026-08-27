@@ -86,7 +86,7 @@ function iso8601Seconds(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-export function sameGhRef(a: GhRef, b: GhRef): boolean {
+function sameGhRef(a: GhRef, b: GhRef): boolean {
   return a.kind === b.kind && a.number === b.number;
 }
 

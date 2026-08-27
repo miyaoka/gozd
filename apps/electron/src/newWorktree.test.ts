@@ -17,9 +17,13 @@ function sameRef(a: GhRef, b: GhRef): boolean {
   return a.kind === b.kind && a.number === b.number;
 }
 
-/** 実 git / 実ホームを触らない fake。created が tasks.json の代役 */
+/** 実 git / 実ホームを触らない fake。created が tasks.json の代役。
+ * maxInFlight は create の重なりの最大値で、逐次化の粒度をここで判定する
+ * （実時間で測ると閾値が実行環境に依存し、負荷で偽陽性・偽陰性を出す） */
 function createFakeDeps(options: { createDelayMs: number }) {
   const created: Task[] = [];
+  let inFlight = 0;
+  const counters = { maxInFlight: 0 };
   const deps: NewWorktreeDeps = {
     resolveRoot: (dir) => Promise.resolve(dir === "/repo/sub" ? ROOT : dir),
     findExisting: async (rootDir, ghRef) => {
@@ -29,8 +33,11 @@ function createFakeDeps(options: { createDelayMs: number }) {
       return created.find((task) => task.ghRef !== undefined && sameRef(task.ghRef, ghRef));
     },
     create: async (req: CreateTaskWorktreeRequest) => {
+      inFlight += 1;
+      counters.maxInFlight = Math.max(counters.maxInFlight, inFlight);
       // git worktree add に相当する秒単位の窓
       await new Promise((resolve) => setTimeout(resolve, options.createDelayMs));
+      inFlight -= 1;
       const dir = `${ROOT}/wt${created.length + 1}`;
       const task: Task = {
         id: `task${created.length + 1}`,
@@ -63,7 +70,7 @@ function createFakeDeps(options: { createDelayMs: number }) {
       };
     },
   };
-  return { deps, created };
+  return { deps, created, counters };
 }
 
 function message(overrides: Partial<NewWorktreeMessage>): NewWorktreeMessage {
@@ -87,13 +94,14 @@ describe("createNewWorktreeHandler", () => {
   });
 
   test("同じ参照への並行投入は 1 つだけ作り、後発は既存の場所を添えて失敗する", async () => {
-    const { deps, created } = createFakeDeps({ createDelayMs: 20 });
+    const { deps, created, counters } = createFakeDeps({ createDelayMs: 20 });
     const handle = createNewWorktreeHandler(deps);
     const msg = message({ ghRef: ghRefForIssue(42) });
 
     const replies = (await Promise.all([handle(msg, noPush), handle(msg, noPush)])).map(parse);
 
     expect(created).toHaveLength(1);
+    expect(counters.maxInFlight).toBe(1);
     const ok = replies.filter((reply) => reply.ok);
     const failed = replies.filter((reply) => !reply.ok);
     expect(ok).toHaveLength(1);
@@ -131,20 +139,19 @@ describe("createNewWorktreeHandler", () => {
   });
 
   test("参照が違えば並行のまま走る（待ち合わせない）", async () => {
-    const { deps, created } = createFakeDeps({ createDelayMs: 50 });
+    const { deps, created, counters } = createFakeDeps({ createDelayMs: 20 });
     const handle = createNewWorktreeHandler(deps);
 
-    const started = Date.now();
     await Promise.all([
       handle(message({ ghRef: ghRefForIssue(1) }), noPush),
       handle(message({ ghRef: ghRefForIssue(2) }), noPush),
+      // PR と issue は番号空間を共有するので、種別違いの同番号も別鍵でなければならない
       handle(message({ ghRef: ghRefForPr(1) }), noPush),
     ]);
-    const elapsed = Date.now() - started;
 
     expect(created).toHaveLength(3);
-    // 直列なら 150ms 以上かかる。粒度が参照単位に閉じていることを時間で固定する
-    expect(elapsed).toBeLessThan(140);
+    // 3 本が重なって走ったことを直接見る。粒度が参照単位に閉じている証拠
+    expect(counters.maxInFlight).toBe(3);
   });
 
   test("参照を持たない要求は待ち合わせず、何本でも作れる", async () => {
@@ -196,6 +203,58 @@ describe("createNewWorktreeHandler", () => {
     const logged = consoleSpy.mock.calls.map(([line]) => String(line));
     expect(logged).toContainEqual(
       expect.stringContaining("[handleNewWorktree] createTaskWorktree failed"),
+    );
+  });
+
+  test("root を解決できない要求は逐次化に入らず失敗を返す", async () => {
+    // 鍵を作れない以上、錠前を取らずに終わるのが正しい（fails closed）
+    const { deps, created } = createFakeDeps({ createDelayMs: 0 });
+    const handle = createNewWorktreeHandler({
+      ...deps,
+      resolveRoot: () => Promise.reject(new Error("not a git repo")),
+    });
+
+    const reply = parse(await handle(message({ ghRef: ghRefForIssue(42) }), noPush));
+
+    expect(reply.ok).toBe(false);
+    expect(reply.error).toContain("not a git repo");
+    expect(created).toHaveLength(0);
+    const logged = consoleSpy.mock.calls.map(([line]) => String(line));
+    expect(logged).toContainEqual(
+      expect.stringContaining("[handleNewWorktree] resolveRoot failed"),
+    );
+  });
+
+  test("既存判定に失敗したら作らずに失敗を返す", async () => {
+    // 判定できないまま作ると、既にある参照に 2 つ目を作る。判定不能は作成不能として扱う
+    const { deps, created } = createFakeDeps({ createDelayMs: 0 });
+    const handle = createNewWorktreeHandler({
+      ...deps,
+      findExisting: () => Promise.reject(new Error("git worktree list failed")),
+    });
+
+    const reply = parse(await handle(message({ ghRef: ghRefForIssue(42) }), noPush));
+
+    expect(reply.ok).toBe(false);
+    expect(reply.error).toContain("git worktree list failed");
+    expect(created).toHaveLength(0);
+    const logged = consoleSpy.mock.calls.map(([line]) => String(line));
+    expect(logged).toContainEqual(
+      expect.stringContaining("[handleNewWorktree] task lookup failed"),
+    );
+  });
+
+  test("先行の作成を待たされたことは観察ログに残る", async () => {
+    // 待ちは秒単位あり、無音だと実行者からは「固まった」としか見えない
+    const { deps } = createFakeDeps({ createDelayMs: 20 });
+    const handle = createNewWorktreeHandler(deps);
+    const msg = message({ ghRef: ghRefForIssue(42) });
+
+    await Promise.all([handle(msg, noPush), handle(msg, noPush)]);
+
+    const logged = consoleSpy.mock.calls.map(([line]) => String(line));
+    expect(logged).toContainEqual(
+      expect.stringContaining("[handleNewWorktree] waiting for in-flight creation ref=Issue #42"),
     );
   });
 

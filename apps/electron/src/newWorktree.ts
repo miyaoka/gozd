@@ -38,9 +38,18 @@ export interface NewWorktreeDeps {
  * 直前が失敗しても次を走らせる（失敗は呼び出し側へそのまま返る）。 */
 function createKeyedQueue() {
   const chains = new Map<string, Promise<unknown>>();
-  return function enqueue<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  return function enqueue<T>(
+    key: string,
+    operation: () => Promise<T>,
+    onWait: () => void,
+  ): Promise<T> {
+    // 待たされたことを呼び出し側へ知らせる。待ちは秒単位あり、無音だと実行者からは
+    // 「固まった」としか見えず、後から理由を再構築できない
+    if (chains.has(key)) onWait();
     const previous = chains.get(key) ?? Promise.resolve(undefined);
-    const settled = previous.then(operation, operation);
+    const settled = previous.then(operation);
+    // 前の実行が失敗しても次を走らせる。chain 側だけ reject を吸い、呼び出し側には
+    // 元の失敗をそのまま返す（taskStore の serializeWrite と同じ形）
     const tail = settled.catch(() => undefined);
     chains.set(key, tail);
     // 自分が最後尾のまま終わったキーだけ捨てる。待ち行列が続いているキーを消すと
@@ -52,8 +61,9 @@ function createKeyedQueue() {
   };
 }
 
-/** 参照の一意性を守る単位。repo が違えば同じ番号でも別物なので root を含める */
-function ghRefKey(rootDir: string, ghRef: GhRef): string {
+/** 逐次化の単位。repo が違えば同じ番号でも別物なので root を含める。
+ * GitHub の番号空間は repo 単位なので、root を落とすと別 repo の同番号が誤って待ち合う */
+function serializationKey(rootDir: string, ghRef: GhRef): string {
   return `${rootDir}\0${ghRef.kind}#${ghRef.number}`;
 }
 
@@ -137,8 +147,13 @@ export function createNewWorktreeHandler(deps: NewWorktreeDeps) {
       console.error(`[handleNewWorktree] resolveRoot failed: ${rootDir.error} dir=${msg.dir}`);
       return reply({ ok: false, dir: "", error: String(rootDir.error) });
     }
-    return enqueue(ghRefKey(rootDir.value, ghRef), () =>
-      checkAndCreate(msg, ghRef, rootDir.value, push),
+    return enqueue(
+      serializationKey(rootDir.value, ghRef),
+      () => checkAndCreate(msg, ghRef, rootDir.value, push),
+      () =>
+        console.error(
+          `[handleNewWorktree] waiting for in-flight creation ref=${ghRefLabel(ghRef)} root=${rootDir.value}`,
+        ),
     );
   };
 }

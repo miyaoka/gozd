@@ -46,6 +46,6 @@ describe("openExternalOrNotify", () => {
     // 抜けた場合でも (テスト環境に bridge が無く例外になるため) 同じ形の通知が届いて pass する
     const inner = cause?.cause;
     expect(inner).toBeInstanceOf(Error);
-    expect((inner as Error).message).toContain("scheme not allowed");
+    expect((inner as Error | undefined)?.message).toContain("scheme not allowed");
   });
 });

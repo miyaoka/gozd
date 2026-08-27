@@ -24,7 +24,7 @@ export function sendClientMessage(socketPath: string, message: ClientMessage): P
     socket.on("close", (hadError) => {
       if (!hadError) resolve();
     });
-    // 受信データは読み捨てて EOF を待つ（drain。プロトコルは一方向で応答なし）
+    // 受信データは読み捨てて EOF を待つ（drain。この種別は応答を返さない）
     socket.resume();
     socket.end(line);
   });

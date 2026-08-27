@@ -4,8 +4,9 @@
  * worktree と task の作成は main 側で完了している。ここは UI 反映だけを担い、PR / issue
  * picker と同じ後段（サイドバーに載せる → autostart / setup ヒント → activate）を通す。
  *
- * push を取りこぼしても worktree は実在し、サイドバーの再取得で現れる。復旧不能になるのは
- * claude の autostart だけで、その場合はサイドバーの task 行クリックで起動できる。
+ * push を取りこぼしても worktree と Task は実在し、サイドバーの再取得で現れる。戻らないのは
+ * 指示文で、Task に永続化していないためこの push にしか乗っていない。task 行のクリックで
+ * 起動できるのは素の claude までで、指示は渡らない。
  */
 import type { NewWorktreePayload } from "@gozd/rpc";
 import { onMounted, onUnmounted } from "vue";
@@ -16,7 +17,7 @@ import { ensureRepoRegistered } from "../worktree";
 export function useNewWorktreeHandler() {
   async function handle(payload: NewWorktreePayload) {
     const { prompt, repoName, ...created } = payload;
-    // 別ウィンドウで開いていない repo に対しても `gozd worktree new --dir` は撃てる。
+    // 別ウィンドウで開いていない repo に対しても `gozd worktree new --dir` は実行できる。
     // repo ごと未登録なら先に載せる（登録済みなら no-op）
     await ensureRepoRegistered({
       rootDir: created.rootDir,

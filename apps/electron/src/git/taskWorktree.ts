@@ -47,8 +47,8 @@ export async function createTaskWorktree(
   // 指定でき、未指定なら leaf と同じ timestamp を使う。
   const leaf = generateTimestamp();
   const branch = req.branch === "" ? leaf : req.branch;
-  // startPoint 未指定は default branch 起点。detached HEAD / unborn branch では
-  // resolveStartPoint が throw し、起点不明のまま作らずに呼び出し側へ失敗を返す。
+  // startPoint 未指定は default branch 起点。detached HEAD では resolveStartPoint が throw し、
+  // 起点不明のまま作らずに呼び出し側へ失敗を返す。
   const startPoint = req.startPoint === "" ? await resolveStartPoint(rootDir) : req.startPoint;
 
   const info = await createWorktree({

@@ -92,8 +92,7 @@ export function registerIssueCommand(): () => void {
           }
           // worktree は default branch 起点、branch 名は timestamp（main 側の既定）。
           // issue 番号を branch 名に埋め込まないため、task を削除した後に同じ issue から
-          // 作り直しても branch 名が衝突しない。連続選択 (Shift 選択) の同一秒衝突は
-          // main 側の timestamp が per-process 一意 (連番 suffix) を保証する。
+          // 作り直しても branch 名が衝突しない。
           //
           // issue タイトルを持つ task が Claude session 未起動状態 (sessionId 空) で
           // 一緒に永続化される。サイドバー行をクリックすると素の claude が起動して

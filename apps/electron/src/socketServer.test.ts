@@ -20,19 +20,31 @@ function recorder(received: string[]): SocketMessageHandler {
   };
 }
 
-/** 1 行送って、返ってきた最初の 1 行を返す（応答が無いまま閉じたら空文字） */
-function sendAndReadReply(socketPath: string, data: string): Promise<string> {
+/** 1 行送って、返ってきた最初の 1 行を返す（応答が無いまま閉じたら空文字）。
+ * close を無期限に待つと「閉じなかった」が runner のタイムアウトとして出て理由が読めないため、
+ * 期限を持たせて assertion に落とす */
+function sendAndReadReply(socketPath: string, data: string, timeoutMs = 3000): Promise<string> {
   return new Promise((resolve, reject) => {
     let buffer = "";
     const client = connect(socketPath, () => {
       client.end(data);
     });
+    const timer = setTimeout(() => {
+      client.destroy();
+      reject(new Error(`server did not close the connection within ${timeoutMs}ms`));
+    }, timeoutMs);
     client.setEncoding("utf8");
     client.on("data", (chunk: string) => {
       buffer += chunk;
     });
-    client.on("error", reject);
-    client.on("close", () => resolve(buffer.split("\n")[0] ?? ""));
+    client.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    client.on("close", () => {
+      clearTimeout(timer);
+      resolve(buffer.split("\n")[0] ?? "");
+    });
   });
 }
 

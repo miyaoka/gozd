@@ -16,6 +16,7 @@
 //    生じ、bun:test / SSR / 非 DOM 環境でロードエラーになる。renderer の bootstrap
 //    (`main.ts`) で 1 回だけ呼び出す契約にすることで、import 時の副作用を排除する。
 
+import type { PushPayloadMap } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 
 type AnyListener = (payload: unknown) => void;
@@ -32,15 +33,16 @@ const listeners = new Map<string, Set<AnyListener>>();
 /**
  * 届く購読者が居なかったときに観察ログを残す push の type。
  *
- * **mount 時の pull で取り直せる payload はここに載せない。** 大半の push は
- * 「mount で pull、変化で push」の契約（docs/architecture.md）に乗っており、購読者が
- * 居ない間の取りこぼしは設計どおりの捨て方で、失敗ではない。それらまで記録すると、
- * renderer の再構築のたびに全 type ぶんのログが出て、本当に失われた 1 件が埋もれる。
+ * **mount 時の pull で取り直せる payload は載せない。** 大半の push は「mount で pull、
+ * 変化で push」の契約（docs/architecture.md）に乗っており、購読者が居ない間の取りこぼしは
+ * 設計どおりの捨て方で、失敗ではない。それらまで記録すると、renderer の再構築のたびに
+ * 全 type ぶんのログが出て、本当に失われた 1 件が埋もれる。
  *
- * 載るのは pull の相手を持たない payload だけ。`newWorktree` の指示文は push payload に
- * しか存在せず、落ちると worktree だけが残って指示は戻らない。
+ * `newWorktree` の指示文は push payload にしか存在せず、落ちると worktree だけが残って
+ * 指示は戻らない。同じ性質を持つ type は他にもあり（docs/rpc.md の購読契約）、この集合は
+ * それらを網羅していない。足すときは pull の相手が無いことを確かめてから足す。
  */
-const UNRECOVERABLE_PUSH_TYPES = new Set(["newWorktree"]);
+const UNRECOVERABLE_PUSH_TYPES = new Set<keyof PushPayloadMap>(["newWorktree"]);
 
 /**
  * listener の失敗の追加報告先。feature 層から `setListenerErrorReporter()` で注入する。
@@ -107,7 +109,7 @@ function dispatchToListeners(type: string, payload: unknown): void {
   const fns = listeners.get(type);
   // size 0 は「購読が全部外れた後」。undefined（一度も購読されていない）と区別しない
   if (fns === undefined || fns.size === 0) {
-    if (UNRECOVERABLE_PUSH_TYPES.has(type)) reportUndelivered(type);
+    if ((UNRECOVERABLE_PUSH_TYPES as ReadonlySet<string>).has(type)) reportUndelivered(type);
     return;
   }
   // listener ごとに隔離する。1 つの throw で登録順の後続が同じ event を丸ごと落とすと、

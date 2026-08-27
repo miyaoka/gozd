@@ -9,7 +9,7 @@ import type { CreateTaskWorktreeResponse } from "@gozd/rpc";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { activateDir } from "./activateDir";
-import { lostPromptDetail } from "./lostPrompt";
+import { notifyLostPrompt } from "./lostPrompt";
 import { useTerminalStore, type AutostartHint } from "./useTerminalStore";
 
 /**
@@ -38,10 +38,9 @@ export function openCreatedWorktree(
   // 落ち、サイドバーに出ない worktree でターミナルだけが動く
   const owning = repoStore.findRepoOwning(created.rootDir);
   if (owning === undefined) {
-    // ここで返ると claude は起動しない。指示文はこの引数にしか無いので添えて返す
-    notify.error(
-      `Worktree created but sidebar could not be updated.${lostPromptDetail(autostart.prompt)}`,
-    );
+    notify.error("Worktree created but sidebar could not be updated");
+    // ここで返ると claude は起動しない。指示文はこの引数にしか無いので別途出す
+    notifyLostPrompt(notify, autostart.prompt);
     return;
   }
   repoStore.appendWorktree(owning.rootDir, created.worktree);

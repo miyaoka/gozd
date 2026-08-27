@@ -7,7 +7,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { dispatchMessage, onMessage } from "../../shared/rpc";
 import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
-import { lostPromptDetail } from "./lostPrompt";
+import { notifyLostPrompt } from "./lostPrompt";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
 import { rpcClaudeSessionRemoveByPty, rpcPtyKill, rpcPtySpawn } from "./rpc";
@@ -225,9 +225,10 @@ export const useTerminalStore = defineStore("terminal", () => {
       const lostPrompt = pendingAutostartByLeafId.value[leafId]?.prompt;
       delete pendingAutostartByLeafId.value[leafId];
       notify.error(
-        `Failed to spawn terminal.${lostPromptDetail(lostPrompt)}`,
+        "Failed to spawn terminal",
         new Error(`spawn failed; dir=${dir}`, { cause: error }),
       );
+      notifyLostPrompt(notify, lostPrompt);
     },
   });
 

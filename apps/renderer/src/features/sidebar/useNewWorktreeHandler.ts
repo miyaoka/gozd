@@ -15,7 +15,7 @@ import type { NewWorktreePayload } from "@gozd/rpc";
 import { onMounted, onUnmounted } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
-import { lostPromptDetail, openCreatedWorktree } from "../terminal";
+import { notifyLostPrompt, openCreatedWorktree } from "../terminal";
 import { ensureRepoRegistered } from "../worktree";
 
 export function useNewWorktreeHandler() {
@@ -41,10 +41,8 @@ export function useNewWorktreeHandler() {
       // async な失敗は listener の tryCatch では捕まらない（浮いた promise になる）。
       // ここで受けないと、worktree だけが残って指示文が黙って消える
       void handle(payload).catch((cause: unknown) => {
-        notifications.error(
-          `Could not open the created worktree at ${payload.dir}.${lostPromptDetail(payload.prompt)}`,
-          cause,
-        );
+        notifications.error(`Could not open the created worktree at ${payload.dir}`, cause);
+        notifyLostPrompt(notifications, payload.prompt);
       });
     });
   });

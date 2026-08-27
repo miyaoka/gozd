@@ -28,7 +28,7 @@ export interface RpcContext {
 export function createWebContentsPush(contents: WebContents): PushFn {
   return (type, payload) => {
     if (contents.isDestroyed()) {
-      console.error(`[push] dropped type=${type}: webContents is destroyed`);
+      console.error(`[createWebContentsPush] dropped type=${type}: webContents is destroyed`);
       return;
     }
     contents.send("rpc:push", type, payload);

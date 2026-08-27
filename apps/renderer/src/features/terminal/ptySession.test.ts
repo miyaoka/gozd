@@ -25,6 +25,7 @@ async function setupManager() {
     },
     requestPtySpawn: async () => 1,
     sendPtyKill: () => {},
+    onSpawnError: () => {},
   });
   await manager.spawnPty("leaf", 80, 24);
   return manager;

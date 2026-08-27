@@ -88,7 +88,9 @@ interface PtySessionManagerDeps {
   /** PTY 終了時のコールバック（Claude 状態クリーンアップ等に使う） */
   onPtyCleanup?: (ptyId: number) => void;
   /** PTY spawn 失敗時のコールバック（notify 等に使う）。leafId / dir を載せて UI 通知の手掛かりにする */
-  onSpawnError?: (params: { leafId: string; dir: string; error: unknown }) => void;
+  /** spawn 失敗の通知先。**必須** — 失敗時にしか走らない後始末（起動ヒントの消費）を
+   * ここに置くため、省略できると掃除が丸ごと走らない状態が型で許されてしまう */
+  onSpawnError: (params: { leafId: string; dir: string; error: unknown }) => void;
 }
 
 export function createPtySessionManager(deps: PtySessionManagerDeps) {
@@ -173,7 +175,7 @@ export function createPtySessionManager(deps: PtySessionManagerDeps) {
     spawningLeafIds.delete(leafId);
 
     if (!result.ok) {
-      onSpawnError?.({ leafId, dir: entry.dir, error: result.error });
+      onSpawnError({ leafId, dir: entry.dir, error: result.error });
       return;
     }
 

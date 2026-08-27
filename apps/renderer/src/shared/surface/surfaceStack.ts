@@ -121,10 +121,14 @@ export function planHide<T>(
   const ops: SurfaceOp<T>[] = [{ kind: "hide", el }];
   const nextFront = front(next);
   if (options.hadFocus && nextFront !== undefined) ops.push({ kind: "focus", el: nextFront });
+  // 復帰先の控えを動かすのは、このサーフェスが列から抜けた結果として列が空になったときだけ。
+  // 列に居なかったサーフェスも close を通る (unmount は DOM の状態を問わず呼ぶため、一度も
+  // 開かれなかった面もここへ来る)。それを「列が空になった」と数えると控えを巻き添えで捨てる
+  const emptied = stack.includes(el) && nextFront === undefined;
   return {
     stack: next,
     ops,
-    restoreReturnFocus: options.hadFocus && nextFront === undefined,
-    clearReturnFocus: nextFront === undefined,
+    restoreReturnFocus: options.hadFocus && emptied,
+    clearReturnFocus: emptied,
   };
 }

@@ -100,6 +100,17 @@ describe("socketMessages", () => {
     });
   });
 
+  test("newWorktree は title 未指定を失敗として応答する", async () => {
+    // CLI を経由しない送信でも「見分けの付かない Task」を作らせない
+    const handle = createSocketMessageHandler(() => {});
+    const reply = await handle(JSON.stringify({ newWorktree: { dir: "/tmp", prompt: "" } }));
+    expect(JSON.parse(reply ?? "")).toEqual({
+      ok: false,
+      dir: "",
+      error: "newWorktree: title is required",
+    });
+  });
+
   test("newWorktree は作成に失敗したら push せず失敗を応答する", async () => {
     // git 管理外の dir では起点 ref を解決できない。worktree だけ出来て task が付かない
     // 中間状態を作らないため、この時点で止めて実行者に失敗を返す

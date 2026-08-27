@@ -20,6 +20,7 @@ import type {
 } from "@gozd/rpc";
 import { ghRefLabel } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
+import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import { createTaskWorktree } from "./git/taskWorktree";
 import { buildGozdOpenPayload } from "./openTarget";
@@ -187,6 +188,11 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
   if (msg.dir === "") {
     return reply({ ok: false, dir: "", error: "newWorktree: dir is required" });
   }
+  // タイトル必須は CLI だけでなくここでも守る。socket は gozd が書いたと保証できない入力で、
+  // CLI を経由しない送信でも「見分けの付かない Task」を作らせない
+  if (msg.title === "") {
+    return reply({ ok: false, dir: "", error: "newWorktree: title is required" });
+  }
   // 同じ PR / issue の task が既にあるなら作らない。エージェントが issue 一覧を読み直して
   // 同じ番号を再投入する経路が常にあり、通すと同一 issue に worktree が積み上がる。
   // UI の picker は既存 worktree への切り替えに倒すが、CLI には切り替える画面が無いので
@@ -226,12 +232,25 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
   return reply({ ok: true, dir: created.value.dir, error: "" });
 }
 
-/** repo 内に同じ ghRef を持つ task があれば返す。 */
+/** repo 内に同じ ghRef を持ち、worktree が実在する task を返す。
+ *
+ * worktree の実在で絞るのは UI と同じ集合を見るため。UI は `git worktree list` に JOIN した
+ * task だけを見るので、worktree が消えて task だけ残った状態では「既存なし」に倒れる。
+ * tasks.json 全件で判定すると、CLI だけが存在しないパスを指して恒久的に失敗し続ける。
+ *
+ * 複数該当する場合の採用も UI と揃える（createdAt が最新、同点は id 辞書順）。 */
 async function findTaskByGhRef(dir: string, ghRef: GhRef): Promise<Task | undefined> {
   const rootDir = await resolveMainRepoRoot(dir);
-  return (await taskStore.list(rootDir)).find(
-    (task) => task.ghRef !== undefined && sameGhRef(task.ghRef, ghRef),
+  const tasks = (await taskStore.list(rootDir)).filter(
+    (task) =>
+      task.ghRef !== undefined && sameGhRef(task.ghRef, ghRef) && existsSync(task.worktreeDir),
   );
+  return tasks.reduce<Task | undefined>((current, task) => {
+    if (current === undefined) return task;
+    if (task.createdAt > current.createdAt) return task;
+    if (task.createdAt === current.createdAt && task.id > current.id) return task;
+    return current;
+  }, undefined);
 }
 
 /** 逐次キューに載せる種別の処理。応答は返さない。 */

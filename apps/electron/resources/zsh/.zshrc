@@ -24,13 +24,16 @@ _gozd_osc7_cwd
 # - --settings: hooks 設定。ユーザーが自分で --settings を渡したらそちらを尊重して降りる
 #   （設定ファイルは 1 つしか指定できないため、重ねると衝突する）
 # - --plugin-dir: gozd の skill を運ぶ plugin。繰り返し指定できる追加専用のフラグなので、
-#   ユーザー指定の有無に関わらず常に足す。gozd の中でしか撃てないコマンドを扱う skill なので、
+#   ユーザー指定の有無に関わらず常に足す。gozd の中でしか使えないコマンドを扱う skill なので、
 #   ユーザーの ~/.claude には置かずこの経路だけで供給する
 claude() {
   local arg
   local -a gozd_args=()
   [[ -n "$GOZD_CLAUDE_PLUGIN_DIR" ]] && gozd_args+=(--plugin-dir "$GOZD_CLAUDE_PLUGIN_DIR")
   for arg in "$@"; do
+    # `--` 以降は option ではなくプロンプト本文。走査を打ち切らないと、本文が
+    # --settings に一致したときに hooks 設定の注入が黙って外れる
+    [[ "$arg" == "--" ]] && break
     [[ "$arg" == --settings || "$arg" == --settings=* ]] && {
       command claude "${gozd_args[@]}" "$@"
       return $?
@@ -96,7 +99,9 @@ _gozd_start_claude() {
   local _prefill="$GOZD_CLAUDE_PREFILL"
   unset GOZD_CLAUDE_PROMPT GOZD_CLAUDE_PREFILL
   if [[ -n "$_prompt" ]]; then
-    claude "$_prompt"
+    # `--` で option 解析を打ち切る。指示文は箇条書きで始まることがあり、`- ` や `--` で
+    # 始まると claude が option として解釈して起動に失敗する
+    claude -- "$_prompt"
   elif [[ -n "$_prefill" ]]; then
     claude --prefill "$_prefill"
   else

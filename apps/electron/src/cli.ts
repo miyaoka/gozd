@@ -56,7 +56,7 @@ async function sendOrExit(message: ClientMessage): Promise<void> {
 async function openCommand(target: string): Promise<void> {
   const absolute = resolve(process.cwd(), target);
 
-  // 存在しないパスはここで fail fast する。socket は一方向 NDJSON で main 側で弾いても
+  // 存在しないパスはここで fail fast する。open は応答を返さない種別で、main 側で弾いても
   // ターミナルに何も返せないため、実行者にエラーを伝えられるのは送信前のこの位置だけ。
   // gozd には新規ファイル編集機能がなく、存在しないパスを受けても実現手段がない
   // （通すとサイドバーに幽霊 repo が登録され fs watch が恒久的に失敗し続ける）
@@ -110,13 +110,14 @@ Multi-line prompts go through stdin so the shell never has to quote them:
  * コマンドの cwd に使える）。gozd 側で作れなかった場合は非 0 で終了する。
  */
 async function worktreeCommand(argv: string[]): Promise<void> {
-  // help はサブコマンドの前後どちらに置かれても効かせる。使い方を尋ねる要求を
-  // 「不明なオプション」で弾くと、呼び出し側は正しい形を知る手段を失う
-  if (argv.includes("--help") || argv.includes("-h")) {
+  // help は先頭 2 トークンでだけ見る。値の位置まで走査すると `--prompt "-h"` が usage を
+  // stdout に吐き、呼び出し側がその 1 行目を worktree のパスとして読む
+  const [sub, ...rest] = argv;
+  const isHelp = (token: string | undefined) => token === "--help" || token === "-h";
+  if (isHelp(sub) || isHelp(rest[0])) {
     process.stdout.write(WORKTREE_USAGE);
     return;
   }
-  const [sub, ...rest] = argv;
   if (sub !== "new") {
     process.stderr.write(`gozd worktree: unknown subcommand: ${sub ?? "(none)"}\n\n`);
     process.stderr.write(WORKTREE_USAGE);
@@ -142,7 +143,15 @@ async function worktreeCommand(argv: string[]): Promise<void> {
       process.stderr.write(`gozd worktree new: failed to read stdin: ${stdinText.error}\n`);
       process.exit(1);
     }
-    message.prompt = stdinText.value.trim();
+    // 空を素の claude 起動に倒さない。--prompt-stdin は「stdin に指示がある」の宣言なので、
+    // 空は heredoc の書き忘れ / 綴じ違いであり、通すと指示なしの worktree が黙って増える
+    const prompt = stdinText.value.trim();
+    if (prompt === "") {
+      process.stderr.write("gozd worktree new: --prompt-stdin got an empty prompt\n\n");
+      process.stderr.write(WORKTREE_USAGE);
+      process.exit(1);
+    }
+    message.prompt = prompt;
   }
   const socketPath = resolveSocketPath(process.env);
   const sent = await tryCatch(requestClientReply(socketPath, { newWorktree: message }));

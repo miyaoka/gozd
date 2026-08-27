@@ -2,7 +2,9 @@
  * main の `newWorktree` push を購読し、`gozd worktree new` で作られた worktree を開く。
  *
  * worktree と task の作成は main 側で完了している。ここは UI 反映だけを担い、PR / issue
- * picker と同じ後段（サイドバーに載せる → autostart / setup ヒント → activate）を通す。
+ * picker と同じ後段（サイドバーに載せる → autostart / setup ヒント → ターミナル起動）を通す。
+ *
+ * 選択中の worktree は動かさない（docs/task.md の「エージェントから worktree を作る」）。
  *
  * push を取りこぼしても worktree と Task は実在し、サイドバーの再取得で現れる。戻らないのは
  * 指示文で、Task に永続化していないためこの push にしか乗っていない。task 行のクリックで
@@ -26,7 +28,7 @@ export function useNewWorktreeHandler() {
       isGitRepo: true,
     });
     // 指示は引数で渡す。切り出した相手は起動と同時に走り出す
-    openCreatedWorktree(created, { prompt });
+    openCreatedWorktree(created, { prompt }, "background");
   }
 
   let dispose: (() => void) | undefined;

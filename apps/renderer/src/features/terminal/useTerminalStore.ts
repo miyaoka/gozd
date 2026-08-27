@@ -409,6 +409,9 @@ export const useTerminalStore = defineStore("terminal", () => {
   /**
    * worktree を訪問する。初回 visit 時に初期 leaf を生成し、明示クリック由来の
    * ヒント (preferredResume / preferredAutostart / preferredSetup) があれば消費する。
+   * 通常は TerminalPane が選択中 dir の変化で駆動するが、選択を動かさずターミナルだけ
+   * 起こす経路 (エージェントによる worktree 切り出し) は直接呼ぶ。leaf の DOM は
+   * 選択中でなくても mount されるため、非選択 dir でも PTY は起動する。
    * 保存済みセッションの自動 resume はしない — セッションが開くのはサイドバーの
    * task 行を明示クリックした経路 (requestResumeSession / requestNewClaudeSession)
    * だけで、worktree ヘッダのクリックは素のターミナルを開くに留める。

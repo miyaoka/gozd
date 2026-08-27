@@ -19,6 +19,13 @@ UI が描いたリンクとは起動に要する操作が違う。
 
 焦点は向きが逆で、どの端末に焦点を置くかは上位が決め、ここは要求を受けて当て、端末側で起きた
 変化を報告する。
+
+## 表示されていない端末も起動する
+
+端末は可視化を待たずに起動することがある（契約は docs/terminal.md）。**表示されていない端末に
+寸法の自動調整を掛けてはいけない**。自動調整は容器の解決済みスタイルから寸法を導くが、表示
+されていない要素では百分率が数値としてそのまま読まれるため、実際とかけ離れた極端に小さい
+寸法を提案する。ここで起動寸法を分けるのはそのため。
 </doc>
 
 <script setup lang="ts">
@@ -42,6 +49,7 @@ import {
   terminalFontSize,
   terminalScrollback,
 } from "./terminalConfig";
+import { getLastTerminalGeometry, recordTerminalGeometry } from "./terminalGeometry";
 import { TERMINAL_URL_REGEX } from "./terminalUrlRegex";
 import { createFilePathLinkProvider } from "./useFilePathLinkProvider";
 import { useTerminalStore } from "./useTerminalStore";
@@ -129,6 +137,7 @@ function scheduleFit() {
     lastFitWidth = width;
     lastFitHeight = height;
     fitAddon.fit();
+    if (terminal !== undefined) recordTerminalGeometry(terminal.cols, terminal.rows);
 
     // リサイズ後にスクロール位置を復元
     if (terminal !== undefined) {
@@ -249,10 +258,20 @@ onMounted(async () => {
   const container = containerRef.value;
   if (!container) return;
 
+  // 判定を props.visible ではなく実寸で行う。表示中でもレイアウト確定前は 0 になりうる
+  const measurable = container.clientWidth > 0 && container.clientHeight > 0;
+  const startGeometry = measurable ? undefined : getLastTerminalGeometry();
+  if (!measurable && startGeometry === undefined) {
+    console.warn(
+      `[XtermTerminal] no measured geometry available; starting pty at terminal default size leafId=${props.leafId} dir=${props.dir}`,
+    );
+  }
+
   terminal = new Terminal({
     // 空文字 / 0 は未設定 → xterm デフォルトに委ねる
     ...(terminalFontFamily.value !== "" && { fontFamily: terminalFontFamily.value }),
     ...(terminalFontSize.value > 0 && { fontSize: terminalFontSize.value }),
+    ...(startGeometry !== undefined && { cols: startGeometry.cols, rows: startGeometry.rows }),
     scrollback: terminalScrollback,
     theme: currentTheme.value,
     cursorBlink: true,
@@ -331,7 +350,10 @@ onMounted(async () => {
     loadWebglAddon();
   }
 
-  fitAddon.fit();
+  if (measurable) {
+    fitAddon.fit();
+    recordTerminalGeometry(terminal.cols, terminal.rows);
+  }
 
   // xterm の focus/blur イベントを親に通知（focus の責務は TerminalLeaf が持つ）
   terminal.textarea?.addEventListener("focus", () => {

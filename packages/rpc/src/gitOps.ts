@@ -514,9 +514,10 @@ export interface CreateTaskWorktreeResponse {
 
 /** newWorktree push payload。ソケット (`gozd worktree new`) 由来で main が作った worktree を
  * renderer に開かせる。作成そのものは main で完了しているため、renderer の責務は
- * 「サイドバーに載せる → setup / autostart のヒントを立てる → activate」だけ。
+ * 「サイドバーに載せる → setup / autostart のヒントを立てる → 端末を起こす」だけ。
+ * この経路の起点はエージェントなので、選択中の worktree は動かさない (docs/task.md)。
  *
- * 作成結果とプロンプトを 1 つの push に載せるのは、autostart ヒントが activate より先に
+ * 作成結果とプロンプトを 1 つの push に載せるのは、autostart ヒントが端末の起動より先に
  * 立っていないと初期 leaf が素のシェルで作られてしまい、claude が起動しないため。
  * 2 つの push に割ると、間に挟まる await の分だけ順序が保証できなくなる。 */
 export interface NewWorktreePayload extends CreateTaskWorktreeResponse {

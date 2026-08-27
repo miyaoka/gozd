@@ -7,6 +7,7 @@ import {
   type IntraLineRangeMaps,
   barKey,
   barLabel,
+  barTitle,
   buildBaseItems,
   buildSplitRenderRows,
   buildUnifiedRenderRows,
@@ -392,6 +393,20 @@ describe("barLabel", () => {
   test("複数行のときは複数形になる", () => {
     expect(barLabel({ type: "hunk-bar", oldStart: 1, newStart: 1, lines: 2 })).toBe(
       "2 unchanged lines",
+    );
+  });
+});
+
+describe("barTitle", () => {
+  test("1 行のときは単数形", () => {
+    expect(barTitle({ type: "hunk-bar", oldStart: 1, newStart: 1, lines: 1 })).toBe(
+      "Click to expand 1 unchanged line",
+    );
+  });
+
+  test("複数行のときは複数形", () => {
+    expect(barTitle({ type: "hunk-bar", oldStart: 1, newStart: 1, lines: 2 })).toBe(
+      "Click to expand 2 unchanged lines",
     );
   });
 });

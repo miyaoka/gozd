@@ -83,7 +83,7 @@ const HIT_POINTS = ["svg", "img"] as const;
 /** 行の左端 1px。当たり判定の据え置きが外れると、ここが真っ先に効かなくなる */
 const LEADING_EDGE_OFFSET_PX = 1;
 
-test("root-level directory row expands when clicked at its leading edge", async () => {
+test("ルート直下のディレクトリ行が左端のクリックで展開する", async () => {
   const screen = renderPane();
   const rowLocator = screen.getByRole("button", { name: "src" });
   await expect.element(rowLocator).toBeVisible();
@@ -94,7 +94,7 @@ test("root-level directory row expands when clicked at its leading edge", async 
   await expect.element(screen.getByRole("button", { name: CHILD_NAME })).toBeVisible();
 });
 
-test.each(HIT_POINTS)("root-level directory row expands on %s click", async (selector) => {
+test.each(HIT_POINTS)("ルート直下のディレクトリ行が %s のクリックで展開する", async (selector) => {
   const screen = renderPane();
   const rowLocator = screen.getByRole("button", { name: "src" });
   await expect.element(rowLocator).toBeVisible();

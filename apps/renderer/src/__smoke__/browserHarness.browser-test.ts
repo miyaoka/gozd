@@ -12,7 +12,7 @@ import IconLucideChevronRight from "~icons/lucide/chevron-right";
  * 解決）が欠けると、テストは通るのに観測しているものが実物と別物になる。ここが落ちたら
  * 個々のテストではなく `vite.config.ts` の `test` か `vitest.setup.ts` を見る。
  */
-test("SFC renders with Tailwind styles and real layout", async () => {
+test("SFC が Tailwind のスタイルと実レイアウトを伴って描画される", async () => {
   const screen = await render(ResizeHandle, {
     props: { direction: "horizontal", beforeMinSize: 0, afterMinSize: 0 },
   });
@@ -29,12 +29,12 @@ test("SFC renders with Tailwind styles and real layout", async () => {
   expect(getComputedStyle(surface).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
 });
 
-test("unplugin-icons virtual module resolves", async () => {
+test("unplugin-icons の virtual module が SVG として描画される", async () => {
   const screen = await render(IconLucideChevronRight);
 
   expect(screen.container.querySelector("svg")).not.toBeNull();
 });
 
-test("material-icon-theme assets resolve through the Vite glob", () => {
+test("material-icon-theme のアイコンが Vite の glob 経由で解決される", () => {
   expect(getFolderIconUrl("src", false)).toMatch(/\.svg/);
 });

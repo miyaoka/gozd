@@ -4,6 +4,8 @@
 // `{ ...DEFAULTS, ...asDict(raw) }` の形で default 充填し、「フィールド不在 = default 値」の
 // 契約を維持する（書き手側は常に全フィールドを明示的に書く）。
 
+import type { GhRef } from "@gozd/rpc";
+
 export type RawDict = Record<string, unknown>;
 
 /** object でなければ空 dict。null / 配列 / primitive を弾く */
@@ -145,6 +147,27 @@ export function lenientStringArray(value: unknown, label: string): string[] {
     logLenientFallback(`${label}[${i}]`, "string", item);
     return false;
   });
+}
+
+/** GhRef の lenient 版。kind / number のどちらかが欠けた GhRef は表示にも突合にも
+ * 使えないため、部分的に救わず ghRef ごと未設定に倒す（いずれもログ） */
+export function lenientGhRef(value: unknown, label: string): GhRef | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    logLenientFallback(label, "object", value);
+    return undefined;
+  }
+  const dict = value as RawDict;
+  const kind = dict.kind;
+  if (kind !== "GH_REF_KIND_PR" && kind !== "GH_REF_KIND_ISSUE") {
+    logLenientFallback(`${label}.kind`, "GH_REF_KIND_PR | GH_REF_KIND_ISSUE", kind);
+    return undefined;
+  }
+  if (typeof dict.number !== "number") {
+    logLenientFallback(`${label}.number`, "number", dict.number);
+    return undefined;
+  }
+  return { kind, number: dict.number };
 }
 
 /** セクション全体（nested dict）の型違反を default（空 dict）に倒す lenient 版 */

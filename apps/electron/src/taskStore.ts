@@ -86,7 +86,7 @@ function iso8601Seconds(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-function sameGhRef(a: GhRef, b: GhRef): boolean {
+export function sameGhRef(a: GhRef, b: GhRef): boolean {
   return a.kind === b.kind && a.number === b.number;
 }
 
@@ -330,16 +330,35 @@ export function createTaskStore(configDir: string) {
     await save(dir, fileList);
   }
 
+  // tasks.json は load → 変更 → save の read-modify-write で触る。load と save の間には
+  // パス解決の await が挟まるため、書き手が並行すると後勝ちで片方の変更が消える
+  // （socket 由来と RPC 由来は別経路で走る）。書き込みだけを 1 本の chain に直列化して
+  // lost update を塞ぐ。読み取り（list）は最新の 1 状態を返せばよいので対象外
+  let writeChain: Promise<unknown> = Promise.resolve(undefined);
+  function serializeWrite<T>(operation: () => Promise<T>): Promise<T> {
+    const settled = writeChain.then(operation);
+    // 前の書き込みが失敗しても次を走らせる。chain 側だけ reject を吸い、
+    // 呼び出し側には元の失敗をそのまま返す
+    writeChain = settled.catch(() => undefined);
+    return settled;
+  }
+
   return {
     list,
-    add,
-    setTerminalTitle,
-    setUserTitle,
-    remove,
-    attachSession,
-    clearDeadSession,
-    detachSession,
-    removeByWorktree,
+    add: (params: Parameters<typeof add>[0]) => serializeWrite(() => add(params)),
+    setTerminalTitle: (dir: string, id: string, terminalTitle: string) =>
+      serializeWrite(() => setTerminalTitle(dir, id, terminalTitle)),
+    setUserTitle: (dir: string, id: string, userTitle: string) =>
+      serializeWrite(() => setUserTitle(dir, id, userTitle)),
+    remove: (dir: string, id: string) => serializeWrite(() => remove(dir, id)),
+    attachSession: (dir: string, sessionId: string, worktreeDir: string) =>
+      serializeWrite(() => attachSession(dir, sessionId, worktreeDir)),
+    clearDeadSession: (dir: string, sessionId: string, markClosedByUser: boolean) =>
+      serializeWrite(() => clearDeadSession(dir, sessionId, markClosedByUser)),
+    detachSession: (dir: string, sessionId: string) =>
+      serializeWrite(() => detachSession(dir, sessionId)),
+    removeByWorktree: (dir: string, worktreePath: string) =>
+      serializeWrite(() => removeByWorktree(dir, worktreePath)),
   };
 }
 

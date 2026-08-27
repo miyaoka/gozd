@@ -6,12 +6,19 @@
 //
 //   echo '{"hook":{"event":"running","ptyId":'"$GOZD_PTY_ID"'}}' | nc -w 1 -U "$GOZD_SOCKET_PATH"
 //
-// hook / open は最大 1 つだけ設定される（両方 undefined は不正メッセージとして
+// フィールドは最大 1 つだけ設定される（すべて undefined は不正メッセージとして
 // 受信側でログの上 drop する）。
+//
+// 応答は種別ごとに決まる。hook / open は送りっぱなしで応答を返さない。newWorktree だけは
+// `ClientReply` の JSON 1 行を返してから接続を閉じる。実行者（エージェント）が worktree を
+// 作れたのかどうかを知らずに次の指示へ進めないため、この種別だけ双方向にする。
+
+import type { GhRef } from "./common";
 
 export interface ClientMessage {
   hook?: HookMessage;
   open?: OpenMessage;
+  newWorktree?: NewWorktreeMessage;
 }
 
 /** Claude Code の hook イベント通知。
@@ -65,6 +72,34 @@ export interface HookMessage {
 /** `gozd open <path>` から送られるプロジェクトを開けの指示。 */
 export interface OpenMessage {
   targetPath: string;
+}
+
+/** `gozd worktree new` から送られる「作業スペースを 1 つ増やしてエージェントを立てろ」の指示。
+ * エージェントが自分で次の作業単位を切り出すための入口で、UI の PR / issue picker と
+ * 同じ合成操作（worktree 作成 + task 紐づけ + claude 自動起動）を駆動する。
+ *
+ * 違いは起動した claude にプロンプトをどう渡すか。picker は URL を入力欄へ挿入するだけで
+ * 人の送信を待つが、こちらは引数で渡してそのまま走らせる。作業を切り出す側は相手が動き
+ * 出すことまでを含めて指示している。 */
+export interface NewWorktreeMessage {
+  /** 実行時の cwd。main 側で main repo root に解決する */
+  dir: string;
+  /** 作成する task のタイトル。サイドバー行の表示に使う */
+  title: string;
+  /** 起動した claude に引数で渡すプロンプト（送信され、そのまま実行が始まる）。
+   * 空なら素の claude を起動する */
+  prompt: string;
+  /** 紐づける GitHub PR / issue。未指定なら task は GitHub 参照を持たない */
+  ghRef?: GhRef;
+}
+
+/** 応答を返す種別の ClientMessage に対して、socket が閉じる前に 1 行だけ返すメッセージ。 */
+export interface ClientReply {
+  ok: boolean;
+  /** ok のとき、作成した worktree の絶対パス。ok=false では空文字 */
+  dir: string;
+  /** ok=false のときの失敗理由。ok では空文字 */
+  error: string;
 }
 
 /** hook push payload。socket で受けた `HookMessage` から送信経路情報 (`source`) を

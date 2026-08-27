@@ -82,7 +82,8 @@ export interface ReviveSessionInfo {
   sessionId: string;
   /** ログ記録時の cwd (= 復活先 worktree の絶対パス)。resume の project key 一致条件。 */
   cwd: string;
-  /** 復活 worktree の leaf (= basename(cwd)、元の作成タイムスタンプ)。createWorktree の worktreeDir。 */
+  /** 復活 worktree の leaf (= basename(cwd)、元の作成タイムスタンプ)。
+   * gozd の worktree 配置 `worktrees/<projectKey>/<leaf>` の leaf 部分。 */
   worktreeDir: string;
   /** ログ末尾の gitBranch (リネーム済みなら PR 用の名前、未リネームなら日付)。復活ブランチの第 1 候補。 */
   branch: string;

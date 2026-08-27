@@ -11,11 +11,10 @@ import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import { ghErrorMessage } from "../../../github-item";
-import { reviveTaskForGhRef, rpcTaskAdd } from "../../../task";
-import { activateDir, useTerminalStore } from "../../../terminal";
+import { reviveTaskForGhRef } from "../../../task";
+import { activateDir, openCreatedWorktree } from "../../../terminal";
 import {
-  generateTimestamp,
-  rpcCreateWorktree,
+  rpcCreateTaskWorktree,
   rpcGitPrList,
   rpcGitWorktreeList,
   useWorktreeStore,
@@ -32,7 +31,6 @@ export function registerPrCommand(): () => void {
   const { open, setResult, setTotalCount, setPageSource, hide } = usePrPicker();
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
-  const terminalStore = useTerminalStore();
   const repoStore = useRepoStore();
   const inFlightGhRefs = useInFlightGhRefs();
 
@@ -108,56 +106,27 @@ export function registerPrCommand(): () => void {
             activateDir(existingDir);
             return;
           }
-          // 新規 worktree 作成
+          // 新規 worktree 作成。branch は PR の head ref、起点は remote 側の同 ref。
+          // PR タイトルを持つ task が Claude session 未起動状態 (sessionId 空) で一緒に
+          // 永続化され、初期 leaf で素の claude を autostart して SessionStart hook で
+          // attach される。失敗時は autostart を抑止し、ユーザーに復旧を委ねる
+          // (再選択で wtByBranch hit に倒れる)。
           const result = await tryCatch(
-            rpcCreateWorktree({
+            rpcCreateTaskWorktree({
               dir,
-              worktreeDir: generateTimestamp(),
               branch: pr.headRef,
               startPoint: `origin/${pr.headRef}`,
-            }),
-          );
-          if (!result.ok) {
-            notify.error("Failed to create worktree", result.error);
-            return;
-          }
-          // rootDir が解決できない / worktree レスポンスが空のときは早期 return。
-          // 続行して autostart すると、サイドバーに表れない worktree でターミナル
-          // だけ動く不整合状態に落ちる。issue-picker と挙動を揃える。
-          const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
-          if (rootDir === undefined || result.value.worktree === undefined) {
-            notify.error("Worktree created but sidebar could not be updated");
-            return;
-          }
-          repoStore.appendWorktree(rootDir, result.value.worktree);
-          // PR タイトルを userTitle に持つ task を作成し worktree に紐付ける。
-          // Claude session 未起動状態 (sessionId 空) で永続化され、初期 leaf で
-          // 素の claude を autostart して SessionStart hook で attach される。
-          // wtByBranch hit ルートと同じく taskAdd 後の真値反映は requestRefresh
-          // に委ねる (楽観更新で renderer 側を直書きしない)。失敗時の挙動も
-          // 同じく autostart を抑止して、worktree だけ残った状態でユーザーに復旧を
-          // 委ねる (再選択で wtByBranch hit に倒れる)。
-          const taskResult = await tryCatch(
-            rpcTaskAdd({
-              dir: rootDir,
               ghTitle: pr.title,
-              worktreeDir: result.value.dir,
               ghRef: ghRefForPr(pr.number),
             }),
           );
-          if (!taskResult.ok) {
-            notify.error("Failed to create task for pull request", taskResult.error);
+          if (!result.ok) {
+            notify.error("Failed to create worktree for pull request", result.error);
             return;
           }
-          item.existingTask = taskResult.value.task;
-          repoStore.requestRefresh(rootDir);
-          // 直後の setOpen で visit が走り初期 leaf が作られる前に autostart ヒントを残す。
-          // visit が初期 leaf に素の `claude` 起動を仕込み、SessionStart hook で
-          // 上で作成した task に attach される。後追いクリック起動の二重 leaf を防ぐ。
+          item.existingTask = result.value.task;
           // PR URL を prefill で渡し、claude の入力欄に事前挿入する (送信はされない)。
-          terminalStore.requestNewClaudeSession(result.value.dir, pr.url);
-          terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
-          activateDir(result.value.dir);
+          openCreatedWorktree(result.value, { prefill: pr.url });
         };
 
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI

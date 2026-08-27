@@ -2,12 +2,14 @@
 // 対応物（issue #895「CLI: ソケットプロトコル互換を保って TS で再実装」）。
 // ワイヤは ClientMessage の JSON 1 行（NDJSON）。形状は旧 proto3 JSON mapping と同一。
 
-import type { HookMessage } from "@gozd/rpc";
+import type { GhRef, HookMessage, NewWorktreeMessage } from "@gozd/rpc";
+import { ghRefForIssue, ghRefForPr } from "@gozd/rpc";
+import type { Result } from "@gozd/shared";
 import { tryCatch } from "@gozd/shared";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 // socket / launch dir で共有する prefix（Swift `bundlePrefix` と同じ値）
 const BUNDLE_PREFIX = "gozd";
@@ -98,4 +100,109 @@ export function parseStdinJson(text: string): Record<string, unknown> {
     return parsed.value as Record<string, unknown>;
   }
   return {};
+}
+
+/** `gozd worktree new` が受け付ける、値を取るオプション。値は次の引数か `=` の右辺で渡す。 */
+const NEW_WORKTREE_FLAGS = ["--title", "--prompt", "--dir", "--issue", "--pr"] as const;
+type NewWorktreeFlag = (typeof NEW_WORKTREE_FLAGS)[number];
+
+/** 値を取らないオプション。 */
+const NEW_WORKTREE_SWITCHES = ["--prompt-stdin"] as const;
+type NewWorktreeSwitch = (typeof NEW_WORKTREE_SWITCHES)[number];
+
+function isNewWorktreeFlag(name: string): name is NewWorktreeFlag {
+  return (NEW_WORKTREE_FLAGS as readonly string[]).includes(name);
+}
+
+function isNewWorktreeSwitch(name: string): name is NewWorktreeSwitch {
+  return (NEW_WORKTREE_SWITCHES as readonly string[]).includes(name);
+}
+
+/** 解析結果。プロンプトを stdin から読むかは呼び出し側（IO を持つ層）が実行する。 */
+export interface ParsedNewWorktree {
+  message: NewWorktreeMessage;
+  /** true なら message.prompt は空で、呼び出し側が stdin を読んで埋める */
+  promptFromStdin: boolean;
+}
+
+/** `--issue` / `--pr` の番号。GitHub の番号は 1 始まりの整数以外を取らない。
+ * 先頭 0 埋めと安全整数超えも弾く（前者は同じ番号に 2 通りの綴りを許し、後者は
+ * 丸められた別の番号として GhRef に載るため） */
+function parseGhNumber(flag: NewWorktreeFlag, text: string): Result<number, string> {
+  const invalid = !/^[1-9]\d*$/.test(text) || !Number.isSafeInteger(Number(text));
+  if (invalid) {
+    return { ok: false, error: `${flag} expects a positive number, got ${JSON.stringify(text)}` };
+  }
+  return { ok: true, value: Number(text) };
+}
+
+/**
+ * `gozd worktree new` の引数を NewWorktreeMessage に組み立てる。
+ *
+ * `--title` は必須。タイトルの無い task はサイドバーで見分けが付かず、複数の worktree を
+ * 並べて回す用途そのものが成立しないため、既定値で埋めずに失敗させる。
+ */
+export function parseNewWorktreeArgs(
+  argv: string[],
+  cwd: string,
+): Result<ParsedNewWorktree, string> {
+  const flags: Partial<Record<NewWorktreeFlag, string>> = {};
+  let promptFromStdin = false;
+  // オプション位置のトークンだけを解釈し、値は中身を見ずにそのまま取る。値まで走査すると
+  // `--prompt "--dir=/tmp を直す"` のような「フラグに見える本文」が分解され、以降の対応が
+  // ずれる。プロンプトはコマンド例を含みうるので現実に踏む
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i] ?? "";
+    const eq = token.indexOf("=");
+    const name = eq === -1 ? token : token.slice(0, eq);
+    if (isNewWorktreeSwitch(name)) {
+      // 値を取らないオプションに値が付いたら黙って捨てず弾く（`--title` の
+      // 「値が要る」と対称に、「値を取らない」も誤りとして返す）
+      if (eq !== -1) return { ok: false, error: `${name} takes no value` };
+      promptFromStdin = true;
+      continue;
+    }
+    if (!isNewWorktreeFlag(name)) return { ok: false, error: `unknown option: ${name}` };
+    if (eq !== -1) {
+      flags[name] = token.slice(eq + 1);
+      continue;
+    }
+    const value = argv[i + 1];
+    if (value === undefined) return { ok: false, error: `${name} requires a value` };
+    flags[name] = value;
+    i += 1;
+  }
+
+  const title = flags["--title"] ?? "";
+  if (title === "") return { ok: false, error: "--title is required" };
+
+  if (promptFromStdin && flags["--prompt"] !== undefined) {
+    return { ok: false, error: "--prompt and --prompt-stdin are mutually exclusive" };
+  }
+
+  const issue = flags["--issue"];
+  const pr = flags["--pr"];
+  if (issue !== undefined && pr !== undefined) {
+    return { ok: false, error: "--issue and --pr are mutually exclusive" };
+  }
+  const ghNumber = issue ?? pr;
+  let ghRef: GhRef | undefined;
+  if (ghNumber !== undefined) {
+    const parsed = parseGhNumber(issue !== undefined ? "--issue" : "--pr", ghNumber);
+    if (!parsed.ok) return parsed;
+    ghRef = issue !== undefined ? ghRefForIssue(parsed.value) : ghRefForPr(parsed.value);
+  }
+
+  return {
+    ok: true,
+    value: {
+      message: {
+        dir: resolve(cwd, flags["--dir"] ?? "."),
+        title,
+        prompt: flags["--prompt"] ?? "",
+        ghRef,
+      },
+      promptFromStdin,
+    },
+  };
 }

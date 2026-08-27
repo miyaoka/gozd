@@ -11,8 +11,8 @@
 //
 // gozd-cli は TS 再実装（src/cli.ts → dist/cli.cjs。issue #895）。bin/gozd-cli shim が
 // dev は node、packaged は ELECTRON_RUN_AS_NODE=1 + 同梱 Electron バイナリで実行する。
-// zsh init チェーンは resources/zsh/。packaged はどちらも `.app` 内 Resources/app/
-// 配下に同梱される。
+// zsh init チェーンは resources/zsh/、gozd の skill を運ぶ Claude Code plugin は
+// resources/claude-plugin/。いずれも packaged では `.app` 内 Resources/app/ 配下に同梱される。
 
 import { tryCatch } from "@gozd/shared";
 import { createHash } from "node:crypto";
@@ -71,6 +71,12 @@ export const cliPath = isPackaged
 export const zdotdir = isPackaged
   ? join(bundledAppRoot, "zsh")
   : join(electronRoot, "resources", "zsh");
+// gozd の skill を claude に届ける Claude Code plugin。zsh init が `--plugin-dir` で渡す。
+// hooks 設定と違い中身は静的なので生成せず、同梱リソースをそのまま指す（channel 分離も不要 —
+// セッション単位の読み取り専用参照で、書き出す実行時リソースを持たない）
+export const claudePluginDir = isPackaged
+  ? join(bundledAppRoot, "claude-plugin")
+  : join(electronRoot, "resources", "claude-plugin");
 // packaged 時に loadFile する renderer（Vite build は base "./" なので file:// で成立する）
 export const bundledRendererIndex = join(bundledAppRoot, "views", "main", "index.html");
 
@@ -115,6 +121,7 @@ export function buildPtyEnv(
   result.GOZD_SOCKET_PATH = socketPath;
   result.GOZD_CLI_PATH = cliPath;
   result.GOZD_CLAUDE_SETTINGS_PATH = claudeSettingsPath;
+  result.GOZD_CLAUDE_PLUGIN_DIR = claudePluginDir;
 
   // ZDOTDIR チェーン: 元値（親 or renderer 指定）を退避してから gozd 側に切替
   const originalZdotdir = rendererEnv.ZDOTDIR ?? process.env.ZDOTDIR ?? userHome;

@@ -1,5 +1,6 @@
 // worktree / branch を変更する書き込み系操作。Swift 版 `WorktreeOps.swift` の対応物。
-// 読み取り系（list / log）は gitOps / gitLog、副作用持ち（create / remove）はここ。
+// 読み取り系（list / log）は gitOps / gitLog。新規作成経路の合成（main repo root の解決 →
+// 起点 ref と leaf 名の既定値決定 → 作成）は worktreeCreate。
 
 import { mkdirSync, lstatSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";

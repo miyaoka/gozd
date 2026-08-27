@@ -6,7 +6,47 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startSocketServer, type SocketServerHandle } from "./socketServer";
+import {
+  startSocketServer,
+  type SocketMessageHandler,
+  type SocketServerHandle,
+} from "./socketServer";
+
+/** 受信行を記録するだけの、応答を返さないハンドラ */
+function recorder(received: string[]): SocketMessageHandler {
+  return (line) => {
+    received.push(line);
+    return Promise.resolve(undefined);
+  };
+}
+
+/** 1 行送って、返ってきた最初の 1 行を返す（応答が無いまま閉じたら空文字）。
+ * close を無期限に待つと「閉じなかった」が runner のタイムアウトとして出て理由が読めないため、
+ * 期限を持たせて assertion に落とす */
+function sendAndReadReply(socketPath: string, data: string, timeoutMs = 3000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let buffer = "";
+    const client = connect(socketPath, () => {
+      client.end(data);
+    });
+    const timer = setTimeout(() => {
+      client.destroy();
+      reject(new Error(`server did not close the connection within ${timeoutMs}ms`));
+    }, timeoutMs);
+    client.setEncoding("utf8");
+    client.on("data", (chunk: string) => {
+      buffer += chunk;
+    });
+    client.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    client.on("close", () => {
+      clearTimeout(timer);
+      resolve(buffer.split("\n")[0] ?? "");
+    });
+  });
+}
 
 function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -36,7 +76,7 @@ describe("SocketServer", () => {
   const cleanups: Array<() => void> = [];
   const tempDirs: string[] = [];
 
-  function makeServer(onMessage: (line: string) => void): {
+  function makeServer(onMessage: SocketMessageHandler): {
     handle: SocketServerHandle;
     path: string;
   } {
@@ -55,7 +95,7 @@ describe("SocketServer", () => {
 
   test("単一の NDJSON 行を受信できる", async () => {
     const received: string[] = [];
-    const { path } = makeServer((line) => received.push(line));
+    const { path } = makeServer(recorder(received));
     await sendLines(path, '{"hook":{"event":"running","ptyId":1}}\n');
     await waitFor(() => received.length === 1);
     expect(received[0]).toBe('{"hook":{"event":"running","ptyId":1}}');
@@ -63,7 +103,7 @@ describe("SocketServer", () => {
 
   test("1 接続で複数行を順序通りに受信する", async () => {
     const received: string[] = [];
-    const { path } = makeServer((line) => received.push(line));
+    const { path } = makeServer(recorder(received));
     await sendLines(path, '{"n":1}\n{"n":2}\n{"n":3}\n');
     await waitFor(() => received.length === 3);
     expect(received).toEqual(['{"n":1}', '{"n":2}', '{"n":3}']);
@@ -71,7 +111,7 @@ describe("SocketServer", () => {
 
   test("複数接続から並行受信できる", async () => {
     const received: string[] = [];
-    const { path } = makeServer((line) => received.push(line));
+    const { path } = makeServer(recorder(received));
     await Promise.all([
       sendLines(path, '{"from":"a"}\n'),
       sendLines(path, '{"from":"b"}\n'),
@@ -81,9 +121,34 @@ describe("SocketServer", () => {
     expect(received.toSorted()).toEqual(['{"from":"a"}', '{"from":"b"}', '{"from":"c"}']);
   });
 
+  test("応答を返すハンドラの 1 行が同じ接続に書き戻される", async () => {
+    const { path } = makeServer(async (line) => `reply:${line}`);
+    const reply = await sendAndReadReply(path, '{"newWorktree":{"dir":"/tmp"}}\n');
+    expect(reply).toBe('reply:{"newWorktree":{"dir":"/tmp"}}');
+  });
+
+  test("応答が非同期に返っても write-after-end で落ちない", async () => {
+    // クライアントは送信直後に FIN を送る。allowHalfOpen が無いと、この待ち時間の間に
+    // write 側まで閉じられて応答が書けなくなる
+    const { path } = makeServer(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      return '{"ok":true}';
+    });
+    const reply = await sendAndReadReply(path, '{"newWorktree":{"dir":"/tmp"}}\n');
+    expect(reply).toBe('{"ok":true}');
+  });
+
+  test("応答不要のハンドラでは接続が閉じるだけで何も書き戻さない", async () => {
+    const received: string[] = [];
+    const { path } = makeServer(recorder(received));
+    const reply = await sendAndReadReply(path, '{"hook":{"event":"running","ptyId":1}}\n');
+    expect(reply).toBe("");
+    expect(received).toEqual(['{"hook":{"event":"running","ptyId":1}}']);
+  });
+
   test("接続クローズ時に残った不完全な行は捨てる（\\n 終端規約）", async () => {
     const received: string[] = [];
-    const { path } = makeServer((line) => received.push(line));
+    const { path } = makeServer(recorder(received));
     await sendLines(path, '{"complete":true}\n{"incomplete":');
     await waitFor(() => received.length === 1);
     // 少し待っても不完全な行は届かない

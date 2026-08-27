@@ -16,6 +16,8 @@ import type {
   ReviveSessionResponse,
   ClipboardCopyFilesRequest,
   ClipboardCopyFilesResponse,
+  CreateTaskWorktreeRequest,
+  CreateTaskWorktreeResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   EchoRequest,
@@ -45,8 +47,6 @@ import type {
   FsWriteFileResponse,
   GitCommitFilesRequest,
   GitCommitFilesResponse,
-  GitDefaultBranchRequest,
-  GitDefaultBranchResponse,
   GitDiffExpandLinesRequest,
   GitDiffExpandLinesResponse,
   GitDiffHunksRequest,
@@ -179,7 +179,6 @@ import { createWatcherClient } from "./fs/watcherClient";
 import { createPtyClient } from "./pty/ptyClient";
 import { cancelSearch, searchText } from "./search/ripgrepSearch";
 import { blameLine, logFile, logLine } from "./git/gitBlame";
-import { resolveStartPoint } from "./git/gitBranch";
 import { diffHunks, expandDiffLines } from "./git/gitDiff";
 import { log, mergeBase, resetMixed, revReachable } from "./git/gitLog";
 import { lsFiles } from "./git/gitLsFiles";
@@ -192,6 +191,11 @@ import {
   type FileChangeInfo,
 } from "./git/gitTree";
 import { validateRev } from "./git/gitValidate";
+import {
+  resolveAndCreateWorktree,
+  createTaskWorktree,
+  toWorktreeEntry,
+} from "./git/worktreeCreate";
 import {
   createWorktree,
   pruneWorktrees,
@@ -693,15 +697,6 @@ async function handleGitResetMixed(body: unknown): Promise<unknown> {
   return {} satisfies GitResetMixedResponse;
 }
 
-async function handleGitDefaultBranch(body: unknown): Promise<unknown> {
-  const req = body as GitDefaultBranchRequest;
-  // GitCommandError（origin/HEAD 未設定 / detached HEAD 等のドメイン失敗）のみ空文字列に倒し、
-  // spawn 失敗（git CLI 解決失敗）は throw して renderer に通知する
-  const result = await tryCatch(resolveStartPoint(req.dir));
-  if (!result.ok && !(result.error instanceof GitCommandError)) throw result.error;
-  return { branch: result.ok ? result.value : "" } satisfies GitDefaultBranchResponse;
-}
-
 async function handleGitBlameLine(body: unknown): Promise<unknown> {
   const req = body as GitBlameLineRequest;
   const commit = await blameLine({
@@ -938,32 +933,24 @@ async function handleGitViewer(body: unknown): Promise<unknown> {
 
 async function handleCreateWorktree(body: unknown): Promise<unknown> {
   const req = body as CreateWorktreeRequest;
-  // symlink 適用と setupScript は同じ project 設定なので 1 回の load で両方を賄う。
-  // symlink は main 側の fs 操作としてここで適用し、setupScript は renderer が専用
-  // ターミナルで実行するため response に載せて返す。
-  const projectConfig = await loadProjectConfig(req.dir);
-  const info = await createWorktree({
+  // Task を伴わない経路は branch / startPoint も main が決める（呼び出し側に選ぶ余地が無い）
+  const { rootDir, info, setupScript } = await resolveAndCreateWorktree({
     dir: req.dir,
-    worktreeDir: req.worktreeDir,
-    branch: req.branch,
-    startPoint: req.startPoint,
-    symlinks: projectConfig.worktreeSymlinks,
+    branch: "",
+    startPoint: "",
   });
   return {
-    worktree: {
-      path: info.path,
-      head: info.head,
-      branch: info.branch ?? "",
-      isMain: info.isMain,
-      gitStatuses: {},
-      renameOldPaths: {},
-      latestMtime: 0,
-      upstream: undefined,
-      tasks: [],
-    },
+    rootDir,
+    worktree: toWorktreeEntry(info, []),
     dir: info.path,
-    setupScript: projectConfig.setupScript,
+    setupScript,
   } satisfies CreateWorktreeResponse;
+}
+
+async function handleCreateTaskWorktree(body: unknown): Promise<unknown> {
+  return (await createTaskWorktree(
+    body as CreateTaskWorktreeRequest,
+  )) satisfies CreateTaskWorktreeResponse;
 }
 
 async function handleWorktreeRemove(body: unknown, ctx: RpcContext): Promise<unknown> {
@@ -1205,17 +1192,7 @@ async function handleReviveSession(body: unknown): Promise<unknown> {
     throw new Error(`revive: task not created for session ${req.sessionId} at ${info.path}`);
   }
   return {
-    worktree: {
-      path: info.path,
-      head: info.head,
-      branch: info.branch ?? "",
-      isMain: info.isMain,
-      gitStatuses: {},
-      renameOldPaths: {},
-      latestMtime: 0,
-      upstream: undefined,
-      tasks: [task],
-    },
+    worktree: toWorktreeEntry(info, [task]),
     dir: info.path,
     task,
     setupScript: projectConfig.setupScript,
@@ -1310,8 +1287,8 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/mergeBase", handleGitMergeBase],
   ["/git/revReachable", handleGitRevReachable],
   ["/git/resetMixed", handleGitResetMixed],
-  ["/git/defaultBranch", handleGitDefaultBranch],
   ["/git/createWorktree", handleCreateWorktree],
+  ["/git/createTaskWorktree", handleCreateTaskWorktree],
   ["/git/worktreeRemove", handleWorktreeRemove],
   ["/git/prList", handleGitPrList],
   ["/git/prsForBranches", handleGitPrsForBranches],

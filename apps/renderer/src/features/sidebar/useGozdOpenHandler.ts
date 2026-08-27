@@ -5,18 +5,15 @@
  * - targetDir が既存 repo の worktrees に含まれる → 切替のみ
  * - 含まれない → 新規 repo として worktrees を fetch して `addRepo` → 切替
  */
-import type { GozdOpenPayload, WorktreeEntry } from "@gozd/rpc";
-import { tryCatch } from "@gozd/shared";
+import type { GozdOpenPayload } from "@gozd/rpc";
 import { onMounted, onUnmounted } from "vue";
 import { useAppStore } from "../../shared/app";
 import { useNotificationStore } from "../../shared/notification";
-import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { usePreviewStore } from "../preview";
-import { rpcGitWorktreeList, useWorktreeStore } from "../worktree";
+import { ensureRepoRegistered, useWorktreeStore } from "../worktree";
 
 export function useGozdOpenHandler() {
-  const repoStore = useRepoStore();
   const worktreeStore = useWorktreeStore();
   const previewStore = usePreviewStore();
   const appStore = useAppStore();
@@ -34,23 +31,7 @@ export function useGozdOpenHandler() {
     // 空 relPath の selection は未指定として扱う（openTarget.ts の payload 契約）
     const sel = selection !== undefined && selection.relPath !== "" ? selection : undefined;
 
-    const owning = repoStore.findRepoOwning(targetDir);
-    if (owning === undefined) {
-      let worktrees: WorktreeEntry[] = [];
-      if (isGitRepo) {
-        const result = await tryCatch(rpcGitWorktreeList({ dir }));
-        if (result.ok) {
-          worktrees = result.value.worktrees;
-        } else {
-          notify.error("Failed to fetch repo data", result.error);
-        }
-      }
-      repoStore.addRepo({ rootDir: dir, repoName, isGitRepo, worktrees });
-    } else {
-      // プールには居るがアクティブ repo list に無い repo を開いた場合、今見ている
-      // リストに現れないと「開いたのに何も起きない」ため、末尾に追加して可視化する
-      repoStore.ensureInActiveRepoList(owning.rootDir);
-    }
+    await ensureRepoRegistered({ rootDir: dir, openDir: targetDir, repoName, isGitRepo });
 
     worktreeStore.setOpen(targetDir);
     // CLI 経路は「常に open」契約。同一 path の再 open でも閉じない（[docs/preview.md] の決定表参照）。

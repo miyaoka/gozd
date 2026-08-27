@@ -40,7 +40,13 @@ export type {
   ReviveSessionResponse,
 } from "./claudeSession";
 export type { ClipboardCopyFilesRequest, ClipboardCopyFilesResponse } from "./clipboard";
-export type { ClientMessage, HookMessage, OpenMessage } from "./clientMessage";
+export type {
+  ClientMessage,
+  ClientReply,
+  HookMessage,
+  NewWorktreeMessage,
+  OpenMessage,
+} from "./clientMessage";
 export type {
   FileReadResult,
   GhRef,
@@ -88,6 +94,8 @@ export type {
   FsChangeAbsolutePayload,
 } from "./fs";
 export type {
+  CreateTaskWorktreeRequest,
+  CreateTaskWorktreeResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   DiffExpandedLine,
@@ -99,8 +107,6 @@ export type {
   GitBlameLineResponse,
   GitCommitFilesRequest,
   GitCommitFilesResponse,
-  GitDefaultBranchRequest,
-  GitDefaultBranchResponse,
   GitDiffExpandLinesRequest,
   GitDiffExpandLinesResponse,
   GitDiffHunksRequest,
@@ -156,6 +162,7 @@ export type {
   GitWorktreeListResponse,
   GitWorktreeRemoveRequest,
   GitWorktreeRemoveResponse,
+  NewWorktreePayload,
   BranchScope,
   SortMode,
 } from "./gitOps";

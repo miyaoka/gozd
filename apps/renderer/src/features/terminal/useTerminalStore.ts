@@ -31,6 +31,18 @@ const DEFAULT_SHELL_ARGS = ["/bin/zsh", "-i"];
  * PTY のライフサイクル（spawn/kill/data）も store が一元管理する。
  * コンポーネントは xterm の attach/detach のみ担当する。
  */
+/**
+ * autostart 時に claude へ渡すテキスト。渡し方が 2 通りあり、**送信されるかどうかが違う**。
+ *
+ * - `prefill`: `claude --prefill <text>` で入力欄に挿入するだけ。送信は人が行う。
+ *   PR/issue picker が worktree 作成時に PR/issue URL を渡す用途
+ * - `prompt`: `claude <text>` と引数で渡す。起動と同時に送信され実行が始まる。
+ *   `gozd worktree new` が作業指示を渡す用途（切り出す側は相手が動き出すまでを指示している）
+ *
+ * 同時には片方しか意味を持たない。両方あるときは prompt を優先する。
+ */
+export type AutostartHint = { prefill?: string; prompt?: string };
+
 export const useTerminalStore = defineStore("terminal", () => {
   const contextKeys = useContextKeys();
   const notify = useNotificationStore();
@@ -104,13 +116,6 @@ export const useTerminalStore = defineStore("terminal", () => {
   const preferredResumeByDir = ref<Record<string, string>>({});
 
   /**
-   * autostart ヒント。prefill は claude の入力欄に事前挿入するテキスト
-   * (`claude --prefill <text>`。挿入のみで送信はされない)。
-   * PR/issue picker が worktree 作成時に PR/issue URL を渡す。
-   */
-  type AutostartHint = { prefill?: string };
-
-  /**
    * leafId → 次回 spawn 時に GOZD_AUTOSTART_CLAUDE フラグを立てる印。
    * session 未紐付け task (PR/issue 経由で worktree のみ作成された等) をクリック
    * した時に、resume ではなく素の `claude` を起動するために使う。spawnPty が env
@@ -161,7 +166,9 @@ export const useTerminalStore = defineStore("terminal", () => {
       const autostart = pendingAutostartByLeafId.value[leafId];
       if (autostart) {
         env.GOZD_AUTOSTART_CLAUDE = "1";
-        if (autostart.prefill !== undefined && autostart.prefill !== "") {
+        if (autostart.prompt !== undefined && autostart.prompt !== "") {
+          env.GOZD_CLAUDE_PROMPT = autostart.prompt;
+        } else if (autostart.prefill !== undefined && autostart.prefill !== "") {
           env.GOZD_CLAUDE_PREFILL = autostart.prefill;
         }
       }
@@ -532,11 +539,10 @@ export const useTerminalStore = defineStore("terminal", () => {
    * に新 sessionId を結びつける。クリックした task と attach 先が一致するのは
    * 「wt に sessionId 空の task が 1 つだけ」のケース。複数ある場合は最新が選ばれる。
    *
-   * prefill を渡すと `claude --prefill <text>` で入力欄にテキストを事前挿入する
-   * (送信はされない)。PR/issue picker が PR/issue URL を渡す用途。
+   * hint で起動時のテキストを渡す (AutostartHint の定義を参照。prefill は挿入のみ、
+   * prompt は起動と同時に送信される)。
    */
-  function requestNewClaudeSession(dir: string, prefill?: string) {
-    const hint: AutostartHint = prefill === undefined ? {} : { prefill };
+  function requestNewClaudeSession(dir: string, hint: AutostartHint = {}) {
     if (!visitedDirs.value.includes(dir)) {
       preferredAutostartByDir.value[dir] = hint;
       return;

@@ -4,8 +4,7 @@ let lastBase = "";
 let seq = 1;
 
 /** worktree の leaf / branch 名に使うタイムスタンプ (YYYYMMDD_HHMMSS 形式)。
- * renderer (新規 worktree 作成) と electron main (revive の branch 衝突 fallback) の両方が使う。
- * 純 TS で完結するため `@gozd/shared` に SSOT を置き、両ランタイムから import する。
+ * 呼び出すのは main だけで、worktree の置き場所と名前を決める経路が使う。
  *
  * 返り値はプロセス内で一意。名前は git の worktree dir / branch の一意名として使われるため、
  * 秒精度のままだと連続作成 (picker の Shift 連続選択等) で同一秒の 2 呼び出しが同名になり

@@ -1,8 +1,8 @@
 import {
+  CreateTaskWorktreeRequest,
+  CreateTaskWorktreeResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
-  GitDefaultBranchRequest,
-  GitDefaultBranchResponse,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
   GitGithubIdentityRequest,
@@ -33,8 +33,10 @@ export const rpcGitPrList = (req: GitPrListRequest) => rpc<GitPrListResponse>("/
 export const rpcCreateWorktree = (req: CreateWorktreeRequest) =>
   rpc<CreateWorktreeResponse>("/git/createWorktree", req);
 
-export const rpcGitDefaultBranch = (req: GitDefaultBranchRequest) =>
-  rpc<GitDefaultBranchResponse>("/git/defaultBranch", req);
+// worktree 作成 + task 紐づけの合成操作。PR / issue picker が使う。
+// branch / startPoint は空文字で「main 側で決めろ」を意味する（@gozd/rpc の型を参照）。
+export const rpcCreateTaskWorktree = (req: CreateTaskWorktreeRequest) =>
+  rpc<CreateTaskWorktreeResponse>("/git/createTaskWorktree", req);
 
 export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
   rpc<GitWorktreeRemoveResponse>("/git/worktreeRemove", req);

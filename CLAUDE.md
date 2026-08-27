@@ -5,7 +5,11 @@ AI エージェントの並列開発を管理するデスクトップアプリ�
 シングルウィンドウ内に複数の repo（git リポジトリ）を同居させ、各 repo の worktree を切り替えて使う。各 worktree で Claude エージェントが独立して並列作業する。
 
 > [!IMPORTANT]
-> gozd は Electron のデスクトップアプリであり、Chrome では確認できない。ブラウザ自動化で画面を検証しようとしない。
+> gozd は Electron のデスクトップアプリで、UI は main プロセス（PTY / git / ファイル監視）に依存する。
+> 起動中のアプリの画面確認を Chrome のブラウザ自動化で代替しない。
+>
+> 単一コンポーネントの描画・当たり判定・フォーカスは、renderer の browser test が実ブラウザで検証する。
+> Electron を起動して行う e2e は持たない。
 
 @docs/architecture.md
 

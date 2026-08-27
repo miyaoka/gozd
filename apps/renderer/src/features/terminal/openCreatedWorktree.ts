@@ -7,9 +7,12 @@
 import type { CreateTaskWorktreeResponse } from "@gozd/rpc";
 import { useRepoStore } from "../../shared/repo";
 import { activateDir } from "./activateDir";
-import { useTerminalStore } from "./useTerminalStore";
+import { useTerminalStore, type AutostartHint } from "./useTerminalStore";
 
-export function openCreatedWorktree(created: CreateTaskWorktreeResponse, prefill: string): void {
+export function openCreatedWorktree(
+  created: CreateTaskWorktreeResponse,
+  autostart: AutostartHint,
+): void {
   const repoStore = useRepoStore();
   const terminalStore = useTerminalStore();
 
@@ -18,7 +21,7 @@ export function openCreatedWorktree(created: CreateTaskWorktreeResponse, prefill
   repoStore.requestRefresh(created.rootDir);
   // ヒントは activateDir より先に立てる。activateDir 起点の visit が初期 leaf を作るときに
   // 1 回だけ消費するため、後から立てても素のシェルが起動済みで claude は立たない
-  terminalStore.requestNewClaudeSession(created.dir, prefill);
+  terminalStore.requestNewClaudeSession(created.dir, autostart);
   terminalStore.setPreferredSetup(created.dir, created.setupScript);
   activateDir(created.dir);
 }

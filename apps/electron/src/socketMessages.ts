@@ -171,7 +171,7 @@ function parseClientMessage(line: string): ClientMessage {
     msg.newWorktree = {
       dir: lenientString(newWorktree.dir, "newWorktree.dir"),
       title: lenientString(newWorktree.title, "newWorktree.title"),
-      prefill: lenientString(newWorktree.prefill, "newWorktree.prefill"),
+      prompt: lenientString(newWorktree.prompt, "newWorktree.prompt"),
       ghRef: lenientGhRef(newWorktree.ghRef, "newWorktree.ghRef"),
     };
   }
@@ -220,7 +220,7 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
   }
   push("newWorktree", {
     ...created.value,
-    prefill: msg.prefill,
+    prompt: msg.prompt,
     repoName: basename(created.value.rootDir),
   });
   return reply({ ok: true, dir: created.value.dir, error: "" });

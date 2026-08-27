@@ -82,14 +82,22 @@ _gozd_resume_claude() {
 # SessionStart hook が走った後、native 側 attachSession が「sessionId 空の最新 task」に
 # 新 sessionId を結びつけることで task と session の紐付けが成立する。
 #
-# GOZD_CLAUDE_PREFILL があれば `claude --prefill <text>` で入力欄にテキストを事前挿入する
-# (挿入のみで送信はされない)。renderer が spawn env に注入する。--prefill は claude CLI の
-# hidden option (--help に出ない)。採用理由は docs/task.md「PR/issue URL の prefill」を参照。
+# 起動時のテキストは renderer が spawn env に入れる。渡し方が 2 つあり、送信されるかが違う:
+#
+# - GOZD_CLAUDE_PROMPT: `claude <text>` と引数で渡す。起動と同時に送信され実行が始まる
+#   （作業を切り出す経路。相手が動き出すところまでが指示に含まれる）
+# - GOZD_CLAUDE_PREFILL: `claude --prefill <text>` で入力欄に挿入するだけ。送信は人が行う
+#   （PR/issue URL を渡す経路。--prefill は claude CLI の hidden option で --help に出ない）
+#
+# 両方あるときは PROMPT を優先する。
 _gozd_start_claude() {
   unset GOZD_AUTOSTART_CLAUDE
+  local _prompt="$GOZD_CLAUDE_PROMPT"
   local _prefill="$GOZD_CLAUDE_PREFILL"
-  unset GOZD_CLAUDE_PREFILL
-  if [[ -n "$_prefill" ]]; then
+  unset GOZD_CLAUDE_PROMPT GOZD_CLAUDE_PREFILL
+  if [[ -n "$_prompt" ]]; then
+    claude "$_prompt"
+  elif [[ -n "$_prefill" ]]; then
     claude --prefill "$_prefill"
   else
     claude

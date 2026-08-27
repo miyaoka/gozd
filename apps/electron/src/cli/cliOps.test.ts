@@ -168,13 +168,13 @@ describe("parseNewWorktreeArgs", () => {
     const parsed = parseNewWorktreeArgs(["--title", "fix login"], "/repo");
     expect(parsed).toEqual({
       ok: true,
-      value: { dir: "/repo", title: "fix login", prefill: "", ghRef: undefined },
+      value: { dir: "/repo", title: "fix login", prompt: "", ghRef: undefined },
     });
   });
 
   test("--flag=value 形式も受ける", () => {
-    const parsed = parseNewWorktreeArgs(["--title=fix", "--prefill=do it"], "/repo");
-    expect(parsed.ok && parsed.value.prefill).toBe("do it");
+    const parsed = parseNewWorktreeArgs(["--title=fix", "--prompt=do it"], "/repo");
+    expect(parsed.ok && parsed.value.prompt).toBe("do it");
   });
 
   test("--dir は cwd 基準で絶対パスに解決する", () => {

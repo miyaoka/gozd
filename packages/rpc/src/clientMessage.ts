@@ -76,15 +76,19 @@ export interface OpenMessage {
 
 /** `gozd worktree new` から送られる「作業スペースを 1 つ増やしてエージェントを立てろ」の指示。
  * エージェントが自分で次の作業単位を切り出すための入口で、UI の PR / issue picker と
- * 同じ合成操作（worktree 作成 + task 紐づけ + claude 自動起動）を駆動する。 */
+ * 同じ合成操作（worktree 作成 + task 紐づけ + claude 自動起動）を駆動する。
+ *
+ * 違いは起動した claude にプロンプトをどう渡すか。picker は URL を入力欄へ挿入するだけで
+ * 人の送信を待つが、こちらは引数で渡してそのまま走らせる。作業を切り出す側は相手が動き
+ * 出すことまでを含めて指示している。 */
 export interface NewWorktreeMessage {
   /** 実行時の cwd。main 側で main repo root に解決する */
   dir: string;
   /** 作成する task のタイトル。サイドバー行の表示に使う */
   title: string;
-  /** 起動した claude の入力欄に事前挿入するテキスト（挿入のみで送信はされない）。
+  /** 起動した claude に引数で渡すプロンプト（送信され、そのまま実行が始まる）。
    * 空なら素の claude を起動する */
-  prefill: string;
+  prompt: string;
   /** 紐づける GitHub PR / issue。未指定なら task は GitHub 参照を持たない */
   ghRef?: GhRef;
 }

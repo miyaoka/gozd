@@ -92,7 +92,7 @@ describe("socketMessages", () => {
 
   test("newWorktree は dir 未指定を失敗として応答する（応答を返す唯一の種別）", async () => {
     const handle = createSocketMessageHandler(() => {});
-    const reply = await handle(JSON.stringify({ newWorktree: { title: "t", prefill: "" } }));
+    const reply = await handle(JSON.stringify({ newWorktree: { title: "t", prompt: "" } }));
     expect(JSON.parse(reply ?? "")).toEqual({
       ok: false,
       dir: "",
@@ -107,7 +107,7 @@ describe("socketMessages", () => {
     tempDirs.push(dir);
     const pushed: unknown[] = [];
     const handle = createSocketMessageHandler((type) => pushed.push(type));
-    const reply = await handle(JSON.stringify({ newWorktree: { dir, title: "t", prefill: "" } }));
+    const reply = await handle(JSON.stringify({ newWorktree: { dir, title: "t", prompt: "" } }));
     const parsed = JSON.parse(reply ?? "") as { ok: boolean; dir: string; error: string };
     expect(parsed.ok).toBe(false);
     expect(parsed.error).not.toBe("");

@@ -5,23 +5,23 @@ description: 新しい worktree を作り、そこで独立した Claude を起�
 
 # worktree — 別の worktree に Claude を立てる
 
-新しいブランチの worktree を作り、そこで Claude を 1 つ起動する。相手は独立したセッションで、
-こちらの会話は引き継がれない。
+新しいブランチの worktree を作り、そこで Claude を 1 つ起動する。subagent と違い、相手は独立した
+セッションで、こちらの会話は引き継がれない。
 
 ```bash
-"$GOZD_CLI_PATH" worktree new --title "<作業の名前>" --prefill "<渡す指示文>"
+"$GOZD_CLI_PATH" worktree new --title "<作業の名前>" --prompt "<渡す指示文>"
 ```
 
-作成した worktree の絶対パスを stdout に 1 行返す。オプション一覧は
-`"$GOZD_CLI_PATH" worktree --help`。
+作成した worktree の絶対パスを stdout に 1 行返す。失敗は理由を stderr に出して非 0 で終わる。
+オプション一覧は `"$GOZD_CLI_PATH" worktree --help`。
 
 ## 指示文
 
-`--prefill` は相手の入力欄に差し込まれるだけで、送信はされない。送信は人間が行う。
+`--prompt` は起動時に送信され、相手はすぐ実行を始める。
 
 - 指示文は単体で完結させる。こちらの会話の文脈は渡らない
 - 何をするか、どこを見るか、何をもって完了かを書く
-- 相手の結果を待つ処理を後ろに繋がない
+- 実行は非同期に進む。相手の結果を待つ処理を後ろに繋がない
 
 ## 渡す範囲
 

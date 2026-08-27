@@ -103,7 +103,7 @@ export function parseStdinJson(text: string): Record<string, unknown> {
 }
 
 /** `gozd worktree new` が受け付けるオプション。値は必ず次の引数か `=` の右辺で渡す。 */
-const NEW_WORKTREE_FLAGS = ["--title", "--prefill", "--dir", "--issue", "--pr"] as const;
+const NEW_WORKTREE_FLAGS = ["--title", "--prompt", "--dir", "--issue", "--pr"] as const;
 type NewWorktreeFlag = (typeof NEW_WORKTREE_FLAGS)[number];
 
 function isNewWorktreeFlag(name: string): name is NewWorktreeFlag {
@@ -164,7 +164,7 @@ export function parseNewWorktreeArgs(
     value: {
       dir: resolve(cwd, flags["--dir"] ?? "."),
       title,
-      prefill: flags["--prefill"] ?? "",
+      prompt: flags["--prompt"] ?? "",
       ghRef,
     },
   };

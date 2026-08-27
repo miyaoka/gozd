@@ -86,7 +86,7 @@ Usage:
 
 Options:
   --title <text>     Name shown for the worktree in gozd (required)
-  --prefill <text>   Text inserted into the claude prompt (not submitted)
+  --prompt <text>    Prompt passed to claude on launch (runs immediately)
   --issue <number>   Associate the worktree with a GitHub issue
   --pr <number>      Associate the worktree with a GitHub pull request
   --dir <path>       Repository to create the worktree in (default: cwd)

@@ -526,12 +526,12 @@ export interface CreateTaskWorktreeResponse {
  * renderer に開かせる。作成そのものは main で完了しているため、renderer の責務は
  * 「サイドバーに載せる → setup / autostart のヒントを立てる → activate」だけ。
  *
- * 作成結果と prefill を 1 つの push に載せるのは、autostart ヒントが activate より先に
+ * 作成結果とプロンプトを 1 つの push に載せるのは、autostart ヒントが activate より先に
  * 立っていないと初期 leaf が素のシェルで作られてしまい、claude が起動しないため。
  * 2 つの push に割ると、間に挟まる await の分だけ順序が保証できなくなる。 */
 export interface NewWorktreePayload extends CreateTaskWorktreeResponse {
-  /** 起動する claude の入力欄に事前挿入するテキスト。空なら素の claude を起動する */
-  prefill: string;
+  /** 起動する claude に引数で渡すプロンプト。空なら素の claude を起動する */
+  prompt: string;
   /** repo の表示名（main repo の basename）。この repo が window に未登録だったときだけ使う */
   repoName: string;
 }

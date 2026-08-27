@@ -232,6 +232,7 @@ PTY 起動時、親の環境変数を継承したうえで gozd 固有の値を�
 | `GOZD_RESUME_CLAUDE_SESSION` | 指定したセッションを再開する                 |
 | `GOZD_AUTOSTART_CLAUDE`      | 端末を開いた直後にエージェントを起動する     |
 | `GOZD_CLAUDE_PREFILL`        | プロンプト入力欄へ挿入する内容（送信しない） |
+| `GOZD_CLAUDE_PROMPT`         | 起動時に引数で渡すプロンプト（送信される）   |
 | `GOZD_SETUP_SCRIPT`          | worktree 作成直後に実行する初期化コマンド    |
 
 ### ターミナル環境変数

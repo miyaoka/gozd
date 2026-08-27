@@ -15,7 +15,7 @@ import { ensureRepoRegistered } from "../worktree";
 
 export function useNewWorktreeHandler() {
   async function handle(payload: NewWorktreePayload) {
-    const { prefill, repoName, ...created } = payload;
+    const { prompt, repoName, ...created } = payload;
     // 別ウィンドウで開いていない repo に対しても `gozd worktree new --dir` は撃てる。
     // repo ごと未登録なら先に載せる（登録済みなら no-op）
     await ensureRepoRegistered({
@@ -24,7 +24,8 @@ export function useNewWorktreeHandler() {
       repoName,
       isGitRepo: true,
     });
-    openCreatedWorktree(created, prefill);
+    // 指示は引数で渡す。切り出した相手は起動と同時に走り出す
+    openCreatedWorktree(created, { prompt });
   }
 
   let dispose: (() => void) | undefined;

@@ -94,6 +94,6 @@ describe("collectJoinCandidates", () => {
     const buf = mockBuffer([{ text: "/Users/me/proj/src/very/lo" }, { text: "  ng/file.ts" }]);
     const joined = collectJoinCandidates(buf, 1);
     // 現在行のみの範囲は trim されない。上と結合した範囲だけインデントが落ちる
-    expect(joined.map((c) => c.currentLineTrimmed).sort()).toEqual([0, 2]);
+    expect(joined.map((c) => c.currentLineTrimmed).sort((a, b) => a - b)).toEqual([0, 2]);
   });
 });

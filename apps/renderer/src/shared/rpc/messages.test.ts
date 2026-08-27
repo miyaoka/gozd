@@ -102,7 +102,7 @@ describe("dispatchToListeners", () => {
     );
     expect(reporterCall?.[0]).toContain("type=test:reporter-throw");
     expect(reporterCall?.[1]).toBeInstanceOf(Error);
-    expect((reporterCall?.[1] as Error).message).toBe("reporter boom");
+    expect((reporterCall?.[1] as Error | undefined)?.message).toBe("reporter boom");
     for (const dispose of disposers) dispose();
   });
 

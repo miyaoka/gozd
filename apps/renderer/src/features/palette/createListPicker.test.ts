@@ -46,14 +46,14 @@ describe("createListPicker", () => {
     expect(p.items.value).toEqual([]);
   });
 
-  test("accept は setResult で束ねた callback を選択 item で呼ぶ", () => {
+  test("accept は setResult で束ねた callback を選択 item で呼ぶ", async () => {
     const p = createListPicker<Item>();
     const picked: Item[] = [];
     const g = p.open();
     p.setResult(g, [{ id: 7 }], "", async (item) => {
       picked.push(item);
     });
-    p.accept({ id: 7 });
+    await p.accept({ id: 7 });
     expect(picked).toEqual([{ id: 7 }]);
   });
 

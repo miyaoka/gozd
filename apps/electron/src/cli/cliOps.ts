@@ -128,19 +128,23 @@ export function parseNewWorktreeArgs(
   argv: string[],
   cwd: string,
 ): Result<NewWorktreeMessage, string> {
-  // `--flag=value` を `--flag` `value` の 2 トークンに開いてから 2 つずつ読む
-  const tokens = argv.flatMap((token) => {
-    const eq = token.indexOf("=");
-    return token.startsWith("--") && eq !== -1
-      ? [token.slice(0, eq), token.slice(eq + 1)]
-      : [token];
-  });
   const flags: Partial<Record<NewWorktreeFlag, string>> = {};
-  for (let i = 0; i < tokens.length; i += 2) {
-    const [name = "", value] = tokens.slice(i, i + 2);
+  // オプション位置のトークンだけを解釈し、値は中身を見ずにそのまま取る。値まで走査すると
+  // `--prompt "--dir=/tmp を直す"` のような「フラグに見える本文」が分解され、以降の対応が
+  // ずれる。プロンプトはコマンド例を含みうるので現実に踏む
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i] ?? "";
+    const eq = token.indexOf("=");
+    const name = eq === -1 ? token : token.slice(0, eq);
     if (!isNewWorktreeFlag(name)) return { ok: false, error: `unknown option: ${name}` };
+    if (eq !== -1) {
+      flags[name] = token.slice(eq + 1);
+      continue;
+    }
+    const value = argv[i + 1];
     if (value === undefined) return { ok: false, error: `${name} requires a value` };
     flags[name] = value;
+    i += 1;
   }
 
   const title = flags["--title"] ?? "";

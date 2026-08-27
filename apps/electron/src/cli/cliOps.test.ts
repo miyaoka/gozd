@@ -206,6 +206,22 @@ describe("parseNewWorktreeArgs", () => {
     expect(parsed.ok).toBe(false);
   });
 
+  test("フラグに見える本文を値として渡しても分解されない", () => {
+    // プロンプトはコマンド例を含みうる。値まで走査すると以降の対応がずれる
+    const parsed = parseNewWorktreeArgs(
+      ["--title", "t", "--prompt", "--dir=/tmp を渡している箇所を直す"],
+      "/repo",
+    );
+    expect(parsed.ok && parsed.value.prompt).toBe("--dir=/tmp を渡している箇所を直す");
+    expect(parsed.ok && parsed.value.dir).toBe("/repo");
+  });
+
+  test("複数行の本文はそのまま 1 つの値として渡る", () => {
+    const body = '1 行目\n2 行目 `cmd` $HOME "quoted"';
+    const parsed = parseNewWorktreeArgs(["--title", "t", "--prompt", body], "/repo");
+    expect(parsed.ok && parsed.value.prompt).toBe(body);
+  });
+
   test("未知のオプションと値の無いオプションは失敗する", () => {
     expect(parseNewWorktreeArgs(["--nope", "x"], "/repo")).toEqual({
       ok: false,

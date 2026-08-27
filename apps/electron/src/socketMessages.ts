@@ -9,20 +9,13 @@
 //
 // キューに載せるのは順序に意味がある種別だけ。worktree の作成は hook と順序関係を持たず
 // 実行が長いため、キューの外で走らせる（載せると作成中の状態通知が全 PTY で止まる）。
+// worktree の作成が要する逐次化は GitHub 参照ごとの粒度で newWorktree.ts が持つ。
 
-import type {
-  ClientMessage,
-  ClientReply,
-  GhRef,
-  HookMessage,
-  NewWorktreeMessage,
-  Task,
-} from "@gozd/rpc";
-import { ghRefLabel } from "@gozd/rpc";
+import type { ClientMessage, GhRef, HookMessage, Task } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
-import { basename } from "node:path";
 import { worktreeList } from "./git/gitOps";
 import { createTaskWorktree } from "./git/worktreeCreate";
+import { createNewWorktreeHandler } from "./newWorktree";
 import { buildGozdOpenPayload } from "./openTarget";
 import {
   asDict,
@@ -179,59 +172,6 @@ function parseClientMessage(line: string): ClientMessage {
   return msg;
 }
 
-/** `gozd worktree new` を処理して ClientReply の 1 行を返す。
- * worktree 作成と task 紐づけまでを main が完了させ、UI 反映（サイドバー掲載 /
- * claude の autostart）は push に委ねる。応答は「作成できたか」だけを表し、
- * push が届いたかは含まない — renderer が居ない状態でも worktree は正しく作られる。 */
-async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise<string> {
-  const reply = (value: ClientReply): string => JSON.stringify(value);
-  if (msg.dir === "") {
-    return reply({ ok: false, dir: "", error: "newWorktree: dir is required" });
-  }
-  // タイトル必須は CLI だけでなくここでも守る。socket は gozd が書いたと保証できない入力で、
-  // CLI を経由しない送信でも「見分けの付かない Task」を作らせない
-  if (msg.title === "") {
-    return reply({ ok: false, dir: "", error: "newWorktree: title is required" });
-  }
-  // 同じ PR / issue の task が既にあるなら作らない。エージェントが issue 一覧を読み直して
-  // 同じ番号を再投入する経路が常にあり、通すと同一 issue に worktree が積み上がる。
-  // UI の picker は既存 worktree への切り替えに倒すが、CLI には切り替える画面が無いので
-  // 失敗として返し、既存の置き場所を実行者に伝える
-  if (msg.ghRef !== undefined) {
-    const existing = await tryCatch(findTaskByGhRef(msg.dir, msg.ghRef));
-    if (!existing.ok) {
-      console.error(`[handleNewWorktree] task lookup failed: ${existing.error} dir=${msg.dir}`);
-      return reply({ ok: false, dir: "", error: String(existing.error) });
-    }
-    if (existing.value !== undefined) {
-      return reply({
-        ok: false,
-        dir: "",
-        error: `${ghRefLabel(msg.ghRef)} already has a worktree at ${existing.value.worktreeDir}`,
-      });
-    }
-  }
-  const created = await tryCatch(
-    createTaskWorktree({
-      dir: msg.dir,
-      branch: "",
-      startPoint: "",
-      ghTitle: msg.title,
-      ghRef: msg.ghRef,
-    }),
-  );
-  if (!created.ok) {
-    console.error(`[handleNewWorktree] createTaskWorktree failed: ${created.error} dir=${msg.dir}`);
-    return reply({ ok: false, dir: "", error: String(created.error) });
-  }
-  push("newWorktree", {
-    ...created.value,
-    prompt: msg.prompt,
-    repoName: basename(created.value.rootDir),
-  });
-  return reply({ ok: true, dir: created.value.dir, error: "" });
-}
-
 /** repo 内に同じ ghRef を持ち、生きている worktree に属する task を返す。
  *
  * 判定集合を UI と揃えるため、`git worktree list` の結果に JOIN する。UI はこの一覧に
@@ -241,8 +181,7 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
  * を拾って同じ乖離が残る。
  *
  * 複数該当する場合の採用も UI と揃える（createdAt が最新、同点は id 辞書順）。 */
-async function findTaskByGhRef(dir: string, ghRef: GhRef): Promise<Task | undefined> {
-  const rootDir = await resolveMainRepoRoot(dir);
+async function findTaskByGhRef(rootDir: string, ghRef: GhRef): Promise<Task | undefined> {
   const livePaths = new Set((await worktreeList(rootDir)).map((wt) => wt.path));
   const tasks = (await taskStore.list(rootDir)).filter(
     (task) =>
@@ -288,6 +227,12 @@ async function handleQueuedMessage(msg: ClientMessage, push: PushFn): Promise<un
  * **worktree の作成はこのキューに載せない** — git の実行で秒単位かかるうえ hook と順序
  * 関係を持たないため、載せると作成中は全 PTY の状態通知が止まる。 */
 export function createSocketMessageHandler(push: PushFn): SocketMessageHandler {
+  // 逐次化の状態をハンドラ 1 つに閉じるため、newWorktree のハンドラもここで 1 つ作る
+  const handleNewWorktree = createNewWorktreeHandler({
+    resolveRoot: resolveMainRepoRoot,
+    findExisting: findTaskByGhRef,
+    create: createTaskWorktree,
+  });
   let chain: Promise<undefined> = Promise.resolve(undefined);
   // メッセージ単位の失敗を終端で握らないと chain が rejected のまま残り、以降の
   // 全メッセージが onRejected 不在の .then で素通しされて恒久 drop になる

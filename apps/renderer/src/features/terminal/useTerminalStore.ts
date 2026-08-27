@@ -5,9 +5,10 @@ import { computed, ref, shallowRef } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
 import { dispatchMessage, onMessage } from "../../shared/rpc";
+import { consumeAutostartHint, type AutostartHint } from "./autostartHint";
 import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
-import { consumeAutostartHint, notifyLostPrompt } from "./lostPrompt";
+import { notifyLostPrompt } from "./lostPrompt";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
 import { rpcClaudeSessionRemoveByPty, rpcPtyKill, rpcPtySpawn } from "./rpc";
@@ -32,17 +33,6 @@ const DEFAULT_SHELL_ARGS = ["/bin/zsh", "-i"];
  * PTY のライフサイクル（spawn/kill/data）も store が一元管理する。
  * コンポーネントは xterm の attach/detach のみ担当する。
  */
-/**
- * autostart 時に claude へ渡すテキスト。渡し方が 2 通りあり、**送信されるかどうかが違う**。
- *
- * - `prefill`: `claude --prefill <text>` で入力欄に挿入するだけ。送信は人が行う。
- *   PR/issue picker が worktree 作成時に PR/issue URL を渡す用途
- * - `prompt`: `claude <text>` と引数で渡す。起動と同時に送信され実行が始まる。
- *   `gozd worktree new` が作業指示を渡す用途（切り出す側は相手が動き出すまでを指示している）
- *
- * 同時には片方しか意味を持たない。両方あるときは prompt を優先する。
- */
-export type AutostartHint = { prefill?: string; prompt?: string };
 
 export const useTerminalStore = defineStore("terminal", () => {
   const contextKeys = useContextKeys();

@@ -26,22 +26,3 @@ export function notifyLostPrompt(notify: ErrorNotifier, prompt: string | undefin
   if (prompt === undefined || prompt === "") return;
   notify.error(LOST_PROMPT_MESSAGE, prompt);
 }
-
-/** 起動ヒント。spawn env へ渡すテキストを持つ */
-export interface AutostartHintLike {
-  prompt?: string;
-  prefill?: string;
-}
-
-/**
- * spawn 失敗時に leaf の起動ヒントを消費する。読み取りと削除を 1 か所に閉じ、
- * 「読んだのに消し忘れる」「消してから読もうとする」のどちらも起きない形にする。
- */
-export function consumeAutostartHint<T extends AutostartHintLike>(
-  hints: Record<string, T>,
-  leafId: string,
-): T | undefined {
-  const hint = hints[leafId];
-  delete hints[leafId];
-  return hint;
-}

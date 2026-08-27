@@ -9,8 +9,9 @@ import type { CreateTaskWorktreeResponse } from "@gozd/rpc";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { activateDir } from "./activateDir";
+import type { AutostartHint } from "./autostartHint";
 import { notifyLostPrompt } from "./lostPrompt";
-import { useTerminalStore, type AutostartHint } from "./useTerminalStore";
+import { useTerminalStore } from "./useTerminalStore";
 
 /**
  * 作成した worktree を前面に出すかどうか。

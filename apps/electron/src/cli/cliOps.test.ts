@@ -212,6 +212,14 @@ describe("parseNewWorktreeArgs", () => {
     expect(parsed.ok).toBe(false);
   });
 
+  test("先頭 0 埋めと安全整数超えの番号は失敗する", () => {
+    // 前者は同じ番号に 2 通りの綴りを許し、後者は丸められた別の番号として GhRef に載る
+    expect(parseNewWorktreeArgs(["--title", "t", "--issue", "007"], "/repo").ok).toBe(false);
+    expect(parseNewWorktreeArgs(["--title", "t", "--pr", "99999999999999999999"], "/repo").ok).toBe(
+      false,
+    );
+  });
+
   test("フラグに見える本文を値として渡しても分解されない", () => {
     // プロンプトはコマンド例を含みうる。値まで走査すると以降の対応がずれる
     const parsed = parseNewWorktreeArgs(
@@ -256,6 +264,13 @@ describe("parseNewWorktreeArgs (--prompt-stdin)", () => {
     expect(parsed.ok && parsed.value.message.ghRef).toEqual({
       kind: "GH_REF_KIND_ISSUE",
       number: 9,
+    });
+  });
+
+  test("値を付けたら失敗する（黙って捨てない）", () => {
+    expect(parseNewWorktreeArgs(["--title", "t", "--prompt-stdin=hello"], "/repo")).toEqual({
+      ok: false,
+      error: "--prompt-stdin takes no value",
     });
   });
 

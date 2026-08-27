@@ -125,9 +125,12 @@ export interface ParsedNewWorktree {
   promptFromStdin: boolean;
 }
 
-/** `--issue` / `--pr` の番号。GitHub の番号は 1 始まりの整数以外を取らない */
+/** `--issue` / `--pr` の番号。GitHub の番号は 1 始まりの整数以外を取らない。
+ * 先頭 0 埋めと安全整数超えも弾く（前者は同じ番号に 2 通りの綴りを許し、後者は
+ * 丸められた別の番号として GhRef に載るため） */
 function parseGhNumber(flag: NewWorktreeFlag, text: string): Result<number, string> {
-  if (!/^\d+$/.test(text) || text === "0") {
+  const invalid = !/^[1-9]\d*$/.test(text) || !Number.isSafeInteger(Number(text));
+  if (invalid) {
     return { ok: false, error: `${flag} expects a positive number, got ${JSON.stringify(text)}` };
   }
   return { ok: true, value: Number(text) };
@@ -153,6 +156,9 @@ export function parseNewWorktreeArgs(
     const eq = token.indexOf("=");
     const name = eq === -1 ? token : token.slice(0, eq);
     if (isNewWorktreeSwitch(name)) {
+      // 値を取らないオプションに値が付いたら黙って捨てず弾く（`--title` の
+      // 「値が要る」と対称に、「値を取らない」も誤りとして返す）
+      if (eq !== -1) return { ok: false, error: `${name} takes no value` };
       promptFromStdin = true;
       continue;
     }

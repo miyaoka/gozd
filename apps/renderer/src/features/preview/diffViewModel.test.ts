@@ -1,5 +1,5 @@
 import type { DiffExpandedLine, DiffHunk } from "@gozd/rpc";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   type DiffBarItem,
   type DiffSplitRowItem,
@@ -7,6 +7,7 @@ import {
   type IntraLineRangeMaps,
   barKey,
   barLabel,
+  barTitle,
   buildBaseItems,
   buildSplitRenderRows,
   buildUnifiedRenderRows,
@@ -190,6 +191,78 @@ describe("buildBaseItems", () => {
 
     expect(ranges.old.size).toBe(0);
     expect(ranges.new.size).toBe(0);
+  });
+
+  describe("行内 diff の予算", () => {
+    /**
+     * 変更ブロックを 1 つずつ持つ hunk 3 本。予算切れは 2 本目で起き、3 本目は
+     * 既に切れた状態で入る (ログ抑制が hunk をまたぐことの検証に要る)。
+     */
+    const HUNKS = [
+      hunk(1, 1, 1, 1, [del("const foo = 1;"), add("const bar = 1;")]),
+      hunk(3, 1, 3, 1, [del("const baz = 2;"), add("const qux = 2;")]),
+      hunk(5, 1, 5, 1, [del("const quux = 3;"), add("const corge = 3;")]),
+    ];
+    const TOTAL_LINES = 5;
+
+    /**
+     * 予算の時計と観察ログを差し替えて HUNKS を組み立てる。
+     * 行内 diff の予算だけが `performance.now()` を引き、monaco 側の打ち切りは `Date.now()` を
+     * 見るので、この差し替えは行内 diff の計算そのものには影響しない。
+     * spy はテストを抜ける前に必ず戻す (assert や invariant 違反の throw で漏らさない)。
+     */
+    function buildWithClock(now: () => number): {
+      ranges: IntraLineRangeMaps;
+      errors: string[];
+    } {
+      const nowSpy = spyOn(performance, "now").mockImplementation(now);
+      const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const { ranges } = buildBaseItems(HUNKS, TOTAL_LINES, TOTAL_LINES);
+        return { ranges, errors: errorSpy.mock.calls.map(([first = ""]) => String(first)) };
+      } finally {
+        errorSpy.mockRestore();
+        nowSpy.mockRestore();
+      }
+    }
+
+    /**
+     * 1 ブロック目の直後に予算を切らす時計。`buildBaseItems` が時計を引くのは deadline の
+     * 算出で 1 度と、予算切れまでは変更ブロックごとに 1 度 (切れた後はその hunk の残り
+     * ブロックを引かずに抜けるので hunk ごとに 1 度)。3 度目以降を巨大値に倒すと、予算値を
+     * 知らないまま「1 ブロック目は予算内、以降は予算切れ」にできる。
+     */
+    function clockExhaustedAfterFirstBlock(): () => number {
+      let calls = 0;
+      return () => (calls++ < 2 ? 0 : Number.MAX_SAFE_INTEGER);
+    }
+
+    test("予算内なら全ての変更ブロックが行内 range を持つ", () => {
+      // 予算切れ側の空マップが「予算のせい」だと言えるようにする対照
+      const { ranges, errors } = buildWithClock(() => 0);
+
+      expect([...ranges.old.keys()]).toEqual([1, 3, 5]);
+      expect([...ranges.new.keys()]).toEqual([1, 3, 5]);
+      expect(errors).toEqual([]);
+    });
+
+    test("予算切れ以降の変更ブロックは行内 range を持たず行単位表示へ落ちる", () => {
+      const { ranges } = buildWithClock(clockExhaustedAfterFirstBlock());
+
+      // 予算内に収まった 1 本目だけが残り、2 本目以降は degrade する
+      expect([...ranges.old.keys()]).toEqual([1]);
+      expect([...ranges.new.keys()]).toEqual([1]);
+    });
+
+    test("予算切れの観察ログは hunk をまたいでも 1 度だけ出る", () => {
+      const { errors } = buildWithClock(clockExhaustedAfterFirstBlock());
+      const [first = "", ...rest] = errors;
+
+      // 2 本目と 3 本目の両方が予算切れで入るが、ログは最初の 1 度に抑える
+      expect(rest).toEqual([]);
+      expect(first).toContain("[diffViewModel] intra-line diff budget");
+      expect(first).toContain("degrade to line-level highlight");
+    });
   });
 });
 
@@ -392,6 +465,20 @@ describe("barLabel", () => {
   test("複数行のときは複数形になる", () => {
     expect(barLabel({ type: "hunk-bar", oldStart: 1, newStart: 1, lines: 2 })).toBe(
       "2 unchanged lines",
+    );
+  });
+});
+
+describe("barTitle", () => {
+  test("1 行のときは単数形", () => {
+    expect(barTitle({ type: "hunk-bar", oldStart: 1, newStart: 1, lines: 1 })).toBe(
+      "Click to expand 1 unchanged line",
+    );
+  });
+
+  test("複数行のときは複数形", () => {
+    expect(barTitle({ type: "hunk-bar", oldStart: 1, newStart: 1, lines: 2 })).toBe(
+      "Click to expand 2 unchanged lines",
     );
   });
 });

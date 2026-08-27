@@ -103,6 +103,14 @@ export function barLabel(item: DiffBarItem): string {
   return `${item.lines} unchanged line${item.lines === 1 ? "" : "s"}`;
 }
 
+/**
+ * バーの tooltip。本文のラベルと同じ文言を指すため `barLabel` から組み立てる。
+ * 単複規則を持つのは `barLabel` だけで、unified / split どちらの表示もここを通る。
+ */
+export function barTitle(item: DiffBarItem): string {
+  return `Click to expand ${barLabel(item)}`;
+}
+
 /** 行番号カラムの幅。両側の総行数のうち桁数が多い方に合わせる */
 export function lineNoWidth(oldTotal: number, newTotal: number): string {
   const maxLine = Math.max(oldTotal, newTotal, 1);

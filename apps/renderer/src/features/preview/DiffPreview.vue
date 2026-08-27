@@ -142,6 +142,7 @@ import {
   type UnifiedItem,
   barKey,
   barLabel,
+  barTitle,
   buildBaseItems,
   buildSplitRenderRows,
   buildUnifiedRenderRows,
@@ -759,7 +760,7 @@ function splitRightBg(row: DiffSplitRowItem): string {
             v-if="item.type === 'hunk-bar'"
             type="button"
             class="_hunk-bar"
-            :title="`Click to expand ${item.lines} unchanged line${item.lines === 1 ? '' : 's'}`"
+            :title="barTitle(item)"
             @click="toggleBar(item)"
           >
             <IconLucideMoreHorizontal class="_hunk-bar-icon size-3.5" />
@@ -842,7 +843,7 @@ function splitRightBg(row: DiffSplitRowItem): string {
             v-if="item.type === 'hunk-bar'"
             type="button"
             class="_hunk-bar"
-            :title="`Click to expand ${item.lines} unchanged line${item.lines === 1 ? '' : 's'}`"
+            :title="barTitle(item)"
             @click="toggleBar(item)"
           >
             <IconLucideMoreHorizontal class="_hunk-bar-icon size-3.5" />

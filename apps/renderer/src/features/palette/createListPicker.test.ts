@@ -57,6 +57,35 @@ describe("createListPicker", () => {
     expect(picked).toEqual([{ id: 7 }]);
   });
 
+  test("同期 callback が throw しても accept は同期例外を投げず reject に倒す", async () => {
+    // 返り値の型は Promise。同期例外にすると呼び出し側が受け取る前に呼び出し元まで飛び、
+    // 失敗の届き方が callback の同期 / 非同期で変わる
+    const p = createListPicker<Item>();
+    const g = p.open();
+    p.setResult(g, [{ id: 1 }], "", () => {
+      throw new Error("sync boom");
+    });
+
+    let returned: Promise<void> | undefined;
+    expect(() => {
+      returned = p.accept({ id: 1 });
+    }).not.toThrow();
+    expect(returned).toBeInstanceOf(Promise);
+    await expect(returned).rejects.toThrow("sync boom");
+  });
+
+  test("throw された値はそのまま reject の理由になる", () => {
+    // 捕まえて包み直すと、非 Error の throw だけ理由が差し替わり、同期 / 非同期で
+    // 失敗の見え方が変わる
+    const p = createListPicker<Item>();
+    const g = p.open();
+    p.setResult(g, [{ id: 1 }], "", () => {
+      throw "文字列を throw";
+    });
+
+    return expect(p.accept({ id: 1 })).rejects.toBe("文字列を throw");
+  });
+
   // callback の完了を呼び出し側が待てるための契約（利用は任意）
   test("accept は callback の完了を表す promise を返す", async () => {
     const p = createListPicker<Item>();

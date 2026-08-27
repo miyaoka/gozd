@@ -295,7 +295,7 @@ export function createSocketMessageHandler(push: PushFn): SocketMessageHandler {
   // キューを生かし続け、失敗行だけを観察ログに倒す
   const observeFailure = (line: string) => (error: unknown) => {
     console.error(
-      `[SocketServer] handler rejected, chain kept alive: ${error}: ${line.slice(0, 200)}`,
+      `[SocketServer] handler rejected, chain kept alive: ${String(error)}: ${line.slice(0, 200)}`,
     );
     return undefined;
   };

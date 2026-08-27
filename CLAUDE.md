@@ -6,9 +6,9 @@ AI エージェントの並列開発を管理するデスクトップアプリ�
 
 > [!IMPORTANT]
 > gozd は Electron のデスクトップアプリで、UI は main プロセス（PTY / git / ファイル監視）に依存する。
-> 起動中のアプリの画面確認を Chrome のブラウザ自動化で代替しない。
+> 起動中のアプリの画面確認をブラウザ自動化で代替しない。アプリ全体の動作確認は人間が実アプリで行う。
 >
-> 単一コンポーネントの描画・当たり判定・フォーカスは、renderer の browser test が実ブラウザで検証する。
+> 実ブラウザでしか判定できない検証は、renderer の browser test レーンが実 Chromium で行う。
 > Electron を起動して行う e2e は持たない。
 
 @docs/architecture.md

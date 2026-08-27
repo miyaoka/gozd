@@ -336,8 +336,9 @@ export function createTaskStore(configDir: string) {
   // lost update を塞ぐ。読み取り（list）は最新の 1 状態を返せばよいので対象外
   let writeChain: Promise<unknown> = Promise.resolve(undefined);
   function serializeWrite<T>(operation: () => Promise<T>): Promise<T> {
-    // 前の書き込みが失敗しても次を走らせる（reject を chain に残さない）
-    const settled = writeChain.then(operation, operation);
+    const settled = writeChain.then(operation);
+    // 前の書き込みが失敗しても次を走らせる。chain 側だけ reject を吸い、
+    // 呼び出し側には元の失敗をそのまま返す
     writeChain = settled.catch(() => undefined);
     return settled;
   }

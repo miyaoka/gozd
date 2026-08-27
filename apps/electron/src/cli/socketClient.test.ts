@@ -1,5 +1,5 @@
 // requestClientReply のテスト。応答を返す種別だけが通る経路で、ここで決まる文言が
-// そのまま実行者（エージェント）の目に入るため、失敗 3 経路の見え方を固定する。
+// そのまま実行者（エージェント）の目に入るため、失敗 4 経路の見え方を固定する。
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -70,6 +70,21 @@ describe("requestClientReply", () => {
   test("応答が JSON として壊れていたら失敗にする", async () => {
     const path = startStub(() => "{ broken");
     await expect(requestClientReply(path, {})).rejects.toThrow(/undecodable JSON/);
+  });
+
+  test("応答が返らないまま期限を過ぎたら失敗にする", async () => {
+    // 応答を書かず接続も閉じない stub。main が固まったときに実行者が受け取る文言
+    const dir = mkdtempSync(join(tmpdir(), "gozd-reply-test-"));
+    const path = join(dir, "test.sock");
+    const server = createServer({ allowHalfOpen: true }, () => {});
+    server.listen(path);
+    cleanups.push(() => {
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    await expect(requestClientReply(path, {}, 100)).rejects.toThrow(
+      /socket reply timeout \(100ms\)/,
+    );
   });
 
   test("接続先が無ければ失敗にする", async () => {

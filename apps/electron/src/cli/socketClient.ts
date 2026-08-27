@@ -40,6 +40,7 @@ export function sendClientMessage(socketPath: string, message: ClientMessage): P
 export function requestClientReply(
   socketPath: string,
   message: ClientMessage,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<ClientReply> {
   const line = `${JSON.stringify(message)}\n`;
   return new Promise((resolve, reject) => {
@@ -47,9 +48,9 @@ export function requestClientReply(
     let buffer = "";
     let settled = false;
     socket.setEncoding("utf8");
-    socket.setTimeout(REQUEST_TIMEOUT_MS);
+    socket.setTimeout(timeoutMs);
     socket.on("timeout", () => {
-      socket.destroy(new Error(`socket reply timeout (${REQUEST_TIMEOUT_MS}ms): ${socketPath}`));
+      socket.destroy(new Error(`socket reply timeout (${timeoutMs}ms): ${socketPath}`));
     });
     socket.on("error", reject);
     socket.on("data", (chunk: string) => {

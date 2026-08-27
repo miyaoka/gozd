@@ -20,8 +20,8 @@ import type {
 } from "@gozd/rpc";
 import { ghRefLabel } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
-import { existsSync } from "node:fs";
 import { basename } from "node:path";
+import { worktreeList } from "./git/gitOps";
 import { createTaskWorktree } from "./git/taskWorktree";
 import { buildGozdOpenPayload } from "./openTarget";
 import {
@@ -232,18 +232,21 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
   return reply({ ok: true, dir: created.value.dir, error: "" });
 }
 
-/** repo 内に同じ ghRef を持ち、worktree が実在する task を返す。
+/** repo 内に同じ ghRef を持ち、生きている worktree に属する task を返す。
  *
- * worktree の実在で絞るのは UI と同じ集合を見るため。UI は `git worktree list` に JOIN した
- * task だけを見るので、worktree が消えて task だけ残った状態では「既存なし」に倒れる。
- * tasks.json 全件で判定すると、CLI だけが存在しないパスを指して恒久的に失敗し続ける。
+ * 判定集合を UI と揃えるため、`git worktree list` の結果に JOIN する。UI はこの一覧に
+ * JOIN した task だけを見るので、worktree が消えて task だけ残った状態では「既存なし」に
+ * 倒れる。tasks.json 全件で判定すると、CLI だけが存在しないパスを指して恒久的に失敗し
+ * 続ける。ディレクトリの実在で代用すると、git 側で prunable なエントリ（一覧から外れる）
+ * を拾って同じ乖離が残る。
  *
  * 複数該当する場合の採用も UI と揃える（createdAt が最新、同点は id 辞書順）。 */
 async function findTaskByGhRef(dir: string, ghRef: GhRef): Promise<Task | undefined> {
   const rootDir = await resolveMainRepoRoot(dir);
+  const livePaths = new Set((await worktreeList(rootDir)).map((wt) => wt.path));
   const tasks = (await taskStore.list(rootDir)).filter(
     (task) =>
-      task.ghRef !== undefined && sameGhRef(task.ghRef, ghRef) && existsSync(task.worktreeDir),
+      task.ghRef !== undefined && sameGhRef(task.ghRef, ghRef) && livePaths.has(task.worktreeDir),
   );
   return tasks.reduce<Task | undefined>((current, task) => {
     if (current === undefined) return task;

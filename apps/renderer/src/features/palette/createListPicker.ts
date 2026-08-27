@@ -179,8 +179,8 @@ export function createListPicker<T>() {
    * async function にするのは、この意味論が言語側にあるため。first await までは同期に走るので
    * callback の呼び出しは同じ turn に留まり、throw された値はそのまま reject の理由になる。
    * 自前で捕まえて包み直すと、非 Error の throw だけ理由が差し替わって同期 / 非同期の対称性が
-   * 崩れる。callback の同期呼び出しは前提として固定してある（コマンド層が実行中判定の
-   * has → add を await を挟まずに行う。inFlightGhRefs）。
+   * 崩れる。同じ turn で呼ぶことにも意味がある — コマンド層は実行中判定の has → add を
+   * await を挟まずに行い（inFlightGhRefs）、テストは callback の中で resolver を捕まえる。
    *
    * 完了を待つかは呼び出し側が決める（production は待たない）。 */
   async function accept(item: T): Promise<void> {

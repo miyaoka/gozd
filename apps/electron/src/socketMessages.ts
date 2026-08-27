@@ -10,18 +10,9 @@
 // キューに載せるのは順序に意味がある種別だけ。worktree の作成は hook と順序関係を持たず
 // 実行が長いため、キューの外で走らせる（載せると作成中の状態通知が全 PTY で止まる）。
 
-import type {
-  ClientMessage,
-  ClientReply,
-  GhRef,
-  HookMessage,
-  NewWorktreeMessage,
-  Task,
-} from "@gozd/rpc";
-import { ghRefLabel } from "@gozd/rpc";
+import type { ClientMessage, ClientReply, HookMessage, NewWorktreeMessage } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { basename } from "node:path";
-import { worktreeList } from "./git/gitOps";
 import { createTaskWorktree } from "./git/worktreeCreate";
 import { buildGozdOpenPayload } from "./openTarget";
 import {
@@ -42,7 +33,7 @@ import {
   worktreePathFor,
 } from "./ptySessions";
 import type { PushFn } from "./rpcDispatcher";
-import { resolveMainRepoRoot, sameGhRef, taskStore } from "./taskStore";
+import { taskStore } from "./taskStore";
 
 function notifyTaskStoreError(push: PushFn, message: string, error: unknown, dir: string): void {
   console.error(`[TaskStore] ${message}: ${String(error)}`);
@@ -193,24 +184,6 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
   if (msg.title === "") {
     return reply({ ok: false, dir: "", error: "newWorktree: title is required" });
   }
-  // 同じ PR / issue の task が既にあるなら作らない。エージェントが issue 一覧を読み直して
-  // 同じ番号を再投入する経路が常にあり、通すと同一 issue に worktree が積み上がる。
-  // UI の picker は既存 worktree への切り替えに倒すが、CLI には切り替える画面が無いので
-  // 失敗として返し、既存の置き場所を実行者に伝える
-  if (msg.ghRef !== undefined) {
-    const existing = await tryCatch(findTaskByGhRef(msg.dir, msg.ghRef));
-    if (!existing.ok) {
-      console.error(`[handleNewWorktree] task lookup failed: ${existing.error} dir=${msg.dir}`);
-      return reply({ ok: false, dir: "", error: String(existing.error) });
-    }
-    if (existing.value !== undefined) {
-      return reply({
-        ok: false,
-        dir: "",
-        error: `${ghRefLabel(msg.ghRef)} already has a worktree at ${existing.value.worktreeDir}`,
-      });
-    }
-  }
   const created = await tryCatch(
     createTaskWorktree({
       dir: msg.dir,
@@ -230,30 +203,6 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
     repoName: basename(created.value.rootDir),
   });
   return reply({ ok: true, dir: created.value.dir, error: "" });
-}
-
-/** repo 内に同じ ghRef を持ち、生きている worktree に属する task を返す。
- *
- * 判定集合を UI と揃えるため、`git worktree list` の結果に JOIN する。UI はこの一覧に
- * JOIN した task だけを見るので、worktree が消えて task だけ残った状態では「既存なし」に
- * 倒れる。tasks.json 全件で判定すると、CLI だけが存在しないパスを指して恒久的に失敗し
- * 続ける。ディレクトリの実在で代用すると、git 側で prunable なエントリ（一覧から外れる）
- * を拾って同じ乖離が残る。
- *
- * 複数該当する場合の採用も UI と揃える（createdAt が最新、同点は id 辞書順）。 */
-async function findTaskByGhRef(dir: string, ghRef: GhRef): Promise<Task | undefined> {
-  const rootDir = await resolveMainRepoRoot(dir);
-  const livePaths = new Set((await worktreeList(rootDir)).map((wt) => wt.path));
-  const tasks = (await taskStore.list(rootDir)).filter(
-    (task) =>
-      task.ghRef !== undefined && sameGhRef(task.ghRef, ghRef) && livePaths.has(task.worktreeDir),
-  );
-  return tasks.reduce<Task | undefined>((current, task) => {
-    if (current === undefined) return task;
-    if (task.createdAt > current.createdAt) return task;
-    if (task.createdAt === current.createdAt && task.id > current.id) return task;
-    return current;
-  }, undefined);
 }
 
 /** 逐次キューに載せる種別の処理。応答は返さない。 */

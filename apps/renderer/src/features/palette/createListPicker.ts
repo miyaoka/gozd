@@ -172,11 +172,19 @@ export function createListPicker<T>() {
     return true;
   }
 
-  /** 選択 item に callback を適用する。返り値の promise は callback の完了（成功 / 失敗を
-   * 問わず）を表し、dialog が「連続選択（Shift 選択）で完了まで追加の accept をブロックする」
-   * ために使う。sync callback / 未束縛（loading 中 / open で破棄済み）は即 resolve。 */
-  function accept(item: T): Promise<void> {
-    return Promise.resolve(acceptCallback?.(item));
+  /** 選択 item に callback を適用する。**失敗の届き先は返り値の promise 1 本**で、callback が
+   * 同期か非同期かで変わらない。返り値の型に反して同期例外を投げると、呼び出し側が受け取る
+   * 前に呼び出し元まで飛ぶ。
+   *
+   * async function にするのは、この意味論が言語側にあるため。first await までは同期に走るので
+   * callback の呼び出しは同じ turn に留まり、throw された値はそのまま reject の理由になる。
+   * 自前で捕まえて包み直すと、非 Error の throw だけ理由が差し替わって同期 / 非同期の対称性が
+   * 崩れる。同じ turn で呼ぶことにも意味がある — コマンド層は実行中判定の has → add を
+   * await を挟まずに行い（inFlightGhRefs）、テストは callback の中で resolver を捕まえる。
+   *
+   * 完了を待つかは呼び出し側が決める（production は待たない）。 */
+  async function accept(item: T): Promise<void> {
+    await acceptCallback?.(item);
   }
 
   return {

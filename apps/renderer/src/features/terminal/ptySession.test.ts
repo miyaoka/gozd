@@ -109,6 +109,6 @@ describe("ptySession spawn 失敗", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.leafId).toBe("leaf");
     expect(calls[0]?.dir).toBe("/work/repo");
-    expect((calls[0]?.error as Error).message).toBe("spawn boom");
+    expect((calls[0]?.error as Error | undefined)?.message).toBe("spawn boom");
   });
 });

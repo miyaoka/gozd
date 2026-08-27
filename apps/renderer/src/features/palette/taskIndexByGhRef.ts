@@ -1,7 +1,7 @@
 /**
  * repo 内の全 worktree の task を GhRef で引くための index。
- * PR / issue picker が「既に task が作成済みか」を fetch 時に JOIN し、選択時に
- * 新規 worktree 作成ではなく既存 task の worktree 表示へ倒すために使う。
+ * PR / issue picker が「既に task が作成済みか」を fetch 時に JOIN するために使う。
+ * issue の一覧では行の表示だけを変え、PR の一覧では既存 worktree への切り替えに倒す。
  */
 
 import type { GhRef, Task, WorktreeEntry } from "@gozd/rpc";

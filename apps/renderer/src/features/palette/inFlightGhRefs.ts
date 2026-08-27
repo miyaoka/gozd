@@ -1,13 +1,12 @@
 /**
  * accept 実行中 (worktree / task の作成・切り替え) の対象キー集合を保持する module singleton。
- * 排他の SSOT はコマンド層 (registerPrCommand / registerIssueCommand) の add / remove で、
- * dialog はこの集合から行スピナー表示と受理のブロックを導出する。止めるのは受理だけで、
- * 実行中の行も選択とハイライトは通常どおり動く。
+ * 集合への add / remove はコマンド層 (registerPrCommand / registerIssueCommand) が行い、
+ * dialog は参照するだけ。行のスピナー表示は両 picker ともこの集合から導出する。
+ * 再選択したときに何が起きるかは docs/task.md の「連続作成」が契約を持つ。
  *
  * dialog ローカルの状態にしないのは、通常選択 (close 後の fire-and-forget 実行) や picker の
- * 開き直しで dialog 状態が破棄され、実行中の同一対象を再実行できてしまうため。picker
- * セッションを跨いで実行中判定が生き残ることで、開き直した一覧でも当該行がスピナー +
- * 受理不可のまま維持される。
+ * 開き直しで dialog 状態が破棄され、実行中かどうかを見失うため。picker セッションを跨いで
+ * 判定が生き残ることで、開き直した一覧でも当該行のスピナーが維持される。
  */
 
 import type { GhRef } from "@gozd/rpc";

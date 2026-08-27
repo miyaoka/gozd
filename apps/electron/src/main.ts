@@ -25,7 +25,7 @@ import { consumeLaunchRequest } from "./launchRequest";
 import { installAppMenu } from "./menu";
 import { buildGozdOpenPayload } from "./openTarget";
 import { installPreviewProtocol, registerPreviewSchemePrivileges } from "./previewProtocol";
-import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
+import { createRpcDispatcher, createWebContentsPush } from "./rpcDispatcher";
 import {
   killAllPtys,
   routes,
@@ -207,10 +207,7 @@ function createWindow(): BrowserWindow {
   // macOS fullscreen では信号機ボタンが消える。renderer のタイトルバー（TitleBar.vue）が
   // 左の逃げ幅 pad を畳めるよう遷移を push する。初期状態の pull hydrate は持たない
   // （取りこぼしても pad が残るだけで、次の遷移で自己回復する cosmetic 用途のため）
-  const windowPush: PushFn = (type, payload) => {
-    if (window.webContents.isDestroyed()) return;
-    window.webContents.send("rpc:push", type, payload);
-  };
+  const windowPush = createWebContentsPush(window.webContents);
   window.on("enter-full-screen", () =>
     windowPush("windowFullscreenChange", { isFullscreen: true }),
   );
@@ -241,12 +238,7 @@ function createWindow(): BrowserWindow {
 }
 
 ipcMain.handle("rpc:request", (event, path: string, body: unknown) => {
-  const sender = event.sender;
-  const push: PushFn = (type, payload) => {
-    if (sender.isDestroyed()) return;
-    sender.send("rpc:push", type, payload);
-  };
-  return dispatch(path, body, { push });
+  return dispatch(path, body, { push: createWebContentsPush(event.sender) });
 });
 
 /** スクリーンショットを保存して app を終了する（検証経路の共通処理） */
@@ -326,10 +318,7 @@ void app.whenReady().then(() => {
 
   // CLI / Claude hooks からの NDJSON を受け付けるソケット server。push は window の
   // webContents に束縛する（gozd はシングルウィンドウ運用）
-  const socketPush: PushFn = (type, payload) => {
-    if (window.webContents.isDestroyed()) return;
-    window.webContents.send("rpc:push", type, payload);
-  };
+  const socketPush = createWebContentsPush(window.webContents);
   socketServer = startSocketServer(socketPath, createSocketMessageHandler(socketPush));
 
   // 実行中サーバーの周期検出。push は window に束縛（シングルウィンドウ運用）

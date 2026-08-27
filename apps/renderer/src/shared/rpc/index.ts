@@ -14,4 +14,5 @@ export {
   initRpcDispatcher,
   onMessage,
   setListenerErrorReporter,
+  setUndeliveredReporter,
 } from "./messages";

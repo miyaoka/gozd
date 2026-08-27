@@ -1,6 +1,7 @@
 import type { CreateTaskWorktreeResponse, WorktreeEntry } from "@gozd/rpc";
 import { describe, expect, spyOn, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
+import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { useWorktreeStore } from "../worktree";
 import { openCreatedWorktree } from "./openCreatedWorktree";
@@ -108,5 +109,33 @@ describe("openCreatedWorktree", () => {
 
     expect(terminalStore.visitedDirs).not.toContain(CREATED_DIR);
     expect(repoStore.selectedDir).toBe("/r1");
+  });
+
+  test("掲載に失敗したら、渡せなかった指示文をコピーできる形で出す", () => {
+    // ここで返ると claude は起動せず、指示文は引数にしか無いので失われる。
+    // 本文は message ではなく cause に載る（lostPrompt.ts の module doc）
+    setup();
+    const notifications = useNotificationStore();
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+
+    openCreatedWorktree(created("/unknown"), { prompt: "1 行目\n2 行目" }, "background");
+
+    consoleError.mockRestore();
+    const withPrompt = notifications.notifications.value.find((n) => n.cause === "1 行目\n2 行目");
+    expect(withPrompt).toBeDefined();
+    expect(withPrompt?.message).not.toContain("1 行目");
+  });
+
+  test("指示文を持たない作成では、失われた指示の通知を出さない", () => {
+    // picker 経由は prefill だけで prompt を持たない
+    setup();
+    const notifications = useNotificationStore();
+    const before = notifications.notifications.value.length;
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+
+    openCreatedWorktree(created("/unknown"), { prefill: "https://example.com/1" }, "background");
+
+    consoleError.mockRestore();
+    expect(notifications.notifications.value.length).toBe(before + 1);
   });
 });

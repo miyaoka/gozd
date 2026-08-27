@@ -25,6 +25,7 @@ async function setupManager() {
     },
     requestPtySpawn: async () => 1,
     sendPtyKill: () => {},
+    onSpawnError: () => {},
   });
   await manager.spawnPty("leaf", 80, 24);
   return manager;
@@ -83,5 +84,31 @@ describe("ptySession ring buffer", () => {
     // 次のチャンクが来たら上限超過分（big）は破棄される
     manager.handlePtyData(1, "y");
     expect(replayChunks(manager)).toEqual(["y"]);
+  });
+});
+
+describe("ptySession spawn 失敗", () => {
+  test("失敗は leafId 付きで onSpawnError に渡る", async () => {
+    // 呼び出し側は leafId で「その leaf に積んであった起動ヒント」を引き、渡せなかった
+    // 指示文を通知に載せる。leafId を落とすとヒントを引けず、指示文が黙って消える
+    const registry = new Map<string, PaneEntry>([["leaf", { dir: "/work/repo" }]]);
+    const calls: Array<{ leafId: string; dir: string; error: unknown }> = [];
+    const manager = createPtySessionManager({
+      panes: {
+        getPane: (leafId) => registry.get(leafId),
+        setSession: () => {},
+        iterateEntries: () => registry.entries(),
+      },
+      requestPtySpawn: () => Promise.reject(new Error("spawn boom")),
+      sendPtyKill: () => {},
+      onSpawnError: (params) => calls.push(params),
+    });
+
+    await manager.spawnPty("leaf", 80, 24);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.leafId).toBe("leaf");
+    expect(calls[0]?.dir).toBe("/work/repo");
+    expect((calls[0]?.error as Error).message).toBe("spawn boom");
   });
 });

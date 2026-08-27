@@ -16,6 +16,7 @@
 //    生じ、bun:test / SSR / 非 DOM 環境でロードエラーになる。renderer の bootstrap
 //    (`main.ts`) で 1 回だけ呼び出す契約にすることで、import 時の副作用を排除する。
 
+import type { PushPayloadMap } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 
 type AnyListener = (payload: unknown) => void;
@@ -30,6 +31,22 @@ type AnyListener = (payload: unknown) => void;
 const listeners = new Map<string, Set<AnyListener>>();
 
 /**
+ * 届く購読者が居なかったときに観察ログを残す push の type。
+ *
+ * **mount 時の pull で取り直せる payload は載せない。** 大半の push は「mount で pull、
+ * 変化で push」の契約（docs/architecture.md）に乗っており、購読者が居ない間の取りこぼしは
+ * 設計どおりの捨て方で、失敗ではない。それらまで記録すると、renderer の再構築のたびに
+ * 全 type ぶんのログが出て、本当に失われた 1 件が埋もれる。
+ *
+ * `newWorktree` の指示文は push payload にしか存在せず、落ちると worktree だけが残って
+ * 指示は戻らない。同じ性質を持つ type は他にもあり（docs/rpc.md の購読契約）、この集合は
+ * それらを網羅していない。足すときは pull の相手が無いことを確かめてから足す。
+ */
+const UNRECOVERABLE_PUSH_TYPES: ReadonlySet<string> = new Set<keyof PushPayloadMap>([
+  "newWorktree",
+]);
+
+/**
  * listener の失敗の追加報告先。feature 層から `setListenerErrorReporter()` で注入する。
  * shared 間の依存禁止 + shared → feature 依存禁止のため、報告先を直接呼べない
  * (`useCommandRegistry` の `setErrorHandler` と同じ DI 流儀)。
@@ -41,6 +58,16 @@ export function setListenerErrorReporter(
   reporter: ((type: string, cause: unknown) => void) | undefined,
 ): void {
   listenerErrorReporter = reporter;
+}
+
+/**
+ * 届く購読者が居なかった push の追加報告先。listener の失敗とは原因が別なので報告先も
+ * 分ける（event-log の行が「購読者側のバグ」と「購読が張られていなかった」を撃ち分ける）。
+ */
+let undeliveredReporter: ((type: string) => void) | undefined;
+
+export function setUndeliveredReporter(reporter: ((type: string) => void) | undefined): void {
+  undeliveredReporter = reporter;
 }
 
 /**
@@ -65,9 +92,28 @@ function reportListenerError(type: string, cause: unknown): void {
   }
 }
 
+/**
+ * 誰にも届かなかった push を記録する。listener の throw（`reportListenerError`）とは
+ * 原因が違う — あちらは購読者側のバグ、こちらは購読が張られる前 / 外れた後に届いたこと。
+ * 報告先も同じ二段構え（console floor + 注入先）にする。
+ */
+function reportUndelivered(type: string): void {
+  console.error(`[dispatchToListeners] no listener received type=${type}; payload dropped`);
+  const result = tryCatch(() => {
+    undeliveredReporter?.(type);
+  });
+  if (!result.ok) {
+    console.error(`[dispatchToListeners] undelivered reporter failed type=${type}`, result.error);
+  }
+}
+
 function dispatchToListeners(type: string, payload: unknown): void {
   const fns = listeners.get(type);
-  if (fns === undefined) return;
+  // size 0 は「購読が全部外れた後」。undefined（一度も購読されていない）と区別しない
+  if (fns === undefined || fns.size === 0) {
+    if (UNRECOVERABLE_PUSH_TYPES.has(type)) reportUndelivered(type);
+    return;
+  }
   // listener ごとに隔離する。1 つの throw で登録順の後続が同じ event を丸ごと落とすと、
   // 互いに無関係な購読者どうしで状態が黙ってずれる（claudeFx は arcade と voicevox が
   // 独立に購読しており、片方の失敗がもう片方を飢えさせる理由はない）。

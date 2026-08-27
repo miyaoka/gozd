@@ -6,6 +6,7 @@
 // plain data の不変条件は `@gozd/shared` の `ElectronRpcBridge` docstring が SSOT）。
 
 import type { PushPayloadMap } from "@gozd/rpc";
+import type { WebContents } from "electron";
 
 /** push 発射関数。spawn 時の sender に束縛される */
 // push は type 名 → payload 型の束縛 (`PushPayloadMap`) で型検査される。
@@ -14,6 +15,24 @@ export type PushFn = <K extends keyof PushPayloadMap>(type: K, payload: PushPayl
 
 export interface RpcContext {
   push: PushFn;
+}
+
+/** webContents 宛の push を作る。破棄済みで送れなかった push は観察ログに残す。
+ *
+ * silent drop にしないのは、push の一部が「mount 時の pull で取り直せない payload」を
+ * 運ぶため（CLAUDE.md の silent drop 禁止）。取りこぼしたことすら残らないと、UI に何も
+ * 起きなかった理由を後から再構築できない。
+ *
+ * webContents の破棄はウィンドウの close を意味し、gozd は単一ウィンドウ運用で直後に
+ * quit する。高頻度の type が流れ続けてログを埋めることはない。 */
+export function createWebContentsPush(contents: WebContents): PushFn {
+  return (type, payload) => {
+    if (contents.isDestroyed()) {
+      console.error(`[createWebContentsPush] dropped type=${type}: webContents is destroyed`);
+      return;
+    }
+    contents.send("rpc:push", type, payload);
+  };
 }
 
 // 戻り値は sync / async 両対応。unknown は Promise<unknown> を包含するため union にしない

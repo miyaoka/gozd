@@ -1,4 +1,5 @@
 export { activateDir } from "./activateDir";
+export { notifyLostPrompt } from "./lostPrompt";
 export { openCreatedWorktree } from "./openCreatedWorktree";
 export { claudeStateKeyOf } from "./claudeStateKey";
 export { default as TerminalPane } from "./TerminalPane.vue";

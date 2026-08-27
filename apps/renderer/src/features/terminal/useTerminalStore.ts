@@ -5,8 +5,10 @@ import { computed, ref, shallowRef } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
 import { dispatchMessage, onMessage } from "../../shared/rpc";
+import { consumeAutostartHint, type AutostartHint } from "./autostartHint";
 import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
+import { notifyLostPrompt } from "./lostPrompt";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
 import { rpcClaudeSessionRemoveByPty, rpcPtyKill, rpcPtySpawn } from "./rpc";
@@ -31,17 +33,6 @@ const DEFAULT_SHELL_ARGS = ["/bin/zsh", "-i"];
  * PTY のライフサイクル（spawn/kill/data）も store が一元管理する。
  * コンポーネントは xterm の attach/detach のみ担当する。
  */
-/**
- * autostart 時に claude へ渡すテキスト。渡し方が 2 通りあり、**送信されるかどうかが違う**。
- *
- * - `prefill`: `claude --prefill <text>` で入力欄に挿入するだけ。送信は人が行う。
- *   PR/issue picker が worktree 作成時に PR/issue URL を渡す用途
- * - `prompt`: `claude <text>` と引数で渡す。起動と同時に送信され実行が始まる。
- *   `gozd worktree new` が作業指示を渡す用途（切り出す側は相手が動き出すまでを指示している）
- *
- * 同時には片方しか意味を持たない。両方あるときは prompt を優先する。
- */
-export type AutostartHint = { prefill?: string; prompt?: string };
 
 export const useTerminalStore = defineStore("terminal", () => {
   const contextKeys = useContextKeys();
@@ -194,9 +185,8 @@ export const useTerminalStore = defineStore("terminal", () => {
         if (resumeId !== undefined) {
           delete pendingResumeByLeafId.value[leafId];
         }
-        if (autostart) {
-          delete pendingAutostartByLeafId.value[leafId];
-        }
+        // autostart ヒントは onSpawnError が指示文を読んでから消す。ここで消すと
+        // 「claude が起動せず指示文も消えた」ことを通知に載せられない
         delete pendingSetupByLeafId.value[leafId];
         throw res.error;
       }
@@ -213,15 +203,22 @@ export const useTerminalStore = defineStore("terminal", () => {
       void rpcPtyKill({ ptyId: id });
     },
     onPtyCleanup: (ptyId) => claude.cleanupPty(ptyId),
-    onSpawnError: ({ dir, error }) => {
+    onSpawnError: ({ leafId, dir, error }) => {
       // spawn 失敗をユーザーに通知する。resume 連打 dedup の catch path 経由で
       // pendingResumeByLeafId を消すと requestPtySpawn が throw するため、無反応で終わらない
       // よう必ず通知に倒す。dir は外側 Error の message に載せ、元 error は cause に
       // 包んで stack / 詳細を残す (cause 展開で worktree も診断できる)。
+      //
+      // 起動できなかった以上 claude は指示文を受け取っていない。ヒントに指示文があれば
+      // 別の通知として出し、手で渡し直せる形で残す。消費をここに置けるのは
+      // requestPtySpawn の reject 直後に同期で呼ばれるためで、ヒントが他経路に漏れる窓は
+      // 開かない。
+      const lostPrompt = consumeAutostartHint(pendingAutostartByLeafId.value, leafId)?.prompt;
       notify.error(
         "Failed to spawn terminal",
         new Error(`spawn failed; dir=${dir}`, { cause: error }),
       );
+      notifyLostPrompt(notify, lostPrompt);
     },
   });
 

@@ -10,14 +10,9 @@ import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import { ghErrorMessage } from "../../../github-item";
-import { reviveTaskForGhRef, rpcTaskAdd } from "../../../task";
-import { activateDir, useTerminalStore } from "../../../terminal";
-import {
-  generateTimestamp,
-  rpcCreateWorktree,
-  rpcGitDefaultBranch,
-  useWorktreeStore,
-} from "../../../worktree";
+import { reviveTaskForGhRef } from "../../../task";
+import { activateDir, openCreatedWorktree } from "../../../terminal";
+import { rpcCreateTaskWorktree, useWorktreeStore } from "../../../worktree";
 import { inFlightKey, useInFlightGhRefs } from "../../inFlightGhRefs";
 import { buildTaskIndexByGhRef, ghRefKey } from "../../taskIndexByGhRef";
 import { fetchViewer } from "../pr-picker";
@@ -30,7 +25,6 @@ export function registerIssueCommand(): () => void {
   const { open, setResult, hide } = useIssuePicker();
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
-  const terminalStore = useTerminalStore();
   const repoStore = useRepoStore();
   const inFlightGhRefs = useInFlightGhRefs();
 
@@ -96,75 +90,30 @@ export function registerIssueCommand(): () => void {
             activateDir(existing.worktreeDir);
             return;
           }
-          // 新規 worktree は default branch を起点に作る。main 側で `origin/HEAD` を
-          // 優先し、未設定（remote 無し / push 前 repo）の場合は main repo root 自身の
-          // current branch に fallback して解決した ref を受け取り、`startPoint` に渡す。
-          const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
-          if (rootDir === undefined) {
-            notify.error("Failed to resolve repo root for worktree creation");
-            return;
-          }
-          const branchResult = await tryCatch(rpcGitDefaultBranch({ dir: rootDir }));
-          if (!branchResult.ok || branchResult.value.branch === "") {
-            notify.error(
-              "Failed to resolve default branch",
-              branchResult.ok ? undefined : branchResult.error,
-            );
-            return;
-          }
-          // 通常の新規 worktree と同じ timestamp ベースで命名する。issue 番号を branch 名に
-          // 埋め込まないため、task を削除した後に同じ issue から作り直しても branch 名が
-          // 衝突しない。連続選択 (Shift 選択) の同一秒衝突は generateTimestamp 自体が
-          // per-process 一意 (連番 suffix) を保証するため、ここでの in-flight 検知は不要。
-          const timestamp = generateTimestamp();
+          // worktree は default branch 起点、branch 名は timestamp（main 側の既定）。
+          // issue 番号を branch 名に埋め込まないため、task を削除した後に同じ issue から
+          // 作り直しても branch 名が衝突しない。連続選択 (Shift 選択) の同一秒衝突は
+          // main 側の timestamp が per-process 一意 (連番 suffix) を保証する。
+          //
+          // issue タイトルを持つ task が Claude session 未起動状態 (sessionId 空) で
+          // 一緒に永続化される。サイドバー行をクリックすると素の claude が起動して
+          // SessionStart hook で attach される。
           const result = await tryCatch(
-            rpcCreateWorktree({
-              dir: rootDir,
-              worktreeDir: timestamp,
-              branch: timestamp,
-              startPoint: branchResult.value.branch,
-            }),
-          );
-          if (!result.ok) {
-            notify.error("Failed to create worktree", result.error);
-            return;
-          }
-          // worktree レスポンスが空のときは早期 return。続行して autostart すると
-          // サイドバーに表れない worktree でターミナルだけ動く不整合状態に落ちる
-          // (PR-picker と挙動を揃える)。
-          if (result.value.worktree === undefined) {
-            notify.error("Worktree created but sidebar could not be updated");
-            return;
-          }
-          repoStore.appendWorktree(rootDir, result.value.worktree);
-          // issue タイトルを body に持つ task を作成し worktree に紐付ける。
-          // Claude session 未起動状態 (sessionId 空) で永続化され、サイドバー行を
-          // クリックすると素の claude が起動して SessionStart hook で attach される。
-          // taskAdd 後の真値反映は requestRefresh に委ねる (楽観更新で renderer 側を
-          // 直書きしない)。失敗時は autostart を抑止し、worktree だけ残る (task 不在の
-          // ため `git worktree remove` で手動回収するか、再度 issue を選び直して別の
-          // worktree を作る)。
-          const taskResult = await tryCatch(
-            rpcTaskAdd({
-              dir: rootDir,
+            rpcCreateTaskWorktree({
+              dir,
+              branch: "",
+              startPoint: "",
               ghTitle: issue.title,
-              worktreeDir: result.value.dir,
               ghRef: ghRefForIssue(issue.number),
             }),
           );
-          if (!taskResult.ok) {
-            notify.error("Failed to create task for issue", taskResult.error);
+          if (!result.ok) {
+            notify.error("Failed to create worktree for issue", result.error);
             return;
           }
-          item.existingTask = taskResult.value.task;
-          repoStore.requestRefresh(rootDir);
-          // 直後の setOpen で visit が走り初期 leaf が作られる前に autostart ヒントを残す。
-          // これで visit が初期 leaf に素の `claude` 起動を仕込み、SessionStart hook で
-          // 上で作成した task に attach される。後追いクリック起動の二重 leaf を防ぐ。
+          item.existingTask = result.value.task;
           // issue URL を prefill で渡し、claude の入力欄に事前挿入する (送信はされない)。
-          terminalStore.requestNewClaudeSession(result.value.dir, issue.url);
-          terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
-          activateDir(result.value.dir);
+          openCreatedWorktree(result.value, issue.url);
         };
 
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI

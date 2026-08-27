@@ -6,11 +6,32 @@
 // 次の session-start」が submit 順に処理されることを保証する。node は単一スレッドだが
 // await 境界で別メッセージが割り込めるため、promise chain の逐次キューで同じ保証を作る。
 // session 系 hook は頻度が低く、後続 push を待たせる影響は小さい。
+//
+// キューに載せるのは順序に意味がある種別だけ。worktree の作成は hook と順序関係を持たず
+// 実行が長いため、キューの外で走らせる（載せると作成中の状態通知が全 PTY で止まる）。
 
-import type { ClientMessage, HookMessage } from "@gozd/rpc";
+import type {
+  ClientMessage,
+  ClientReply,
+  GhRef,
+  HookMessage,
+  NewWorktreeMessage,
+  Task,
+} from "@gozd/rpc";
+import { ghRefLabel } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
+import { basename } from "node:path";
+import { createTaskWorktree } from "./git/taskWorktree";
 import { buildGozdOpenPayload } from "./openTarget";
-import { asDict, lenientBoolean, lenientDict, lenientNumber, lenientString } from "./rawJson";
+import {
+  asDict,
+  lenientBoolean,
+  lenientDict,
+  lenientGhRef,
+  lenientNumber,
+  lenientString,
+} from "./rawJson";
+import type { SocketMessageHandler } from "./socketServer";
 import {
   clearSessionId,
   consumeExpectedResumeSid,
@@ -20,7 +41,7 @@ import {
   worktreePathFor,
 } from "./ptySessions";
 import type { PushFn } from "./rpcDispatcher";
-import { taskStore } from "./taskStore";
+import { resolveMainRepoRoot, sameGhRef, taskStore } from "./taskStore";
 
 function notifyTaskStoreError(push: PushFn, message: string, error: unknown, dir: string): void {
   console.error(`[TaskStore] ${message}: ${String(error)}`);
@@ -145,18 +166,76 @@ function parseClientMessage(line: string): ClientMessage {
       targetPath: lenientString(lenientDict(dict.open, "open").targetPath, "open.targetPath"),
     };
   }
+  if (dict.newWorktree !== undefined) {
+    const newWorktree = lenientDict(dict.newWorktree, "newWorktree");
+    msg.newWorktree = {
+      dir: lenientString(newWorktree.dir, "newWorktree.dir"),
+      title: lenientString(newWorktree.title, "newWorktree.title"),
+      prefill: lenientString(newWorktree.prefill, "newWorktree.prefill"),
+      ghRef: lenientGhRef(newWorktree.ghRef, "newWorktree.ghRef"),
+    };
+  }
   return msg;
 }
 
-async function handleSocketMessage(line: string, push: PushFn): Promise<void> {
-  const parsed = tryCatch(() => parseClientMessage(line));
-  if (!parsed.ok) {
-    console.error(
-      `[SocketServer] failed to decode ClientMessage: ${parsed.error}: ${line.slice(0, 200)}`,
-    );
-    return;
+/** `gozd worktree new` を処理して ClientReply の 1 行を返す。
+ * worktree 作成と task 紐づけまでを main が完了させ、UI 反映（サイドバー掲載 /
+ * claude の autostart）は push に委ねる。応答は「作成できたか」だけを表し、
+ * push が届いたかは含まない — renderer が居ない状態でも worktree は正しく作られる。 */
+async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise<string> {
+  const reply = (value: ClientReply): string => JSON.stringify(value);
+  if (msg.dir === "") {
+    return reply({ ok: false, dir: "", error: "newWorktree: dir is required" });
   }
-  const msg = parsed.value;
+  // 同じ PR / issue の task が既にあるなら作らない。エージェントが issue 一覧を読み直して
+  // 同じ番号を再投入する経路が常にあり、通すと同一 issue に worktree が積み上がる。
+  // UI の picker は既存 worktree への切り替えに倒すが、CLI には切り替える画面が無いので
+  // 失敗として返し、既存の置き場所を実行者に伝える
+  if (msg.ghRef !== undefined) {
+    const existing = await tryCatch(findTaskByGhRef(msg.dir, msg.ghRef));
+    if (!existing.ok) {
+      console.error(`[handleNewWorktree] task lookup failed: ${existing.error} dir=${msg.dir}`);
+      return reply({ ok: false, dir: "", error: String(existing.error) });
+    }
+    if (existing.value !== undefined) {
+      return reply({
+        ok: false,
+        dir: "",
+        error: `${ghRefLabel(msg.ghRef)} already has a worktree at ${existing.value.worktreeDir}`,
+      });
+    }
+  }
+  const created = await tryCatch(
+    createTaskWorktree({
+      dir: msg.dir,
+      branch: "",
+      startPoint: "",
+      ghTitle: msg.title,
+      ghRef: msg.ghRef,
+    }),
+  );
+  if (!created.ok) {
+    console.error(`[handleNewWorktree] createTaskWorktree failed: ${created.error} dir=${msg.dir}`);
+    return reply({ ok: false, dir: "", error: String(created.error) });
+  }
+  push("newWorktree", {
+    ...created.value,
+    prefill: msg.prefill,
+    repoName: basename(created.value.rootDir),
+  });
+  return reply({ ok: true, dir: created.value.dir, error: "" });
+}
+
+/** repo 内に同じ ghRef を持つ task があれば返す。 */
+async function findTaskByGhRef(dir: string, ghRef: GhRef): Promise<Task | undefined> {
+  const rootDir = await resolveMainRepoRoot(dir);
+  return (await taskStore.list(rootDir)).find(
+    (task) => task.ghRef !== undefined && sameGhRef(task.ghRef, ghRef),
+  );
+}
+
+/** 逐次キューに載せる種別の処理。応答は返さない。 */
+async function handleQueuedMessage(msg: ClientMessage, push: PushFn): Promise<undefined> {
   if (msg.hook !== undefined) {
     const hook = msg.hook;
     if (hook.event === "session-start" || hook.event === "session-end") {
@@ -167,31 +246,53 @@ async function handleSocketMessage(line: string, push: PushFn): Promise<void> {
     // (パーサを cast に変えると、この rest spread が socket の任意キーを素通しする)
     const { source: _source, ...hookPayload } = hook;
     push("hook", hookPayload);
-    return;
+    return undefined;
   }
   if (msg.open !== undefined) {
     // undefined = 不在パス（buildGozdOpenPayload が観察ログを出して弾く）。push しない
     const payload = await buildGozdOpenPayload(msg.open.targetPath);
     if (payload !== undefined) push("gozdOpen", payload);
-    return;
+    return undefined;
   }
-  console.error(`[SocketServer] ClientMessage with empty oneof: ${line.slice(0, 200)}`);
+  console.error(
+    `[SocketServer] ClientMessage with empty oneof: ${JSON.stringify(msg).slice(0, 200)}`,
+  );
+  return undefined;
 }
 
-/** socket 1 行を逐次処理するハンドラを作る。promise chain で submit 順の処理を保証する */
-export function createSocketMessageHandler(push: PushFn): (line: string) => void {
-  let chain: Promise<void> = Promise.resolve();
+/** socket 1 行を処理するハンドラを作る。
+ *
+ * 状態通知は promise chain の逐次キューに載せ、submit 順の処理を保証する。
+ * **worktree の作成はこのキューに載せない** — git の実行で秒単位かかるうえ hook と順序
+ * 関係を持たないため、載せると作成中は全 PTY の状態通知が止まる。 */
+export function createSocketMessageHandler(push: PushFn): SocketMessageHandler {
+  let chain: Promise<undefined> = Promise.resolve(undefined);
+  // メッセージ単位の失敗を終端で握らないと chain が rejected のまま残り、以降の
+  // 全メッセージが onRejected 不在の .then で素通しされて恒久 drop になる
+  // （unhandledRejection になるだけで [SocketServer] の観察ログも出ない）。
+  // キューを生かし続け、失敗行だけを観察ログに倒す
+  const observeFailure = (line: string) => (error: unknown) => {
+    console.error(
+      `[SocketServer] handler rejected, chain kept alive: ${error}: ${line.slice(0, 200)}`,
+    );
+    return undefined;
+  };
   return (line) => {
-    chain = chain
-      .then(() => handleSocketMessage(line, push))
-      .catch((error) => {
-        // メッセージ単位の失敗を終端で握らないと chain が rejected のまま残り、以降の
-        // 全メッセージが onRejected 不在の .then で素通しされて恒久 drop になる
-        // （unhandledRejection になるだけで [SocketServer] の観察ログも出ない）。
-        // キューを生かし続け、失敗行だけを観察ログに倒す
-        console.error(
-          `[SocketServer] handler rejected, chain kept alive: ${error}: ${line.slice(0, 200)}`,
-        );
-      });
+    const parsed = tryCatch(() => parseClientMessage(line));
+    if (!parsed.ok) {
+      console.error(
+        `[SocketServer] failed to decode ClientMessage: ${parsed.error}: ${line.slice(0, 200)}`,
+      );
+      return Promise.resolve(undefined);
+    }
+    const { newWorktree } = parsed.value;
+    if (newWorktree !== undefined) {
+      return handleNewWorktree(newWorktree, push).catch(observeFailure(line));
+    }
+    const settled = chain
+      .then(() => handleQueuedMessage(parsed.value, push))
+      .catch(observeFailure(line));
+    chain = settled;
+    return settled;
   };
 }

@@ -4,10 +4,12 @@
 // 立てて相対的な挙動を検証する。
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import {
   buildPtyEnv,
+  claudePluginDir,
   claudeSettingsPath,
   cliPath,
   launchRequestDir,
@@ -68,6 +70,7 @@ describe("buildPtyEnv", () => {
     expect(env.GOZD_SOCKET_PATH).toBe(socketPath);
     expect(env.GOZD_CLI_PATH).toBe(cliPath);
     expect(env.GOZD_CLAUDE_SETTINGS_PATH).toBe(claudeSettingsPath);
+    expect(env.GOZD_CLAUDE_PLUGIN_DIR).toBe(claudePluginDir);
   });
 
   test("ZDOTDIR は gozd 側に切替、ユーザーの ZDOTDIR は GOZD_ORIG_ZDOTDIR に退避される", () => {
@@ -111,5 +114,14 @@ describe("buildPtyEnv", () => {
     expect(env.GOZD_DEV_PROJECT_ROOT).toBeUndefined();
     expect(env.GOZD_DEV_VITE_PORT).toBeUndefined();
     expect(env.GOZD_ELECTRON_RENDERER_URL).toBeUndefined();
+  });
+});
+
+describe("claudePluginDir", () => {
+  test("同梱リソースの実体を指し、Claude Code が要求する構造を満たす", () => {
+    // zsh init が `--plugin-dir` で claude に渡す先。gozd の skill はここからしか供給
+    // されないため、参照が外れると gozd 内の claude から skill が消える
+    expect(existsSync(join(claudePluginDir, ".claude-plugin", "plugin.json"))).toBe(true);
+    expect(existsSync(join(claudePluginDir, "skills", "worktree", "SKILL.md"))).toBe(true);
   });
 });

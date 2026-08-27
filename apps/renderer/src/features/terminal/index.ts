@@ -1,4 +1,5 @@
 export { activateDir } from "./activateDir";
+export { openCreatedWorktree } from "./openCreatedWorktree";
 export { claudeStateKeyOf } from "./claudeStateKey";
 export { default as TerminalPane } from "./TerminalPane.vue";
 export { useTerminalStore } from "./useTerminalStore";

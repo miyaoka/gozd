@@ -3,12 +3,14 @@
 import type {
   EmptyMessage,
   FileReadResult,
+  GhRef,
   GitCommit,
   GitFileChange,
   GitIssue,
   GitPullRequest,
   GitPullRequestBadge,
   GitPullRequestCheckState,
+  Task,
   WorktreeEntry,
 } from "./common";
 
@@ -489,6 +491,49 @@ export interface CreateWorktreeResponse {
   dir: string;
   /** project 設定の setupScript。renderer が専用ターミナルで実行する。空なら実行しない */
   setupScript: string;
+}
+
+// createTaskWorktree: worktree 作成と task 紐づけを 1 往復で行う合成操作。
+//
+// worktree だけが出来て task が付かない中間状態を呼び出し側に見せないための単位。
+// PR / issue picker と `gozd worktree new`（ソケット経由）が同じ経路を通る。
+//
+// branch / startPoint は空文字が「main 側で決めろ」を意味する:
+//   - branch 空: timestamp（`generateTimestamp`）を branch 名にする
+//   - startPoint 空: default branch（`resolveStartPoint` の二段 fallback）を起点にする
+// PR picker だけが両方を明示する（`<headRef>` を `origin/<headRef>` から作る）。
+export interface CreateTaskWorktreeRequest {
+  /** repo 内の任意の dir。main 側で main repo root に解決する */
+  dir: string;
+  branch: string;
+  startPoint: string;
+  /** 作成する task の ghTitle */
+  ghTitle: string;
+  ghRef?: GhRef;
+}
+export interface CreateTaskWorktreeResponse {
+  /** 解決済みの main repo root。renderer は自身で解決せずこの値を worktree の帰属先に使う */
+  rootDir: string;
+  worktree: WorktreeEntry;
+  /** 作成した worktree の絶対パス */
+  dir: string;
+  task: Task;
+  /** project 設定の setupScript。renderer が専用ターミナルで実行する。空なら実行しない */
+  setupScript: string;
+}
+
+/** newWorktree push payload。ソケット (`gozd worktree new`) 由来で main が作った worktree を
+ * renderer に開かせる。作成そのものは main で完了しているため、renderer の責務は
+ * 「サイドバーに載せる → setup / autostart のヒントを立てる → activate」だけ。
+ *
+ * 作成結果と prefill を 1 つの push に載せるのは、autostart ヒントが activate より先に
+ * 立っていないと初期 leaf が素のシェルで作られてしまい、claude が起動しないため。
+ * 2 つの push に割ると、間に挟まる await の分だけ順序が保証できなくなる。 */
+export interface NewWorktreePayload extends CreateTaskWorktreeResponse {
+  /** 起動する claude の入力欄に事前挿入するテキスト。空なら素の claude を起動する */
+  prefill: string;
+  /** repo の表示名（main repo の basename）。この repo が window に未登録だったときだけ使う */
+  repoName: string;
 }
 
 // gitWorktreeRemove: worktree を削除

@@ -2,12 +2,14 @@
 // 対応物（issue #895「CLI: ソケットプロトコル互換を保って TS で再実装」）。
 // ワイヤは ClientMessage の JSON 1 行（NDJSON）。形状は旧 proto3 JSON mapping と同一。
 
-import type { HookMessage } from "@gozd/rpc";
+import type { GhRef, HookMessage, NewWorktreeMessage } from "@gozd/rpc";
+import { ghRefForIssue, ghRefForPr } from "@gozd/rpc";
+import type { Result } from "@gozd/shared";
 import { tryCatch } from "@gozd/shared";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 // socket / launch dir で共有する prefix（Swift `bundlePrefix` と同じ値）
 const BUNDLE_PREFIX = "gozd";
@@ -98,4 +100,72 @@ export function parseStdinJson(text: string): Record<string, unknown> {
     return parsed.value as Record<string, unknown>;
   }
   return {};
+}
+
+/** `gozd worktree new` が受け付けるオプション。値は必ず次の引数か `=` の右辺で渡す。 */
+const NEW_WORKTREE_FLAGS = ["--title", "--prefill", "--dir", "--issue", "--pr"] as const;
+type NewWorktreeFlag = (typeof NEW_WORKTREE_FLAGS)[number];
+
+function isNewWorktreeFlag(name: string): name is NewWorktreeFlag {
+  return (NEW_WORKTREE_FLAGS as readonly string[]).includes(name);
+}
+
+/** `--issue` / `--pr` の番号。GitHub の番号は 1 始まりの整数以外を取らない */
+function parseGhNumber(flag: NewWorktreeFlag, text: string): Result<number, string> {
+  if (!/^\d+$/.test(text) || text === "0") {
+    return { ok: false, error: `${flag} expects a positive number, got ${JSON.stringify(text)}` };
+  }
+  return { ok: true, value: Number(text) };
+}
+
+/**
+ * `gozd worktree new` の引数を NewWorktreeMessage に組み立てる。
+ *
+ * `--title` は必須。タイトルの無い task はサイドバーで見分けが付かず、複数の worktree を
+ * 並べて回す用途そのものが成立しないため、既定値で埋めずに失敗させる。
+ */
+export function parseNewWorktreeArgs(
+  argv: string[],
+  cwd: string,
+): Result<NewWorktreeMessage, string> {
+  // `--flag=value` を `--flag` `value` の 2 トークンに開いてから 2 つずつ読む
+  const tokens = argv.flatMap((token) => {
+    const eq = token.indexOf("=");
+    return token.startsWith("--") && eq !== -1
+      ? [token.slice(0, eq), token.slice(eq + 1)]
+      : [token];
+  });
+  const flags: Partial<Record<NewWorktreeFlag, string>> = {};
+  for (let i = 0; i < tokens.length; i += 2) {
+    const [name = "", value] = tokens.slice(i, i + 2);
+    if (!isNewWorktreeFlag(name)) return { ok: false, error: `unknown option: ${name}` };
+    if (value === undefined) return { ok: false, error: `${name} requires a value` };
+    flags[name] = value;
+  }
+
+  const title = flags["--title"] ?? "";
+  if (title === "") return { ok: false, error: "--title is required" };
+
+  const issue = flags["--issue"];
+  const pr = flags["--pr"];
+  if (issue !== undefined && pr !== undefined) {
+    return { ok: false, error: "--issue and --pr are mutually exclusive" };
+  }
+  const ghNumber = issue ?? pr;
+  let ghRef: GhRef | undefined;
+  if (ghNumber !== undefined) {
+    const parsed = parseGhNumber(issue !== undefined ? "--issue" : "--pr", ghNumber);
+    if (!parsed.ok) return parsed;
+    ghRef = issue !== undefined ? ghRefForIssue(parsed.value) : ghRefForPr(parsed.value);
+  }
+
+  return {
+    ok: true,
+    value: {
+      dir: resolve(cwd, flags["--dir"] ?? "."),
+      title,
+      prefill: flags["--prefill"] ?? "",
+      ghRef,
+    },
+  };
 }

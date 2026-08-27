@@ -19,16 +19,24 @@ autoload -Uz add-zsh-hook
 add-zsh-hook chpwd _gozd_osc7_cwd
 _gozd_osc7_cwd
 
-# claude コマンドをラップして --settings を自動注入
+# claude コマンドをラップして gozd の設定を自動注入する。
+#
+# - --settings: hooks 設定。ユーザーが自分で --settings を渡したらそちらを尊重して降りる
+#   （設定ファイルは 1 つしか指定できないため、重ねると衝突する）
+# - --plugin-dir: gozd の skill を運ぶ plugin。繰り返し指定できる追加専用のフラグなので、
+#   ユーザー指定の有無に関わらず常に足す。gozd の中でしか撃てないコマンドを扱う skill なので、
+#   ユーザーの ~/.claude には置かずこの経路だけで供給する
 claude() {
   local arg
+  local -a gozd_args=()
+  [[ -n "$GOZD_CLAUDE_PLUGIN_DIR" ]] && gozd_args+=(--plugin-dir "$GOZD_CLAUDE_PLUGIN_DIR")
   for arg in "$@"; do
     [[ "$arg" == --settings || "$arg" == --settings=* ]] && {
-      command claude "$@"
+      command claude "${gozd_args[@]}" "$@"
       return $?
     }
   done
-  command claude --settings "$GOZD_CLAUDE_SETTINGS_PATH" "$@"
+  command claude "${gozd_args[@]}" --settings "$GOZD_CLAUDE_SETTINGS_PATH" "$@"
 }
 
 # アプリ再起動を跨いで Claude セッションを復元する。

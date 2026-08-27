@@ -22,6 +22,7 @@
 #     app/                             ← extraResources（asar の外。実ディレクトリ）
 #       bin/                             ← wrapper + gozd-cli shim（gozdEnv が Resources/app/bin を期待）
 #       zsh/                             ← zsh init チェーン（Swift 版と共有）
+#       claude-plugin/                   ← gozd の skill を運ぶ Claude Code plugin（--plugin-dir で渡す）
 #       views/main/                      ← renderer の Vite ビルド成果物
 appId: io.github.miyaoka.gozd.electron
 productName: Gozd
@@ -62,6 +63,8 @@ extraResources:
     to: app/bin
   - from: resources/zsh
     to: app/zsh
+  - from: resources/claude-plugin
+    to: app/claude-plugin
   - from: ../renderer/dist
     to: app/views/main
 mac:

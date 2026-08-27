@@ -8,6 +8,7 @@ import { join } from "node:path";
 import {
   buildHookMessage,
   launchRequestDirFromSocketPath,
+  parseNewWorktreeArgs,
   parseStdinJson,
   resolveSocketPath,
   writeLaunchRequest,
@@ -159,5 +160,60 @@ describe("parseStdinJson", () => {
     expect(parseStdinJson("[1,2]")).toEqual({});
     expect(parseStdinJson('"text"')).toEqual({});
     expect(parseStdinJson('{"a":1}')).toEqual({ a: 1 });
+  });
+});
+
+describe("parseNewWorktreeArgs", () => {
+  test("--title だけで cwd 起点の message になる", () => {
+    const parsed = parseNewWorktreeArgs(["--title", "fix login"], "/repo");
+    expect(parsed).toEqual({
+      ok: true,
+      value: { dir: "/repo", title: "fix login", prefill: "", ghRef: undefined },
+    });
+  });
+
+  test("--flag=value 形式も受ける", () => {
+    const parsed = parseNewWorktreeArgs(["--title=fix", "--prefill=do it"], "/repo");
+    expect(parsed.ok && parsed.value.prefill).toBe("do it");
+  });
+
+  test("--dir は cwd 基準で絶対パスに解決する", () => {
+    const parsed = parseNewWorktreeArgs(["--title", "t", "--dir", "../other"], "/repo/sub");
+    expect(parsed.ok && parsed.value.dir).toBe("/repo/other");
+  });
+
+  test("--issue / --pr は ghRef になる", () => {
+    const issue = parseNewWorktreeArgs(["--title", "t", "--issue", "42"], "/repo");
+    expect(issue.ok && issue.value.ghRef).toEqual({ kind: "GH_REF_KIND_ISSUE", number: 42 });
+    const pr = parseNewWorktreeArgs(["--title", "t", "--pr", "7"], "/repo");
+    expect(pr.ok && pr.value.ghRef).toEqual({ kind: "GH_REF_KIND_PR", number: 7 });
+  });
+
+  test("--title 無しは失敗する（タイトル無しの task はサイドバーで見分けが付かない）", () => {
+    expect(parseNewWorktreeArgs([], "/repo")).toEqual({ ok: false, error: "--title is required" });
+  });
+
+  test("--issue と --pr の同時指定は失敗する", () => {
+    const parsed = parseNewWorktreeArgs(["--title", "t", "--issue", "1", "--pr", "2"], "/repo");
+    expect(parsed).toEqual({
+      ok: false,
+      error: "--issue and --pr are mutually exclusive",
+    });
+  });
+
+  test("番号でない --issue は失敗する", () => {
+    const parsed = parseNewWorktreeArgs(["--title", "t", "--issue", "#42"], "/repo");
+    expect(parsed.ok).toBe(false);
+  });
+
+  test("未知のオプションと値の無いオプションは失敗する", () => {
+    expect(parseNewWorktreeArgs(["--nope", "x"], "/repo")).toEqual({
+      ok: false,
+      error: "unknown option: --nope",
+    });
+    expect(parseNewWorktreeArgs(["--title"], "/repo")).toEqual({
+      ok: false,
+      error: "--title requires a value",
+    });
   });
 });

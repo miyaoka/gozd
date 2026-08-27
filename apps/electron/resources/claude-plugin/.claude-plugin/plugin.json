@@ -1,0 +1,8 @@
+{
+  "name": "gozd",
+  "description": "Skills for driving gozd from a Claude session running inside it",
+  "version": "0.1.0",
+  "author": {
+    "name": "gozd"
+  }
+}

@@ -15,6 +15,7 @@ import type {
   RemoteRefsChangePayload,
   WorktreeChangePayload,
 } from "./gitStatus";
+import type { NewWorktreePayload } from "./gitOps";
 import type { GozdOpenPayload } from "./open";
 import type { DebugLogPayload, NotifyPayload } from "./observability";
 import type { PtyExitPayload, PtyTextPayload } from "./pty";
@@ -31,6 +32,7 @@ export interface PushPayloadMap {
   gitStatusChange: GitStatusChangePayload;
   gozdOpen: GozdOpenPayload;
   hook: HookPayload;
+  newWorktree: NewWorktreePayload;
   notify: NotifyPayload;
   ptyExit: PtyExitPayload;
   ptyText: PtyTextPayload;

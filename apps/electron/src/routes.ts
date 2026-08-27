@@ -16,6 +16,8 @@ import type {
   ReviveSessionResponse,
   ClipboardCopyFilesRequest,
   ClipboardCopyFilesResponse,
+  CreateTaskWorktreeRequest,
+  CreateTaskWorktreeResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   EchoRequest,
@@ -192,6 +194,7 @@ import {
   type FileChangeInfo,
 } from "./git/gitTree";
 import { validateRev } from "./git/gitValidate";
+import { createTaskWorktree, toWorktreeEntry } from "./git/taskWorktree";
 import {
   createWorktree,
   pruneWorktrees,
@@ -950,20 +953,16 @@ async function handleCreateWorktree(body: unknown): Promise<unknown> {
     symlinks: projectConfig.worktreeSymlinks,
   });
   return {
-    worktree: {
-      path: info.path,
-      head: info.head,
-      branch: info.branch ?? "",
-      isMain: info.isMain,
-      gitStatuses: {},
-      renameOldPaths: {},
-      latestMtime: 0,
-      upstream: undefined,
-      tasks: [],
-    },
+    worktree: toWorktreeEntry(info, []),
     dir: info.path,
     setupScript: projectConfig.setupScript,
   } satisfies CreateWorktreeResponse;
+}
+
+async function handleCreateTaskWorktree(body: unknown): Promise<unknown> {
+  return (await createTaskWorktree(
+    body as CreateTaskWorktreeRequest,
+  )) satisfies CreateTaskWorktreeResponse;
 }
 
 async function handleWorktreeRemove(body: unknown, ctx: RpcContext): Promise<unknown> {
@@ -1205,17 +1204,7 @@ async function handleReviveSession(body: unknown): Promise<unknown> {
     throw new Error(`revive: task not created for session ${req.sessionId} at ${info.path}`);
   }
   return {
-    worktree: {
-      path: info.path,
-      head: info.head,
-      branch: info.branch ?? "",
-      isMain: info.isMain,
-      gitStatuses: {},
-      renameOldPaths: {},
-      latestMtime: 0,
-      upstream: undefined,
-      tasks: [task],
-    },
+    worktree: toWorktreeEntry(info, [task]),
     dir: info.path,
     task,
     setupScript: projectConfig.setupScript,
@@ -1312,6 +1301,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/resetMixed", handleGitResetMixed],
   ["/git/defaultBranch", handleGitDefaultBranch],
   ["/git/createWorktree", handleCreateWorktree],
+  ["/git/createTaskWorktree", handleCreateTaskWorktree],
   ["/git/worktreeRemove", handleWorktreeRemove],
   ["/git/prList", handleGitPrList],
   ["/git/prsForBranches", handleGitPrsForBranches],

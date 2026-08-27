@@ -9,7 +9,9 @@ export {
   pathTargetToString,
 } from "./pathUtils";
 export type { PathTarget } from "./pathUtils";
+export { ensureRepoRegistered } from "./ensureRepoRegistered";
 export {
+  rpcCreateTaskWorktree,
   rpcCreateWorktree,
   rpcGitDefaultBranch,
   rpcGitGithubIdentity,

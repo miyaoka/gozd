@@ -57,6 +57,7 @@ main から renderer への一方向通知。
 | `worktreeChange`         | worktree の構成、または main worktree の checkout 先変化                               |
 | `fsWatchReady`           | 監視登録成立後の dir 単位の再同期シグナル（renderer 内部で発射。ワイヤ push ではない） |
 | `gozdOpen`               | CLI / 起動要求からの open 要求                                                         |
+| `newWorktree`            | CLI が作った worktree を開けの要求                                                     |
 | `serverPortsChange`      | 実行中サーバー検出結果の snapshot                                                      |
 | `hook`                   | Claude Code の hook イベント                                                           |
 | `notify`                 | main 側のバックグラウンドエラー / 情報通知                                             |
@@ -78,9 +79,13 @@ main から renderer への一方向通知。
 
 ### CLI / Claude hooks → main
 
-ソケットの受付契約は [architecture.md](architecture.md#ソケットからの受付)。メッセージ形状は
-`open` / `hook` のどちらか一方だけを持つ形で、**フィールドを持たない直送経路でも埋められる**
+ソケットの受付契約は [architecture.md](architecture.md#ソケットからの受付)。メッセージは
+種別ごとのフィールドを 1 つだけ持つ形で、**フィールドを持たない直送経路でも埋められる**
 最小構成に保つ。受信側が不在フィールドを default で埋める。
+
+応答の有無は種別で決まる。状態を通知するだけの種別は送りっぱなしにし、**実行者が結果を
+知らないと次へ進めない種別だけ 1 行の応答を返す**。worktree の作成がこれにあたる —
+送れたことと作れたことは別で、後者を確かめずにエージェントが次の指示を出せない。
 
 ## renderer 側の購読契約
 

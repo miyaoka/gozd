@@ -1,7 +1,6 @@
 export { openTaskSession } from "./openTaskSession";
 export { reviveTaskForGhRef } from "./reviveTaskForGhRef";
 export {
-  rpcTaskAdd,
   rpcTaskList,
   rpcTaskRemove,
   rpcTaskRemoveByWorktree,

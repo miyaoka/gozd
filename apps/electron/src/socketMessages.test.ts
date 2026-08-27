@@ -11,21 +11,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSocketMessageHandler } from "./socketMessages";
 
-function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const started = Date.now();
-    const timer = setInterval(() => {
-      if (predicate()) {
-        clearInterval(timer);
-        resolve();
-      } else if (Date.now() - started > timeoutMs) {
-        clearInterval(timer);
-        reject(new Error("waitFor timeout"));
-      }
-    }, 10);
-  });
-}
-
 describe("socketMessages", () => {
   const tempDirs: string[] = [];
 
@@ -36,8 +21,7 @@ describe("socketMessages", () => {
   test("hook メッセージは Swift onHook と同形の payload で push される", async () => {
     const pushed: Array<{ type: string; payload: unknown }> = [];
     const handle = createSocketMessageHandler((type, payload) => pushed.push({ type, payload }));
-    handle('{"hook":{"event":"running","ptyId":3}}');
-    await waitFor(() => pushed.length === 1);
+    await handle('{"hook":{"event":"running","ptyId":3}}');
     expect(pushed[0]?.type).toBe("hook");
     expect(pushed[0]?.payload).toEqual({
       event: "running",
@@ -56,8 +40,7 @@ describe("socketMessages", () => {
   test("hook の型違反フィールドは default に倒して push は届く（lenient。message 破棄しない）", async () => {
     const pushed: Array<{ type: string; payload: unknown }> = [];
     const handle = createSocketMessageHandler((type, payload) => pushed.push({ type, payload }));
-    handle('{"hook":{"event":"running","ptyId":"3","pendingWork":"yes"}}');
-    await waitFor(() => pushed.length === 1);
+    await handle('{"hook":{"event":"running","ptyId":"3","pendingWork":"yes"}}');
     expect(pushed[0]?.payload).toEqual({
       event: "running",
       ptyId: 0,
@@ -75,10 +58,9 @@ describe("socketMessages", () => {
   test("未登録 ptyId の session-start は skip されつつ hook push 自体は届く", async () => {
     const pushed: Array<{ type: string; payload: unknown }> = [];
     const handle = createSocketMessageHandler((type, payload) => pushed.push({ type, payload }));
-    handle(
+    await handle(
       '{"hook":{"event":"session-start","ptyId":999999,"sessionId":"00000000-0000-0000-0000-000000000001"}}',
     );
-    await waitFor(() => pushed.length === 1);
     expect(pushed[0]?.type).toBe("hook");
     const payload = pushed[0]?.payload as { sessionId: string };
     expect(payload.sessionId).toBe("00000000-0000-0000-0000-000000000001");
@@ -89,8 +71,7 @@ describe("socketMessages", () => {
     tempDirs.push(dir);
     const pushed: Array<{ type: string; payload: unknown }> = [];
     const handle = createSocketMessageHandler((type, payload) => pushed.push({ type, payload }));
-    handle(JSON.stringify({ open: { targetPath: dir } }));
-    await waitFor(() => pushed.length === 1);
+    await handle(JSON.stringify({ open: { targetPath: dir } }));
     expect(pushed[0]?.type).toBe("gozdOpen");
     const payload = pushed[0]?.payload as Record<string, unknown>;
     expect(payload.isGitRepo).toBe(false);
@@ -103,19 +84,41 @@ describe("socketMessages", () => {
     tempDirs.push(dir);
     const pushed: unknown[] = [];
     const handle = createSocketMessageHandler((type) => pushed.push(type));
-    handle(JSON.stringify({ open: { targetPath: join(dir, "notexist") } }));
-    // 逐次キューの完了を後続 hook の到達で観測し、gozdOpen が飛んでいないことを固定する
-    handle('{"hook":{"event":"running","ptyId":1}}');
-    await waitFor(() => pushed.length === 1);
+    await handle(JSON.stringify({ open: { targetPath: join(dir, "notexist") } }));
+    // 後続 hook の到達で「gozdOpen が飛んでいない」ことを固定する
+    await handle('{"hook":{"event":"running","ptyId":1}}');
     expect(pushed).toEqual(["hook"]);
+  });
+
+  test("newWorktree は dir 未指定を失敗として応答する（応答を返す唯一の種別）", async () => {
+    const handle = createSocketMessageHandler(() => {});
+    const reply = await handle(JSON.stringify({ newWorktree: { title: "t", prefill: "" } }));
+    expect(JSON.parse(reply ?? "")).toEqual({
+      ok: false,
+      dir: "",
+      error: "newWorktree: dir is required",
+    });
+  });
+
+  test("newWorktree は作成に失敗したら push せず失敗を応答する", async () => {
+    // git 管理外の dir では起点 ref を解決できない。worktree だけ出来て task が付かない
+    // 中間状態を作らないため、この時点で止めて実行者に失敗を返す
+    const dir = mkdtempSync(join(tmpdir(), "gozd-socket-newwt-"));
+    tempDirs.push(dir);
+    const pushed: unknown[] = [];
+    const handle = createSocketMessageHandler((type) => pushed.push(type));
+    const reply = await handle(JSON.stringify({ newWorktree: { dir, title: "t", prefill: "" } }));
+    const parsed = JSON.parse(reply ?? "") as { ok: boolean; dir: string; error: string };
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).not.toBe("");
+    expect(pushed).toEqual([]);
   });
 
   test("JSON として壊れた行は push せずに落とす（観察ログのみ）", async () => {
     const pushed: unknown[] = [];
     const handle = createSocketMessageHandler((type) => pushed.push(type));
-    handle("{ broken");
-    handle('{"hook":{"event":"running","ptyId":1}}');
-    await waitFor(() => pushed.length === 1);
+    await handle("{ broken");
+    await handle('{"hook":{"event":"running","ptyId":1}}');
     expect(pushed).toEqual(["hook"]);
   });
 
@@ -126,10 +129,10 @@ describe("socketMessages", () => {
       if (type !== "hook") return;
       pushed.push(payload as { event: string });
     });
-    handle('{"hook":{"event":"running","ptyId":1}}');
-    handle('{"hook":{"event":"tool-done","ptyId":1}}');
-    handle('{"hook":{"event":"done","ptyId":1}}');
-    await waitFor(() => pushed.length === 3);
+    // 完了を待たずに 3 行 submit し、逐次キューが submit 順を保つことを固定する
+    void handle('{"hook":{"event":"running","ptyId":1}}');
+    void handle('{"hook":{"event":"tool-done","ptyId":1}}');
+    await handle('{"hook":{"event":"done","ptyId":1}}');
     expect(pushed.map((p) => p.event)).toEqual(["running", "tool-done", "done"]);
   });
 
@@ -143,9 +146,8 @@ describe("socketMessages", () => {
       if (p.event === "poison") throw new Error("push failed");
       pushed.push(p);
     });
-    handle('{"hook":{"event":"poison","ptyId":1}}');
-    handle('{"hook":{"event":"running","ptyId":1}}');
-    await waitFor(() => pushed.length === 1);
+    void handle('{"hook":{"event":"poison","ptyId":1}}');
+    await handle('{"hook":{"event":"running","ptyId":1}}');
     expect(pushed.map((p) => p.event)).toEqual(["running"]);
   });
 });

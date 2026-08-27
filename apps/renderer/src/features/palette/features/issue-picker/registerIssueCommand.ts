@@ -103,12 +103,11 @@ export function registerIssueCommand(): () => void {
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
         // を degraded mode (filter 非表示) にする。
         // callback は async で、返す promise が処理完了 (成功 / 失敗を問わず) を表す。
-        // 実行中の排他は dialog ではなくここ (コマンド層) が inFlightGhRefs で持つ。
-        // dialog の状態は close / 開き直しで破棄されるため、通常選択 (close 後の
-        // fire-and-forget 実行) 中に picker を開き直して同じ issue を選ぶと、別 timestamp
-        // での重複 worktree / task 作成になる。dialog は同じ集合を参照して選択をブロック
-        // するので通常ここには来ないが、ブロック反映前の競合窓で到達しうるため観察可能化
-        // して弾く。
+        // **実行中の判定はここが唯一の関門**。dialog は先回りしない (先回りすると下の
+        // 通知ごと握りつぶし、操作が無反応で消える)。したがってこの分岐は稀な競合窓の
+        // 保険ではなく、実行中の行を選んだときの常用経路であり、消すと連打がそのまま
+        // 本数になる。dialog の状態は close / 開き直しで破棄されるため、判定を
+        // inFlightGhRefs (module singleton) に置いて picker セッションを跨がせる。
         setResult(gen, items, viewerLogin ?? "", async (item) => {
           if (inFlightGhRefs.has(item.refKey)) {
             notify.info(`Issue #${item.issue.number} is already being processed`);

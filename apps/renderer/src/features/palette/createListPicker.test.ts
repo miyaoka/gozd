@@ -57,7 +57,7 @@ describe("createListPicker", () => {
     expect(picked).toEqual([{ id: 7 }]);
   });
 
-  // 連続選択 (Shift 選択) で dialog が完了までブロックするための契約
+  // callback の完了を呼び出し側が待てるための契約（利用は任意）
   test("accept は callback の完了を表す promise を返す", async () => {
     const p = createListPicker<Item>();
     let resolveCallback: (() => void) | undefined;

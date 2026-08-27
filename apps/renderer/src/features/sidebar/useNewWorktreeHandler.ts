@@ -6,17 +6,21 @@
  *
  * 選択中の worktree は動かさない（docs/task.md の「エージェントから worktree を作る」）。
  *
- * push を取りこぼしても worktree と Task は実在し、サイドバーの再取得で現れる。戻らないのは
- * 指示文で、Task に永続化していないためこの push にしか乗っていない。task 行のクリックで
- * 起動できるのは素の claude までで、指示は渡らない。
+ * この push の指示文は pull で取り直せない。worktree と Task はサイドバーの再取得で現れるが、
+ * 指示文は push payload にしか存在しないため、UI 反映が失敗するとそこで失われる。失われた
+ * ことを実行者もユーザーも知らないまま終わらせないよう、失敗はトーストに倒して指示文を
+ * 添える（手で渡し直せる形で残す）。
  */
 import type { NewWorktreePayload } from "@gozd/rpc";
 import { onMounted, onUnmounted } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
-import { openCreatedWorktree } from "../terminal";
+import { lostPromptDetail, openCreatedWorktree } from "../terminal";
 import { ensureRepoRegistered } from "../worktree";
 
 export function useNewWorktreeHandler() {
+  const notifications = useNotificationStore();
+
   async function handle(payload: NewWorktreePayload) {
     const { prompt, repoName, ...created } = payload;
     // 別ウィンドウで開いていない repo に対しても `gozd worktree new --dir` は実行できる。
@@ -34,7 +38,14 @@ export function useNewWorktreeHandler() {
   let dispose: (() => void) | undefined;
   onMounted(() => {
     dispose = onMessage<NewWorktreePayload>("newWorktree", (payload) => {
-      void handle(payload);
+      // async な失敗は listener の tryCatch では捕まらない（浮いた promise になる）。
+      // ここで受けないと、worktree だけが残って指示文が黙って消える
+      void handle(payload).catch((cause: unknown) => {
+        notifications.error(
+          `Could not open the created worktree at ${payload.dir}.${lostPromptDetail(payload.prompt)}`,
+          cause,
+        );
+      });
     });
   });
   onUnmounted(() => {

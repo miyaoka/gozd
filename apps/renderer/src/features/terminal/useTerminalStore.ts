@@ -7,6 +7,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { dispatchMessage, onMessage } from "../../shared/rpc";
 import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
+import { lostPromptDetail } from "./lostPrompt";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
 import { rpcClaudeSessionRemoveByPty, rpcPtyKill, rpcPtySpawn } from "./rpc";
@@ -194,9 +195,8 @@ export const useTerminalStore = defineStore("terminal", () => {
         if (resumeId !== undefined) {
           delete pendingResumeByLeafId.value[leafId];
         }
-        if (autostart) {
-          delete pendingAutostartByLeafId.value[leafId];
-        }
+        // autostart ヒントは onSpawnError が指示文を読んでから消す。ここで消すと
+        // 「claude が起動せず指示文も消えた」ことを通知に載せられない
         delete pendingSetupByLeafId.value[leafId];
         throw res.error;
       }
@@ -213,13 +213,19 @@ export const useTerminalStore = defineStore("terminal", () => {
       void rpcPtyKill({ ptyId: id });
     },
     onPtyCleanup: (ptyId) => claude.cleanupPty(ptyId),
-    onSpawnError: ({ dir, error }) => {
+    onSpawnError: ({ leafId, dir, error }) => {
       // spawn 失敗をユーザーに通知する。resume 連打 dedup の catch path 経由で
       // pendingResumeByLeafId を消すと requestPtySpawn が throw するため、無反応で終わらない
       // よう必ず通知に倒す。dir は外側 Error の message に載せ、元 error は cause に
       // 包んで stack / 詳細を残す (cause 展開で worktree も診断できる)。
+      //
+      // 起動できなかった以上 claude は指示文を受け取っていない。ヒントに指示文があれば
+      // 本文を添えて、手で渡し直せる形で残す（requestPtySpawn の reject 直後に同期で
+      // 呼ばれるので、掃除をここへ寄せてもヒントが他経路に漏れる窓は開かない）。
+      const lostPrompt = pendingAutostartByLeafId.value[leafId]?.prompt;
+      delete pendingAutostartByLeafId.value[leafId];
       notify.error(
-        "Failed to spawn terminal",
+        `Failed to spawn terminal.${lostPromptDetail(lostPrompt)}`,
         new Error(`spawn failed; dir=${dir}`, { cause: error }),
       );
     },

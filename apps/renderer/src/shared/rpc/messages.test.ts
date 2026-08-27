@@ -1,12 +1,23 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { dispatchMessage, onMessage, setListenerErrorReporter } from "./messages";
+import {
+  dispatchMessage,
+  onMessage,
+  setListenerErrorReporter,
+  setUndeliveredReporter,
+} from "./messages";
 
 let spies: Array<{ mockRestore: () => void }> = [];
 /** 注入 reporter が受け取った (type, cause)。リセット後に呼ばれないことの確認にも使う */
 let reported: Array<[string, unknown]> = [];
+/** 購読者不在の報告先が受け取った type */
+let undelivered: string[] = [];
 
 beforeEach(() => {
   reported = [];
+  undelivered = [];
+  setUndeliveredReporter((type) => {
+    undelivered.push(type);
+  });
   setListenerErrorReporter((type, cause) => {
     reported.push([type, cause]);
   });
@@ -16,6 +27,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setListenerErrorReporter(undefined);
+  setUndeliveredReporter(undefined);
   for (const spy of spies) spy.mockRestore();
 });
 
@@ -136,6 +148,64 @@ describe("dispatchToListeners", () => {
 
     expect(received).toEqual(["payload"]);
     disposeSecond();
+  });
+
+  test("pull で取り直せない type は購読者が居なければ観察ログに残る", () => {
+    // 購読が張られる前（renderer の mount 前 / リロード中）に届いた newWorktree。
+    // 指示文は push payload にしか無く、落ちると worktree だけが残る
+    dispatchMessage("newWorktree", { prompt: "指示", dir: "/wt" });
+
+    expect(undelivered).toEqual(["newWorktree"]);
+    const consoleSpy = spies[0] as ReturnType<typeof spyOn<Console, "error">>;
+    const [message] = consoleSpy.mock.calls[0] ?? [];
+    expect(String(message)).toContain("no listener received type=newWorktree");
+  });
+
+  test("購読を全部外した後の配送も購読者不在として残る", () => {
+    // Set が空になるだけで Map からは消えないため、undefined 判定だけでは素通しになる
+    const dispose = onMessage("newWorktree", () => {});
+    dispose();
+
+    dispatchMessage("newWorktree", { prompt: "指示" });
+
+    expect(undelivered).toEqual(["newWorktree"]);
+  });
+
+  test("届いた type は購読者不在として報告しない", () => {
+    const dispose = onMessage("newWorktree", () => {});
+
+    dispatchMessage("newWorktree", { prompt: "指示" });
+
+    expect(undelivered).toEqual([]);
+    dispose();
+  });
+
+  test("pull で取り直せる type の購読者不在は記録しない", () => {
+    // mount 時の pull で回復する push まで記録すると、renderer 再構築のたびに全 type ぶんの
+    // ログが出て、本当に失われた 1 件が埋もれる
+    dispatchMessage("gitStatusChange", { dir: "/wt" });
+    dispatchMessage("ptyText", { id: 1, text: "x" });
+    dispatchMessage("claudeFx", { kind: "done" });
+
+    expect(undelivered).toEqual([]);
+    const consoleSpy = spies[0] as ReturnType<typeof spyOn<Console, "error">>;
+    expect(consoleSpy).not.toHaveBeenCalled();
+  });
+
+  test("購読者不在の報告先が throw しても dispatch は throw しない", () => {
+    setUndeliveredReporter(() => {
+      throw new Error("reporter boom");
+    });
+
+    expect(() => {
+      dispatchMessage("newWorktree", { prompt: "指示" });
+    }).not.toThrow();
+
+    const consoleSpy = spies[0] as ReturnType<typeof spyOn<Console, "error">>;
+    const failure = consoleSpy.mock.calls.find(([message]) =>
+      String(message).includes("undelivered reporter failed"),
+    );
+    expect(failure?.[0]).toContain("type=newWorktree");
   });
 
   test("購読者が全員 throw しても dispatch 自体は throw しない", () => {

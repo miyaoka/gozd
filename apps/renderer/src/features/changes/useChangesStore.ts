@@ -94,7 +94,7 @@ export const useChangesStore = defineStore("changes", () => {
    * gozd の primary use case と整合。 */
   const untrackedFiles = computed<GitFileChange[]>(() =>
     Object.entries(gitStatusStore.gitStatuses)
-      .filter(([_, code]) => resolveGitChangeKind(code) === "untracked")
+      .filter(([, code]) => resolveGitChangeKind(code) === "untracked")
       .map(([path]) => ({ oldFilePath: path, newFilePath: path, type: "U" as const })),
   );
 

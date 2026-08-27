@@ -7,9 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "vue-tsc --noEmit",
-    "lint": "eslint . && bun scripts/checkFeatureCycles.ts",
-    "fix": "eslint . --fix -c eslint.config.fix.ts && oxfmt .",
-    "fix:staged": "eslint --fix -c eslint.config.fix.ts --no-warn-ignored --cache",
+    "lint": "oxlint --type-aware && eslint . --max-warnings 0 && bun scripts/checkFeatureCycles.ts",
+    "fix": "eslint . --fix -c eslint.config.fix.ts && oxlint --type-aware --fix && oxfmt .",
+    "fix:staged": "eslint --fix -c eslint.config.fix.ts --no-warn-ignored --cache --max-warnings 0",
     "test": "bun test",
     "test:browser": "vitest run",
     "test:browser:setup": "playwright install --only-shell chromium"

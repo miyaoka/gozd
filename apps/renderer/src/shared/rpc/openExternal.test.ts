@@ -39,12 +39,13 @@ describe("openExternalOrNotify", () => {
     expect(calls).toHaveLength(1);
     expect(call?.message).toBe("Could not open link in the browser");
     // URL は message ではなく cause 側に載り、元エラーはさらにその cause から辿れる
-    expect(call?.cause).toBeInstanceOf(Error);
-    expect((call?.cause as Error).message).toContain(url);
+    const cause = call?.cause as Error | undefined;
+    expect(cause).toBeInstanceOf(Error);
+    expect(cause?.message).toContain(url);
     // 最内 cause で allowlist の門を通ったことを固定する。ここを見ないと、門を外して RPC へ
     // 抜けた場合でも (テスト環境に bridge が無く例外になるため) 同じ形の通知が届いて pass する
-    const inner = (call?.cause as Error).cause;
+    const inner = cause?.cause;
     expect(inner).toBeInstanceOf(Error);
-    expect((inner as Error).message).toContain("scheme not allowed");
+    expect((inner as Error | undefined)?.message).toContain("scheme not allowed");
   });
 });

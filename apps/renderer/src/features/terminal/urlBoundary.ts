@@ -19,9 +19,7 @@ export const NON_ASCII_PUNCTUATION = new RegExp(NON_ASCII_PUNCTUATION_SOURCE, "v
  * URL の末尾に来られない ASCII 文字。括弧は含まない — 括弧が URL の一部かは相方の有無で
  * 決まり、文字単体では決まらないため。
  */
-export const TRAILING_EXCLUDED_ASCII = new Set([
-  ...(String.raw`"':,.!?;|\^~` + "`" + String.raw`<>`),
-]);
+export const TRAILING_EXCLUDED_ASCII = new Set(String.raw`"':,.!?;|\^~` + "`" + String.raw`<>`);
 
 /**
  * 括弧 → 対応する相方。開き / 閉じの両方向を持つ。
@@ -39,4 +37,4 @@ export const BRACKET_PARTNER: Record<string, string> = {
 };
 
 /** URL の内部に来られない ASCII 文字。空白は別途 `\s` で扱う */
-export const INNER_EXCLUDED_ASCII = new Set([...(String.raw`"'!*(){}|\^<>` + "`")]);
+export const INNER_EXCLUDED_ASCII = new Set(String.raw`"'!*(){}|\^<>` + "`");

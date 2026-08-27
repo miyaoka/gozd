@@ -62,14 +62,12 @@ describe("requestClientReply", () => {
 
   test("応答が無いまま閉じたら失敗にする（送れた ≠ 実行できた）", async () => {
     const path = startStub(() => undefined);
-    await expect(requestClientReply(path, {})).rejects.toThrow(
-      /closed the connection without a reply/,
-    );
+    expect(requestClientReply(path, {})).rejects.toThrow(/closed the connection without a reply/);
   });
 
   test("応答が JSON として壊れていたら失敗にする", async () => {
     const path = startStub(() => "{ broken");
-    await expect(requestClientReply(path, {})).rejects.toThrow(/undecodable JSON/);
+    expect(requestClientReply(path, {})).rejects.toThrow(/undecodable JSON/);
   });
 
   test("応答が返らないまま期限を過ぎたら失敗にする", async () => {
@@ -82,14 +80,12 @@ describe("requestClientReply", () => {
       server.close();
       rmSync(dir, { recursive: true, force: true });
     });
-    await expect(requestClientReply(path, {}, 100)).rejects.toThrow(
-      /socket reply timeout \(100ms\)/,
-    );
+    expect(requestClientReply(path, {}, 100)).rejects.toThrow(/socket reply timeout \(100ms\)/);
   });
 
   test("接続先が無ければ失敗にする", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gozd-reply-test-"));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-    await expect(requestClientReply(join(dir, "nosuch.sock"), {})).rejects.toThrow(/ENOENT/);
+    expect(requestClientReply(join(dir, "nosuch.sock"), {})).rejects.toThrow(/ENOENT/);
   });
 });

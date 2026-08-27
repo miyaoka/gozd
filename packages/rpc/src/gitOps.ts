@@ -468,16 +468,16 @@ export interface GitGithubIdentityResponse {
 
 // createWorktree: Task を伴わない worktree を作成する。
 //
-// branch / startPoint は空文字が「main 側で決めろ」を意味する（createTaskWorktree と同じ契約）。
-// 置き場所と leaf 名は常に main が決めるため、呼び出し側は指定しない。
+// 置き場所・起点 ref・leaf 名はすべて main が決めるため、呼び出し側は対象の repo だけを渡す。
 export interface CreateWorktreeRequest {
   /** repo 内の任意の dir。main 側で main repo root に解決する */
   dir: string;
-  branch: string;
-  startPoint: string;
 }
 export interface CreateWorktreeResponse {
+  /** 解決済みの main repo root。renderer は自身で解決せずこの値を worktree の帰属先に使う */
+  rootDir: string;
   worktree: WorktreeEntry;
+  /** 作成した worktree の絶対パス */
   dir: string;
   /** project 設定の setupScript。renderer が専用ターミナルで実行する。空なら実行しない */
   setupScript: string;

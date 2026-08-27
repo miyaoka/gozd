@@ -45,11 +45,12 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
     if (creatingRootDirs.value.has(rootDir)) return;
     creatingRootDirs.value.add(rootDir);
     try {
-      const result = await tryCatch(
-        rpcCreateWorktree({ dir: rootDir, branch: "", startPoint: "" }),
-      );
+      const result = await tryCatch(rpcCreateWorktree({ dir: rootDir }));
       if (result.ok && result.value.worktree !== undefined) {
-        repoStore.appendWorktree(rootDir, result.value.worktree);
+        // 掲載先は store が持つ repo のキーで指す。main が返す rootDir は realpath 解決済みの
+        // main repo root で、store のキーと一致しないことがある（openCreatedWorktree と同じ規律）
+        const owning = repoStore.findRepoOwning(result.value.rootDir);
+        repoStore.appendWorktree(owning?.rootDir ?? rootDir, result.value.worktree);
         // setOpen（activateDir 内）が visit を駆動する前に setup ヒントを立てる
         terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
         activateDir(result.value.dir);

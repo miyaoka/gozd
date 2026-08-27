@@ -1,9 +1,11 @@
-// worktree 作成と task 紐づけの合成操作。
+// worktree を新規作成する経路の合成操作。
 //
-// 「worktree はあるが task が無い」中間状態を呼び出し側に見せないために 1 つの単位にする。
-// 中断すると worktree だけがサイドバーに残り、ユーザーが `git worktree remove` で手作業の
-// 回収を強いられる。呼び出し側は UI の PR / issue picker と socket の `gozd worktree new` の
-// 2 つで、どちらもこの関数だけを通る。
+// 置き場所・起点 ref・leaf 名の決定をここに閉じ、Task を伴う経路はそこに task 紐づけを重ねる。
+// 決定を呼び出し側に持たせると同じ規則の写しが増え、規則を変えるたびに全経路を追うことになる。
+//
+// task 紐づけまでを 1 つの単位にするのは、「worktree はあるが task が無い」中間状態を
+// 呼び出し側に見せないため。中断すると worktree だけがサイドバーに残り、ユーザーが
+// `git worktree remove` で手作業の回収を強いられる。
 
 import type {
   CreateTaskWorktreeRequest,
@@ -34,29 +36,21 @@ export function toWorktreeEntry(info: WorktreeInfo, tasks: Task[]): WorktreeEntr
   };
 }
 
-/** worktree を 1 つ作る。root の解決・起点 ref・leaf 名の決定を main 側に閉じる。
- *
- * 呼び出し側は repo 内のどこかの dir を渡すだけでよい。「どこに置くか」「どこから生やすか」
- * 「何という名前にするか」を各呼び出し側が決めると、同じ規則の写しが増え、規則を変えるたびに
- * 全部を追う必要が出る。 */
-export async function createManagedWorktree(req: {
-  dir: string;
-  /** 空なら leaf と同じ timestamp を使う */
-  branch: string;
-  /** 空なら default branch を起点にする */
-  startPoint: string;
-}): Promise<{ rootDir: string; info: WorktreeInfo; setupScript: string }> {
+/** 起点 ref と leaf 名を解決して worktree を 1 つ作る。空文字の扱いは
+ * `CreateTaskWorktreeRequest` の契約を参照。 */
+export async function resolveAndCreateWorktree(
+  req: Pick<CreateTaskWorktreeRequest, "dir" | "branch" | "startPoint">,
+): Promise<{ rootDir: string; info: WorktreeInfo; setupScript: string }> {
   // dir は repo 内のどこでもよい契約なので、worktree の配置先と projectKey が揃うよう
   // 先に main repo root へ解決する。
   const rootDir = await resolveMainRepoRoot(req.dir);
   // symlink 適用と setupScript は同じ project 設定なので 1 回の load で両方を賄う。
   const projectConfig = await loadProjectConfig(rootDir);
-  // leaf は常に timestamp。branch 名は呼び出し側が意味のある名前（PR の headRef）を
-  // 指定でき、未指定なら leaf と同じ timestamp を使う。
   const leaf = generateTimestamp();
+  // branch だけ呼び出し側の指定を許すのは、PR の headRef を branch 名に載せたい経路があるため。
+  // leaf 名にそれを使わないのは、task を消した後に同じ PR から作り直すと衝突するため
   const branch = req.branch === "" ? leaf : req.branch;
-  // startPoint 未指定は default branch 起点。detached HEAD では resolveStartPoint が throw し、
-  // 起点不明のまま作らずに呼び出し側へ失敗を返す。
+  // detached HEAD では resolveStartPoint が throw し、起点不明のまま作らずに失敗を返す
   const startPoint = req.startPoint === "" ? await resolveStartPoint(rootDir) : req.startPoint;
 
   const info = await createWorktree({
@@ -72,7 +66,7 @@ export async function createManagedWorktree(req: {
 export async function createTaskWorktree(
   req: CreateTaskWorktreeRequest,
 ): Promise<CreateTaskWorktreeResponse> {
-  const { rootDir, info, setupScript } = await createManagedWorktree(req);
+  const { rootDir, info, setupScript } = await resolveAndCreateWorktree(req);
   const task = await taskStore.add({
     dir: rootDir,
     ghTitle: req.ghTitle,

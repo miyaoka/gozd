@@ -74,8 +74,8 @@ export async function allBranchRefs(dir: string): Promise<string[]> {
  *
  * (1) origin/HEAD 経由で remote default branch（`origin/main` 等、prefix を剥がさない）
  * (2) 失敗時は current branch に fallback（remote 未設定 / push 前 repo）
- * (3) どちらも引けない（detached HEAD / unborn branch）は GitCommandError が throw され、
- *     caller（handleGitDefaultBranch）が空文字に倒す
+ * (3) どちらも引けない（detached HEAD）は GitCommandError を throw する。起点不明のまま
+ *     worktree を作らない
  */
 export async function resolveStartPoint(dir: string): Promise<string> {
   const remote = await tryCatch(

@@ -192,7 +192,7 @@ import {
   type FileChangeInfo,
 } from "./git/gitTree";
 import { validateRev } from "./git/gitValidate";
-import { createManagedWorktree, createTaskWorktree, toWorktreeEntry } from "./git/taskWorktree";
+import { resolveAndCreateWorktree, createTaskWorktree, toWorktreeEntry } from "./git/taskWorktree";
 import {
   createWorktree,
   pruneWorktrees,
@@ -929,8 +929,15 @@ async function handleGitViewer(body: unknown): Promise<unknown> {
 }
 
 async function handleCreateWorktree(body: unknown): Promise<unknown> {
-  const { info, setupScript } = await createManagedWorktree(body as CreateWorktreeRequest);
+  const req = body as CreateWorktreeRequest;
+  // Task を伴わない経路は branch / startPoint も main が決める（呼び出し側に選ぶ余地が無い）
+  const { rootDir, info, setupScript } = await resolveAndCreateWorktree({
+    dir: req.dir,
+    branch: "",
+    startPoint: "",
+  });
   return {
+    rootDir,
     worktree: toWorktreeEntry(info, []),
     dir: info.path,
     setupScript,

@@ -126,7 +126,7 @@ export function registerPrCommand(): () => void {
           }
           item.existingTask = result.value.task;
           // PR URL を prefill で渡し、claude の入力欄に事前挿入する (送信はされない)。
-          openCreatedWorktree(result.value, { prefill: pr.url });
+          openCreatedWorktree(result.value, { prefill: pr.url }, "foreground");
         };
 
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI

@@ -112,4 +112,15 @@ describe("planHide", () => {
   test("列が残るなら控えは保持する", () => {
     expect(planHide(["a", "b"], "b", { hadFocus: true }).clearReturnFocus).toBe(false);
   });
+
+  test("列に居なかったサーフェスは控えを捨てず復帰もさせない", () => {
+    // unmount は DOM の状態を問わず close を通すため、一度も開かれなかった面もここへ来る。
+    // hide 直後は同期にフォーカスが要素内へ残るので、閉じた面が同じフラッシュで unmount
+    // されると hadFocus は真になりうる
+    const plan = planHide([], "z", { hadFocus: true });
+
+    expect(plan.stack).toEqual([]);
+    expect(plan.clearReturnFocus).toBe(false);
+    expect(plan.restoreReturnFocus).toBe(false);
+  });
 });

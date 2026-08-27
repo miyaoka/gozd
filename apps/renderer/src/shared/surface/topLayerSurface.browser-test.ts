@@ -165,8 +165,8 @@ function openBothWithBInFront(): void {
 }
 
 afterEach(() => {
-  // 後始末はコンポーネントが生きているうちに行う。次のテストの beforeEach まで遅らせると
-  // 先に unmount され、閉じられなかったサーフェスが前面順の控えに残る
+  // 開閉の ref は module スコープで全テストが共有する。閉じずに次のテストへ渡すと、新しく
+  // mount されたサーフェスが開いた状態で始まり、事前状態を固定する assert が意味を失う
   openA.value = false;
   openB.value = false;
   // pin は module singleton に溜まる。assert が落ちた回でも確実に外す
@@ -207,6 +207,31 @@ test("pin した要素はサーフェスを開いても最前面に残る", () =
   expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("toast");
 });
 
+test("サーフェスを開くとそのサーフェスへフォーカスが移る", () => {
+  render(Harness);
+  const outside = elByTestId("outside");
+  outside.focus();
+
+  openA.value = true;
+
+  expect(document.activeElement).toBe(surfaceEl("a"));
+});
+
+test("フォーカスを持たないサーフェスを前面化するとそのサーフェスへフォーカスが移る", () => {
+  render(Harness);
+  openBothWithBInFront();
+  const outside = elByTestId("outside");
+  outside.focus();
+
+  raiseA.value += 1;
+
+  expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("surface-a");
+  // 「フォーカスは前面に追従する」の不変条件。積み直しの hide と show の間のサーフェスは
+  // `display: none` で focusable ではないため、focus op をその区間へ出すと例外も出さずに
+  // 何も起こらず、前面だけが入れ替わってフォーカスが取り残される
+  expect(document.activeElement).toBe(surfaceEl("a"));
+});
+
 test("前面化してもサーフェス内の入力先が変わらない", () => {
   render(Harness);
   openBothWithBInFront();
@@ -229,8 +254,8 @@ test("前面化してもスクロール位置が保たれる", () => {
 
   raiseA.value += 1;
 
-  // 前面化は hide → show の積み直しでしか表現できない。積み直しを経ても
-  // 中身の読み位置が巻き戻らないことを見る
+  // 積み直しを経ても中身の読み位置が巻き戻らないことを見る。積み直しを `display: none` の
+  // 経路に固定する制約 (`topLayerSurface` の docstring) の判定を持つのはこのテストだけ
   expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("surface-a");
   expect(a.scrollTop).toBe(SCROLL_OFFSET_PX);
 });
@@ -270,5 +295,34 @@ test("最後の 1 枚を閉じると開く前のフォーカス元へ戻る", ()
   openA.value = false;
 
   // ターミナルのリンクから preview を開いて閉じると、入力がターミナルへ戻る経路
+  expect(document.activeElement).toBe(outside);
+});
+
+test("親ごと DOM から外れたサーフェスも前面順の控えから抜ける", async () => {
+  const first = render(Harness);
+  openA.value = true;
+  // 外した後は querySelector で辿れないため、掴んでから外す
+  const a = surfaceEl("a");
+  expect(a.matches(":popover-open")).toBe(true);
+
+  // 開いたまま、unmount より先に親ごと DOM から外す
+  first.container.remove();
+  // beforeUnmount が回るときには popover が閉じている、が判定の前提。前提が崩れると
+  // 離脱を gate し直す退行を入れてもこのテストが通り、検出力が無音で消える
+  expect(a.matches(":popover-open")).toBe(false);
+  await first.unmount();
+  // 次の render の前に開閉の ref を戻す。module スコープなので、true のままだと新しい
+  // SurfaceA が mount と同時に開き、B の show から見た列が空でなくなる
+  openA.value = false;
+
+  // 離脱に漏れがあると、次に開くサーフェスから見た列が空でなくなる。開く前のフォーカス元は
+  // 「1 枚も開いていないとき」にしか控えないため、控えが腐ると復帰先が記録されない
+  render(Harness);
+  const outside = elByTestId("outside");
+  outside.focus();
+
+  openB.value = true;
+  openB.value = false;
+
   expect(document.activeElement).toBe(outside);
 });

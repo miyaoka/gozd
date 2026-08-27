@@ -72,9 +72,9 @@ export function planShow<T>(
  * サーフェスを最前面へ持ち上げる。既に最前面 / 開いていないなら操作なし。
  * top layer の順序は show 呼び出し順が SSOT なので、持ち上げは hide → show でしか表現できない。
  *
- * focus は **show の後**に置く。`focus()` は layout tree の更新を起こすため、hide と show の間に
- * 挟むと `display: none` が具現化して box が破棄され、「積み直しは見た目のコストを持たない」
- * (topLayerSurface の docstring) が崩れる。pin の積み直しを後ろに置くのと同じ理由。
+ * focus は **show の後**に置く。hide と show の間のサーフェスは `display: none` で focusable では
+ * なく、この区間へ出した focus op は例外も出さずに何も起こさない。順序を入れ替えると、フォーカスが
+ * 前面に追従しないまま積み直しだけが終わる (`planShow` が行き先を常に root にするのと同じ制約)。
  *
  * 行き先は「積み直し前に内側でフォーカスを持っていた要素」で、無ければ root。`hidePopover()` の
  * 後にフォーカスが中へ残るかはブラウザの遅延挙動に依存するため、残る前提で focus op を省くと、
@@ -121,10 +121,14 @@ export function planHide<T>(
   const ops: SurfaceOp<T>[] = [{ kind: "hide", el }];
   const nextFront = front(next);
   if (options.hadFocus && nextFront !== undefined) ops.push({ kind: "focus", el: nextFront });
+  // 復帰先の控えを動かすのは、このサーフェスが列から抜けた結果として列が空になったときだけ。
+  // 列に居なかったサーフェスも close を通る (unmount は DOM の状態を問わず呼ぶため、一度も
+  // 開かれなかった面もここへ来る)。それを「列が空になった」と数えると控えを巻き添えで捨てる
+  const emptied = stack.includes(el) && nextFront === undefined;
   return {
     stack: next,
     ops,
-    restoreReturnFocus: options.hadFocus && nextFront === undefined,
-    clearReturnFocus: nextFront === undefined,
+    restoreReturnFocus: options.hadFocus && emptied,
+    clearReturnFocus: emptied,
   };
 }

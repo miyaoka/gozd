@@ -168,25 +168,31 @@ describe("parseNewWorktreeArgs", () => {
     const parsed = parseNewWorktreeArgs(["--title", "fix login"], "/repo");
     expect(parsed).toEqual({
       ok: true,
-      value: { dir: "/repo", title: "fix login", prompt: "", ghRef: undefined },
+      value: {
+        message: { dir: "/repo", title: "fix login", prompt: "", ghRef: undefined },
+        promptFromStdin: false,
+      },
     });
   });
 
   test("--flag=value 形式も受ける", () => {
     const parsed = parseNewWorktreeArgs(["--title=fix", "--prompt=do it"], "/repo");
-    expect(parsed.ok && parsed.value.prompt).toBe("do it");
+    expect(parsed.ok && parsed.value.message.prompt).toBe("do it");
   });
 
   test("--dir は cwd 基準で絶対パスに解決する", () => {
     const parsed = parseNewWorktreeArgs(["--title", "t", "--dir", "../other"], "/repo/sub");
-    expect(parsed.ok && parsed.value.dir).toBe("/repo/other");
+    expect(parsed.ok && parsed.value.message.dir).toBe("/repo/other");
   });
 
   test("--issue / --pr は ghRef になる", () => {
     const issue = parseNewWorktreeArgs(["--title", "t", "--issue", "42"], "/repo");
-    expect(issue.ok && issue.value.ghRef).toEqual({ kind: "GH_REF_KIND_ISSUE", number: 42 });
+    expect(issue.ok && issue.value.message.ghRef).toEqual({
+      kind: "GH_REF_KIND_ISSUE",
+      number: 42,
+    });
     const pr = parseNewWorktreeArgs(["--title", "t", "--pr", "7"], "/repo");
-    expect(pr.ok && pr.value.ghRef).toEqual({ kind: "GH_REF_KIND_PR", number: 7 });
+    expect(pr.ok && pr.value.message.ghRef).toEqual({ kind: "GH_REF_KIND_PR", number: 7 });
   });
 
   test("--title 無しは失敗する（タイトル無しの task はサイドバーで見分けが付かない）", () => {
@@ -212,14 +218,14 @@ describe("parseNewWorktreeArgs", () => {
       ["--title", "t", "--prompt", "--dir=/tmp を渡している箇所を直す"],
       "/repo",
     );
-    expect(parsed.ok && parsed.value.prompt).toBe("--dir=/tmp を渡している箇所を直す");
-    expect(parsed.ok && parsed.value.dir).toBe("/repo");
+    expect(parsed.ok && parsed.value.message.prompt).toBe("--dir=/tmp を渡している箇所を直す");
+    expect(parsed.ok && parsed.value.message.dir).toBe("/repo");
   });
 
   test("複数行の本文はそのまま 1 つの値として渡る", () => {
     const body = '1 行目\n2 行目 `cmd` $HOME "quoted"';
     const parsed = parseNewWorktreeArgs(["--title", "t", "--prompt", body], "/repo");
-    expect(parsed.ok && parsed.value.prompt).toBe(body);
+    expect(parsed.ok && parsed.value.message.prompt).toBe(body);
   });
 
   test("未知のオプションと値の無いオプションは失敗する", () => {
@@ -230,6 +236,37 @@ describe("parseNewWorktreeArgs", () => {
     expect(parseNewWorktreeArgs(["--title"], "/repo")).toEqual({
       ok: false,
       error: "--title requires a value",
+    });
+  });
+});
+
+describe("parseNewWorktreeArgs (--prompt-stdin)", () => {
+  test("値を取らないスイッチとして立ち、prompt は呼び出し側が埋める", () => {
+    const parsed = parseNewWorktreeArgs(["--title", "t", "--prompt-stdin"], "/repo");
+    expect(parsed.ok && parsed.value.promptFromStdin).toBe(true);
+    expect(parsed.ok && parsed.value.message.prompt).toBe("");
+  });
+
+  test("スイッチの後ろのオプションを値として食わない", () => {
+    const parsed = parseNewWorktreeArgs(
+      ["--prompt-stdin", "--title", "t", "--issue", "9"],
+      "/repo",
+    );
+    expect(parsed.ok && parsed.value.message.title).toBe("t");
+    expect(parsed.ok && parsed.value.message.ghRef).toEqual({
+      kind: "GH_REF_KIND_ISSUE",
+      number: 9,
+    });
+  });
+
+  test("--prompt との併用は失敗する", () => {
+    const parsed = parseNewWorktreeArgs(
+      ["--title", "t", "--prompt", "x", "--prompt-stdin"],
+      "/repo",
+    );
+    expect(parsed).toEqual({
+      ok: false,
+      error: "--prompt and --prompt-stdin are mutually exclusive",
     });
   });
 });

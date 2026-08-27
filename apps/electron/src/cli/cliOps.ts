@@ -102,12 +102,27 @@ export function parseStdinJson(text: string): Record<string, unknown> {
   return {};
 }
 
-/** `gozd worktree new` が受け付けるオプション。値は必ず次の引数か `=` の右辺で渡す。 */
+/** `gozd worktree new` が受け付ける、値を取るオプション。値は次の引数か `=` の右辺で渡す。 */
 const NEW_WORKTREE_FLAGS = ["--title", "--prompt", "--dir", "--issue", "--pr"] as const;
 type NewWorktreeFlag = (typeof NEW_WORKTREE_FLAGS)[number];
 
+/** 値を取らないオプション。 */
+const NEW_WORKTREE_SWITCHES = ["--prompt-stdin"] as const;
+type NewWorktreeSwitch = (typeof NEW_WORKTREE_SWITCHES)[number];
+
 function isNewWorktreeFlag(name: string): name is NewWorktreeFlag {
   return (NEW_WORKTREE_FLAGS as readonly string[]).includes(name);
+}
+
+function isNewWorktreeSwitch(name: string): name is NewWorktreeSwitch {
+  return (NEW_WORKTREE_SWITCHES as readonly string[]).includes(name);
+}
+
+/** 解析結果。プロンプトを stdin から読むかは呼び出し側（IO を持つ層）が実行する。 */
+export interface ParsedNewWorktree {
+  message: NewWorktreeMessage;
+  /** true なら message.prompt は空で、呼び出し側が stdin を読んで埋める */
+  promptFromStdin: boolean;
 }
 
 /** `--issue` / `--pr` の番号。GitHub の番号は 1 始まりの整数以外を取らない */
@@ -127,8 +142,9 @@ function parseGhNumber(flag: NewWorktreeFlag, text: string): Result<number, stri
 export function parseNewWorktreeArgs(
   argv: string[],
   cwd: string,
-): Result<NewWorktreeMessage, string> {
+): Result<ParsedNewWorktree, string> {
   const flags: Partial<Record<NewWorktreeFlag, string>> = {};
+  let promptFromStdin = false;
   // オプション位置のトークンだけを解釈し、値は中身を見ずにそのまま取る。値まで走査すると
   // `--prompt "--dir=/tmp を直す"` のような「フラグに見える本文」が分解され、以降の対応が
   // ずれる。プロンプトはコマンド例を含みうるので現実に踏む
@@ -136,6 +152,10 @@ export function parseNewWorktreeArgs(
     const token = argv[i] ?? "";
     const eq = token.indexOf("=");
     const name = eq === -1 ? token : token.slice(0, eq);
+    if (isNewWorktreeSwitch(name)) {
+      promptFromStdin = true;
+      continue;
+    }
     if (!isNewWorktreeFlag(name)) return { ok: false, error: `unknown option: ${name}` };
     if (eq !== -1) {
       flags[name] = token.slice(eq + 1);
@@ -149,6 +169,10 @@ export function parseNewWorktreeArgs(
 
   const title = flags["--title"] ?? "";
   if (title === "") return { ok: false, error: "--title is required" };
+
+  if (promptFromStdin && flags["--prompt"] !== undefined) {
+    return { ok: false, error: "--prompt and --prompt-stdin are mutually exclusive" };
+  }
 
   const issue = flags["--issue"];
   const pr = flags["--pr"];
@@ -166,10 +190,13 @@ export function parseNewWorktreeArgs(
   return {
     ok: true,
     value: {
-      dir: resolve(cwd, flags["--dir"] ?? "."),
-      title,
-      prompt: flags["--prompt"] ?? "",
-      ghRef,
+      message: {
+        dir: resolve(cwd, flags["--dir"] ?? "."),
+        title,
+        prompt: flags["--prompt"] ?? "",
+        ghRef,
+      },
+      promptFromStdin,
     },
   };
 }

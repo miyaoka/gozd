@@ -86,6 +86,7 @@ Usage:
 
 Options:
   --title <text>     Name shown for the worktree in gozd (required)
+  --prompt-stdin     Read the prompt from stdin (use a heredoc for long prompts)
   --prompt <text>    Prompt passed to claude on launch (runs immediately)
   --issue <number>   Associate the worktree with a GitHub issue
   --pr <number>      Associate the worktree with a GitHub pull request
@@ -93,6 +94,12 @@ Options:
 
 Prints the created worktree path to stdout. Requires a running gozd window:
 the request goes to the socket at $GOZD_SOCKET_PATH.
+
+Multi-line prompts go through stdin so the shell never has to quote them:
+
+  gozd worktree new --title "fix the parser" --prompt-stdin <<'EOF'
+  ...
+  EOF
 `;
 
 /**
@@ -121,8 +128,24 @@ async function worktreeCommand(argv: string[]): Promise<void> {
     process.stderr.write(WORKTREE_USAGE);
     process.exit(1);
   }
+  const { message, promptFromStdin } = parsed.value;
+  if (promptFromStdin) {
+    // 端末が繋がったまま読むと入力を待って固まる。パイプ / heredoc 不在は使い方の誤りなので
+    // 待たずに落とす
+    if (process.stdin.isTTY === true) {
+      process.stderr.write("gozd worktree new: --prompt-stdin needs the prompt on stdin\n\n");
+      process.stderr.write(WORKTREE_USAGE);
+      process.exit(1);
+    }
+    const stdinText = tryCatch(() => readFileSync(0, "utf8"));
+    if (!stdinText.ok) {
+      process.stderr.write(`gozd worktree new: failed to read stdin: ${stdinText.error}\n`);
+      process.exit(1);
+    }
+    message.prompt = stdinText.value.trim();
+  }
   const socketPath = resolveSocketPath(process.env);
-  const sent = await tryCatch(requestClientReply(socketPath, { newWorktree: parsed.value }));
+  const sent = await tryCatch(requestClientReply(socketPath, { newWorktree: message }));
   if (!sent.ok) {
     process.stderr.write(`Failed to send message to gozd: ${sent.error}\n`);
     process.exit(1);

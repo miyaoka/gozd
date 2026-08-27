@@ -2,8 +2,8 @@
 //
 // 固定するのは順序そのもの: pin の積み直しがサーフェスの show より後に来ること、閉じた面が
 // フォーカスを持っていたときだけフォーカスが動くこと、既に最前面への持ち上げが操作ゼロで
-// 終わること。いずれも「どこで壊れても静かに壊れる」種類の不変条件で、実行層 (topLayerSurface)
-// は DOM に依存して bun test の対象にできないため、判断だけを純粋関数に寄せてここで押さえる。
+// 終わること。いずれも「どこで壊れても静かに壊れる」種類の不変条件 (判断を操作列として取り出す
+// 理由は surfaceStack.ts の docstring)。
 import { describe, expect, test } from "bun:test";
 import { planHide, planRaise, planShow } from "./surfaceStack";
 

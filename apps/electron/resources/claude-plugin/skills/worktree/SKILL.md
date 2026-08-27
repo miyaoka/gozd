@@ -9,11 +9,23 @@ description: 新しい worktree を作り、そこで独立した Claude を起�
 セッションで、こちらの会話は引き継がれない。
 
 ```bash
-"$GOZD_CLI_PATH" worktree new --title "<作業の名前>" --prompt "<渡す指示文>"
+"$GOZD_CLI_PATH" worktree new --title "<作業の名前>" --prompt "$(cat <<'EOF'
+<渡す指示文>
+EOF
+)"
 ```
 
 作成した worktree の絶対パスを stdout に 1 行返す。失敗は理由を stderr に出して非 0 で終わる。
 オプション一覧は `"$GOZD_CLI_PATH" worktree --help`。
+
+> [!IMPORTANT]
+> `--prompt` は上の形で渡す。指示文は複数行で、バッククォート・`$`・引用符を含むため、1 行の
+> 引数に畳むと引用符の開閉を数え間違える。
+>
+> - 二重引用符で囲む。単一引用符の内側では `$(` も `<<` も展開されず、ただの文字列になる
+> - delimiter は `'EOF'` と quote する。本文中の `$` とバッククォートを展開させないため
+> - 終端の `EOF` は行頭、閉じ `)` は次行に置く
+> - `'"'"'` で引用符を継ぎ足す形にしない
 
 ## 指示文
 

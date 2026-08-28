@@ -50,7 +50,7 @@ import {
   terminalScrollback,
 } from "./terminalConfig";
 import { getLastTerminalGeometry, recordTerminalGeometry } from "./terminalGeometry";
-import { TERMINAL_URL_REGEX } from "./terminalUrlRegex";
+import { TERMINAL_URL_REGEX } from "./terminalUrl";
 import { createFilePathLinkProvider } from "./useFilePathLinkProvider";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -298,7 +298,7 @@ onMounted(async () => {
     void openExternalOrNotify(url, notify.error);
   };
   // 検出範囲は addon の既定値ではなく gozd 側で決める。既定値は日本語文中の URL を
-  // 行末まで飲み込む（terminalUrlRegex.ts）
+  // 行末まで飲み込む（terminalUrl.ts）
   terminal.loadAddon(new WebLinksAddon(openLink, { urlRegex: TERMINAL_URL_REGEX }));
   terminal.options.linkHandler = {
     activate: (event, text) => openLink(event, text),

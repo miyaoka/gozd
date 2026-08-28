@@ -25,6 +25,20 @@ describe("createOsc8Normalizer", () => {
     expect(normalize(osc8("https://example.com/a）"))).toBe(osc8("https://example.com/a"));
   });
 
+  test("全角括弧で囲われた文字列を丸ごと落とす", () => {
+    const normalize = createOsc8Normalizer();
+    const uri = "https://github.com/o/r/pull/18245（`5f1d686e5c5`）";
+    expect(normalize(`${ESC}]8;id=xyz;${uri}${BEL}`)).toBe(
+      `${ESC}]8;id=xyz;https://github.com/o/r/pull/18245${BEL}`,
+    );
+  });
+
+  test("URL として読めない scheme の URI は書き換えない", () => {
+    const normalize = createOsc8Normalizer();
+    const declaration = osc8("file:///a/b（c）");
+    expect(normalize(declaration)).toBe(declaration);
+  });
+
   test("正しい URI は書き換えない", () => {
     const normalize = createOsc8Normalizer();
     const declaration = osc8("https://en.wikipedia.org/wiki/Rust_(video_game)");

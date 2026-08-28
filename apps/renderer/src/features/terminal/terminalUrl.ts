@@ -57,8 +57,7 @@ const EXCLUDED_AT_END =
  * 3 種すべてを扱うのは、括弧の判定を経路間で揃えるため。角括弧は IPv6 リテラル
  * `http://[::1]/` でも現れる。
  *
- * 深さに上限を置くのは、正規表現が再帰を持たないため。`WebLinksAddon` へ渡せるのは
- * 正規表現だけで、候補を取った後に括弧の対応を数える層を挟む余地が無い。
+ * 深さに上限を置くのは、正規表現が再帰を持たないため。
  */
 const balancedBracket = (open: string, close: string): string => {
   const [openSource, closeSource] = [toRegExpSource(open), toRegExpSource(close)];

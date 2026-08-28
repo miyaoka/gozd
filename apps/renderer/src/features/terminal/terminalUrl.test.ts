@@ -267,6 +267,14 @@ describe("URL の終端は経路によらず一致する", () => {
     expect(truncateToUrlEnd(url)).toBe(url);
   });
 
+  test.each(["<", ">", '"', "`", "|", "^", "\\"])(
+    "URL の内部の非 URI 文字 %s は両経路とも手前で切る",
+    (char) => {
+      expect(detect(`${base}/a${char}b rest`)).toBe(`${base}/a`);
+      expect(truncateToUrlEnd(`${base}/a${char}b`)).toBe(`${base}/a`);
+    },
+  );
+
   test.each(["Https", "HTTPS", "hTTp"])("scheme %s は両経路とも扱う", (scheme) => {
     const url = `${scheme}://example.com/a`;
     expect(detect(`${url}（x）`)).toBe(url);

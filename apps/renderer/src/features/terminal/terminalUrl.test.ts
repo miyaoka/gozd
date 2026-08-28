@@ -91,6 +91,11 @@ describe("TERMINAL_URL_REGEX", () => {
     expect(findUrls(`https://example.com/a(あ${char}い) rest`)).toEqual(["https://example.com/a"]);
   });
 
+  test("IPv6 リテラルのホストを検出する", () => {
+    expect(findUrls("http://[::1]/ rest")).toEqual(["http://[::1]/"]);
+    expect(findUrls("http://[::1]:8080/a rest")).toEqual(["http://[::1]:8080/a"]);
+  });
+
   test("閉じない開き括弧は含めない", () => {
     expect(findUrls("https://example.com/a( です")).toEqual(["https://example.com/a"]);
   });
@@ -290,6 +295,15 @@ describe("URL の終端は経路によらず一致する", () => {
     expect(detect(`${line} rest`)).toBe(`${base}/a`);
     expect(truncateToUrlEnd(line)).toBe(`${base}/a`);
   });
+
+  test.each([`${base}/a(b[c]d)`, `${base}/a[b(c)d]`, `${base}/a(b{c}d)`])(
+    "括弧の内側の別種の括弧 %s は両経路とも終端になる",
+    (line) => {
+      // 内側で通るのは同種の 1 段だけ。角括弧と波括弧を path に置く根拠が無い
+      expect(detect(`${line} rest`)).toBe(`${base}/a`);
+      expect(truncateToUrlEnd(line)).toBe(`${base}/a`);
+    },
+  );
 
   test("1 段の入れ子括弧は両経路とも残す", () => {
     for (const url of [`${base}/a_(b_(c))`, `${base}/[a[b]]`, `${base}/{a{b}}`]) {

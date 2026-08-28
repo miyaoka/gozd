@@ -38,14 +38,11 @@ export const TRAILING_EXCLUDED_ASCII = new Set(String.raw`"':,.!?;|\^~*` + "`" +
  * sub-delims の `!` `'` `*` は path に合法なので通す（`…/forum/#!topic/x` を `…/forum/#` で
  * 切ると、404 にならず別のページへ着地して誤りに気づけない）。
  */
-const INNER_EXCLUDED_ASCII = new Set(String.raw`"(){}|\^<>` + "`");
+const INNER_EXCLUDED_ASCII = new Set(String.raw`"()[]{}|\^<>` + "`");
 
 /** URL の内部に来られない文字。空白と、URL を囲う / シェルで意味を持つ記号 */
 const EXCLUDED =
-  String.raw`\s` +
-  toRegExpSource(INNER_EXCLUDED_ASCII) +
-  toRegExpSource("[]") +
-  NON_ASCII_PUNCTUATION_SOURCE;
+  String.raw`\s` + toRegExpSource(INNER_EXCLUDED_ASCII) + NON_ASCII_PUNCTUATION_SOURCE;
 
 /** URL の末尾に来られない文字。終端の集合に、対応の取れない括弧と空白を足す */
 const EXCLUDED_AT_END =

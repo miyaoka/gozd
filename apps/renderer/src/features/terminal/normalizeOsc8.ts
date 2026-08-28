@@ -1,6 +1,6 @@
 import { logEvent } from "../../shared/debug";
 import { toRegExpSource } from "./regexSource";
-import { stripTrailingPunctuation } from "./stripTrailingPunctuation";
+import { truncateToUrlEnd } from "./terminalUrl";
 
 /**
  * OSC 8 の開始。`ESC ]` と C1 の OSC（`0x9d`）の 2 形式がある。
@@ -42,7 +42,7 @@ const MAX_PENDING = 8192;
  * 端末へ書き込む前に OSC 8 の宣言を正規化する関数を作る。
  *
  * OSC 8 は出力側が URI を宣言する契約だが、文中の URL を検出して OSC 8 化するプログラムは
- * 終端の判定を誤り、`http://example.com)` のように後続の約物を URI へ含めることがある。
+ * 終端の判定を誤り、`http://example.com）` のように後続の約物を URI へ含めることがある。
  * 宣言された範囲はそのまま下線になるため、受け取ってから直す手段が無い
  * （`ILinkHandler` は範囲を受け取るだけで変えられない）。書き込む前に直す。
  *
@@ -140,7 +140,7 @@ function rewriteDeclaration(declaration: string, marker: string, terminator: str
   if (separator === -1) return declaration + terminator;
 
   const uri = body.slice(separator + 1);
-  const corrected = stripTrailingPunctuation(uri);
+  const corrected = truncateToUrlEnd(uri);
   if (corrected === uri) return declaration + terminator;
 
   // 書き直しは出力側の宣言を gozd の判断で変える操作。誤判定したときに事後で辿れるよう残す

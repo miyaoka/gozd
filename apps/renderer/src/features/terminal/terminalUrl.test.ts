@@ -87,6 +87,10 @@ describe("TERMINAL_URL_REGEX", () => {
     ]);
   });
 
+  test.each(["。", "、", "」", "）", "😀"])("括弧の内側の約物 %s でも終端する", (char) => {
+    expect(findUrls(`https://example.com/a(あ${char}い) rest`)).toEqual(["https://example.com/a"]);
+  });
+
   test("閉じない開き括弧は含めない", () => {
     expect(findUrls("https://example.com/a( です")).toEqual(["https://example.com/a"]);
   });
@@ -279,6 +283,12 @@ describe("URL の終端は経路によらず一致する", () => {
     const url = `${scheme}://example.com/a`;
     expect(detect(`${url}（x）`)).toBe(url);
     expect(truncateToUrlEnd(`${url}（x）`)).toBe(url);
+  });
+
+  test("括弧の内側の約物は両経路とも終端になる", () => {
+    const line = `${base}/a(あ。い)`;
+    expect(detect(`${line} rest`)).toBe(`${base}/a`);
+    expect(truncateToUrlEnd(line)).toBe(`${base}/a`);
   });
 
   test("1 段の入れ子括弧は両経路とも残す", () => {

@@ -242,6 +242,19 @@ describe("URL の終端は経路によらず一致する", () => {
     expect(truncateToUrlEnd(url)).toBe(url);
   });
 
+  test("1 段の入れ子括弧は両経路とも残す", () => {
+    for (const url of [`${base}/a_(b_(c))`, `${base}/[a[b]]`, `${base}/{a{b}}`]) {
+      expect(detect(`${url} rest`)).toBe(url);
+      expect(truncateToUrlEnd(url)).toBe(url);
+    }
+  });
+
+  test("2 段以上の入れ子括弧は両経路とも扱わない", () => {
+    // 正規表現は再帰を持たないため深さに上限がある。経路間で同じ位置に落ちることを固定する
+    expect(detect(`${base}/(((a))) rest`)).toBe(`${base}/`);
+    expect(truncateToUrlEnd(`${base}/(((a)))`)).toBe(`${base}/`);
+  });
+
   test("対応の取れた角括弧・波括弧も両経路とも残す", () => {
     for (const url of [`${base}/[a]`, `${base}/{a}`]) {
       expect(detect(`${url} rest`)).toBe(url);

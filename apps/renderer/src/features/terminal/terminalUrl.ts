@@ -46,15 +46,24 @@ const EXCLUDED_AT_END =
   NON_ASCII_PUNCTUATION_SOURCE;
 
 /**
- * URL 内で開いて閉じた括弧の一区切り。入れ子は扱わない。
+ * URL 内で開いて閉じた括弧の一区切り。入れ子は 1 段まで扱う。
  *
  * 3 種すべてを扱うのは、括弧の判定を経路間で揃えるため。角括弧は IPv6 リテラル
  * `http://[::1]/` でも現れる。
+ *
+ * 深さに上限を置くのは、正規表現が再帰を持たないため。`WebLinksAddon` へ渡せるのは
+ * 正規表現だけで、候補を取った後に括弧の対応を数える層を挟む余地が無い。
  */
+const balancedBracket = (open: string, close: string): string => {
+  const [openSource, closeSource] = [toRegExpSource(open), toRegExpSource(close)];
+  const inner = `[^${String.raw`\s`}${openSource}${closeSource}]`;
+  return `${openSource}(?:${inner}|${openSource}${inner}*${closeSource})*${closeSource}`;
+};
+
 const BALANCED_BRACKET = [
-  String.raw`\([^\s\(\)]*\)`,
-  String.raw`\[[^\s\[\]]*\]`,
-  String.raw`\{[^\s\{\}]*\}`,
+  balancedBracket("(", ")"),
+  balancedBracket("[", "]"),
+  balancedBracket("{", "}"),
 ].join("|");
 
 /** ターミナル出力中の URL を検出する正規表現。`WebLinksAddon` の `urlRegex` に渡す */

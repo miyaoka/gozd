@@ -31,9 +31,12 @@ export const TRAILING_EXCLUDED_ASCII = new Set(String.raw`"':,.!?;|\^~*` + "`" +
 /**
  * URL の内部に来られない ASCII 文字。空白は別途 `\s` で扱う。
  *
- * RFC 3986 が URI 文字として認めない記号だけを置く。sub-delims の `!` `'` `*` は path に
- * 合法なので通す（`…/forum/#!topic/x` を `…/forum/#` で切ると、404 にならず別のページへ
- * 着地して誤りに気づけない）。
+ * 置く根拠は 2 つある。RFC 3986 が URI 文字として認めない記号と、仕様上は合法だが相方の
+ * 有無でしか URL の一部かを判定できない括弧。括弧は対応の取れた一区切りだけを
+ * `BALANCED_BRACKET` が通すため、単体ではここで落とす。
+ *
+ * sub-delims の `!` `'` `*` は path に合法なので通す（`…/forum/#!topic/x` を `…/forum/#` で
+ * 切ると、404 にならず別のページへ着地して誤りに気づけない）。
  */
 const INNER_EXCLUDED_ASCII = new Set(String.raw`"(){}|\^<>` + "`");
 

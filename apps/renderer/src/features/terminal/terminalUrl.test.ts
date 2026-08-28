@@ -91,6 +91,25 @@ describe("TERMINAL_URL_REGEX", () => {
     expect(findUrls("https://example.com/a( です")).toEqual(["https://example.com/a"]);
   });
 
+  test("sub-delims を含む URL を切らない", () => {
+    expect(findUrls("https://groups.google.com/forum/#!topic/foo/bar を見る")).toEqual([
+      "https://groups.google.com/forum/#!topic/foo/bar",
+    ]);
+    expect(findUrls("https://example.com/it's-here です")).toEqual([
+      "https://example.com/it's-here",
+    ]);
+    expect(findUrls("https://example.com/a*b です")).toEqual(["https://example.com/a*b"]);
+  });
+
+  test("markdown 強調に囲まれた URL は末尾のアスタリスクを含めない", () => {
+    expect(findUrls("**https://example.com/a** です")).toEqual(["https://example.com/a"]);
+  });
+
+  test("scheme の大小混在を検出する", () => {
+    expect(findUrls("Https://example.com/a です")).toEqual(["Https://example.com/a"]);
+    expect(findUrls("HTTPS://example.com/a です")).toEqual(["HTTPS://example.com/a"]);
+  });
+
   test("1 行に複数の URL があればすべて検出する", () => {
     expect(findUrls("https://a.example.com/x と https://b.example.com/y")).toEqual([
       "https://a.example.com/x",
@@ -240,6 +259,18 @@ describe("URL の終端は経路によらず一致する", () => {
     const url = `${base}/\u{20BB7}`;
     expect(detect(`${url} rest`)).toBe(url);
     expect(truncateToUrlEnd(url)).toBe(url);
+  });
+
+  test.each(["!", "'", "*"])("URL の内部の sub-delims %s は両経路とも残す", (char) => {
+    const url = `${base}/a${char}b`;
+    expect(detect(`${url} rest`)).toBe(url);
+    expect(truncateToUrlEnd(url)).toBe(url);
+  });
+
+  test.each(["Https", "HTTPS", "hTTp"])("scheme %s は両経路とも扱う", (scheme) => {
+    const url = `${scheme}://example.com/a`;
+    expect(detect(`${url}（x）`)).toBe(url);
+    expect(truncateToUrlEnd(`${url}（x）`)).toBe(url);
   });
 
   test("1 段の入れ子括弧は両経路とも残す", () => {

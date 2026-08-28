@@ -26,10 +26,16 @@ const NON_ASCII_PUNCTUATION_SOURCE = String.raw`[[\p{P}\p{S}]--[\x00-\x7F]]`;
  * URL の末尾に来られない ASCII 文字。括弧は含まない — 括弧が URL の一部かは相方の有無で
  * 決まり、文字単体では決まらないため。
  */
-export const TRAILING_EXCLUDED_ASCII = new Set(String.raw`"':,.!?;|\^~` + "`" + String.raw`<>`);
+export const TRAILING_EXCLUDED_ASCII = new Set(String.raw`"':,.!?;|\^~*` + "`" + String.raw`<>`);
 
-/** URL の内部に来られない ASCII 文字。空白は別途 `\s` で扱う */
-const INNER_EXCLUDED_ASCII = new Set(String.raw`"'!*(){}|\^<>` + "`");
+/**
+ * URL の内部に来られない ASCII 文字。空白は別途 `\s` で扱う。
+ *
+ * RFC 3986 が URI 文字として認めない記号だけを置く。sub-delims の `!` `'` `*` は path に
+ * 合法なので通す（`…/forum/#!topic/x` を `…/forum/#` で切ると、404 にならず別のページへ
+ * 着地して誤りに気づけない）。
+ */
+const INNER_EXCLUDED_ASCII = new Set(String.raw`"(){}|\^<>` + "`");
 
 /** URL の内部に来られない文字。空白と、URL を囲う / シェルで意味を持つ記号 */
 const EXCLUDED =
@@ -66,9 +72,17 @@ const BALANCED_BRACKET = [
   balancedBracket("{", "}"),
 ].join("|");
 
+/**
+ * scheme の綴り。大小を問わず受ける。
+ *
+ * `i` フラグを足す方法を採らないのは、`v` モードの否定文字クラスが `i` の下で
+ * case folding の制約を受けるため。scheme 側だけを文字クラスで書けば影響が閉じる。
+ */
+const SCHEME = String.raw`[hH][tT][tT][pP][sS]?`;
+
 /** ターミナル出力中の URL を検出する正規表現。`WebLinksAddon` の `urlRegex` に渡す */
 export const TERMINAL_URL_REGEX = new RegExp(
-  String.raw`(https?|HTTPS?):[\/]{2}` +
+  String.raw`${SCHEME}:[\/]{2}` +
     String.raw`(?:[^${EXCLUDED}]|${BALANCED_BRACKET})*` +
     String.raw`(?:${BALANCED_BRACKET}|[^${EXCLUDED_AT_END}])`,
   "v",
@@ -82,8 +96,8 @@ export const TERMINAL_URL_REGEX = new RegExp(
  * 終端の判定を誤り、`http://example.com）` のように後続の約物を URI へ含めることがある。
  *
  * **判定は末尾から約物を剥がすのではなく、先頭から URL として読める範囲を採る。** 剥がす
- * 方式は約物の内側に約物でない文字があると止まり、`…/18245（\`5f1d686e5c5\`）` のような
- * 宣言から開き括弧より後ろを落としきれない。
+ * 方式は約物でない文字に当たると停止するため、`https://example.com/a（補足）` のように
+ * 約物が中身を挟む形の宣言から、開き括弧より後ろを落としきれない。
  *
  * URL として読めない URI（`mailto:` や `file:` 等）と、先頭が URL でない URI は判断の対象外
  * として素通しする。

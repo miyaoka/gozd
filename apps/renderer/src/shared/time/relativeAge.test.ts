@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatRelativeAge, isoToUnixSec } from "./relativeAge";
+import { ageColor, formatRelativeAge, isoToUnixSec } from "./relativeAge";
 
 // 時計を固定して帯の境界そのものを踏む（相対入力だと ms の丸めで帯をまたぎフレークになる）
 const NOW = 1_800_000_000;
@@ -56,5 +56,25 @@ describe("formatRelativeAge", () => {
     expect(future.text).not.toContain("-");
     expect(future.text).toContain("in");
     expect(future.color).toBe("text-age-hour");
+  });
+});
+
+describe("ageColor", () => {
+  const color = (ageSec: number) => ageColor(NOW - ageSec, NOW);
+
+  test("鮮度色の境界は未満", () => {
+    expect(color(DAY - 1)).toBe("text-age-hour");
+    expect(color(DAY)).toBe("text-age-day");
+    expect(color(7 * DAY - 1)).toBe("text-age-day");
+    expect(color(7 * DAY)).toBe("text-age-week");
+    expect(color(28 * DAY - 1)).toBe("text-age-week");
+    expect(color(28 * DAY)).toBe("text-age-date");
+  });
+
+  test("日付が分からない項目は最も弱い色に倒す", () => {
+    // 絶対時刻を出す一覧はこの分岐を踏む（Working Tree 行は clean / 未取得のとき mtime が 0）。
+    // formatRelativeAge は同じ入力を自前で早期 return するため、そちら経由では到達しない
+    expect(ageColor(0, NOW)).toBe("text-foreground-muted");
+    expect(ageColor(-1, NOW)).toBe("text-foreground-muted");
   });
 });

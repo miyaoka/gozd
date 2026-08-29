@@ -197,10 +197,10 @@
   --color-clock-daytime: var(--clock-daytime-primitive);
   --color-clock-nighttime: var(--clock-nighttime-primitive);
 
-  /* age scale (text-only): 一覧の相対日時が示す鮮度の 4 段階。帯名は表示単位
-     (hour = 秒・分・時間表記、day = 日、week = 週、date = 絶対日付) で、色帯の境界と
-     表示単位の切り替わりが一致する。帯の境界と token の対応は shared/time の
-     formatRelativeAge が SSOT。経過時間はデータエンコーディングであって intent
+  /* age scale (text-only): 一覧の日時が示す鮮度の 4 段階。帯名は相対表記を採る一覧での
+     表示単位 (hour = 秒・分・時間表記、day = 日、week = 週、date = 絶対日付) で、そこでは
+     色帯の境界と表示単位の切り替わりが一致する。絶対時刻を出す一覧も色だけこの帯に載る。
+     帯の境界と token の対応は shared/time の AGE_BANDS が SSOT。経過時間はデータエンコーディングであって intent
      (成功 / 警告) ではないため、intent token を借りず独立 role を持つ
      (hour は green-11、date は gray-11 と同値だが、success / text 階層の restyle に
      鮮度表示が追従しないよう primitive から独立)。値と全ペア ΔE 検証の SSOT は

@@ -50,14 +50,17 @@ const highlightClass = computed(() =>
     :style="{ height: `${ROW_HEIGHT}px` }"
     @click="emit('rowClick', $event)"
   >
-    <!-- col 1 (date): 変更ファイルの mtime 最大値。clean / 未取得時は空表示。
+    <!-- date: 変更ファイルの mtime 最大値。clean / 未取得時は空表示。
          鮮度は commit 行と同じ age-* スケールで塗る。 -->
     <div class="truncate px-1" :class="dateColor">
       {{ formatCompactTime(mtime) }}
     </div>
 
-    <!-- col 2 (graph): SVG が lane 0 にドット、下端へダッシュ線を描く。セルを containing block に
-         して重ねる (行の左端は date 列なので、行基準の absolute では graph 列に載らない)。 -->
+    <!-- graph: SVG が lane 0 にドット、下端へダッシュ線を描く。セルを containing block に
+         して重ねる (行の左端は date 列なので、行基準の absolute では graph 列に載らない)。
+         `h-full` は行の `items-center` を打ち消して grid area の高さを取るためのもの。
+         セルの in-flow な中身は absolute な svg だけで内容高が 0 になるため、これが無いと
+         セルが行の中央に潰れ、containing block ごと下がって dot とダッシュ線がずれる。 -->
     <div class="relative h-full">
       <svg
         class="pointer-events-none absolute top-0 left-0"
@@ -85,13 +88,13 @@ const highlightClass = computed(() =>
       </svg>
     </div>
 
-    <!-- col 3 (description) -->
+    <!-- message -->
     <div class="flex min-w-0 items-center gap-1 truncate px-1">
       <span class="truncate font-semibold text-foreground-low">Working Tree</span>
       <span v-if="changeCount === 0" class="text-foreground-low italic"> (Clean) </span>
       <StatusIcons v-else :entries="statusIcons" icon-size="size-4" />
     </div>
 
-    <!-- col 4 (author) / col 5 (hash) は空セル。grid template が幅を確保する。 -->
+    <!-- author / hash は空セル。grid template が幅を確保する。 -->
   </div>
 </template>

@@ -28,12 +28,15 @@ describe("formatRelativeAge", () => {
     expect(formatRelativeAge(isoToUnixSec("not a date"), NOW).text).toBe("");
   });
 
-  test("色は ageColor に委譲する", () => {
-    // 帯の境界そのものは ageColor 側で固定する。ここで押さえるのは委譲が生きていること
-    // （formatRelativeAge に独自の帯マッピングが再び生えると落ちる）
-    expect(at(2 * HOUR).color).toBe(ageColor(NOW - 2 * HOUR, NOW));
-    expect(at(28 * DAY).color).toBe(ageColor(NOW - 28 * DAY, NOW));
-  });
+  // 4 帯すべてを通す。両端だけ合っている帯マッピングが再び生えても通らないようにする
+  test.each([2 * HOUR, 2 * DAY, 14 * DAY, 28 * DAY])(
+    "色は ageColor に委譲する (%i 秒前)",
+    (ageSec) => {
+      // 帯の境界そのものは ageColor 側で固定する。ここで押さえるのは両者の色が一致すること
+      // （帯の解決が formatRelativeAge 側へ分岐した時点で落ちる）。色リテラルは書かない
+      expect(at(ageSec).color).toBe(ageColor(NOW - ageSec, NOW));
+    },
+  );
 
   test("4 週間ちょうどで相対表記から絶対日付へ切り替わる", () => {
     expect(at(28 * DAY - 1).text).toContain("ago");

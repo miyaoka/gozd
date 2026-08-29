@@ -28,13 +28,11 @@ describe("formatRelativeAge", () => {
     expect(formatRelativeAge(isoToUnixSec("not a date"), NOW).text).toBe("");
   });
 
-  test("鮮度色の境界は未満", () => {
-    expect(at(DAY - 1).color).toBe("text-age-hour");
-    expect(at(DAY).color).toBe("text-age-day");
-    expect(at(7 * DAY - 1).color).toBe("text-age-day");
-    expect(at(7 * DAY).color).toBe("text-age-week");
-    expect(at(28 * DAY - 1).color).toBe("text-age-week");
-    expect(at(28 * DAY).color).toBe("text-age-date");
+  test("色は ageColor に委譲する", () => {
+    // 帯の境界そのものは ageColor 側で固定する。ここで押さえるのは委譲が生きていること
+    // （formatRelativeAge に独自の帯マッピングが再び生えると落ちる）
+    expect(at(2 * HOUR).color).toBe(ageColor(NOW - 2 * HOUR, NOW));
+    expect(at(28 * DAY).color).toBe(ageColor(NOW - 28 * DAY, NOW));
   });
 
   test("4 週間ちょうどで相対表記から絶対日付へ切り替わる", () => {

@@ -6,13 +6,13 @@ commit graph の Working Tree 固定行。master grid の subgrid として comm
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { formatCompactTime } from "../../../../shared/time";
+import { ageColor, formatCompactTime } from "../../../../shared/time";
 import { StatusIcons, UNCOMMITTED_HASH, type StatusIconEntry } from "../../../worktree";
 import { useGitGraphStore } from "../../useGitGraphStore";
 import { laneTextColor } from "./graphColors";
 import { DOT_RADIUS, ROW_HEIGHT, laneX } from "./graphGeometry";
 
-defineProps<{
+const props = defineProps<{
   /** graph 列の幅 (px)。SVG の描画幅に使う */
   graphColumnWidth: number;
   /** HEAD レーンの色インデックス。Working Tree のドット/接続線を HEAD と同色に揃える */
@@ -34,6 +34,8 @@ const gitGraphStore = useGitGraphStore();
 /** 単一 Working Tree 選択 / 範囲選択の片端が Working Tree のときドットを強調する */
 const isActive = computed(() => gitGraphStore.includesWorkingTree);
 
+const dateColor = computed(() => ageColor(props.mtime));
+
 const highlightClass = computed(() =>
   gitGraphStore.isSelectedRow(UNCOMMITTED_HASH)
     ? "bg-primary-subtle hover:bg-primary-subtle-hover"
@@ -48,8 +50,9 @@ const highlightClass = computed(() =>
     :style="{ height: `${ROW_HEIGHT}px` }"
     @click="emit('rowClick', $event)"
   >
-    <!-- col 1 (date): 変更ファイルの mtime 最大値。clean / 未取得時は空表示。 -->
-    <div class="truncate px-1 text-foreground-low">
+    <!-- col 1 (date): 変更ファイルの mtime 最大値。clean / 未取得時は空表示。
+         鮮度は commit 行と同じ age-* スケールで塗る。 -->
+    <div class="truncate px-1" :class="dateColor">
       {{ formatCompactTime(mtime) }}
     </div>
 

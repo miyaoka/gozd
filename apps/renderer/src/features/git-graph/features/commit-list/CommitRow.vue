@@ -7,7 +7,7 @@ contextmenu は preventDefault し anchor / 座標をその場で snapshot し�
 <script setup lang="ts">
 import type { GitCommit, GitPullRequestBadge } from "@gozd/rpc";
 import { computed } from "vue";
-import { formatCompactTime } from "../../../../shared/time";
+import { ageColor, formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
 import type { CommitMessageSegment } from "../../linkifyCommitMessage";
 import { useGitGraphStore } from "../../useGitGraphStore";
@@ -48,6 +48,8 @@ const backgroundClass = computed(() => {
   return "hover:bg-element-hover";
 });
 
+const dateColor = computed(() => ageColor(props.node.commit.date));
+
 const displayRefs = computed(() =>
   computeDisplayRefs(
     props.node.commit.refs,
@@ -81,8 +83,8 @@ function onContextmenu(e: MouseEvent) {
     @click="emit('rowClick', node.commit.hash, $event)"
     @contextmenu="onContextmenu"
   >
-    <!-- col 1 (date) -->
-    <div class="truncate px-1 text-foreground-low">
+    <!-- col 1 (date): 鮮度は age-* スケールで塗る (PR / issue の一覧と同じ語彙) -->
+    <div class="truncate px-1" :class="dateColor">
       {{ formatCompactTime(node.commit.date) }}
     </div>
 

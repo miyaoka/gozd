@@ -1,5 +1,6 @@
 /**
- * 一覧の行に出す「最後に動いたのはいつか」の表示。テキストと鮮度色を組で返す。
+ * 一覧の行に出す「最後に動いたのはいつか」の表示。テキストと鮮度色を組で返す
+ * （色だけが要る一覧は `ageColor` を単独で使う）。
  *
  * 色を時刻整形と同じ場所に置くのは、**帯の境界と表記の切り替え点が同じ経過時間で決まる**
  * ため。帯の境界は表示単位の閾値（relativeTime の DAY_SEC / WEEK_SEC）を共有し、
@@ -44,6 +45,18 @@ export interface RelativeAgeDisplay {
   color: string;
 }
 
+/**
+ * 経過時間の帯だけを色に落とす。相対表記を採らず絶対時刻を出す一覧（git-graph の commit 行）
+ * 向けで、表記が違っても鮮度のスケールは全一覧で同じものを見せる。
+ *
+ * `AGE_BANDS` を共有するため、`formatRelativeAge` と帯の境界が食い違うことはない。
+ */
+export function ageColor(unixSec: number, nowSec = Math.floor(Date.now() / 1000)): string {
+  if (unixSec <= 0) return UNKNOWN_COLOR;
+  const ageSec = nowSec - unixSec;
+  return AGE_BANDS.find((band) => ageSec < band.withinSec)?.color ?? DATE_COLOR;
+}
+
 export function formatRelativeAge(
   unixSec: number,
   nowSec = Math.floor(Date.now() / 1000),
@@ -53,7 +66,7 @@ export function formatRelativeAge(
   return {
     text:
       ageSec >= FOUR_WEEKS_SEC ? formatCompactDate(unixSec) : formatRelativeTime(unixSec, nowSec),
-    color: AGE_BANDS.find((band) => ageSec < band.withinSec)?.color ?? DATE_COLOR,
+    color: ageColor(unixSec, nowSec),
   };
 }
 

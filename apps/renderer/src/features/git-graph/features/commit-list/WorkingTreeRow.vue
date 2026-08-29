@@ -61,7 +61,7 @@ const highlightClass = computed(() =>
          `h-full` は行の `items-center` を打ち消して grid area の高さを取るためのもの。
          セルの in-flow な中身は absolute な svg だけで内容高が 0 になるため、これが無いと
          セルが行の中央に潰れ、containing block ごと下がって dot とダッシュ線がずれる。 -->
-    <div class="relative h-full">
+    <div class="_graph-cell relative h-full">
       <svg
         class="pointer-events-none absolute top-0 left-0"
         :width="graphColumnWidth"

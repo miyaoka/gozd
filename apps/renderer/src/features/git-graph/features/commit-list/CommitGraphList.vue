@@ -21,8 +21,8 @@ graph 列は行の左端ではなく date 列の右にある。date 列は conte
 Working Tree 行の SVG / gap 行のラベル) は、いずれも自前で横位置を計算せず grid に列を解かせる。
 overlay は両端の line を指定した absolute (grid container を containing block とする abspos は、
 両端を指定した軸では grid area がそのまま containing block になる。**片端が auto の軸は
-padding edge まで伸びる**ため、`grid-column: graph` のような片端指定にすると列を越える)、
-残る 2 つは subgrid の graph 列セルを基準にする。
+padding edge まで伸びる**ため、`grid-column: 2` のように end を auto にしたままだと
+containing block が右隣の列を越えて広がる)、残る 2 つは subgrid の graph 列セルを基準にする。
 
 ## 列は番号ではなく名前で指す
 

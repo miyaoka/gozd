@@ -90,7 +90,7 @@ function onContextmenu(e: MouseEvent) {
 
     <!-- graph: SVG が absolute で覆うセル。HEAD は SVG 側の三角マーカーで示すため、
          ここにはマーカーを置かない。 -->
-    <div></div>
+    <div class="_graph-cell"></div>
 
     <!-- message -->
     <div class="flex min-w-0 items-center gap-1 truncate px-1">

@@ -21,13 +21,19 @@ import { GRAPH_PADDING_X, LANE_WIDTH } from "./graphGeometry";
  * 「横を grid に委ねたのだから縦も」と書き換えられる余地があり、そのとき dot は 1 行ぶん /
  * 半行ぶんずれる。
  *
- * 期待値に px リテラルを置かず「graph 列セルの辺」を基準にするのは、date 列の幅が環境依存で
+ * 期待値に px リテラルを置かず graph 列セルの左端・上端を基準にするのは、date 列の幅が環境依存で
  * あることと、この検証が見たいのが絶対座標ではなく列との一致だから。
  */
 const COMMIT_SEC = Math.floor(Date.UTC(2026, 7, 29, 12, 0, 0) / 1000);
 
-/** 列の一致だけを見るので、subpixel の丸め差は許容する (列幅は数十 px あり退行は埋もれない) */
-const PX_PRECISION = 1;
+/** 列の一致だけを見るので px 未満の丸め差は許容する (ずれる場合は列幅ぶん動くため退行は埋もれない) */
+const PX_TOLERANCE = 1;
+
+/** 両側から挟んで比較する。差だけを assert すると失敗時に実測値が消える */
+function expectSamePx(actual: number, expected: number) {
+  expect(actual).toBeGreaterThan(expected - PX_TOLERANCE);
+  expect(actual).toBeLessThan(expected + PX_TOLERANCE);
+}
 
 function commit(overrides: Partial<GitCommit> & Pick<GitCommit, "hash">): GitCommit {
   return {
@@ -99,11 +105,9 @@ function rows(container: Element): Element[] {
   return found;
 }
 
-/** 行 (`._graph-row`) の graph 列セル。セルは列トラック順に並び、graph は date の次 */
+/** 行 (`._graph-row`) の graph 列セル。列を番号で数えないよう marker class で引く */
 function graphCell(row: Element): Element {
-  const cell = row.children[1];
-  if (cell === undefined) throw new Error("row does not render a graph cell");
-  return cell;
+  return query(row, "._graph-cell");
 }
 
 /** 行にも gap 行のラベルにも属さない唯一の svg が、行をまたぐ overlay */
@@ -132,9 +136,9 @@ test("行をまたぐ SVG overlay が graph 列に載る", () => {
   const container = renderList();
   const commitRow = rows(container).at(-1)!;
 
-  expect(overlaySvg(container).getBoundingClientRect().left).toBeCloseTo(
+  expectSamePx(
+    overlaySvg(container).getBoundingClientRect().left,
     graphCell(commitRow).getBoundingClientRect().left,
-    PX_PRECISION,
   );
 });
 
@@ -144,9 +148,9 @@ test("行をまたぐ SVG overlay が commit 行域の先頭から始まる", ()
 
   // overlay の縦位置は grid の行 line ではなく top で作る。行 line を指定すると
   // containing block の上端が動き、top が二重に効いて dot が 1 行ぶん下がる
-  expect(overlaySvg(container).getBoundingClientRect().top).toBeCloseTo(
+  expectSamePx(
+    overlaySvg(container).getBoundingClientRect().top,
     firstCommitRow.getBoundingClientRect().top,
-    PX_PRECISION,
   );
   expect(firstCommitRow.getBoundingClientRect().top).toBeGreaterThan(
     workingTreeRow.getBoundingClientRect().top,
@@ -160,21 +164,15 @@ test("Working Tree 行の SVG が graph 列の左上に載る", () => {
   const cell = graphCell(workingTreeRow);
   const svg = query(workingTreeRow, "svg");
 
-  expect(svg.getBoundingClientRect().left).toBeCloseTo(
+  expectSamePx(
+    svg.getBoundingClientRect().left,
     graphCell(rowList.at(-1)!).getBoundingClientRect().left,
-    PX_PRECISION,
   );
   // セルの h-full が外れると、内容高 0 のセルが行の中央に潰れて svg ごと下がる。
   // 期待値は行の content 高 (clientHeight) から取る。行は border-box + border-b で、
   // 行の指定高そのものとは 1px ずれる
-  expect(svg.getBoundingClientRect().top).toBeCloseTo(
-    workingTreeRow.getBoundingClientRect().top,
-    PX_PRECISION,
-  );
-  expect(cell.getBoundingClientRect().height).toBeCloseTo(
-    workingTreeRow.clientHeight,
-    PX_PRECISION,
-  );
+  expectSamePx(svg.getBoundingClientRect().top, workingTreeRow.getBoundingClientRect().top);
+  expectSamePx(cell.getBoundingClientRect().height, workingTreeRow.clientHeight);
 });
 
 test("gap 行のラベルが graph 列基準で字下げされ、行末まで伸びる", () => {
@@ -184,13 +182,10 @@ test("gap 行のラベルが graph 列基準で字下げされ、行末まで伸
 
   // padding は border box の内側に効くため、字下げ後の位置は先頭の子 (アイコン) で見る
   const icon = query(label, ":scope > *");
-  expect(icon.getBoundingClientRect().left).toBeCloseTo(
+  expectSamePx(
+    icon.getBoundingClientRect().left,
     graphCell(commitRow).getBoundingClientRect().left + GRAPH_PADDING_X + LANE_WIDTH,
-    PX_PRECISION,
   );
   // graph 列 1 本ぶんに閉じ込められていないこと (文言は overflow で見えてしまい、左端だけでは分からない)
-  expect(label.getBoundingClientRect().right).toBeCloseTo(
-    commitRow.getBoundingClientRect().right,
-    PX_PRECISION,
-  );
+  expectSamePx(label.getBoundingClientRect().right, commitRow.getBoundingClientRect().right);
 });

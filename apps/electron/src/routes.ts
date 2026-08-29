@@ -1199,9 +1199,9 @@ async function handleReviveSession(body: unknown): Promise<unknown> {
   } satisfies ReviveSessionResponse;
 }
 
-function handleClipboardCopyFiles(body: unknown): unknown {
+async function handleClipboardCopyFiles(body: unknown): Promise<unknown> {
   const req = body as ClipboardCopyFilesRequest;
-  writeFilesToClipboard(req.paths);
+  await writeFilesToClipboard(req.paths);
   return {} satisfies ClipboardCopyFilesResponse;
 }
 

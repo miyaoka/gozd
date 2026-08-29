@@ -48,46 +48,47 @@ const highlightClass = computed(() =>
     :style="{ height: `${ROW_HEIGHT}px` }"
     @click="emit('rowClick', $event)"
   >
-    <!-- Working Tree 行の SVG: lane 0 にドット、下端へダッシュ線。grid 上に absolute で重ねる -->
-    <svg
-      class="pointer-events-none absolute top-0 left-0"
-      :width="graphColumnWidth"
-      :height="ROW_HEIGHT"
-    >
-      <circle
-        :cx="laneX(0)"
-        :cy="ROW_HEIGHT / 2"
-        :r="isActive ? DOT_RADIUS + 1 : DOT_RADIUS"
-        :fill="isActive ? laneTextColor(headColor) : 'currentColor'"
-        :stroke="laneTextColor(headColor)"
-        stroke-width="2"
-        class="text-background"
-      />
-      <line
-        :x1="laneX(0)"
-        :y1="ROW_HEIGHT / 2 + DOT_RADIUS"
-        :x2="laneX(0)"
-        :y2="ROW_HEIGHT"
-        :stroke="laneTextColor(headColor)"
-        stroke-width="2"
-        stroke-dasharray="4 2"
-      />
-    </svg>
+    <!-- col 1 (date): 変更ファイルの mtime 最大値。clean / 未取得時は空表示。 -->
+    <div class="truncate px-1 text-foreground-low">
+      {{ formatCompactTime(mtime) }}
+    </div>
 
-    <!-- col 1 (graph): SVG が absolute で覆うので空セル -->
-    <div />
+    <!-- col 2 (graph): SVG が lane 0 にドット、下端へダッシュ線を描く。セルを containing block に
+         して重ねる (行の左端は date 列なので、行基準の absolute では graph 列に載らない)。 -->
+    <div class="relative h-full">
+      <svg
+        class="pointer-events-none absolute top-0 left-0"
+        :width="graphColumnWidth"
+        :height="ROW_HEIGHT"
+      >
+        <circle
+          :cx="laneX(0)"
+          :cy="ROW_HEIGHT / 2"
+          :r="isActive ? DOT_RADIUS + 1 : DOT_RADIUS"
+          :fill="isActive ? laneTextColor(headColor) : 'currentColor'"
+          :stroke="laneTextColor(headColor)"
+          stroke-width="2"
+          class="text-background"
+        />
+        <line
+          :x1="laneX(0)"
+          :y1="ROW_HEIGHT / 2 + DOT_RADIUS"
+          :x2="laneX(0)"
+          :y2="ROW_HEIGHT"
+          :stroke="laneTextColor(headColor)"
+          stroke-width="2"
+          stroke-dasharray="4 2"
+        />
+      </svg>
+    </div>
 
-    <!-- col 2 (description) -->
+    <!-- col 3 (description) -->
     <div class="flex min-w-0 items-center gap-1 truncate px-1">
       <span class="truncate font-semibold text-foreground-low">Working Tree</span>
       <span v-if="changeCount === 0" class="text-foreground-low italic"> (Clean) </span>
       <StatusIcons v-else :entries="statusIcons" icon-size="size-4" />
     </div>
 
-    <!-- col 3 (date): 変更ファイルの mtime 最大値。clean / 未取得時は空表示。 -->
-    <div class="truncate px-1 text-foreground-low">
-      {{ formatCompactTime(mtime) }}
-    </div>
     <!-- col 4 (author) / col 5 (hash) は空セル。grid template が幅を確保する。 -->
   </div>
 </template>

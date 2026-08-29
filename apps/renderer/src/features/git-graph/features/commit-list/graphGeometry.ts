@@ -8,13 +8,13 @@ export const LANE_WIDTH = 16;
 export const ROW_HEIGHT = 24;
 export const DOT_RADIUS = 4;
 export const GRAPH_PADDING_X = 12;
-/** HEAD マーカー: 行左端に置く右向き三角形。apex が右にどれだけ伸びるか / base の縦幅 (px)。 */
+/** HEAD マーカー: graph 列の左端に置く右向き三角形。apex が右にどれだけ伸びるか / base の縦幅 (px)。 */
 const HEAD_MARKER_WIDTH = 8;
 const HEAD_MARKER_HEIGHT = 12;
 
 /**
- * col 1 (graph 列) の右側に確保するガター (px)。最右レーンの dot が col 2 の description に
- * 密着しないための余白。HEAD は行左端の右向き三角マーカーで示す (グラフ座標系に置く)。
+ * graph 列の右側に確保するガター (px)。最右レーンの dot が隣の description 列に
+ * 密着しないための余白。HEAD は graph 列左端の右向き三角マーカーで示す (グラフ座標系に置く)。
  */
 const GRAPH_RIGHT_GUTTER = 8;
 
@@ -34,8 +34,8 @@ export function rowY(row: number): number {
 }
 
 /**
- * HEAD マーカーの polygon points。行左端 (x=0) に縦の base を立て、apex を右に尖らせた右向き三角形。
- * 左ボーダーの縦バーを右へ尖らせた形で、HEAD 行と進行方向 (コミット側) を指す。
+ * HEAD マーカーの polygon points。graph 列の左端 (x=0) に縦の base を立て、apex を右に尖らせた
+ * 右向き三角形。縦バーを右へ尖らせた形で、HEAD 行と進行方向 (コミット側) を指す。
  */
 export function headMarkerPoints(row: number): string {
   const cy = rowY(row);

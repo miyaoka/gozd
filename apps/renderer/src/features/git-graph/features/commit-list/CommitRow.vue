@@ -81,11 +81,16 @@ function onContextmenu(e: MouseEvent) {
     @click="emit('rowClick', node.commit.hash, $event)"
     @contextmenu="onContextmenu"
   >
-    <!-- col 1 (graph): SVG が absolute で覆うセル。HEAD は SVG 側の三角マーカーで示すため、
+    <!-- col 1 (date) -->
+    <div class="truncate px-1 text-foreground-low">
+      {{ formatCompactTime(node.commit.date) }}
+    </div>
+
+    <!-- col 2 (graph): SVG が absolute で覆うセル。HEAD は SVG 側の三角マーカーで示すため、
          ここにはマーカーを置かない。 -->
     <div></div>
 
-    <!-- col 2 (description) -->
+    <!-- col 3 (description) -->
     <div class="flex min-w-0 items-center gap-1 truncate px-1">
       <IconLucideGitMerge
         v-if="isMergeCommit(node.commit)"
@@ -100,11 +105,6 @@ function onContextmenu(e: MouseEvent) {
       <span class="truncate">
         <CommitSegmentList :segments="segments" />
       </span>
-    </div>
-
-    <!-- col 3 (date) -->
-    <div class="truncate px-1 text-foreground-low">
-      {{ formatCompactTime(node.commit.date) }}
     </div>
 
     <!-- col 4 (author) -->

@@ -14,6 +14,14 @@ Working Tree 行 (sticky) と commit 行を 1 枚の master grid の直接の子
 合算して解決されるため、date/hash を content 幅 (max-content) にしても行間で列がズレない。
 別 grid ごとに `--graph-cols` を各自解決させると content 依存幅が行ごとにバラつくため subgrid で束ねる。
 
+## graph の横位置は grid だけが知る
+
+graph 列は行の左端ではなく date 列の右にある。date 列は content 幅で、locale の日時表記と
+実データで決まるため、px を持てるコードは無い。グラフを描く 3 経路 (行をまたぐ SVG overlay /
+Working Tree 行の SVG / gap 行のラベル) は、いずれも自前で横位置を計算せず grid に列を解かせる。
+overlay は列を指定した absolute (列指定した abspos の containing block はその grid area になる)、
+残る 2 つは subgrid の graph 列セルを基準にする。
+
 ## HEAD スクロール
 
 data 取得側 (親) が出す scroll 要求 signal を watch して実スクロールする。DOM 反映後に走らせるため
@@ -93,12 +101,13 @@ const MIN_MESSAGE_WIDTH = "12rem";
 
 /**
  * master grid の列トラック SSOT (subgrid 共有でこれを全行が引く。共有の理由は <doc> 参照)。
- * col1 graph = 動的 px、col2 message = 最低幅つき 1fr、date/hash = 内容幅 (max-content)、
- * author = 内容依存だと長い名前で膨らむため 7rem cap。狭幅では min 0 の date/hash が先に truncate する。
+ * col1 date / col5 hash = 内容幅 (max-content)、col2 graph = 動的 px、
+ * col3 message = 最低幅つき 1fr、col4 author = 内容依存だと長い名前で膨らむため 7rem cap。
+ * 狭幅では min 0 の date/hash が先に truncate する。
  */
 const graphCols = computed(
   () =>
-    `${graphColumnWidth.value}px minmax(${MIN_MESSAGE_WIDTH}, 1fr) minmax(0, max-content) minmax(0, 7rem) minmax(0, max-content)`,
+    `minmax(0, max-content) ${graphColumnWidth.value}px minmax(${MIN_MESSAGE_WIDTH}, 1fr) minmax(0, 7rem) minmax(0, max-content)`,
 );
 
 /** グラフ全体の高さ (行数 × 行高)。scroll 領域の minHeight に使う。 */
@@ -346,10 +355,13 @@ function onRowClick(hash: string, e: MouseEvent) {
         />
 
         <!-- グラフの dot / lane を描く overlay。commit 行域 (WorkingTree 行の下) に重ねるため
-             ROW_HEIGHT 分下げて absolute 配置する。行 background の上に描かれる (positioned = 上位 layer)。 -->
+             ROW_HEIGHT 分下げて absolute 配置する。行 background の上に描かれる (positioned = 上位 layer)。
+             横位置は `gridColumn` で graph 列トラックに委ねる (<doc> 参照)。行軸は auto なので
+             top は grid の padding box 基準で効く。 -->
         <div
           class="pointer-events-none absolute left-0"
           :style="{
+            gridColumn: '2',
             top: `${ROW_HEIGHT}px`,
             width: `${graphColumnWidth}px`,
             height: `${svgHeight}px`,

@@ -7,7 +7,7 @@ contextmenu は preventDefault し anchor / 座標をその場で snapshot し�
 <script setup lang="ts">
 import type { GitCommit, GitPullRequestBadge } from "@gozd/rpc";
 import { computed } from "vue";
-import { formatCompactTime } from "../../../../shared/time";
+import { ageColor, formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
 import type { CommitMessageSegment } from "../../linkifyCommitMessage";
 import { useGitGraphStore } from "../../useGitGraphStore";
@@ -48,6 +48,8 @@ const backgroundClass = computed(() => {
   return "hover:bg-element-hover";
 });
 
+const dateColor = computed(() => ageColor(props.node.commit.date));
+
 const displayRefs = computed(() =>
   computeDisplayRefs(
     props.node.commit.refs,
@@ -81,11 +83,16 @@ function onContextmenu(e: MouseEvent) {
     @click="emit('rowClick', node.commit.hash, $event)"
     @contextmenu="onContextmenu"
   >
-    <!-- col 1 (graph): SVG が absolute で覆うセル。HEAD は SVG 側の三角マーカーで示すため、
-         ここにはマーカーを置かない。 -->
-    <div></div>
+    <!-- date: 鮮度は age-* スケールで塗る (PR / issue の一覧と同じ語彙) -->
+    <div class="truncate px-1" :class="dateColor">
+      {{ formatCompactTime(node.commit.date) }}
+    </div>
 
-    <!-- col 2 (description) -->
+    <!-- graph: SVG が absolute で覆うセル。HEAD は SVG 側の三角マーカーで示すため、
+         ここにはマーカーを置かない。 -->
+    <div class="_graph-cell"></div>
+
+    <!-- message -->
     <div class="flex min-w-0 items-center gap-1 truncate px-1">
       <IconLucideGitMerge
         v-if="isMergeCommit(node.commit)"
@@ -102,17 +109,12 @@ function onContextmenu(e: MouseEvent) {
       </span>
     </div>
 
-    <!-- col 3 (date) -->
-    <div class="truncate px-1 text-foreground-low">
-      {{ formatCompactTime(node.commit.date) }}
-    </div>
-
-    <!-- col 4 (author) -->
+    <!-- author -->
     <div class="truncate px-1 text-foreground-low">
       {{ node.commit.author }}
     </div>
 
-    <!-- col 5 (hash) -->
+    <!-- hash -->
     <div class="truncate px-1 font-mono text-foreground-low">
       {{ node.commit.shortHash }}
     </div>

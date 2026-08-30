@@ -42,7 +42,7 @@ const connectorPath = computed(() => {
   return `M${x0},0L${x0},${rowY(props.headRow)}`;
 });
 
-/** 行左端の右向き三角マーカーの points。不在 (-1) / gap 行のときは描かない。 */
+/** lane 0 の dot を指す右向き三角マーカーの points。不在 (-1) / gap 行のときは描かない。 */
 const headMarker = computed(() => {
   if (props.headRow === -1) return undefined;
   const node = props.layout.nodes[props.headRow];
@@ -75,7 +75,7 @@ const headMarker = computed(() => {
       :stroke="laneTextColor(seg.color)"
       stroke-width="2"
     />
-    <!-- HEAD マーカー: 行左端の縦バーを右へ尖らせた右向き三角形。塗り (選択) とは別チャンネルなので
+    <!-- HEAD マーカー: lane 0 の dot を左隣から指す右向き三角形。塗り (選択) とは別チャンネルなので
          選択と HEAD が一致してもしなくても両立する。 -->
     <polygon v-if="headMarker" :points="headMarker" :fill="laneTextColor(headColor)" />
     <!-- コミットドット (gap 行は dot を描かない) -->

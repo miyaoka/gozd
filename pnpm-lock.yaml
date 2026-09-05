@@ -115,8 +115,8 @@ importers:
         specifier: 6.0.0
         version: 6.0.0
       electron:
-        specifier: 44.0.0
-        version: 44.0.0(supports-color@10.2.2)
+        specifier: 44.1.1
+        version: 44.1.1(supports-color@10.2.2)
       electron-builder:
         specifier: 26.15.7
         version: 26.15.7(electron-builder-squirrel-windows@26.15.7)(supports-color@10.2.2)
@@ -3027,8 +3027,8 @@ packages:
     resolution: {integrity: sha512-bO3y10YikuUwUuDUQRM4KfwNkKhnpVO7IPdbsrejwN9/AABJzzTQ4GeHwyzNSrVO+tEH3/Np255a3sVZpZDjvg==}
     engines: {node: '>=8.0.0'}
 
-  electron@44.0.0:
-    resolution: {integrity: sha512-FkTqPrFPZYljdPI5b7KORGsJTd6FgUQDefl5MrU3Xz9R87pAj9JLreIjDqcRN8hJIkFHIou0o8kKzvcpT9qiRQ==}
+  electron@44.1.1:
+    resolution: {integrity: sha512-N2WCq2sbOkqQgvXJYx2lS6UiO8bF+Yr67trDnS6JKa2WxTCRQsAjGl57SUtdW9h6r5PlduBFjIhxhgd3dzv1hg==}
     engines: {node: '>= 22.12.0'}
     hasBin: true
 
@@ -6869,7 +6869,7 @@ snapshots:
 
   bun-types@1.4.0:
     dependencies:
-      '@types/node': 24.13.3
+      '@types/node': 26.4.0
 
   bytestreamjs@2.0.1: {}
 
@@ -7369,7 +7369,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron@44.0.0(supports-color@10.2.2):
+  electron@44.1.1(supports-color@10.2.2):
     dependencies:
       '@electron-internal/extract-zip': 1.0.5
       '@electron/get': 5.1.0(supports-color@10.2.2)

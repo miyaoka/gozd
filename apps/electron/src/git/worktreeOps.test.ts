@@ -99,6 +99,10 @@ describe("createWorktreeSymlinks", () => {
 describe("resolveReviveBranch", () => {
   const tempDirs: string[] = [];
 
+  /** 日付ブランチ名。同一プロセスの先行呼び出しと秒が重なると generateTimestamp が
+   * 連番 suffix を付けるため、両形を受ける */
+  const dateBranch = /^\d{8}_\d{6}(_\d+)?$/;
+
   function git(args: string[], cwd: string): void {
     runFixtureGit(args, cwd);
   }
@@ -123,7 +127,7 @@ describe("resolveReviveBranch", () => {
   test("candidate 空 → 日付ブランチを default(HEAD) から作成", async () => {
     const dir = makeRepo();
     const { branch, startPoint } = await resolveReviveBranch(dir, "");
-    expect(branch).toMatch(/^\d{8}_\d{6}$/);
+    expect(branch).toMatch(dateBranch);
     expect(startPoint).toBe("main");
   });
 
@@ -150,8 +154,7 @@ describe("resolveReviveBranch", () => {
     // occupied を別 worktree で checkout（占有させる）。git が wt path を新規作成する
     git(["worktree", "add", join(parent, "wt"), "occupied"], dir);
     const { branch, startPoint } = await resolveReviveBranch(dir, "occupied");
-    // generateTimestamp は同一秒内の連続呼び出しで連番 suffix を付ける (per-process 一意)
-    expect(branch).toMatch(/^\d{8}_\d{6}(_\d+)?$/);
+    expect(branch).toMatch(dateBranch);
     expect(startPoint).toBe("main");
   });
 });

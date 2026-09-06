@@ -21,6 +21,7 @@
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
+    "typescript": "catalog:",
     "vue-eslint-parser": "10.4.1"
   },
   "peerDependencies": {

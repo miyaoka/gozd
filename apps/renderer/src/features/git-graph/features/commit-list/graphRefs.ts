@@ -144,9 +144,14 @@ const HAS_ORIGIN_REF: Record<DisplayRef["type"], boolean> = {
  * もの、`remote` は origin ref 自身。`local` は載っていない状態で、**未 push と、origin が別
  * commit に居るという 2 系統を含む**。
  *
+ * これは **その行が PR head の位置か**の代理判定で、PR インジケータの 2 つの扱いを決める。
+ *
  * CI の総合結果は **PR head ref の commit** に対する値なので、origin が載っている ref にだけ
  * 描く。それ以外に描くと「head ではない commit の CI 結果」という存在しない事実になる（`local` には
  * origin より後ろに居る = push 済みの状態も含まれるので、理由は push の有無ではない）。
+ *
+ * PR 番号とコメント数は branch 単位の値なので位置がずれても正しく、**消さずに dim する**。
+ * PR が指す commit はこの行ではない、を明度で示す。
  *
  * **origin ref が PR head を指しているかまでは見ない。**origin ref も PR の取得結果もそれぞれ
  * 取得時点のスナップショットなので、branch の指す先が動いた直後は両者がずれ、その間は別 commit

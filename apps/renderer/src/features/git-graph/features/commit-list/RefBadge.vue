@@ -11,14 +11,22 @@ PR 番号とコメント数は **PR 単位**の値なので、branch を指す r
 local と origin が別コミットに分かれていても出す — stack を積み替える運用ではずれている状態が
 常態で、「同じコミットに居るときだけ出す」にすると PR を持つ branch からバッジが消える。
 
-**CI ドットだけは commit 単位**の値で、PR head ref に対する結果を指す。`origin/<branch>` が
-載っている行にだけ描く（判定とその限界は `graphRefs.ts` の `hasOriginRef`）。
+## 位置のずれは明度で示す
+
+`origin/<branch>` が載っていない行は **PR が指す commit ではない**（判定とその限界は
+`graphRefs.ts` の `hasOriginRef`）。そこに描く PR インジケータは全体を dim する。
+
+同じ PR が local と origin の 2 行に出るのはずれている間の常態で、両方を同じ濃さで描くと 2 つの
+PR に見える。dim は「どちらが PR の位置か」を運びつつ、branch 単位の事実である番号とコメント数は
+残す。**消す方向で解かない** — origin の行がグラフに載らない scope があり、消すと逃げ場が無くなる。
+
+**CI ドットだけは commit 単位**の値で、PR head ref に対する結果を指す。こちらは dim ではなく
+**出さない**。head でない commit に描けば存在しない事実になり、薄く描いても事実にはならない。
 
 ずれていること自体はこのバッジでは示せない。link アイコンは local と origin の両方がグラフに
-載っているときしか判定できず、載っていない scope ではどちらのアイコンも付かない。**PR バッジは
-出るがずれは見えない**状態になる。
+載っているときしか判定できず、載っていない scope ではどちらのアイコンも付かない。
 
-PR バッジが出ている行でドットが無いのは、origin が載っていないか、check が未登録かのどちらか。
+PR バッジが濃く出ている行でドットが無いのは、check が未登録のとき。
 
 `checkState` が undefined なのは **check が 1 つも登録されていない commit** であって、失敗でも
 取得漏れでもない。CI を持たない repo に加え、push 直後に GitHub が check を作るまでの過渡状態も
@@ -90,11 +98,18 @@ const checkDot = computed(() => {
   const state = pr.value?.checkState;
   return state === undefined ? undefined : CHECK_STATE_DISPLAY[state];
 });
+
+/**
+ * PR インジケータを dim するか。`origin/<branch>` が載っていない行は PR head と別の commit を
+ * 指すため、番号とコメント数は残したまま明度を落とす（data state の dim、SKILL Alpha allow-list）。
+ */
+const isDimmed = computed(() => !hasOriginRef(props.displayRef));
 </script>
 
 <template>
-  <!-- PR number badge + CI / comment indicators (left of branch label) -->
-  <template v-if="pr">
+  <!-- PR number badge + CI / comment indicators (left of branch label)。
+       gap は親 (CommitRow の ref 列) と同値にして、包んでも並びの見た目を変えない。 -->
+  <span v-if="pr" class="flex shrink-0 items-center gap-1" :class="isDimmed && 'opacity-50'">
     <!-- クリックは `activateExternalLink` が OS のブラウザへ渡す。`href` は遷移させないが、外すと
          a[href] のリンク意味論 (キーボードフォーカス到達、Enter による起動、支援技術への link
          としての露出、UA の cursor: pointer) が同時に落ちる。no-underline のこのバッジでは
@@ -127,7 +142,7 @@ const checkDot = computed(() => {
       <IconLucideMessageSquare class="size-3" />
       {{ pr.commentCount }}
     </span>
-  </template>
+  </span>
   <!-- Branch / tag label -->
   <span
     class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"

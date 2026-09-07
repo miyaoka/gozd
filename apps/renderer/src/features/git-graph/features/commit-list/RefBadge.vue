@@ -11,7 +11,7 @@ PR 番号とコメント数は **PR 単位**の値なので、branch を指す r
 local と origin が別コミットに分かれていても出す — stack を積み替える運用ではずれている状態が
 常態で、「同じコミットに居るときだけ出す」にすると PR を持つ branch からバッジが消える。
 
-## 位置のずれは明度で示す
+## PR head でない行は dim する
 
 `origin/<branch>` が載っていない行は **PR が指す commit ではない**（判定とその限界は
 `graphRefs.ts` の `hasOriginRef`）。そこに描く PR インジケータは全体を dim する。
@@ -20,11 +20,13 @@ local と origin が別コミットに分かれていても出す — stack を�
 PR に見える。dim は「どちらが PR の位置か」を運びつつ、branch 単位の事実である番号とコメント数は
 残す。**消す方向で解かない** — origin の行がグラフに載らない scope があり、消すと逃げ場が無くなる。
 
+**dim が言うのは「この行は PR head ではない」までで、ずれていることではない。**判定に使う
+`hasOriginRef` は未 push と「origin が別 commit に居る」を区別しないため、未 push の branch も
+同じ明度になる。ずれ自体は link アイコンが示すが、こちらは local と origin の両方がグラフに
+載っているときしか判定できず、載っていない scope ではどちらのアイコンも付かない。
+
 **CI ドットだけは commit 単位**の値で、PR head ref に対する結果を指す。こちらは dim ではなく
 **出さない**。head でない commit に描けば存在しない事実になり、薄く描いても事実にはならない。
-
-ずれていること自体はこのバッジでは示せない。link アイコンは local と origin の両方がグラフに
-載っているときしか判定できず、載っていない scope ではどちらのアイコンも付かない。
 
 PR バッジが濃く出ている行でドットが無いのは、check が未登録のとき。
 
@@ -99,10 +101,7 @@ const checkDot = computed(() => {
   return state === undefined ? undefined : CHECK_STATE_DISPLAY[state];
 });
 
-/**
- * PR インジケータを dim するか。`origin/<branch>` が載っていない行は PR head と別の commit を
- * 指すため、番号とコメント数は残したまま明度を落とす（data state の dim、SKILL Alpha allow-list）。
- */
+/** PR インジケータを dim するか。契約は `<doc>` の「PR head でない行は dim する」節。 */
 const isDimmed = computed(() => !hasOriginRef(props.displayRef));
 </script>
 

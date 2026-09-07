@@ -228,6 +228,16 @@ test("origin が載っていない行の PR インジケータだけを dim す�
   expect(getComputedStyle(prIndicators(originRow)).opacity).toBe("1");
 });
 
+test("dim した行には CI ドットを出さない", () => {
+  const container = renderOutOfSync();
+  const [, localRow, originRow] = rows(container);
+
+  // CI は PR head の commit に対する結果なので、head でない行には薄くも描かない。
+  // 同じ PR を両行が引くため、dim 側だけドットが消えることが分岐の唯一の現れ
+  expect(prIndicators(originRow).querySelector('[role="img"]')).not.toBeNull();
+  expect(prIndicators(localRow).querySelector('[role="img"]')).toBeNull();
+});
+
 test("PR インジケータを span で包んでも ref 列の間隔が均一に保たれる", () => {
   const container = renderOutOfSync();
   const originRow = rows(container).at(-1)!;

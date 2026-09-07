@@ -169,7 +169,7 @@ describe("parseNewWorktreeArgs", () => {
     expect(parsed).toEqual({
       ok: true,
       value: {
-        message: { dir: "/repo", title: "fix login", prompt: "", ghRef: undefined },
+        message: { dir: "/repo", title: "fix login", prompt: "" },
         promptFromStdin: false,
       },
     });
@@ -185,39 +185,8 @@ describe("parseNewWorktreeArgs", () => {
     expect(parsed.ok && parsed.value.message.dir).toBe("/repo/other");
   });
 
-  test("--issue / --pr は ghRef になる", () => {
-    const issue = parseNewWorktreeArgs(["--title", "t", "--issue", "42"], "/repo");
-    expect(issue.ok && issue.value.message.ghRef).toEqual({
-      kind: "GH_REF_KIND_ISSUE",
-      number: 42,
-    });
-    const pr = parseNewWorktreeArgs(["--title", "t", "--pr", "7"], "/repo");
-    expect(pr.ok && pr.value.message.ghRef).toEqual({ kind: "GH_REF_KIND_PR", number: 7 });
-  });
-
   test("--title 無しは失敗する（タイトル無しの task はサイドバーで見分けが付かない）", () => {
     expect(parseNewWorktreeArgs([], "/repo")).toEqual({ ok: false, error: "--title is required" });
-  });
-
-  test("--issue と --pr の同時指定は失敗する", () => {
-    const parsed = parseNewWorktreeArgs(["--title", "t", "--issue", "1", "--pr", "2"], "/repo");
-    expect(parsed).toEqual({
-      ok: false,
-      error: "--issue and --pr are mutually exclusive",
-    });
-  });
-
-  test("番号でない --issue は失敗する", () => {
-    const parsed = parseNewWorktreeArgs(["--title", "t", "--issue", "#42"], "/repo");
-    expect(parsed.ok).toBe(false);
-  });
-
-  test("先頭 0 埋めと安全整数超えの番号は失敗する", () => {
-    // 前者は同じ番号に 2 通りの綴りを許し、後者は丸められた別の番号として GhRef に載る
-    expect(parseNewWorktreeArgs(["--title", "t", "--issue", "007"], "/repo").ok).toBe(false);
-    expect(parseNewWorktreeArgs(["--title", "t", "--pr", "99999999999999999999"], "/repo").ok).toBe(
-      false,
-    );
   });
 
   test("フラグに見える本文を値として渡しても分解されない", () => {
@@ -256,15 +225,9 @@ describe("parseNewWorktreeArgs (--prompt-stdin)", () => {
   });
 
   test("スイッチの後ろのオプションを値として食わない", () => {
-    const parsed = parseNewWorktreeArgs(
-      ["--prompt-stdin", "--title", "t", "--issue", "9"],
-      "/repo",
-    );
+    const parsed = parseNewWorktreeArgs(["--prompt-stdin", "--title", "t", "--dir", "/x"], "/repo");
     expect(parsed.ok && parsed.value.message.title).toBe("t");
-    expect(parsed.ok && parsed.value.message.ghRef).toEqual({
-      kind: "GH_REF_KIND_ISSUE",
-      number: 9,
-    });
+    expect(parsed.ok && parsed.value.message.dir).toBe("/x");
   });
 
   test("値を付けたら失敗する（黙って捨てない）", () => {

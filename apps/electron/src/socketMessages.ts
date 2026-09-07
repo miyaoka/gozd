@@ -15,14 +15,7 @@ import { tryCatch } from "@gozd/shared";
 import { basename } from "node:path";
 import { createTaskWorktree } from "./git/worktreeCreate";
 import { buildGozdOpenPayload } from "./openTarget";
-import {
-  asDict,
-  lenientBoolean,
-  lenientDict,
-  lenientGhRef,
-  lenientNumber,
-  lenientString,
-} from "./rawJson";
+import { asDict, lenientBoolean, lenientDict, lenientNumber, lenientString } from "./rawJson";
 import type { SocketMessageHandler } from "./socketServer";
 import {
   clearSessionId,
@@ -164,7 +157,6 @@ function parseClientMessage(line: string): ClientMessage {
       dir: lenientString(newWorktree.dir, "newWorktree.dir"),
       title: lenientString(newWorktree.title, "newWorktree.title"),
       prompt: lenientString(newWorktree.prompt, "newWorktree.prompt"),
-      ghRef: lenientGhRef(newWorktree.ghRef, "newWorktree.ghRef"),
     };
   }
   return msg;
@@ -190,7 +182,6 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
       branch: "",
       startPoint: "",
       ghTitle: msg.title,
-      ghRef: msg.ghRef,
     }),
   );
   if (!created.ok) {

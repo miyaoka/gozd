@@ -88,8 +88,6 @@ Options:
   --title <text>     Name shown for the worktree in gozd (required)
   --prompt-stdin     Read the prompt from stdin (use a heredoc for long prompts)
   --prompt <text>    Prompt passed to claude on launch (runs immediately)
-  --issue <number>   Associate the worktree with a GitHub issue
-  --pr <number>      Associate the worktree with a GitHub pull request
   --dir <path>       Repository to create the worktree in (default: cwd)
 
 Prints the created worktree path to stdout. Requires a running gozd window:

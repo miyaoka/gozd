@@ -109,7 +109,11 @@ const isDimmed = computed(() => !hasOriginRef(props.displayRef));
 <template>
   <!-- PR number badge + CI / comment indicators (left of branch label)。
        gap は親 (CommitRow の ref 列) と同値にして、包んでも並びの見た目を変えない。 -->
-  <span v-if="pr" class="flex shrink-0 items-center gap-1" :class="isDimmed && 'opacity-50'">
+  <span
+    v-if="pr"
+    class="_pr-indicators flex shrink-0 items-center gap-1"
+    :class="isDimmed && 'opacity-50'"
+  >
     <!-- クリックは `activateExternalLink` が OS のブラウザへ渡す。`href` は遷移させないが、外すと
          a[href] のリンク意味論 (キーボードフォーカス到達、Enter による起動、支援技術への link
          としての露出、UA の cursor: pointer) が同時に落ちる。no-underline のこのバッジでは

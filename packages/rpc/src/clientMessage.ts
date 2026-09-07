@@ -13,8 +13,6 @@
 // `ClientReply` の JSON 1 行を返してから接続を閉じる。実行者（エージェント）が worktree を
 // 作れたのかどうかを知らずに次の指示へ進めないため、この種別だけ双方向にする。
 
-import type { GhRef } from "./common";
-
 export interface ClientMessage {
   hook?: HookMessage;
   open?: OpenMessage;
@@ -78,9 +76,9 @@ export interface OpenMessage {
  * エージェントが自分で次の作業単位を切り出すための入口で、UI の PR / issue picker と
  * 同じ合成操作（worktree 作成 + task 紐づけ + claude 自動起動）を駆動する。
  *
- * 違いは起動した claude にプロンプトをどう渡すか。picker は URL を入力欄へ挿入するだけで
- * 人の送信を待つが、こちらは引数で渡してそのまま走らせる。作業を切り出す側は相手が動き
- * 出すことまでを含めて指示している。 */
+ * 起動した claude へのプロンプトは、picker が URL を入力欄へ挿入して人の送信を待つのに対し、
+ * こちらは引数で渡してそのまま走らせる。作業を切り出す側は相手が動き出すことまでを含めて
+ * 指示している。この経路は GitHub 参照を表現しない。 */
 export interface NewWorktreeMessage {
   /** 実行時の cwd。main 側で main repo root に解決する */
   dir: string;
@@ -89,8 +87,6 @@ export interface NewWorktreeMessage {
   /** 起動した claude に引数で渡すプロンプト（送信され、そのまま実行が始まる）。
    * 空なら素の claude を起動する */
   prompt: string;
-  /** 紐づける GitHub PR / issue。未指定なら task は GitHub 参照を持たない */
-  ghRef?: GhRef;
 }
 
 /** 応答を返す種別の ClientMessage に対して、socket が閉じる前に 1 行だけ返すメッセージ。 */

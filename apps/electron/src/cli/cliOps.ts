@@ -2,8 +2,7 @@
 // 対応物（issue #895「CLI: ソケットプロトコル互換を保って TS で再実装」）。
 // ワイヤは ClientMessage の JSON 1 行（NDJSON）。形状は旧 proto3 JSON mapping と同一。
 
-import type { GhRef, HookMessage, NewWorktreeMessage } from "@gozd/rpc";
-import { ghRefForIssue, ghRefForPr } from "@gozd/rpc";
+import type { HookMessage, NewWorktreeMessage } from "@gozd/rpc";
 import type { Result } from "@gozd/shared";
 import { tryCatch } from "@gozd/shared";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -103,7 +102,7 @@ export function parseStdinJson(text: string): Record<string, unknown> {
 }
 
 /** `gozd worktree new` が受け付ける、値を取るオプション。値は次の引数か `=` の右辺で渡す。 */
-const NEW_WORKTREE_FLAGS = ["--title", "--prompt", "--dir", "--issue", "--pr"] as const;
+const NEW_WORKTREE_FLAGS = ["--title", "--prompt", "--dir"] as const;
 type NewWorktreeFlag = (typeof NEW_WORKTREE_FLAGS)[number];
 
 /** 値を取らないオプション。 */
@@ -123,17 +122,6 @@ export interface ParsedNewWorktree {
   message: NewWorktreeMessage;
   /** true なら message.prompt は空で、呼び出し側が stdin を読んで埋める */
   promptFromStdin: boolean;
-}
-
-/** `--issue` / `--pr` の番号。GitHub の番号は 1 始まりの整数以外を取らない。
- * 先頭 0 埋めと安全整数超えも弾く（前者は同じ番号に 2 通りの綴りを許し、後者は
- * 丸められた別の番号として GhRef に載るため） */
-function parseGhNumber(flag: NewWorktreeFlag, text: string): Result<number, string> {
-  const invalid = !/^[1-9]\d*$/.test(text) || !Number.isSafeInteger(Number(text));
-  if (invalid) {
-    return { ok: false, error: `${flag} expects a positive number, got ${JSON.stringify(text)}` };
-  }
-  return { ok: true, value: Number(text) };
 }
 
 /**
@@ -180,19 +168,6 @@ export function parseNewWorktreeArgs(
     return { ok: false, error: "--prompt and --prompt-stdin are mutually exclusive" };
   }
 
-  const issue = flags["--issue"];
-  const pr = flags["--pr"];
-  if (issue !== undefined && pr !== undefined) {
-    return { ok: false, error: "--issue and --pr are mutually exclusive" };
-  }
-  const ghNumber = issue ?? pr;
-  let ghRef: GhRef | undefined;
-  if (ghNumber !== undefined) {
-    const parsed = parseGhNumber(issue !== undefined ? "--issue" : "--pr", ghNumber);
-    if (!parsed.ok) return parsed;
-    ghRef = issue !== undefined ? ghRefForIssue(parsed.value) : ghRefForPr(parsed.value);
-  }
-
   return {
     ok: true,
     value: {
@@ -200,7 +175,6 @@ export function parseNewWorktreeArgs(
         dir: resolve(cwd, flags["--dir"] ?? "."),
         title,
         prompt: flags["--prompt"] ?? "",
-        ghRef,
       },
       promptFromStdin,
     },

@@ -55,7 +55,7 @@ describe("requestClientReply", () => {
       return JSON.stringify({ ok: true, dir: "", error: "" });
     });
     await requestClientReply(path, {
-      newWorktree: { dir: "/repo", title: "t", prompt: "p", ghRef: undefined },
+      newWorktree: { dir: "/repo", title: "t", prompt: "p" },
     });
     expect(received).toEqual(['{"newWorktree":{"dir":"/repo","title":"t","prompt":"p"}}']);
   });

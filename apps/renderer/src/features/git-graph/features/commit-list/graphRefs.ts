@@ -147,13 +147,9 @@ const HAS_ORIGIN_REF: Record<DisplayRef["type"], boolean> = {
  * これは **その行が PR head の位置か**の代理判定で、ref バッジの描画が読む。何をどう描き分けるかは
  * `RefBadge.vue` の `<doc>` が持つ。
  *
- * CI の総合結果は **PR head ref の commit** に対する値なので、origin が載っている ref にだけ
- * 描く。それ以外に描くと「head ではない commit の CI 結果」という存在しない事実になる（`local` には
- * origin より後ろに居る = push 済みの状態も含まれるので、理由は push の有無ではない）。
- *
  * **origin ref が PR head を指しているかまでは見ない。**origin ref も PR の取得結果もそれぞれ
  * 取得時点のスナップショットなので、branch の指す先が動いた直後は両者がずれ、その間は別 commit
- * の CI が描かれる。commit で判定するには PR head の OID が要る。
+ * の行が PR head として扱われる。commit で判定するには PR head の OID が要る。
  */
 export function hasOriginRef(displayRef: DisplayRef): boolean {
   return HAS_ORIGIN_REF[displayRef.type];

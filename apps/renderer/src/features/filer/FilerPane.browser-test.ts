@@ -84,7 +84,7 @@ const HIT_POINTS = ["svg", "img"] as const;
 const LEADING_EDGE_OFFSET_PX = 1;
 
 test("ルート直下のディレクトリ行が左端のクリックで展開する", async () => {
-  const screen = renderPane();
+  const screen = await renderPane();
   const rowLocator = screen.getByRole("button", { name: "src" });
   await expect.element(rowLocator).toBeVisible();
 
@@ -95,7 +95,7 @@ test("ルート直下のディレクトリ行が左端のクリックで展開�
 });
 
 test.each(HIT_POINTS)("ルート直下のディレクトリ行が %s のクリックで展開する", async (selector) => {
-  const screen = renderPane();
+  const screen = await renderPane();
   const rowLocator = screen.getByRole("button", { name: "src" });
   await expect.element(rowLocator).toBeVisible();
 

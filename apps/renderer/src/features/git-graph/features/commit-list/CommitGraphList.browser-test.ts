@@ -1,4 +1,4 @@
-import type { GitCommit } from "@gozd/rpc";
+import type { GitCommit, GitPullRequestBadge } from "@gozd/rpc";
 import type { ElectronRpcBridge } from "@gozd/shared";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, expect, test } from "vitest";
@@ -79,14 +79,14 @@ beforeEach(() => {
 /** graph 列の右に message / author / hash が並ぶ実運用相当の幅。狭いと列が潰れて一致が自明になる */
 const PANE_WIDTH_PX = 800;
 
-function renderList() {
+function renderList(prByBranch: Map<string, GitPullRequestBadge> = new Map()) {
   const container = document.createElement("div");
   container.style.width = `${PANE_WIDTH_PX}px`;
   container.style.height = "300px";
   document.body.appendChild(container);
   render(CommitGraphList, {
     container,
-    props: { prByBranch: new Map() },
+    props: { prByBranch },
     global: { plugins: [pinia] },
   });
   return container;
@@ -188,4 +188,75 @@ test("gap 行のラベルが graph 列基準で字下げされ、行末まで伸
   );
   // graph 列 1 本ぶんに閉じ込められていないこと (文言は overflow で見えてしまい、左端だけでは分からない)
   expectSamePx(label.getBoundingClientRect().right, commitRow.getBoundingClientRect().right);
+});
+
+/**
+ * local と origin が別 commit に居る branch。PR は branch 名に紐づくので両方の行に出る。
+ * origin の行だけが PR head の位置なので、local の行は dim される。
+ */
+const OUT_OF_SYNC_COMMITS: GitCommit[] = [
+  commit({ hash: "a".repeat(40), refs: ["HEAD", "feat"], parents: ["b".repeat(40)] }),
+  commit({ hash: "b".repeat(40), refs: ["origin/feat"] }),
+];
+
+const PR_BADGE: GitPullRequestBadge = {
+  number: 2692,
+  url: "https://github.com/miyaoka/gozd/pull/2692",
+  headRef: "feat",
+  isDraft: false,
+  baseRefOid: "c".repeat(40),
+  checkState: "SUCCESS",
+  commentCount: 2,
+};
+
+function renderOutOfSync() {
+  useGitGraphStore().commits = OUT_OF_SYNC_COMMITS;
+  return renderList(new Map([["feat", PR_BADGE]]));
+}
+
+/** PR インジケータをまとめる span。列を数えないよう marker class で引く */
+function prIndicators(row: Element): Element {
+  return query(row, "._pr-indicators");
+}
+
+test("origin が載っていない行の PR インジケータだけを dim する", () => {
+  const container = renderOutOfSync();
+  const [, localRow, originRow] = rows(container);
+
+  // dim は opacity で作るため、レイアウトを持たない DOM では両行とも同じに見えて検出できない
+  expect(getComputedStyle(prIndicators(localRow)).opacity).toBe("0.5");
+  expect(getComputedStyle(prIndicators(originRow)).opacity).toBe("1");
+});
+
+test("dim した行には CI ドットを出さない", () => {
+  const container = renderOutOfSync();
+  const [, localRow, originRow] = rows(container);
+
+  // CI は PR head の commit に対する結果なので、head でない行には薄くも描かない。
+  // 同じ PR を両行が引くため、dim 側だけドットが消えることが分岐の唯一の現れ
+  expect(prIndicators(originRow).querySelector('[role="img"]')).not.toBeNull();
+  expect(prIndicators(localRow).querySelector('[role="img"]')).toBeNull();
+});
+
+test("PR インジケータを span で包んでも ref 列の間隔が均一に保たれる", () => {
+  const container = renderOutOfSync();
+  const originRow = rows(container).at(-1)!;
+  const group = prIndicators(originRow);
+  const [prLink, checkDot, commentCount] = [...group.children];
+  const label = group.nextElementSibling;
+  if (prLink === undefined || checkDot === undefined || commentCount === undefined)
+    throw new Error(`expected PR link / CI dot / comment count, got ${group.children.length}`);
+  if (label === null) throw new Error("branch label is not rendered");
+
+  // 包む span の gap が親の ref 列と違うと、group 内の 2 つだけが group→label と食い違う
+  const insideFirst = checkDot.getBoundingClientRect().left - prLink.getBoundingClientRect().right;
+  const insideSecond =
+    commentCount.getBoundingClientRect().left - checkDot.getBoundingClientRect().right;
+  const acrossGroup =
+    label.getBoundingClientRect().left - commentCount.getBoundingClientRect().right;
+
+  expectSamePx(insideFirst, acrossGroup);
+  expectSamePx(insideSecond, acrossGroup);
+  // gap 0 だと「均一」が潰れて自明に通る
+  expect(acrossGroup).toBeGreaterThan(0);
 });

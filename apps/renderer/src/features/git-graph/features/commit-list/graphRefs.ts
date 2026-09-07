@@ -142,7 +142,8 @@ const HAS_ORIGIN_REF: Record<DisplayRef["type"], boolean> = {
  * この ref と同じ branch の `origin/<branch>` が、同じ commit に載っているか。判定は ref 単位で、
  * 同じ行にある別の ref は見ない。`synced` は local と origin が同一 commit に居ることの定義その
  * もの、`remote` は origin ref 自身。`local` は載っていない状態で、**未 push と、origin が別
- * commit に居るという 2 系統を含む**。
+ * commit に居るという 2 系統を含む**。後者には origin より後ろに居る（= push 済みの）状態も
+ * 入るため、**この述語は push の有無を答えない**。
  *
  * これは **その行が PR head の位置か**の代理判定で、ref バッジの描画が読む。何をどう描き分けるかは
  * `RefBadge.vue` の `<doc>` が持つ。

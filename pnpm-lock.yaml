@@ -10,8 +10,8 @@ catalogs:
       specifier: 4.3.3
       version: 4.3.3
     '@types/bun':
-      specifier: 1.4.0
-      version: 1.4.0
+      specifier: 1.4.1
+      version: 1.4.1
     '@types/node':
       specifier: 24.13.3
       version: 24.13.3
@@ -101,7 +101,7 @@ importers:
         version: link:../../packages/shared
       '@types/bun':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.4.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -222,7 +222,7 @@ importers:
         version: 4.3.3(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
       '@types/bun':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.4.1
       '@vitejs/plugin-vue':
         specifier: 6.0.8
         version: 6.0.8(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.42(@typescript/typescript6@6.0.2))
@@ -286,7 +286,7 @@ importers:
     devDependencies:
       '@types/bun':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.4.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -310,7 +310,7 @@ importers:
         version: 1.1.0
       '@types/bun':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.4.1
       '@types/chroma-js':
         specifier: 3.1.2
         version: 3.1.2
@@ -337,7 +337,7 @@ importers:
     devDependencies:
       '@types/bun':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.4.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -370,7 +370,7 @@ importers:
     devDependencies:
       '@types/bun':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.4.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -391,7 +391,7 @@ importers:
     devDependencies:
       '@types/bun':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.4.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -412,7 +412,7 @@ importers:
     devDependencies:
       '@types/bun':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.4.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -439,7 +439,7 @@ importers:
     devDependencies:
       '@types/bun':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.4.1
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -1720,8 +1720,8 @@ packages:
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
 
-  '@types/bun@1.4.0':
-    resolution: {integrity: sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ==}
+  '@types/bun@1.4.1':
+    resolution: {integrity: sha512-0AVGiTXGajf1rgKom3N+c5L7CBxuoyyv1i44M0nX4UDK0G/fnRAMiri93nHuVPIb429KKtAgj7HatVmmOjeQLA==}
 
   '@types/cacheable-request@6.0.3':
     resolution: {integrity: sha512-IQ3EbTzGxIigb1I3qPZc1rWJnH0BmSKv5QYTalEwweFvyBDLSAe24zP0le/hyi7ecGfZVlIVAg4BZqb8WBwKqw==}
@@ -2553,8 +2553,8 @@ packages:
     resolution: {integrity: sha512-RLyJhB7Si3YkzKR9ubQslWuXW3Vhs3CGe1i+SeixBZ0qTd1mk3XBmssvY22TlB6CS5blyko8Gu1JzpYk8UkYAg==}
     engines: {node: '>=14.0.0'}
 
-  bun-types@1.4.0:
-    resolution: {integrity: sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q==}
+  bun-types@1.4.1:
+    resolution: {integrity: sha512-loKuVrAFZKfEv+JvWkHRS9GW5IqLuLRjVXN9p+vZvBN86O5hf/pBZQ5hSoyipsrMmWObZBDvWnlmKvjKTM0PdA==}
 
   bytestreamjs@2.0.1:
     resolution: {integrity: sha512-U1Z/ob71V/bXfVABvNr/Kumf5VyeQRBEm6Txb0PQ6S7V5GpBM3w4Cbqz/xPDicR5tN0uvDifng8C+5qECeGwyQ==}
@@ -5908,9 +5908,9 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@types/bun@1.4.0':
+  '@types/bun@1.4.1':
     dependencies:
-      bun-types: 1.4.0
+      bun-types: 1.4.1
 
   '@types/cacheable-request@6.0.3':
     dependencies:
@@ -6786,7 +6786,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  bun-types@1.4.0:
+  bun-types@1.4.1:
     dependencies:
       '@types/node': 24.13.3
 

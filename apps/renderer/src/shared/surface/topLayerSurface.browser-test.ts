@@ -174,14 +174,14 @@ afterEach(() => {
   if (toast !== null) unpinSurface(toast);
 });
 
-test("後から開いたサーフェスが重なりの手前に来る", () => {
-  render(Harness);
+test("後から開いたサーフェスが重なりの手前に来る", async () => {
+  await render(Harness);
 
   openBothWithBInFront();
 });
 
 test("覆われたサーフェスをクリックすると前面へ来る", async () => {
-  const screen = render(Harness);
+  const screen = await render(Harness);
   openBothWithBInFront();
 
   // B に覆われていない A の領域を突く。root の pointerdown キャプチャを通る経路
@@ -190,8 +190,8 @@ test("覆われたサーフェスをクリックすると前面へ来る", async
   expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("surface-a");
 });
 
-test("pin した要素はサーフェスを開いても最前面に残る", () => {
-  render(Harness);
+test("pin した要素はサーフェスを開いても最前面に残る", async () => {
+  await render(Harness);
   const toast = elByTestId("toast");
   toast.showPopover();
   pinSurface(toast);
@@ -207,8 +207,8 @@ test("pin した要素はサーフェスを開いても最前面に残る", () =
   expect(topAt(OVERLAP_X_PX, MID_Y_PX)).toBe("toast");
 });
 
-test("サーフェスを開くとそのサーフェスへフォーカスが移る", () => {
-  render(Harness);
+test("サーフェスを開くとそのサーフェスへフォーカスが移る", async () => {
+  await render(Harness);
   const outside = elByTestId("outside");
   outside.focus();
 
@@ -217,8 +217,8 @@ test("サーフェスを開くとそのサーフェスへフォーカスが移�
   expect(document.activeElement).toBe(surfaceEl("a"));
 });
 
-test("フォーカスを持たないサーフェスを前面化するとそのサーフェスへフォーカスが移る", () => {
-  render(Harness);
+test("フォーカスを持たないサーフェスを前面化するとそのサーフェスへフォーカスが移る", async () => {
+  await render(Harness);
   openBothWithBInFront();
   const outside = elByTestId("outside");
   outside.focus();
@@ -232,8 +232,8 @@ test("フォーカスを持たないサーフェスを前面化するとその�
   expect(document.activeElement).toBe(surfaceEl("a"));
 });
 
-test("前面化してもサーフェス内の入力先が変わらない", () => {
-  render(Harness);
+test("前面化してもサーフェス内の入力先が変わらない", async () => {
+  await render(Harness);
   openBothWithBInFront();
   inputEl("a").focus();
 
@@ -246,8 +246,8 @@ test("前面化してもサーフェス内の入力先が変わらない", () =>
   expect(document.activeElement).toBe(inputEl("a"));
 });
 
-test("前面化してもスクロール位置が保たれる", () => {
-  render(Harness);
+test("前面化してもスクロール位置が保たれる", async () => {
+  await render(Harness);
   openBothWithBInFront();
   const a = surfaceEl("a");
   a.scrollTop = SCROLL_OFFSET_PX;
@@ -260,8 +260,8 @@ test("前面化してもスクロール位置が保たれる", () => {
   expect(a.scrollTop).toBe(SCROLL_OFFSET_PX);
 });
 
-test("フォーカスを持つサーフェスを閉じると次の前面へフォーカスが移る", () => {
-  render(Harness);
+test("フォーカスを持つサーフェスを閉じると次の前面へフォーカスが移る", async () => {
+  await render(Harness);
   openBothWithBInFront();
   inputEl("b").focus();
 
@@ -270,8 +270,8 @@ test("フォーカスを持つサーフェスを閉じると次の前面へフ�
   expect(document.activeElement).toBe(surfaceEl("a"));
 });
 
-test("フォーカスを持たないサーフェスを閉じてもフォーカスは動かない", () => {
-  render(Harness);
+test("フォーカスを持たないサーフェスを閉じてもフォーカスは動かない", async () => {
+  await render(Harness);
   openBothWithBInFront();
   const outside = elByTestId("outside");
   outside.focus();
@@ -283,8 +283,8 @@ test("フォーカスを持たないサーフェスを閉じてもフォーカ�
   expect(document.activeElement).toBe(outside);
 });
 
-test("最後の 1 枚を閉じると開く前のフォーカス元へ戻る", () => {
-  render(Harness);
+test("最後の 1 枚を閉じると開く前のフォーカス元へ戻る", async () => {
+  await render(Harness);
   const outside = elByTestId("outside");
   outside.focus();
 
@@ -299,7 +299,7 @@ test("最後の 1 枚を閉じると開く前のフォーカス元へ戻る", ()
 });
 
 test("親ごと DOM から外れたサーフェスも前面順の控えから抜ける", async () => {
-  const first = render(Harness);
+  const first = await render(Harness);
   openA.value = true;
   // 外した後は querySelector で辿れないため、掴んでから外す
   const a = surfaceEl("a");
@@ -317,7 +317,7 @@ test("親ごと DOM から外れたサーフェスも前面順の控えから抜
 
   // 離脱に漏れがあると、次に開くサーフェスから見た列が空でなくなる。開く前のフォーカス元は
   // 「1 枚も開いていないとき」にしか控えないため、控えが腐ると復帰先が記録されない
-  render(Harness);
+  await render(Harness);
   const outside = elByTestId("outside");
   outside.focus();
 

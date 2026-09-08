@@ -79,12 +79,12 @@ beforeEach(() => {
 /** graph 列の右に message / author / hash が並ぶ実運用相当の幅。狭いと列が潰れて一致が自明になる */
 const PANE_WIDTH_PX = 800;
 
-function renderList(prByBranch: Map<string, GitPullRequestBadge> = new Map()) {
+async function renderList(prByBranch: Map<string, GitPullRequestBadge> = new Map()) {
   const container = document.createElement("div");
   container.style.width = `${PANE_WIDTH_PX}px`;
   container.style.height = "300px";
   document.body.appendChild(container);
-  render(CommitGraphList, {
+  await render(CommitGraphList, {
     container,
     props: { prByBranch },
     global: { plugins: [pinia] },
@@ -119,8 +119,8 @@ function overlaySvg(container: Element): Element {
   return svg;
 }
 
-test("date 列が graph 列の左に幅を持つ", () => {
-  const container = renderList();
+test("date 列が graph 列の左に幅を持つ", async () => {
+  const container = await renderList();
   const commitRow = rows(container).at(-1)!;
 
   const dateCell = query(commitRow, ":scope > *");
@@ -132,8 +132,8 @@ test("date 列が graph 列の左に幅を持つ", () => {
   );
 });
 
-test("行をまたぐ SVG overlay が graph 列に載る", () => {
-  const container = renderList();
+test("行をまたぐ SVG overlay が graph 列に載る", async () => {
+  const container = await renderList();
   const commitRow = rows(container).at(-1)!;
 
   expectSamePx(
@@ -142,8 +142,8 @@ test("行をまたぐ SVG overlay が graph 列に載る", () => {
   );
 });
 
-test("行をまたぐ SVG overlay が commit 行域の先頭から始まる", () => {
-  const container = renderList();
+test("行をまたぐ SVG overlay が commit 行域の先頭から始まる", async () => {
+  const container = await renderList();
   const [workingTreeRow, firstCommitRow] = rows(container);
 
   // overlay の縦位置は grid の行 line ではなく top で作る。行 line を指定すると
@@ -157,8 +157,8 @@ test("行をまたぐ SVG overlay が commit 行域の先頭から始まる", ()
   );
 });
 
-test("Working Tree 行の SVG が graph 列の左上に載る", () => {
-  const container = renderList();
+test("Working Tree 行の SVG が graph 列の左上に載る", async () => {
+  const container = await renderList();
   const rowList = rows(container);
   const workingTreeRow = rowList[0];
   const cell = graphCell(workingTreeRow);
@@ -175,8 +175,8 @@ test("Working Tree 行の SVG が graph 列の左上に載る", () => {
   expectSamePx(cell.getBoundingClientRect().height, workingTreeRow.clientHeight);
 });
 
-test("gap 行のラベルが graph 列基準で字下げされ、行末まで伸びる", () => {
-  const container = renderList();
+test("gap 行のラベルが graph 列基準で字下げされ、行末まで伸びる", async () => {
+  const container = await renderList();
   const commitRow = rows(container).at(-1)!;
   const label = query(container, "._graph-gap-label");
 
@@ -219,8 +219,8 @@ function prIndicators(row: Element): Element {
   return query(row, "._pr-indicators");
 }
 
-test("origin が載っていない行の PR インジケータだけを dim する", () => {
-  const container = renderOutOfSync();
+test("origin が載っていない行の PR インジケータだけを dim する", async () => {
+  const container = await renderOutOfSync();
   const [, localRow, originRow] = rows(container);
 
   // dim は opacity で作るため、レイアウトを持たない DOM では両行とも同じに見えて検出できない
@@ -228,8 +228,8 @@ test("origin が載っていない行の PR インジケータだけを dim す�
   expect(getComputedStyle(prIndicators(originRow)).opacity).toBe("1");
 });
 
-test("dim した行には CI ドットを出さない", () => {
-  const container = renderOutOfSync();
+test("dim した行には CI ドットを出さない", async () => {
+  const container = await renderOutOfSync();
   const [, localRow, originRow] = rows(container);
 
   // CI は PR head の commit に対する結果なので、head でない行には薄くも描かない。
@@ -238,8 +238,8 @@ test("dim した行には CI ドットを出さない", () => {
   expect(prIndicators(localRow).querySelector('[role="img"]')).toBeNull();
 });
 
-test("PR インジケータを span で包んでも ref 列の間隔が均一に保たれる", () => {
-  const container = renderOutOfSync();
+test("PR インジケータを span で包んでも ref 列の間隔が均一に保たれる", async () => {
+  const container = await renderOutOfSync();
   const originRow = rows(container).at(-1)!;
   const group = prIndicators(originRow);
   const [prLink, checkDot, commentCount] = [...group.children];

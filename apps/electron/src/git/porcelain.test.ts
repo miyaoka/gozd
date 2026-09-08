@@ -24,6 +24,21 @@ describe("parseWorktreePorcelain", () => {
     expect(parseWorktreePorcelain(text)[0].branch).toBeUndefined();
   });
 
+  test("unborn branch の全 0 OID は空文字に正規化する", () => {
+    const text = [
+      "worktree /repo",
+      "HEAD 0000000000000000000000000000000000000000",
+      "branch refs/heads/main",
+      "",
+    ].join("\n");
+    expect(parseWorktreePorcelain(text)[0].head).toBe("");
+  });
+
+  test("bare repo は HEAD 行を持たず head が空文字になる", () => {
+    const text = ["worktree /repo.git", "bare", ""].join("\n");
+    expect(parseWorktreePorcelain(text)[0].head).toBe("");
+  });
+
   test("prunable エントリは除外される", () => {
     const text = [
       "worktree /repo",

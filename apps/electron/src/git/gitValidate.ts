@@ -30,8 +30,10 @@ export function validateRev(rev: string): void {
   }
 }
 
-/** 全 0 hex（`0000000000...`）かどうか。renderer 側の `UNCOMMITTED_HASH` sentinel と一致する。
- * `validateRev` は hex 文字列を通すため、「コミット指定が必須」な RPC 入口で別途明示的に弾く */
+/** 全 0 hex（`0000000000...`）かどうか。git はこの形を「commit を指さない OID」として使い、
+ * renderer 側の `UNCOMMITTED_HASH` sentinel とも一致する。用途は 2 つ。
+ * - RPC 入口: `validateRev` は hex 文字列を通すため、「コミット指定が必須」な経路で別途弾く
+ * - git 出力の正規化: unborn HEAD を全 0 OID で返す出力を空文字へ倒す */
 export function isAllZeroHex(s: string): boolean {
   if (s === "") return false;
   return /^0+$/.test(s);

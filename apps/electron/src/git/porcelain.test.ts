@@ -34,7 +34,7 @@ describe("parseWorktreePorcelain", () => {
     expect(parseWorktreePorcelain(text)[0].head).toBe("");
   });
 
-  test("bare repo は HEAD 行を持たず head が空文字になる", () => {
+  test("HEAD 行が無いエントリ (bare) の head は空文字", () => {
     const text = ["worktree /repo.git", "bare", ""].join("\n");
     expect(parseWorktreePorcelain(text)[0].head).toBe("");
   });

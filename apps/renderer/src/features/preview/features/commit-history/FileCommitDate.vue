@@ -29,7 +29,8 @@ const props = defineProps<{
   relPath: string;
   /** 表示中 rev。"" = HEAD (working tree の最新コミット) / "HEAD" / <hash> / "<hash>^" */
   rev: string;
-  /** git 管理下かつ rev 解決済みのとき true。false なら何も描画しない (絶対パス等を除外) */
+  /** HEAD が commit を指す worktree 相対の選択で、rev 解決済みのとき true。
+   * false なら何も描画しない (git 管理外 / bare / 初回コミット前 / 絶対パス等を除外) */
   enabled: boolean;
 }>();
 

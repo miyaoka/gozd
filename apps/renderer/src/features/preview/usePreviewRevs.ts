@@ -65,28 +65,17 @@ export function usePreviewRevs(content: PreviewContent) {
     return `${range.older}^`;
   });
 
-  /**
-   * HEAD が commit を指しているか。blame / ファイル履歴はどちらも HEAD 起点の walk を含むため、
-   * これが false のとき git は必ず exit 128 に倒れる (unborn branch なら
-   * `does not have any commits yet` / `no such ref: HEAD`)。
-   *
-   * 非 git project は worktree entry 自体を持たず `headHash` が undefined になるため、
-   * `selectedIsGitRepo` はこの条件に含まれる。
-   */
-  const hasHeadCommit = computed(() => gitStatusStore.headHash !== undefined);
-
   /** blame 不可なファイル (HEAD なし / 絶対パスの外部 open / PR diff の added file) を弾く判定。
    *  button 描画自体を gate して silent dead button (DiffPreview docstring 規約) を作らない。
    *
-   *  - HEAD が commit を指さない dir (非 git project / 初回コミット前) は blame が exit 128 に
-   *    なるため全面抑止
+   *  - `hasHeadCommit` が false の dir は blame が exit 128 になるため全面抑止
    *  - worktreeRelative 以外 (absolute path) は git 履歴なしで blame 不成立
    *  - PR diff で added file は old 側 blame が `git blame <baseOid> -- <path>` で path 不在エラーに
    *    なるため、両側まとめて抑止する (現状の DiffPreview 単一 prop の API 制約上、side ごとに
    *    gate できないため最小コスト解。新側 blame も失うが、added file の PR view では trade-off で許容)
    */
   const blameEnabled = computed(() => {
-    if (!hasHeadCommit.value) return false;
+    if (!gitStatusStore.hasHeadCommit) return false;
     if (worktreeStore.selection?.kind !== "worktreeRelative") return false;
     if (prDiffToggle.isOn && effectiveGitChange.value === "added") return false;
     return true;
@@ -103,16 +92,15 @@ export function usePreviewRevs(content: PreviewContent) {
   );
 
   /**
-   * ヘッダのコミット日を出すか。HEAD が commit を指し、worktreeRelative かつ rev 解決済み、かつ
-   * ディレクトリ選択でないときのみ。非 git project / 初回コミット前 / 絶対パス (worktree 外
-   * open) / orderedRange 不整合 / ディレクトリを除外し、silent dead button や "ファイル単位"
-   * 機能のディレクトリ露出を防ぐ (`blameEnabled` が content 領域描画でディレクトリに出ないのと
-   * 挙動を揃える)。HEAD なしを弾かないと file preview のたびに `git log` が exit 128 で
-   * error toast になる。
+   * ヘッダのコミット日を出すか。`hasHeadCommit` かつ worktreeRelative かつ rev 解決済み、かつ
+   * ディレクトリ選択でないときのみ。絶対パス (worktree 外 open) / orderedRange 不整合 /
+   * ディレクトリを除外し、silent dead button や "ファイル単位" 機能のディレクトリ露出を防ぐ
+   * (`blameEnabled` が content 領域描画でディレクトリに出ないのと挙動を揃える)。
+   * `hasHeadCommit` を弾かないと file preview のたびに `git log` が exit 128 で error toast になる。
    */
   const fileHistoryEnabled = computed(
     () =>
-      hasHeadCommit.value &&
+      gitStatusStore.hasHeadCommit &&
       worktreeStore.selection?.kind === "worktreeRelative" &&
       historyRev.value !== undefined &&
       !isDirectory.value,

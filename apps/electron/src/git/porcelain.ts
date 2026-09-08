@@ -6,9 +6,9 @@ import { isAllZeroHex } from "./gitValidate";
 
 export interface WorktreeInfo {
   path: string;
-  /** HEAD が指す commit OID。unborn branch（初回コミット前）と bare は空文字。
-   * StatusFull.head の `(initial)` 正規化と同じ表現で、`head === ""` が
-   * 「HEAD が commit を指していない」の単一表現 */
+  /** HEAD が指す commit OID。契約は `WorktreeEntry.head` を参照。
+   * bare は `HEAD` 行自体が出ないため空文字、unborn branch は全 0 OID で来るため空文字へ
+   * 正規化する（`StatusFull.head` の `(initial)` と同じ表現に揃える） */
   head: string;
   /** detached HEAD のとき undefined */
   branch: string | undefined;

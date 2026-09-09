@@ -69,12 +69,16 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
   });
 
   /**
-   * active dir の HEAD が commit を指しているか。HEAD 起点の walk を含む git 操作
-   * (blame / ファイル履歴) が成立する前提条件で、これが false のとき git は exit 128 に倒れる。
+   * active dir の作業ツリーが HEAD の commit OID を観測しているか (`headHash` の有無)。
    *
    * false になるのは 3 つ。作業ツリーを持たない dir (bare)、HEAD が commit を指さない dir
    * (unborn branch)、worktree 一覧 / status がまだ届いていない起動直後。非 git project は
    * worktree entry 自体を持たないためここに含まれる。
+   *
+   * blame とファイル履歴はどちらも作業ツリーのファイルを HEAD 起点で走査する。false の間は
+   * 走査の成立が保証されないため、**起動要素を描く箇所はすべてこの値を共有の前提条件として
+   * 見る**。片方だけが判定を持つと、同じ repo で経路によって押せる button と押せない button が
+   * 分かれる。
    */
   const hasHeadCommit = computed<boolean>(() => headHash.value !== undefined);
 

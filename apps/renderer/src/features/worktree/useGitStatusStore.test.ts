@@ -4,11 +4,6 @@ import { createPinia, setActivePinia } from "pinia";
 import { useRepoStore } from "../../shared/repo";
 import { useGitStatusStore } from "./useGitStatusStore";
 
-/**
- * `hasHeadCommit` は blame / ファイル履歴の起動要素を出すかの前提条件で、false のとき
- * git は exit 128 に倒れる。`head` の空文字がそのまま通ると押した瞬間に失敗するボタンが
- * 残るため、空文字 → false の写像を固定する。
- */
 const DIR = "/repo";
 
 function wt(head: string): WorktreeEntry {

@@ -68,7 +68,7 @@ export function usePreviewRevs(content: PreviewContent) {
   /** blame 不可なファイル (HEAD なし / 絶対パスの外部 open / PR diff の added file) を弾く判定。
    *  button 描画自体を gate して silent dead button (DiffPreview docstring 規約) を作らない。
    *
-   *  - `hasHeadCommit` が false の dir は blame が exit 128 になるため全面抑止
+   *  - `hasHeadCommit` (共有の前提条件。契約は useGitStatusStore) が false なら全面抑止
    *  - worktreeRelative 以外 (absolute path) は git 履歴なしで blame 不成立
    *  - PR diff で added file は old 側 blame が `git blame <baseOid> -- <path>` で path 不在エラーに
    *    なるため、両側まとめて抑止する (現状の DiffPreview 単一 prop の API 制約上、side ごとに
@@ -92,11 +92,14 @@ export function usePreviewRevs(content: PreviewContent) {
   );
 
   /**
-   * ヘッダのコミット日を出すか。`hasHeadCommit` かつ worktreeRelative かつ rev 解決済み、かつ
-   * ディレクトリ選択でないときのみ。絶対パス (worktree 外 open) / orderedRange 不整合 /
-   * ディレクトリを除外し、silent dead button や "ファイル単位" 機能のディレクトリ露出を防ぐ
-   * (`blameEnabled` が content 領域描画でディレクトリに出ないのと挙動を揃える)。
-   * `hasHeadCommit` を弾かないと file preview のたびに `git log` が exit 128 で error toast になる。
+   * ヘッダのコミット日を出すか。`hasHeadCommit` (共有の前提条件。契約は useGitStatusStore) かつ
+   * worktreeRelative かつ rev 解決済み、かつディレクトリ選択でないときのみ。絶対パス
+   * (worktree 外 open) / orderedRange 不整合 / ディレクトリを除外し、silent dead button や
+   * "ファイル単位" 機能のディレクトリ露出を防ぐ (`blameEnabled` が content 領域描画で
+   * ディレクトリに出ないのと挙動を揃える)。
+   *
+   * blame と違い自動で fetch する経路なので、前提条件を満たさない dir では button ではなく
+   * ファイルを開くたびの error toast として出る。
    */
   const fileHistoryEnabled = computed(
     () =>

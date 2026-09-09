@@ -201,8 +201,8 @@ const originalRev = computed<string | undefined>(() => {
  * PR diff で added file は base 側 blame が失敗するため両側まとめて抑止する
  * (DiffPreview の blameEnabled 単一 prop の API 制約上、side ごとに gate できない最小コスト解)。
  *
- * `hasHeadCommit` は単一ファイル preview 側 (usePreviewRevs) と共有する前提条件。
- * false の dir では blame が exit 128 になるため、path が揃っていても button を出さない。
+ * `hasHeadCommit` は単一ファイル preview 側 (usePreviewRevs) と共有する前提条件
+ * (契約は useGitStatusStore)。false なら path が揃っていても button を出さない。
  */
 const blameEnabled = computed(() => {
   if (!gitStatusStore.hasHeadCommit) return false;

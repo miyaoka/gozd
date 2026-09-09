@@ -75,10 +75,8 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
    * (unborn branch)、worktree 一覧 / status がまだ届いていない起動直後。非 git project は
    * worktree entry 自体を持たないためここに含まれる。
    *
-   * blame とファイル履歴はどちらも作業ツリーのファイルを HEAD 起点で走査する。false の間は
-   * 走査の成立が保証されないため、**起動要素を描く箇所はすべてこの値を共有の前提条件として
-   * 見る**。片方だけが判定を持つと、同じ repo で経路によって押せる button と押せない button が
-   * 分かれる。
+   * false の間は作業ツリーのファイルに対する HEAD 起点の走査の成立が保証されない。
+   * この値を前提条件として使う側の契約は `docs/preview.md` の「起動要素を出す前提条件」。
    */
   const hasHeadCommit = computed<boolean>(() => headHash.value !== undefined);
 

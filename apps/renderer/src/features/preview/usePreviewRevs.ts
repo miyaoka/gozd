@@ -98,8 +98,8 @@ export function usePreviewRevs(content: PreviewContent) {
    * "ファイル単位" 機能のディレクトリ露出を防ぐ (`blameEnabled` が content 領域描画で
    * ディレクトリに出ないのと挙動を揃える)。
    *
-   * blame と違い自動で fetch する経路なので、前提条件を満たさない dir では button ではなく
-   * ファイルを開くたびの error toast として出る。
+   * blame と違い自動で fetch する経路なので、失敗は button ではなくファイルを開くたびの
+   * error toast として出る。
    */
   const fileHistoryEnabled = computed(
     () =>

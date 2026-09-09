@@ -38,7 +38,7 @@ import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { onMessage } from "../../../../shared/rpc";
 import { getFileIconUrl, relDirOf, rpcFsReadFile } from "../../../filer";
 import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../../../git-graph";
-import { UNCOMMITTED_HASH, useWorktreeStore } from "../../../worktree";
+import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../../../worktree";
 import type { GitChangeKind } from "../../../worktree";
 import { orderCommitRange } from "../../commitRange";
 import type { OrderedRange } from "../../commitRange";
@@ -65,6 +65,7 @@ const emit = defineEmits<{
 }>();
 
 const worktreeStore = useWorktreeStore();
+const gitStatusStore = useGitStatusStore();
 const gitGraphStore = useGitGraphStore();
 const prDiffToggle = usePrDiffToggleStore();
 
@@ -199,8 +200,12 @@ const originalRev = computed<string | undefined>(() => {
  *
  * PR diff で added file は base 側 blame が失敗するため両側まとめて抑止する
  * (DiffPreview の blameEnabled 単一 prop の API 制約上、side ごとに gate できない最小コスト解)。
+ *
+ * `hasHeadCommit` は単一ファイル preview 側 (usePreviewRevs) と共有する前提条件
+ * (契約は useGitStatusStore)。false なら path が揃っていても button を出さない。
  */
 const blameEnabled = computed(() => {
+  if (!gitStatusStore.hasHeadCommit) return false;
   if (props.change.oldFilePath === "" && props.change.newFilePath === "") return false;
   if (prDiffToggle.isOn && kind.value === "added") return false;
   return true;

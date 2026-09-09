@@ -9,7 +9,10 @@ export type EmptyMessage = Record<string, never>;
 
 export interface WorktreeEntry {
   path: string;
-  /** HEAD が指す commit OID。unborn branch では空文字。
+  /** HEAD が指す commit OID。**その worktree の HEAD が commit OID として観測されなければ空文字**。
+   * 空文字になるのは、作業ツリーを持たない dir（bare）と HEAD が commit を指さない dir
+   * （unborn branch）、および観測がまだ届いていない起動直後。
+   * blame / ファイル履歴のように HEAD 起点の walk を含む操作は、この値の有無を前提条件に使う。
    * **worktree 一覧の取得と git status の更新の両経路が書く**（観測時刻が違うため、より新しい
    * 観測が優先される。RPC の往復前に読んだ値で、往復中に届いた観測を上書きしない）。
    * status 経路が書くのは、HEAD の移動を commit グラフの描画状態に依存せず観測するため。 */

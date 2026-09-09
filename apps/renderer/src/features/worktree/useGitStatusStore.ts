@@ -53,7 +53,8 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
   });
 
   /**
-   * active dir の HEAD が指す commit OID。未取得 / unborn branch では undefined。
+   * active dir の HEAD が指す commit OID。契約は `WorktreeEntry.head` を参照し、
+   * 空文字（bare / unborn branch / 未取得）を undefined に写す。
    *
    * `useGitGraphStore.headHash` と違い**描画状態に依存しない**（あちらは表示用 commit リストからの
    * 派生でグラフ未ロード中は解決できない）。HEAD の移動を追従の signal に使う側はこちらを見る。
@@ -66,6 +67,18 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     if (head === undefined || head === "") return undefined;
     return head;
   });
+
+  /**
+   * active dir の作業ツリーが HEAD の commit OID を観測しているか (`headHash` の有無)。
+   *
+   * false になるのは 3 つ。作業ツリーを持たない dir (bare)、HEAD が commit を指さない dir
+   * (unborn branch)、worktree 一覧 / status がまだ届いていない起動直後。非 git project は
+   * worktree entry 自体を持たないためここに含まれる。
+   *
+   * false の間は作業ツリーのファイルに対する HEAD 起点の走査の成立が保証されない。
+   * この値を前提条件として使う側の契約は `docs/preview.md` の「起動要素を出す前提条件」。
+   */
+  const hasHeadCommit = computed<boolean>(() => headHash.value !== undefined);
 
   /**
    * active dir の git status を rpcGitStatus で取得し直して repoStore を更新する。
@@ -96,7 +109,14 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     }
   }
 
-  return { gitStatuses, renameOldPaths, workingTreeMtime, headHash, loadGitStatus };
+  return {
+    gitStatuses,
+    renameOldPaths,
+    workingTreeMtime,
+    headHash,
+    hasHeadCommit,
+    loadGitStatus,
+  };
 });
 
 if (import.meta.hot) {

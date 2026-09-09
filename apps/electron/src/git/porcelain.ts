@@ -2,8 +2,13 @@
 // `GitOps+Status.swift` の parser 部の対応物。「生 git output → 構造化データ」の
 // 写像をこのファイルに閉じる。
 
+import { isAllZeroHex } from "./gitValidate";
+
 export interface WorktreeInfo {
   path: string;
+  /** HEAD が指す commit OID。契約は `WorktreeEntry.head` を参照。
+   * bare は `HEAD` 行自体が出ないため空文字、unborn branch は全 0 OID で来るため空文字へ
+   * 正規化する（`StatusFull.head` の `(initial)` と同じ表現に揃える） */
   head: string;
   /** detached HEAD のとき undefined */
   branch: string | undefined;
@@ -62,7 +67,8 @@ export function parseWorktreePorcelain(text: string): WorktreeInfo[] {
     if (line.startsWith("worktree ")) {
       path = line.slice("worktree ".length);
     } else if (line.startsWith("HEAD ")) {
-      head = line.slice("HEAD ".length);
+      const oid = line.slice("HEAD ".length);
+      head = isAllZeroHex(oid) ? "" : oid;
     } else if (line.startsWith("branch ")) {
       const ref = line.slice("branch ".length);
       branch = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;

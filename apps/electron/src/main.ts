@@ -20,6 +20,7 @@ import {
   launchRequestDir,
   socketPath,
 } from "./gozdEnv";
+import { sweepWorktreeTrash } from "./git/worktreeOps";
 import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG } from "./ipc";
 import { consumeLaunchRequest } from "./launchRequest";
 import { installAppMenu } from "./menu";
@@ -284,6 +285,10 @@ let socketServer: SocketServerHandle | undefined;
 void app.whenReady().then(() => {
   installAppMenu();
   installPreviewProtocol();
+
+  // 前回までの削除が消し切れなかった worktree の実体を掃除する。切り離した rm へ渡すので
+  // 起動は待たない
+  sweepWorktreeTrash();
 
   // spike 診断: 実 Electron main が使う git / credential helper を stdout に残す。
   // GOZD_SPIKE_FETCH_DIR=<repo> で起動時 background fetch の再現まで行う（spikeDiag.ts 参照）

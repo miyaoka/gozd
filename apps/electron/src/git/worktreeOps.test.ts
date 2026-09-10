@@ -24,6 +24,7 @@ import {
   pruneWorktrees,
   removeWorktree,
   resolveReviveBranch,
+  sweepWorktreeTrash,
 } from "./worktreeOps";
 
 describe("createWorktreeSymlinks", () => {
@@ -371,5 +372,55 @@ describe("worktree 登録を書く操作の直列化", () => {
 
     expect(removal?.status).toBe("fulfilled");
     expect(existsSync(wt)).toBe(false);
+  });
+});
+
+describe("sweepWorktreeTrash", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** `<root>/<projectKey>/<leaf>` を模した worktrees root */
+  function makeRoot(leaves: string[]): string {
+    const root = mkdtempSync(join(tmpdir(), "gozd-sweep-"));
+    tempDirs.push(root);
+    for (const leaf of leaves) {
+      const dir = join(root, "project-000000000000", leaf);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "content.txt"), "x\n");
+    }
+    return root;
+  }
+
+  /** 切り離した rm の完了を待つ。存在しなくなるまで短い間隔で見る */
+  async function waitGone(path: string): Promise<void> {
+    for (let i = 0; i < 100; i++) {
+      if (!existsSync(path)) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  test("接頭辞に一致する退避物を消し、worktree は残す", async () => {
+    const trashLeaf = ".gozd-worktree-trash-00000000-0000-0000-0000-000000000000";
+    const root = makeRoot(["20260910_120000", trashLeaf]);
+    const project = join(root, "project-000000000000");
+    sweepWorktreeTrash(root);
+    await waitGone(join(project, trashLeaf));
+    expect(existsSync(join(project, trashLeaf))).toBe(false);
+    expect(existsSync(join(project, "20260910_120000", "content.txt"))).toBe(true);
+  });
+
+  test("退避物が無ければ何も消さない", async () => {
+    const root = makeRoot(["20260910_120000"]);
+    const project = join(root, "project-000000000000");
+    sweepWorktreeTrash(root);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(existsSync(join(project, "20260910_120000", "content.txt"))).toBe(true);
+  });
+
+  test("root が無くても throw しない", () => {
+    expect(() => sweepWorktreeTrash(join(tmpdir(), "gozd-sweep-missing-000000"))).not.toThrow();
   });
 });

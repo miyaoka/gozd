@@ -4,7 +4,7 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, lstatSync, renameSync, statSync, symlinkSync } from "node:fs";
+import { mkdirSync, lstatSync, readdirSync, renameSync, statSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
 import { generateTimestamp, tryCatch } from "@gozd/shared";
@@ -304,6 +304,30 @@ function discardInBackground(trashes: string[]): void {
   child.unref();
 }
 
+/** dir 直下のエントリ名。読めなければ空配列（走査対象が無いことと区別する必要が無い） */
+function listEntryNames(dir: string): string[] {
+  const result = tryCatch(() => readdirSync(dir));
+  return result.ok ? result.value : [];
+}
+
+/**
+ * 前回までの実行が消し切れなかった退避物を掃除する。rename から `rm` の起動までの間に
+ * プロセスが落ちると、実体は名前だけ変わってその場に残る。
+ *
+ * 走査するのは gozd が作る worktree の置き場だけ。外部で作られた worktree は任意の場所に
+ * あり、走査すべき範囲を決められない。1 プロセスにまとめて渡すので、残骸の数が増えても
+ * 起動時に走る `rm` は 1 つ。
+ */
+export function sweepWorktreeTrash(root: string = gozdWorktreesRoot()): void {
+  const trashes = listEntryNames(root).flatMap((project) =>
+    listEntryNames(join(root, project))
+      .filter((entry) => entry.startsWith(TRASH_PREFIX))
+      .map((entry) => join(root, project, entry)),
+  );
+  if (trashes.length === 0) return;
+  discardInBackground(trashes);
+}
+
 /** C0 制御文字（< 0x20）と DEL（0x7f）を含むか。for-of は code point 単位で走査する */
 function hasControlChar(s: string): boolean {
   for (const char of s) {
@@ -316,11 +340,19 @@ function hasControlChar(s: string): boolean {
 /**
  * `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` の絶対パスを返し、親ディレクトリを作成する。
  * `leaf` は 1 path component のみ許可。`/`, `.`, `..`, 制御文字を含むものは拒否する
- * （base 配下からの逸脱や、ファイル API への橋渡しでの予期しない扱いを防ぐ）
+ * （base 配下からの逸脱や、ファイル API への橋渡しでの予期しない扱いを防ぐ）。
+ *
+ * 退避物の接頭辞で始まる名前も拒否する。`sweepWorktreeTrash` はこの接頭辞だけを頼りに
+ * 消す対象を決めるため、worktree が同じ名前を取れると起動時に消される。
  */
 async function ensureWorktreePath(projectDir: string, leaf: string): Promise<string> {
   const invalid =
-    leaf === "" || leaf.includes("/") || leaf === "." || leaf === ".." || hasControlChar(leaf);
+    leaf === "" ||
+    leaf.includes("/") ||
+    leaf === "." ||
+    leaf === ".." ||
+    hasControlChar(leaf) ||
+    leaf.startsWith(TRASH_PREFIX);
   if (invalid) {
     throw new Error(`invalid worktree leaf name: ${leaf}`);
   }

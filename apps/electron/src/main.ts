@@ -286,10 +286,6 @@ void app.whenReady().then(() => {
   installAppMenu();
   installPreviewProtocol();
 
-  // 前回までの削除が消し切れなかった worktree の実体を掃除する。切り離した rm へ渡すので
-  // 起動は待たない
-  sweepWorktreeTrash();
-
   // spike 診断: 実 Electron main が使う git / credential helper を stdout に残す。
   // GOZD_SPIKE_FETCH_DIR=<repo> で起動時 background fetch の再現まで行う（spikeDiag.ts 参照）
   if (isTestMode) {
@@ -312,6 +308,8 @@ void app.whenReady().then(() => {
   }
 
   const window = createWindow();
+
+  sweepWorktreeTrash();
 
   // Claude hooks 設定 JSON を $TMPDIR に書き出す。PTY の zsh init で claude() 関数が
   // このパスを --settings に注入する。失敗しても PTY は動くため起動は止めない

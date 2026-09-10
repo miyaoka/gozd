@@ -304,26 +304,60 @@ function discardInBackground(trashes: string[]): void {
   child.unref();
 }
 
-/** dir 直下のエントリ名。読めなければ空配列（走査対象が無いことと区別する必要が無い） */
-function listEntryNames(dir: string): string[] {
-  const result = tryCatch(() => readdirSync(dir));
-  return result.ok ? result.value : [];
+/** dir 直下のディレクトリ名。読めない dir は観察ログに残して空として扱う */
+function listSubdirNames(dir: string): string[] {
+  const result = tryCatch(() => readdirSync(dir, { withFileTypes: true }));
+  if (!result.ok) {
+    // root 不在は初回起動の正常系。それ以外は掃除が黙って止まる原因になるので残す
+    const missing = (result.error as NodeJS.ErrnoException).code === "ENOENT";
+    if (!missing) console.error(`[collectWorktreeTrash] cannot read dir=${dir} ${result.error}`);
+    return [];
+  }
+  return result.value.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+}
+
+/** 退避物の名前から所有プロセスの id を取り出す。読めない形なら undefined */
+function trashOwnerPid(entryName: string): number | undefined {
+  if (!entryName.startsWith(TRASH_PREFIX)) return undefined;
+  const [pidText = ""] = entryName.slice(TRASH_PREFIX.length).split("-");
+  const pid = Number(pidText);
+  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+/** そのプロセスが生きているか。EPERM は「居るが触れない」なので生存側 */
+function isProcessAlive(pid: number): boolean {
+  const result = tryCatch(() => process.kill(pid, 0));
+  if (result.ok) return true;
+  return (result.error as NodeJS.ErrnoException).code === "EPERM";
+}
+
+/**
+ * 掃除してよい退避物の絶対パスを集める。走査するのは gozd が作る worktree の置き場だけ
+ * （外部で作られた worktree は任意の場所にあり、走査すべき範囲を決められない）。
+ *
+ * 所有プロセスが生きているものは飛ばす。worktree の置き場は複数インスタンスで共有され、
+ * 別インスタンスが退避している最中の実体を消すと、そのインスタンスが復帰させたい worktree の
+ * 中身が欠ける。id が再利用されて生存と誤判定しても、消さずに次の起動へ送るだけで済む。
+ */
+export function collectWorktreeTrash(root: string): string[] {
+  return listSubdirNames(root).flatMap((project) =>
+    listSubdirNames(join(root, project))
+      .filter((entry) => {
+        const pid = trashOwnerPid(entry);
+        return pid !== undefined && !isProcessAlive(pid);
+      })
+      .map((entry) => join(root, project, entry)),
+  );
 }
 
 /**
  * 前回までの実行が消し切れなかった退避物を掃除する。rename から `rm` の起動までの間に
  * プロセスが落ちると、実体は名前だけ変わってその場に残る。
  *
- * 走査するのは gozd が作る worktree の置き場だけ。外部で作られた worktree は任意の場所に
- * あり、走査すべき範囲を決められない。1 プロセスにまとめて渡すので、残骸の数が増えても
- * 起動時に走る `rm` は 1 つ。
+ * 1 プロセスにまとめて渡すので、残骸の数が増えても起動時に走る `rm` は 1 つ。
  */
-export function sweepWorktreeTrash(root: string = gozdWorktreesRoot()): void {
-  const trashes = listEntryNames(root).flatMap((project) =>
-    listEntryNames(join(root, project))
-      .filter((entry) => entry.startsWith(TRASH_PREFIX))
-      .map((entry) => join(root, project, entry)),
-  );
+export function sweepWorktreeTrash(): void {
+  const trashes = collectWorktreeTrash(gozdWorktreesRoot());
   if (trashes.length === 0) return;
   discardInBackground(trashes);
 }

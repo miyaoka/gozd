@@ -20,11 +20,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  collectWorktreeTrash,
+  createWorktree,
   createWorktreeSymlinks,
   pruneWorktrees,
   removeWorktree,
   resolveReviveBranch,
-  sweepWorktreeTrash,
 } from "./worktreeOps";
 
 describe("createWorktreeSymlinks", () => {
@@ -375,52 +376,88 @@ describe("worktree 登録を書く操作の直列化", () => {
   });
 });
 
-describe("sweepWorktreeTrash", () => {
+describe("collectWorktreeTrash", () => {
   const tempDirs: string[] = [];
 
   afterEach(() => {
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  /** `<root>/<projectKey>/<leaf>` を模した worktrees root */
+  const project = "project-000000000000";
+  /** 生存していないことが確実な pid。プロセスに割り当てられない値 */
+  const deadPid = 2 ** 30;
+
+  /** `<root>/<projectKey>/<leaf>` を模した worktrees root。leaf は名前だけあればよい */
   function makeRoot(leaves: string[]): string {
     const root = mkdtempSync(join(tmpdir(), "gozd-sweep-"));
     tempDirs.push(root);
-    for (const leaf of leaves) {
-      const dir = join(root, "project-000000000000", leaf);
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, "content.txt"), "x\n");
-    }
+    for (const leaf of leaves) mkdirSync(join(root, project, leaf), { recursive: true });
     return root;
   }
 
-  /** 切り離した rm の完了を待つ。存在しなくなるまで短い間隔で見る */
-  async function waitGone(path: string): Promise<void> {
-    for (let i = 0; i < 100; i++) {
-      if (!existsSync(path)) return;
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-  }
-
-  test("接頭辞に一致する退避物を消し、worktree は残す", async () => {
-    const trashLeaf = ".gozd-worktree-trash-00000000-0000-0000-0000-000000000000";
-    const root = makeRoot(["20260910_120000", trashLeaf]);
-    const project = join(root, "project-000000000000");
-    sweepWorktreeTrash(root);
-    await waitGone(join(project, trashLeaf));
-    expect(existsSync(join(project, trashLeaf))).toBe(false);
-    expect(existsSync(join(project, "20260910_120000", "content.txt"))).toBe(true);
+  test("所有プロセスが居ない退避物だけを集める", () => {
+    const dead = `.gozd-worktree-trash-${deadPid}-aaaa`;
+    const alive = `.gozd-worktree-trash-${process.pid}-bbbb`;
+    const root = makeRoot(["20260910_120000", dead, alive]);
+    expect(collectWorktreeTrash(root)).toEqual([join(root, project, dead)]);
   });
 
-  test("退避物が無ければ何も消さない", async () => {
-    const root = makeRoot(["20260910_120000"]);
-    const project = join(root, "project-000000000000");
-    sweepWorktreeTrash(root);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(existsSync(join(project, "20260910_120000", "content.txt"))).toBe(true);
+  test("接頭辞に足りない名前と、pid を読めない名前は対象外", () => {
+    const root = makeRoot([
+      ".gozd-worktree-trash", // 接頭辞の途中まで
+      ".gozd-worktree-trash-", // pid が空
+      ".gozd-worktree-trash-abc-cccc", // pid が数値でない
+      ".gozd-worktree-trash-0-dddd", // pid が 0
+    ]);
+    expect(collectWorktreeTrash(root)).toEqual([]);
   });
 
-  test("root が無くても throw しない", () => {
-    expect(() => sweepWorktreeTrash(join(tmpdir(), "gozd-sweep-missing-000000"))).not.toThrow();
+  test("ファイルは降りず、深さ 1 の退避物も拾わない", () => {
+    const root = makeRoot([`.gozd-worktree-trash-${deadPid}-eeee`]);
+    // project と同じ階層に置かれた退避物（gozd は必ず深さ 2 に置く）
+    mkdirSync(join(root, `.gozd-worktree-trash-${deadPid}-ffff`));
+    writeFileSync(join(root, "stray.txt"), "x\n");
+    writeFileSync(join(root, project, "stray.txt"), "x\n");
+    expect(collectWorktreeTrash(root)).toEqual([
+      join(root, project, `.gozd-worktree-trash-${deadPid}-eeee`),
+    ]);
+  });
+
+  test("root が無ければ空", () => {
+    expect(collectWorktreeTrash(join(tmpdir(), "gozd-sweep-missing-000000"))).toEqual([]);
+  });
+});
+
+describe("createWorktree の leaf 名検証", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("退避物の接頭辞で始まる leaf は git に到達する前に拒否する", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gozd-leaf-"));
+    tempDirs.push(dir);
+    runFixtureGit(["init", "-b", "main"], dir);
+    runFixtureGit(["config", "user.email", "t@example.com"], dir);
+    runFixtureGit(["config", "user.name", "t"], dir);
+    writeFileSync(join(dir, "a.txt"), "a\n");
+    runFixtureGit(["add", "."], dir);
+    runFixtureGit(["commit", "-m", "first"], dir);
+
+    const result = await tryCatch(
+      createWorktree({
+        dir,
+        worktreeDir: ".gozd-worktree-trash-1-aaaa",
+        branch: "feature",
+        startPoint: "main",
+        symlinks: [],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.ok ? "" : result.error)).toMatch(/invalid worktree leaf name/);
+    // branch が作られていない = git に到達していない
+    const branches = runFixtureGit(["branch", "--list", "feature"], dir);
+    expect(branches).toBe("");
   });
 });

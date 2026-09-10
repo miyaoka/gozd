@@ -21,8 +21,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   collectWorktreeTrash,
-  createWorktree,
   createWorktreeSymlinks,
+  isValidWorktreeLeaf,
   pruneWorktrees,
   removeWorktree,
   resolveReviveBranch,
@@ -428,36 +428,40 @@ describe("collectWorktreeTrash", () => {
   });
 });
 
-describe("createWorktree の leaf 名検証", () => {
-  const tempDirs: string[] = [];
+describe("isValidWorktreeLeaf", () => {
+  /** 制御文字はエスケープを直書きせず code point から作る */
+  function withCode(code: number): string {
+    return `a${String.fromCharCode(code)}b`;
+  }
 
-  afterEach(() => {
-    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  test("1 path component の通常名は通す", () => {
+    expect(isValidWorktreeLeaf("20260910_120000")).toBe(true);
+    expect(isValidWorktreeLeaf("feature-a")).toBe(true);
+    expect(isValidWorktreeLeaf(".hidden")).toBe(true);
   });
 
-  test("退避物の接頭辞で始まる leaf は git に到達する前に拒否する", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "gozd-leaf-"));
-    tempDirs.push(dir);
-    runFixtureGit(["init", "-b", "main"], dir);
-    runFixtureGit(["config", "user.email", "t@example.com"], dir);
-    runFixtureGit(["config", "user.name", "t"], dir);
-    writeFileSync(join(dir, "a.txt"), "a\n");
-    runFixtureGit(["add", "."], dir);
-    runFixtureGit(["commit", "-m", "first"], dir);
+  test("path component を跨ぐ名前と空名を拒否する", () => {
+    expect(isValidWorktreeLeaf("")).toBe(false);
+    expect(isValidWorktreeLeaf("a/b")).toBe(false);
+    expect(isValidWorktreeLeaf("/abs")).toBe(false);
+    expect(isValidWorktreeLeaf(".")).toBe(false);
+    expect(isValidWorktreeLeaf("..")).toBe(false);
+  });
 
-    const result = await tryCatch(
-      createWorktree({
-        dir,
-        worktreeDir: ".gozd-worktree-trash-1-aaaa",
-        branch: "feature",
-        startPoint: "main",
-        symlinks: [],
-      }),
-    );
-    expect(result.ok).toBe(false);
-    expect(String(result.ok ? "" : result.error)).toMatch(/invalid worktree leaf name/);
-    // branch が作られていない = git に到達していない
-    const branches = runFixtureGit(["branch", "--list", "feature"], dir);
-    expect(branches).toBe("");
+  test("制御文字を含む名前を拒否する", () => {
+    expect(isValidWorktreeLeaf(withCode(0x00))).toBe(false);
+    expect(isValidWorktreeLeaf(withCode(0x0a))).toBe(false);
+    expect(isValidWorktreeLeaf(withCode(0x1f))).toBe(false);
+    expect(isValidWorktreeLeaf(withCode(0x7f))).toBe(false);
+    // 境界の外側。0x20 は空白で、名前として使える
+    expect(isValidWorktreeLeaf(withCode(0x20))).toBe(true);
+  });
+
+  test("退避物の接頭辞で始まる名前を拒否する", () => {
+    // 掃除はこの接頭辞だけで対象を決めるので、worktree に取らせると起動時に消える
+    expect(isValidWorktreeLeaf(".gozd-worktree-trash-1-aaaa")).toBe(false);
+    expect(isValidWorktreeLeaf(".gozd-worktree-trash-")).toBe(false);
+    // 接頭辞に足りない名前は worktree として使える
+    expect(isValidWorktreeLeaf(".gozd-worktree-trash")).toBe(true);
   });
 });

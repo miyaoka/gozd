@@ -310,7 +310,7 @@ function listSubdirNames(dir: string): string[] {
   if (!result.ok) {
     // root 不在は初回起動の正常系。それ以外は掃除が黙って止まる原因になるので残す
     const missing = (result.error as NodeJS.ErrnoException).code === "ENOENT";
-    if (!missing) console.error(`[collectWorktreeTrash] cannot read dir=${dir} ${result.error}`);
+    if (!missing) console.error(`[listSubdirNames] cannot read dir=${dir} ${result.error}`);
     return [];
   }
   return result.value.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
@@ -372,22 +372,29 @@ function hasControlChar(s: string): boolean {
 }
 
 /**
- * `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` の絶対パスを返し、親ディレクトリを作成する。
- * `leaf` は 1 path component のみ許可。`/`, `.`, `..`, 制御文字を含むものは拒否する
- * （base 配下からの逸脱や、ファイル API への橋渡しでの予期しない扱いを防ぐ）。
+ * worktree の leaf 名として使えるか。
  *
- * 退避物の接頭辞で始まる名前も拒否する。`sweepWorktreeTrash` はこの接頭辞だけを頼りに
- * 消す対象を決めるため、worktree が同じ名前を取れると起動時に消される。
+ * - 1 path component のみ許可する。`/`, `.`, `..`, 制御文字は base 配下からの逸脱や、
+ *   ファイル API への橋渡しでの予期しない扱いを招く
+ * - 退避物の接頭辞で始まる名前も拒否する。掃除はこの接頭辞だけを頼りに消す対象を決めるため、
+ *   worktree が同じ名前を取れると起動時に消される
+ */
+export function isValidWorktreeLeaf(leaf: string): boolean {
+  return (
+    leaf !== "" &&
+    !leaf.includes("/") &&
+    leaf !== "." &&
+    leaf !== ".." &&
+    !hasControlChar(leaf) &&
+    !leaf.startsWith(TRASH_PREFIX)
+  );
+}
+
+/**
+ * `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` の絶対パスを返し、親ディレクトリを作成する。
  */
 async function ensureWorktreePath(projectDir: string, leaf: string): Promise<string> {
-  const invalid =
-    leaf === "" ||
-    leaf.includes("/") ||
-    leaf === "." ||
-    leaf === ".." ||
-    hasControlChar(leaf) ||
-    leaf.startsWith(TRASH_PREFIX);
-  if (invalid) {
+  if (!isValidWorktreeLeaf(leaf)) {
     throw new Error(`invalid worktree leaf name: ${leaf}`);
   }
   const projectKey = await resolveProjectKey(projectDir);

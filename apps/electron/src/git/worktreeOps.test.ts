@@ -236,7 +236,7 @@ describe("removeWorktree (integration)", () => {
     expect(existsSync(join(outsider, "keep.txt"))).toBe(true);
   });
 
-  test("dirty な worktree は force なしで拒否し、実体を退避しない", async () => {
+  test("変更のあるファイルを持つ worktree は force なしで拒否する", async () => {
     const { repo, wt } = makeRepoWithWorktree();
     writeFileSync(join(wt, "a.txt"), "modified\n");
     const error = await rejection(removeWorktree(repo, wt, false));
@@ -254,7 +254,7 @@ describe("removeWorktree (integration)", () => {
     expect(worktreeCount(repo)).toBe(2);
   });
 
-  test("dirty な worktree も force なら消える", async () => {
+  test("変更のあるファイルを持つ worktree も force なら消える", async () => {
     const { repo, wt } = makeRepoWithWorktree();
     writeFileSync(join(wt, "a.txt"), "modified\n");
     await removeWorktree(repo, wt, true);

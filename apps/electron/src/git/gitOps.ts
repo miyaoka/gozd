@@ -155,7 +155,7 @@ export interface GitDirs {
 export async function gitDirs(dir: string): Promise<GitDirs | undefined> {
   const result = await tryCatch(
     (async () => ({
-      perWorktreeGitDir: await singleRevParse("--git-dir", dir),
+      perWorktreeGitDir: await perWorktreeGitDir(dir),
       commonGitDir: await singleRevParse("--git-common-dir", dir),
     }))(),
   );
@@ -163,6 +163,15 @@ export async function gitDirs(dir: string): Promise<GitDirs | undefined> {
   // exit 128 = "not a git repository"。git の規約
   if (result.error instanceof GitCommandError && result.error.exitCode === 128) return undefined;
   throw result.error;
+}
+
+/**
+ * per-worktree git dir の絶対パス（`GitDirs.perWorktreeGitDir` と同じ値）。common dir が
+ * 要らない呼び出しはこちらを使い、`--git-common-dir` のぶんの spawn を省く。
+ * 非 git 管理下では exit 128 の GitCommandError を throw する。
+ */
+export async function perWorktreeGitDir(dir: string): Promise<string> {
+  return singleRevParse("--git-dir", dir);
 }
 
 /** `git rev-parse --path-format=absolute <flag>` を 1 回 spawn し、単一行の trim 済み path を返す */

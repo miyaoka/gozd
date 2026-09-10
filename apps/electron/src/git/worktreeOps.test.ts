@@ -19,7 +19,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWorktreeSymlinks, removeWorktree, resolveReviveBranch } from "./worktreeOps";
+import {
+  createWorktreeSymlinks,
+  pruneWorktrees,
+  removeWorktree,
+  resolveReviveBranch,
+} from "./worktreeOps";
 
 describe("createWorktreeSymlinks", () => {
   const tempDirs: string[] = [];
@@ -311,14 +316,14 @@ describe("removeWorktree (integration)", () => {
   });
 });
 
-describe("removeWorktree の直列化", () => {
+describe("worktree 登録を書く操作の直列化", () => {
   const tempDirs: string[] = [];
 
   afterEach(() => {
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  test("同じ worktree への並行削除で、登録の無い実体を残さない", async () => {
+  function makeFixture(): { repo: string; wt: string } {
     const root = mkdtempSync(join(tmpdir(), "gozd-wt-concurrent-"));
     tempDirs.push(root);
     const repo = join(root, "repo");
@@ -331,6 +336,11 @@ describe("removeWorktree の直列化", () => {
     runFixtureGit(["commit", "-m", "first"], repo);
     const wt = join(root, "wt");
     runFixtureGit(["worktree", "add", "-b", "feature", wt], repo);
+    return { repo, wt };
+  }
+
+  test("同じ worktree への並行削除で、登録の無い実体を残さない", async () => {
+    const { repo, wt } = makeFixture();
 
     // 直列化が無いと、後発が先発の退避中に登録を消し、先発の復帰で登録の無い実体が残る
     const settled = await Promise.allSettled([
@@ -348,5 +358,18 @@ describe("removeWorktree の直列化", () => {
       .split("\n")
       .filter((line) => line.startsWith("worktree ")).length;
     expect(registered).toBe(1);
+  });
+
+  test("削除と並行して走らせた prune は削除を中断させない", async () => {
+    const { repo, wt } = makeFixture();
+
+    // prune は退避中の登録を消せる。同じ列に並んでいなければ削除が not-a-worktree で失敗する
+    const [removal] = await Promise.allSettled([
+      removeWorktree(repo, wt, false),
+      pruneWorktrees(repo),
+    ]);
+
+    expect(removal?.status).toBe("fulfilled");
+    expect(existsSync(wt)).toBe(false);
   });
 });

@@ -5,14 +5,13 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, lstatSync, renameSync, statSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
 import { generateTimestamp, tryCatch } from "@gozd/shared";
 import { resolveContained } from "../fs/pathContainment";
 import { gozdWorktreesRoot, resolveMainRepoRoot, resolveProjectKey } from "../taskStore";
 import { resolveStartPoint } from "./gitBranch";
-import { worktreeList } from "./gitOps";
+import { perWorktreeGitDir, worktreeList } from "./gitOps";
 import { runGit } from "./gitRunner";
 import type { WorktreeInfo } from "./porcelain";
 
@@ -150,13 +149,16 @@ export async function pruneWorktrees(dir: string): Promise<void> {
 /** rm(1) の絶対パス。PATH 上の同名コマンドではなく OS 付属のものを起動する（macOS 専用前提） */
 const RM_PATH = "/bin/rm";
 
+/** 退避先の名前の接頭辞。worktree の隣に置くので、走査で gozd の退避物だと判る形にする */
+const TRASH_PREFIX = ".gozd-worktree-trash-";
+
 /**
  * `git worktree remove [-f] <path>` 相当。ただし実体の unlink は待たない。
  *
  * git は worktree 配下の全エントリを unlink してから戻るため、依存ツリーやビルド成果物を抱えた
  * worktree では削除がエントリ数に比例して待たされる。rename(2) はディレクトリエントリ 1 個の
- * 更新で済むので、先に `$TMPDIR` へ退避してから git を呼べば、UI が待つ時間は中身の量に依らず
- * 一定になる。実体の unlink は切り離した子プロセスへ渡す。
+ * 更新で済むので、先に隣へ退避してから git を呼べば、UI が待つ時間は中身の量に依らず一定に
+ * なる。実体の unlink は切り離した子プロセスへ渡す。
  *
  * git は worktree の実体が無くても not-a-worktree / main worktree / locked / validate を判定し、
  * 管理ファイルも消す。実体の有無で分岐するのは clean 判定と実削除だけなので、clean 判定だけを
@@ -206,15 +208,15 @@ async function isDetachable(dir: string, path: string): Promise<boolean> {
 }
 
 /**
- * 実体の退避先となる一意なパス。`rename(2)` はファイルシステムを跨げないので、`$TMPDIR` と
- * 同じファイルシステムに無い worktree では undefined を返し、呼び出し側は git に unlink ごと
- * 任せる。判定するより先に実体が消えていた場合も同じ扱いにする。
+ * 実体の退避先となる一意なパス。実体が既に無ければ undefined を返し、呼び出し側は git に
+ * 登録の掃除ごと任せる。
+ *
+ * 退避先を worktree の兄弟に取るのは、`rename(2)` がファイルシステムを跨げないため。同じ
+ * ディレクトリに置けば跨ぎようがなく、退避できない配置が存在しなくなる。
  */
 function trashPathFor(path: string): string | undefined {
-  const root = tmpdir();
-  const device = tryCatch(() => statSync(path).dev);
-  if (!device.ok || device.value !== statSync(root).dev) return undefined;
-  return join(root, `gozd-worktree-trash-${randomUUID()}`);
+  if (!tryCatch(() => lstatSync(path)).ok) return undefined;
+  return join(dirname(path), `${TRASH_PREFIX}${randomUUID()}`);
 }
 
 /**
@@ -227,7 +229,7 @@ function trashPathFor(path: string): string | undefined {
  * 展開済みの submodule を探す（`submodule status` の先頭 `-` は未初期化を表す）。
  */
 async function assertWorktreeClean(path: string): Promise<void> {
-  const gitDir = (await runGit(["rev-parse", "--path-format=absolute", "--git-dir"], path)).trim();
+  const gitDir = await perWorktreeGitDir(path);
   const modules = tryCatch(() => statSync(join(gitDir, "modules")).isDirectory());
   const hasModules = modules.ok && modules.value;
   const submodules = hasModules ? "" : await runGit(["submodule", "status"], path);

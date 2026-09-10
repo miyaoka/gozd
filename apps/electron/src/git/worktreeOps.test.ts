@@ -310,3 +310,43 @@ describe("removeWorktree (integration)", () => {
     expect(worktreeCount(repo)).toBe(2);
   });
 });
+
+describe("removeWorktree の直列化", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("同じ worktree への並行削除で、登録の無い実体を残さない", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gozd-wt-concurrent-"));
+    tempDirs.push(root);
+    const repo = join(root, "repo");
+    mkdirSync(repo);
+    runFixtureGit(["init", "-b", "main"], repo);
+    runFixtureGit(["config", "user.email", "t@example.com"], repo);
+    runFixtureGit(["config", "user.name", "t"], repo);
+    writeFileSync(join(repo, "a.txt"), "a\n");
+    runFixtureGit(["add", "."], repo);
+    runFixtureGit(["commit", "-m", "first"], repo);
+    const wt = join(root, "wt");
+    runFixtureGit(["worktree", "add", "-b", "feature", wt], repo);
+
+    // 直列化が無いと、後発が先発の退避中に登録を消し、先発の復帰で登録の無い実体が残る
+    const settled = await Promise.allSettled([
+      removeWorktree(repo, wt, false),
+      removeWorktree(repo, wt, false),
+    ]);
+
+    expect(settled.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    // 直列化されていれば、後発は先発の完了後に判定するので登録が既に無い。並行に走ると
+    // 後発は登録がある状態で判定を始め、退避の途中を踏んで別の失敗になる
+    const [rejected] = settled.filter((r) => r.status === "rejected");
+    expect(String(rejected?.reason)).toMatch(/is not a working tree/);
+    expect(existsSync(wt)).toBe(false);
+    const registered = runFixtureGit(["worktree", "list", "--porcelain"], repo)
+      .split("\n")
+      .filter((line) => line.startsWith("worktree ")).length;
+    expect(registered).toBe(1);
+  });
+});

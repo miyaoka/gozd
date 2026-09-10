@@ -149,7 +149,11 @@ export async function pruneWorktrees(dir: string): Promise<void> {
 /** rm(1) の絶対パス。PATH 上の同名コマンドではなく OS 付属のものを起動する（macOS 専用前提） */
 const RM_PATH = "/bin/rm";
 
-/** 退避先の名前の接頭辞。worktree の隣に置くので、走査で gozd の退避物だと判る形にする */
+/**
+ * 退避先の名前の接頭辞。worktree の隣に置くので、走査で gozd の退避物だと判る形にする。
+ * 続く要素は退避したプロセスの id — worktree の置き場は複数インスタンスで共有されるため、
+ * 掃除する側が「まだ誰かが持っている実体」を見分けられる必要がある。
+ */
 const TRASH_PREFIX = ".gozd-worktree-trash-";
 
 /**
@@ -165,7 +169,34 @@ const TRASH_PREFIX = ".gozd-worktree-trash-";
  * `assertWorktreeClean` で肩代わりする。実体が無くても判定できるのは親ディレクトリが実在する
  * 場合で、git が解決を許す欠落はパス末尾の 1 要素だけ。
  */
-export async function removeWorktree(dir: string, path: string, force: boolean): Promise<void> {
+export function removeWorktree(dir: string, path: string, force: boolean): Promise<void> {
+  const previous = removalsInFlight.get(path) ?? Promise.resolve();
+  // 先行が失敗しても後続は走らせる。待ちたいのは順序であって成否ではない
+  const current = previous.then(
+    () => detachAndRemove(dir, path, force),
+    () => detachAndRemove(dir, path, force),
+  );
+  removalsInFlight.set(path, current);
+  void current.then(
+    () => releaseRemoval(path, current),
+    () => releaseRemoval(path, current),
+  );
+  return current;
+}
+
+/**
+ * 同じ worktree への削除を直列化する。退避している間そのパスに実体は無く、後続の呼び出しからは
+ * 外部で消された stale 登録に見える。待たせないと後続が先行の登録を消し、先行が復帰した実体だけが
+ * 登録の無いまま残る。キーは呼び出し側が渡すパスそのもの — worktree の一覧が返す値をそのまま
+ * 運ぶ契約なので、同じ worktree を指す 2 つの要求は同じ文字列を持つ。
+ */
+const removalsInFlight = new Map<string, Promise<void>>();
+
+function releaseRemoval(path: string, settled: Promise<void>): void {
+  if (removalsInFlight.get(path) === settled) removalsInFlight.delete(path);
+}
+
+async function detachAndRemove(dir: string, path: string, force: boolean): Promise<void> {
   const trash = (await isDetachable(dir, path)) ? trashPathFor(path) : undefined;
   if (trash === undefined) {
     await runWorktreeRemove(dir, path, force);
@@ -184,7 +215,7 @@ export async function removeWorktree(dir: string, path: string, force: boolean):
     }
     throw removed.error;
   }
-  discardInBackground(trash);
+  discardInBackground([trash]);
 }
 
 async function runWorktreeRemove(dir: string, path: string, force: boolean): Promise<void> {
@@ -216,7 +247,7 @@ async function isDetachable(dir: string, path: string): Promise<boolean> {
  */
 function trashPathFor(path: string): string | undefined {
   if (!tryCatch(() => lstatSync(path)).ok) return undefined;
-  return join(dirname(path), `${TRASH_PREFIX}${randomUUID()}`);
+  return join(dirname(path), `${TRASH_PREFIX}${process.pid}-${randomUUID()}`);
 }
 
 /**
@@ -243,23 +274,24 @@ async function assertWorktreeClean(path: string): Promise<void> {
 }
 
 /**
- * 退避済みの実体を切り離した子プロセスに unlink させる。エントリ数に比例する時間を main の
+ * 渡された実体を切り離した子プロセスに unlink させる。エントリ数に比例する時間を main の
  * event loop にも libuv の threadpool にも載せないため、in-process の `fs.rm` ではなく別プロセスに
  * 渡す。切り離してあるのでアプリを終了しても削除は完走する。
  *
- * 失敗しても呼び出し側の削除は成立済みなので、観察ログだけ残す。exit code を見るのは
+ * 取り消せない操作なので、対象は 1 行 1 パスで記録してから起動する。exit code を見るのは
  * 権限や I/O エラーで rm が非 0 終了する経路が silent drop になるため。stderr を pipe すると
  * 親の終了後に子が EPIPE を踏むので、観測は exit code で行う。親より後に起きた失敗は
  * 原理的に観測できない。
  */
-function discardInBackground(trash: string): void {
-  const child = spawn(RM_PATH, ["-rf", trash], { detached: true, stdio: "ignore" });
+function discardInBackground(trashes: string[]): void {
+  console.error(`[discardInBackground] discarding:\n${trashes.join("\n")}`);
+  const child = spawn(RM_PATH, ["-rf", ...trashes], { detached: true, stdio: "ignore" });
   child.on("error", (error) => {
-    console.error(`[removeWorktree] discard spawn failed trash=${trash} error=${error}`);
+    console.error(`[discardInBackground] spawn failed error=${error}`);
   });
   child.on("exit", (code, signal) => {
     if (code === 0) return;
-    console.error(`[removeWorktree] discard failed trash=${trash} exit=${code} signal=${signal}`);
+    console.error(`[discardInBackground] failed exit=${code} signal=${signal}`);
   });
   child.unref();
 }

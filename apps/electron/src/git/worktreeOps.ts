@@ -2,7 +2,10 @@
 // 読み取り系（list / log）は gitOps / gitLog。新規作成経路の合成（main repo root の解決 →
 // 起点 ref と leaf 名の既定値決定 → 作成）は worktreeCreate。
 
-import { mkdirSync, lstatSync, symlinkSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, lstatSync, renameSync, statSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
 import { generateTimestamp, tryCatch } from "@gozd/shared";
@@ -144,12 +147,91 @@ export async function pruneWorktrees(dir: string): Promise<void> {
   await runGit(["worktree", "prune"], dir);
 }
 
-/** `git worktree remove [-f] <path>` 相当 */
+/** rm(1) の絶対パス。packaged 起動が継承する最小 PATH でも解決できるよう固定する（macOS 専用前提） */
+const RM_PATH = "/bin/rm";
+
+/**
+ * `git worktree remove [-f] <path>` 相当。ただし実体の unlink は待たない。
+ *
+ * git は worktree 配下の全エントリを unlink してから戻るため、依存ツリーやビルド成果物を抱えた
+ * worktree では削除がエントリ数に比例して待たされる。rename(2) はディレクトリエントリ 1 個の
+ * 更新で済むので、先に `$TMPDIR` へ退避してから git を呼べば、UI が待つ時間は中身の量に依らず
+ * 一定になる。実体の unlink は切り離した子プロセスへ渡す。
+ *
+ * git は worktree の実体が無くても not-a-worktree / main worktree / locked / validate を判定し、
+ * 管理ファイルも消す。実体の有無で分岐するのは dirty 判定と実削除だけなので、dirty 判定だけを
+ * `assertWorktreeClean` で肩代わりする。
+ */
 export async function removeWorktree(dir: string, path: string, force: boolean): Promise<void> {
+  const trash = trashPathFor(path);
+  if (trash === undefined) {
+    await runWorktreeRemove(dir, path, force);
+    return;
+  }
+  if (!force) await assertWorktreeClean(path);
+  renameSync(path, trash);
+  const removed = await tryCatch(runWorktreeRemove(dir, path, force));
+  if (!removed.ok) {
+    // locked worktree 等、git がまだ拒否し得る。実体を元の位置へ戻してから失敗を伝える
+    const restored = tryCatch(() => renameSync(trash, path));
+    if (!restored.ok) {
+      console.error(
+        `[removeWorktree] restore failed path=${path} trash=${trash} error=${restored.error}`,
+      );
+    }
+    throw removed.error;
+  }
+  discardInBackground(trash);
+}
+
+async function runWorktreeRemove(dir: string, path: string, force: boolean): Promise<void> {
   const args = ["worktree", "remove"];
   if (force) args.push("-f");
   args.push(path);
   await runGit(args, dir);
+}
+
+/**
+ * 実体の退避先となる一意なパス。rename では捌けない worktree では undefined を返し、
+ * 呼び出し側は git に unlink ごと任せる。
+ *
+ * - 実体が無い（外部 rm-rf 後の stale 登録）: 退避するものが無く、git は登録だけ消して成功する
+ * - `$TMPDIR` と別ファイルシステム: rename(2) はファイルシステムを跨げない
+ */
+function trashPathFor(path: string): string | undefined {
+  const root = tmpdir();
+  const device = tryCatch(() => statSync(path).dev);
+  if (!device.ok || device.value !== statSync(root).dev) return undefined;
+  return join(root, `gozd-worktree-trash-${randomUUID()}`);
+}
+
+/**
+ * dirty な worktree で throw する。git の check_clean_worktree 相当を、実体を退避する前に
+ * 肩代わりする。git 同様、展開済み submodule を持つ worktree も拒否する
+ * （`submodule status` の先頭 `-` は未初期化を表し、git が問題にするのは展開済みのものだけ）。
+ */
+async function assertWorktreeClean(path: string): Promise<void> {
+  const submodules = await runGit(["submodule", "status"], path);
+  if (submodules.split("\n").some((line) => line !== "" && !line.startsWith("-"))) {
+    throw new Error(`'${path}' contains populated submodules`);
+  }
+  const status = await runGit(["status", "--porcelain", "--ignore-submodules=none"], path);
+  if (status.trim() !== "") {
+    throw new Error(`'${path}' contains modified or untracked files`);
+  }
+}
+
+/**
+ * 退避済みの実体を切り離した子プロセスに unlink させる。エントリ数に比例する時間を main の
+ * event loop にも libuv の threadpool にも載せないため、in-process の `fs.rm` ではなく別プロセスに
+ * 渡す。切り離してあるのでアプリを終了しても削除は完走する。
+ */
+function discardInBackground(trash: string): void {
+  const child = spawn(RM_PATH, ["-rf", trash], { detached: true, stdio: "ignore" });
+  child.on("error", (error) => {
+    console.error(`[removeWorktree] discard failed trash=${trash} error=${error}`);
+  });
+  child.unref();
 }
 
 /** C0 制御文字（< 0x20）と DEL（0x7f）を含むか。for-of は code point 単位で走査する */

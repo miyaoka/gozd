@@ -159,8 +159,9 @@ const RM_PATH = "/bin/rm";
  * 一定になる。実体の unlink は切り離した子プロセスへ渡す。
  *
  * git は worktree の実体が無くても not-a-worktree / main worktree / locked / validate を判定し、
- * 管理ファイルも消す。実体の有無で分岐するのは dirty 判定と実削除だけなので、dirty 判定だけを
- * `assertWorktreeClean` で肩代わりする。
+ * 管理ファイルも消す。実体の有無で分岐するのは clean 判定と実削除だけなので、clean 判定だけを
+ * `assertWorktreeClean` で肩代わりする。実体が無くても判定できるのは親ディレクトリが実在する
+ * 場合で、git が解決を許す欠落はパス末尾の 1 要素だけ。
  */
 export async function removeWorktree(dir: string, path: string, force: boolean): Promise<void> {
   const trash = (await isDetachable(dir, path)) ? trashPathFor(path) : undefined;
@@ -205,11 +206,9 @@ async function isDetachable(dir: string, path: string): Promise<boolean> {
 }
 
 /**
- * 実体の退避先となる一意なパス。rename では捌けない worktree では undefined を返し、
- * 呼び出し側は git に unlink ごと任せる。
- *
- * - 実体が無い（外部 rm-rf 後の stale 登録）: 退避するものが無く、git は登録だけ消して成功する
- * - `$TMPDIR` と別ファイルシステム: rename(2) はファイルシステムを跨げない
+ * 実体の退避先となる一意なパス。`rename(2)` はファイルシステムを跨げないので、`$TMPDIR` と
+ * 同じファイルシステムに無い worktree では undefined を返し、呼び出し側は git に unlink ごと
+ * 任せる。判定するより先に実体が消えていた場合も同じ扱いにする。
  */
 function trashPathFor(path: string): string | undefined {
   const root = tmpdir();
@@ -219,14 +218,21 @@ function trashPathFor(path: string): string | undefined {
 }
 
 /**
- * dirty な worktree で throw する。git の check_clean_worktree 相当を、実体を退避する前に
- * 肩代わりする。git 同様、展開済み submodule を持つ worktree も拒否する
- * （`submodule status` の先頭 `-` は未初期化を表し、git が問題にするのは展開済みのものだけ）。
+ * 失われて困るものを持つ worktree で throw する。git の check_clean_worktree 相当を、実体を
+ * 退避する前に肩代わりする（退避後の git はこの判定に到達できない）。
+ *
+ * submodule の判定は git の validate_no_submodules と同じく 2 段。worktree の git dir に
+ * `modules` があれば、working tree 側が deinit 済みでも拒否する — そこには submodule の
+ * object store が入っており、worktree の管理ファイルごと消えるため。`modules` が無ければ
+ * 展開済みの submodule を探す（`submodule status` の先頭 `-` は未初期化を表す）。
  */
 async function assertWorktreeClean(path: string): Promise<void> {
-  const submodules = await runGit(["submodule", "status"], path);
-  if (submodules.split("\n").some((line) => line !== "" && !line.startsWith("-"))) {
-    throw new Error(`'${path}' contains populated submodules`);
+  const gitDir = (await runGit(["rev-parse", "--path-format=absolute", "--git-dir"], path)).trim();
+  const modules = tryCatch(() => statSync(join(gitDir, "modules")).isDirectory());
+  const hasModules = modules.ok && modules.value;
+  const submodules = hasModules ? "" : await runGit(["submodule", "status"], path);
+  if (hasModules || submodules.split("\n").some((line) => line !== "" && !line.startsWith("-"))) {
+    throw new Error(`'${path}' contains submodules`);
   }
   const status = await runGit(["status", "--porcelain", "--ignore-submodules=none"], path);
   if (status.trim() !== "") {

@@ -216,12 +216,24 @@ describe("removeWorktree (integration)", () => {
     expect(worktreeCount(repo)).toBe(1);
   });
 
-  test("main worktree は拒否し、実体を退避しない", async () => {
+  // 実体を退避してしまうと、後続の git は消えた repo を cwd に起動されて別の失敗になる。
+  // git 由来のメッセージが返ることが「退避せず git へ渡した」ことの証拠になる
+  test("main worktree は退避せず git へ渡して拒否させる", async () => {
     const { repo } = makeRepoWithWorktree();
     const error = await rejection(removeWorktree(repo, repo, false));
     expect(error.message).toMatch(/main working tree/);
     expect(existsSync(join(repo, "a.txt"))).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
+  });
+
+  test("登録されていないディレクトリは退避せず git へ渡して拒否させる", async () => {
+    const { repo, root } = makeRepoWithWorktree();
+    const outsider = join(root, "outsider");
+    mkdirSync(outsider);
+    writeFileSync(join(outsider, "keep.txt"), "keep\n");
+    const error = await rejection(removeWorktree(repo, outsider, false));
+    expect(error.message).toMatch(/is not a working tree/);
+    expect(existsSync(join(outsider, "keep.txt"))).toBe(true);
   });
 
   test("dirty な worktree は force なしで拒否し、実体を退避しない", async () => {
@@ -233,6 +245,15 @@ describe("removeWorktree (integration)", () => {
     expect(worktreeCount(repo)).toBe(2);
   });
 
+  test("追跡外のファイルを持つ worktree は force なしで拒否する", async () => {
+    const { repo, wt } = makeRepoWithWorktree();
+    writeFileSync(join(wt, "scratch.txt"), "scratch\n");
+    const error = await rejection(removeWorktree(repo, wt, false));
+    expect(error.message).toMatch(/modified or untracked/);
+    expect(existsSync(join(wt, "scratch.txt"))).toBe(true);
+    expect(worktreeCount(repo)).toBe(2);
+  });
+
   test("dirty な worktree も force なら消える", async () => {
     const { repo, wt } = makeRepoWithWorktree();
     writeFileSync(join(wt, "a.txt"), "modified\n");
@@ -241,8 +262,8 @@ describe("removeWorktree (integration)", () => {
     expect(worktreeCount(repo)).toBe(1);
   });
 
-  test("展開済み submodule を持つ worktree は force なしで拒否する", async () => {
-    const { repo, wt, root } = makeRepoWithWorktree();
+  /** worktree に submodule を 1 個追加する。追加した submodule の worktree 側パスを返す */
+  function addSubmodule(root: string, wt: string): string {
     const sub = join(root, "sub");
     mkdirSync(sub);
     runFixtureGit(["init", "-b", "main"], sub);
@@ -254,8 +275,27 @@ describe("removeWorktree (integration)", () => {
     // local path からの submodule 追加は protocol.file の明示許可が要る
     runFixtureGit(["-c", "protocol.file.allow=always", "submodule", "add", sub, "sub"], wt);
     runFixtureGit(["commit", "-m", "add submodule"], wt);
+    return join(wt, "sub");
+  }
+
+  test("展開済み submodule を持つ worktree は force なしで拒否する", async () => {
+    const { repo, wt, root } = makeRepoWithWorktree();
+    addSubmodule(root, wt);
     const error = await rejection(removeWorktree(repo, wt, false));
-    expect(error.message).toMatch(/populated submodules/);
+    expect(error.message).toMatch(/contains submodules/);
+    expect(existsSync(wt)).toBe(true);
+    expect(worktreeCount(repo)).toBe(2);
+  });
+
+  // deinit は working tree 側だけを消し、submodule の object store は worktree の git dir に
+  // 残る。status も submodule status も clean を返すため、git dir を見ないと通ってしまう
+  test("deinit 済み submodule を持つ worktree は force なしで拒否する", async () => {
+    const { repo, wt, root } = makeRepoWithWorktree();
+    addSubmodule(root, wt);
+    runFixtureGit(["submodule", "deinit", "-f", "sub"], wt);
+    expect(runFixtureGit(["status", "--porcelain", "--ignore-submodules=none"], wt)).toBe("");
+    const error = await rejection(removeWorktree(repo, wt, false));
+    expect(error.message).toMatch(/contains submodules/);
     expect(existsSync(wt)).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
   });

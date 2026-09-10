@@ -142,47 +142,14 @@ export async function resolveReviveBranch(
  * revive は cwd 不在を条件に列挙するため、外部 rm-rf 済みで `git worktree prune` 未実行の path に
  * stale 登録が残っていると `git worktree add` が失敗する。add 前に prune して、gozd の
  * `git worktree remove` 経由の削除だけでなく外部 rm-rf 由来の stale 登録も同一経路で救う。 */
-export function pruneWorktrees(dir: string): Promise<void> {
-  return serializeRepoWrite(dir, async () => {
-    await runGit(["worktree", "prune"], dir);
-  });
-}
-
-/**
- * repo の worktree 登録を書き換える操作を 1 本の列に並べる。
- *
- * 実体を退避している間その登録は「実体の消えた stale 登録」に見え、`git worktree remove` も
- * `git worktree prune` もそれを消せる。消されると退避した側の git が not-a-worktree で失敗し、
- * 復帰した実体だけが登録の無いまま残る。並べる対象を削除どうしに絞ると prune がこの隙間に
- * 入れるため、登録を書く操作すべてを同じ列に置く。
- *
- * 守れるのは gozd の中だけで、ターミナルのエージェントが叩く git には届かない。
- *
- * キーは呼び出し側が渡す repo の dir そのもの。RPC は repo の root を運ぶ契約なので、同じ
- * repo への 2 つの要求は同じ文字列を持つ。
- */
-const repoWrites = new Map<string, Promise<unknown>>();
-
-function serializeRepoWrite<T>(dir: string, run: () => Promise<T>): Promise<T> {
-  const previous = repoWrites.get(dir) ?? Promise.resolve();
-  // 先行が失敗しても後続は走らせる。待ちたいのは順序であって成否ではない
-  const current = previous.then(run, run);
-  repoWrites.set(dir, current);
-  const release = (): void => {
-    if (repoWrites.get(dir) === current) repoWrites.delete(dir);
-  };
-  void current.then(release, release);
-  return current;
+export async function pruneWorktrees(dir: string): Promise<void> {
+  await runGit(["worktree", "prune"], dir);
 }
 
 /** rm(1) の絶対パス。PATH 上の同名コマンドではなく OS 付属のものを起動する（macOS 専用前提） */
 const RM_PATH = "/bin/rm";
 
-/**
- * 退避先の名前の接頭辞。worktree の隣に置くので、走査で gozd の退避物だと判る形にする。
- * 続く要素は退避したプロセスの id — worktree の置き場は複数インスタンスで共有されるため、
- * 掃除する側が「まだ誰かが持っている実体」を見分けられる必要がある。
- */
+/** 退避先の名前の接頭辞。worktree の隣に置くので、走査で gozd の退避物だと判る形にする */
 const TRASH_PREFIX = ".gozd-worktree-trash-";
 
 /**
@@ -198,12 +165,8 @@ const TRASH_PREFIX = ".gozd-worktree-trash-";
  * `assertWorktreeClean` で肩代わりする。実体が無くても判定できるのは親ディレクトリが実在する
  * 場合で、git が解決を許す欠落はパス末尾の 1 要素だけ。
  */
-export function removeWorktree(dir: string, path: string, force: boolean): Promise<void> {
-  return serializeRepoWrite(dir, () => detachAndRemove(dir, path, force));
-}
-
-async function detachAndRemove(dir: string, path: string, force: boolean): Promise<void> {
-  const trash = (await isDetachable(dir, path)) ? trashPathFor(path) : undefined;
+export async function removeWorktree(dir: string, path: string, force: boolean): Promise<void> {
+  const trash = trashPathFor(path);
   if (trash === undefined) {
     await runWorktreeRemove(dir, path, force);
     return;
@@ -232,21 +195,6 @@ async function runWorktreeRemove(dir: string, path: string, force: boolean): Pro
 }
 
 /**
- * 実体を切り離してよい対象か。git も登録の有無と main worktree を実体に依らず判定するが、
- * その判定は rename の後になる。切り離した実体を戻せなかったとき失うものが大きいので、
- * 動かす前に同じ問いをここで解く。false の対象は git がそのまま拒否する。
- */
-async function isDetachable(dir: string, path: string): Promise<boolean> {
-  // git は登録を realpath で持つため、symlink を含むパスで呼ばれると文字列一致では拾えない
-  // （macOS の `$TMPDIR` が `/private/var` の symlink になっているのが典型）
-  const resolved = realpathOrSelf(path);
-  const entry = (await worktreeList(dir)).find(
-    (wt) => wt.path === path || realpathOrSelf(wt.path) === resolved,
-  );
-  return entry !== undefined && !entry.isMain;
-}
-
-/**
  * 実体の退避先となる一意なパス。実体が既に無ければ undefined を返し、呼び出し側は git に
  * 登録の掃除ごと任せる。
  *
@@ -255,7 +203,7 @@ async function isDetachable(dir: string, path: string): Promise<boolean> {
  */
 function trashPathFor(path: string): string | undefined {
   if (!tryCatch(() => lstatSync(path)).ok) return undefined;
-  return join(dirname(path), `${TRASH_PREFIX}${process.pid}-${randomUUID()}`);
+  return join(dirname(path), `${TRASH_PREFIX}${randomUUID()}`);
 }
 
 /**

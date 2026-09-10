@@ -19,12 +19,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  createWorktreeSymlinks,
-  pruneWorktrees,
-  removeWorktree,
-  resolveReviveBranch,
-} from "./worktreeOps";
+import { createWorktreeSymlinks, removeWorktree, resolveReviveBranch } from "./worktreeOps";
 
 describe("createWorktreeSymlinks", () => {
   const tempDirs: string[] = [];
@@ -221,26 +216,6 @@ describe("removeWorktree (integration)", () => {
     expect(worktreeCount(repo)).toBe(1);
   });
 
-  // 実体を退避してしまうと、後続の git は消えた repo を cwd に起動されて別の失敗になる。
-  // git 由来のメッセージが返ることが「退避せず git へ渡した」ことの証拠になる
-  test("main worktree は退避せず git へ渡して拒否させる", async () => {
-    const { repo } = makeRepoWithWorktree();
-    const error = await rejection(removeWorktree(repo, repo, false));
-    expect(error.message).toMatch(/main working tree/);
-    expect(existsSync(join(repo, "a.txt"))).toBe(true);
-    expect(worktreeCount(repo)).toBe(2);
-  });
-
-  test("登録されていないディレクトリは退避せず git へ渡して拒否させる", async () => {
-    const { repo, root } = makeRepoWithWorktree();
-    const outsider = join(root, "outsider");
-    mkdirSync(outsider);
-    writeFileSync(join(outsider, "keep.txt"), "keep\n");
-    const error = await rejection(removeWorktree(repo, outsider, false));
-    expect(error.message).toMatch(/is not a working tree/);
-    expect(existsSync(join(outsider, "keep.txt"))).toBe(true);
-  });
-
   test("変更のあるファイルを持つ worktree は force なしで拒否する", async () => {
     const { repo, wt } = makeRepoWithWorktree();
     writeFileSync(join(wt, "a.txt"), "modified\n");
@@ -313,63 +288,5 @@ describe("removeWorktree (integration)", () => {
     expect(error.message).toMatch(/locked/);
     expect(existsSync(join(wt, "a.txt"))).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
-  });
-});
-
-describe("worktree 登録を書く操作の直列化", () => {
-  const tempDirs: string[] = [];
-
-  afterEach(() => {
-    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  });
-
-  function makeFixture(): { repo: string; wt: string } {
-    const root = mkdtempSync(join(tmpdir(), "gozd-wt-concurrent-"));
-    tempDirs.push(root);
-    const repo = join(root, "repo");
-    mkdirSync(repo);
-    runFixtureGit(["init", "-b", "main"], repo);
-    runFixtureGit(["config", "user.email", "t@example.com"], repo);
-    runFixtureGit(["config", "user.name", "t"], repo);
-    writeFileSync(join(repo, "a.txt"), "a\n");
-    runFixtureGit(["add", "."], repo);
-    runFixtureGit(["commit", "-m", "first"], repo);
-    const wt = join(root, "wt");
-    runFixtureGit(["worktree", "add", "-b", "feature", wt], repo);
-    return { repo, wt };
-  }
-
-  test("同じ worktree への並行削除で、登録の無い実体を残さない", async () => {
-    const { repo, wt } = makeFixture();
-
-    // 直列化が無いと、後発が先発の退避中に登録を消し、先発の復帰で登録の無い実体が残る
-    const settled = await Promise.allSettled([
-      removeWorktree(repo, wt, false),
-      removeWorktree(repo, wt, false),
-    ]);
-
-    expect(settled.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-    // 直列化されていれば、後発は先発の完了後に判定するので登録が既に無い。並行に走ると
-    // 後発は登録がある状態で判定を始め、退避の途中を踏んで別の失敗になる
-    const [rejected] = settled.filter((r) => r.status === "rejected");
-    expect(String(rejected?.reason)).toMatch(/is not a working tree/);
-    expect(existsSync(wt)).toBe(false);
-    const registered = runFixtureGit(["worktree", "list", "--porcelain"], repo)
-      .split("\n")
-      .filter((line) => line.startsWith("worktree ")).length;
-    expect(registered).toBe(1);
-  });
-
-  test("削除と並行して走らせた prune は削除を中断させない", async () => {
-    const { repo, wt } = makeFixture();
-
-    // prune は退避中の登録を消せる。同じ列に並んでいなければ削除が not-a-worktree で失敗する
-    const [removal] = await Promise.allSettled([
-      removeWorktree(repo, wt, false),
-      pruneWorktrees(repo),
-    ]);
-
-    expect(removal?.status).toBe("fulfilled");
-    expect(existsSync(wt)).toBe(false);
   });
 });

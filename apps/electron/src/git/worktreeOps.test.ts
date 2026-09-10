@@ -209,6 +209,21 @@ describe("removeWorktree (integration)", () => {
     expect(worktreeCount(repo)).toBe(1);
   });
 
+  test("実体が消えた stale 登録は登録だけ消える", async () => {
+    const { repo, wt } = makeRepoWithWorktree();
+    rmSync(wt, { recursive: true, force: true });
+    await removeWorktree(repo, wt, false);
+    expect(worktreeCount(repo)).toBe(1);
+  });
+
+  test("main worktree は拒否し、実体を退避しない", async () => {
+    const { repo } = makeRepoWithWorktree();
+    const error = await rejection(removeWorktree(repo, repo, false));
+    expect(error.message).toMatch(/main working tree/);
+    expect(existsSync(join(repo, "a.txt"))).toBe(true);
+    expect(worktreeCount(repo)).toBe(2);
+  });
+
   test("dirty な worktree は force なしで拒否し、実体を退避しない", async () => {
     const { repo, wt } = makeRepoWithWorktree();
     writeFileSync(join(wt, "a.txt"), "modified\n");

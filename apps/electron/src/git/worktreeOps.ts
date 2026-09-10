@@ -147,7 +147,7 @@ export async function pruneWorktrees(dir: string): Promise<void> {
   await runGit(["worktree", "prune"], dir);
 }
 
-/** rm(1) の絶対パス。packaged 起動が継承する最小 PATH でも解決できるよう固定する（macOS 専用前提） */
+/** rm(1) の絶対パス。PATH 上の同名コマンドではなく OS 付属のものを起動する（macOS 専用前提） */
 const RM_PATH = "/bin/rm";
 
 /**
@@ -163,7 +163,7 @@ const RM_PATH = "/bin/rm";
  * `assertWorktreeClean` で肩代わりする。
  */
 export async function removeWorktree(dir: string, path: string, force: boolean): Promise<void> {
-  const trash = trashPathFor(path);
+  const trash = (await isDetachable(dir, path)) ? trashPathFor(path) : undefined;
   if (trash === undefined) {
     await runWorktreeRemove(dir, path, force);
     return;
@@ -189,6 +189,19 @@ async function runWorktreeRemove(dir: string, path: string, force: boolean): Pro
   if (force) args.push("-f");
   args.push(path);
   await runGit(args, dir);
+}
+
+/**
+ * 実体を切り離してよい対象か。git も登録の有無と main worktree を実体に依らず判定するが、
+ * その判定は rename の後になる。切り離した実体を戻せなかったとき失うものが大きいので、
+ * 動かす前に同じ問いをここで解く。false の対象は git がそのまま拒否する。
+ */
+async function isDetachable(dir: string, path: string): Promise<boolean> {
+  const resolved = realpathOrSelf(path);
+  const entry = (await worktreeList(dir)).find(
+    (wt) => wt.path === path || realpathOrSelf(wt.path) === resolved,
+  );
+  return entry !== undefined && !entry.isMain;
 }
 
 /**
@@ -225,11 +238,20 @@ async function assertWorktreeClean(path: string): Promise<void> {
  * 退避済みの実体を切り離した子プロセスに unlink させる。エントリ数に比例する時間を main の
  * event loop にも libuv の threadpool にも載せないため、in-process の `fs.rm` ではなく別プロセスに
  * 渡す。切り離してあるのでアプリを終了しても削除は完走する。
+ *
+ * 失敗しても呼び出し側の削除は成立済みなので、観察ログだけ残す。exit code を見るのは
+ * 権限や I/O エラーで rm が非 0 終了する経路が silent drop になるため。stderr を pipe すると
+ * 親の終了後に子が EPIPE を踏むので、観測は exit code で行う。親より後に起きた失敗は
+ * 原理的に観測できない。
  */
 function discardInBackground(trash: string): void {
   const child = spawn(RM_PATH, ["-rf", trash], { detached: true, stdio: "ignore" });
   child.on("error", (error) => {
-    console.error(`[removeWorktree] discard failed trash=${trash} error=${error}`);
+    console.error(`[removeWorktree] discard spawn failed trash=${trash} error=${error}`);
+  });
+  child.on("exit", (code, signal) => {
+    if (code === 0) return;
+    console.error(`[removeWorktree] discard failed trash=${trash} exit=${code} signal=${signal}`);
   });
   child.unref();
 }

@@ -1,13 +1,13 @@
 /**
  * Claude session log の生 JSONL を `sessionId` 1 つに対してライブ取得する composable。
  *
- * 責務は raw `SessionTab[]` の供給のみ:
+ * 責務は raw `SessionLogEntry[]` の供給のみ:
  *   - 初回 / `sessionId` 変更時の `rpcClaudeSessionLog` 取得
  *   - native が返す `watch_dir` への `rpcFsWatch` ライフサイクル
  *   - `fsChange` push を debounce してサイレント refresh
  *
  * parse (`parseSessionLog`) や branch 選択、subagent 並び替えは呼び出し側 (dialog /
- * terminal preview) の責務に閉じる。SSOT は entries の SessionTab 配列で、UI 形状の
+ * terminal preview) の責務に閉じる。SSOT は entries の SessionLogEntry 配列で、UI 形状の
  * 違いはここに乗らない。
  *
  * stale 結果の上書きを防ぐ `loadToken` パターンは SessionLogDialog から踏襲。
@@ -44,13 +44,13 @@ import { onUnmounted, ref, watch, type Ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage, rpcFsUnwatch, rpcFsWatch } from "../../shared/rpc";
 import { rpcClaudeSessionLog } from "./rpc";
-import { subagentTabLabel } from "./sessionLogView";
+import { subagentLabel } from "./sessionLogView";
 
-// main + subagents の単位。生 JSONL を保持し、parse は呼び出し側で行う。
-export interface SessionTab {
+// セッションログ 1 本分 (main または subagent)。生 JSONL を保持し、parse は呼び出し側で行う。
+export interface SessionLogEntry {
   kind: string; // "main" | "subagent"
   id: string; // main は session_id、subagent は agent_id
-  label: string; // タブ表示名
+  label: string; // 表示名
   // subagent を spawn した main の Agent tool_use id (meta.json の toolUseId)。main は空。
   parentToolUseId: string;
   // subagent の名前 (meta.json の name)。SendMessage の to が name のとき紐付けに使う。main は空。
@@ -74,7 +74,7 @@ interface UseSessionLogLiveOptions {
 }
 
 interface UseSessionLogLiveReturn {
-  sessions: Ref<SessionTab[]>;
+  sessions: Ref<SessionLogEntry[]>;
   loading: Ref<boolean>;
   errorMessage: Ref<string | undefined>;
   notFound: Ref<boolean>;
@@ -87,7 +87,7 @@ export function useSessionLogLive(
   const debounceMs = options.debounceMs ?? 250;
   const notify = useNotificationStore();
 
-  const sessions = ref<SessionTab[]>([]);
+  const sessions = ref<SessionLogEntry[]>([]);
   const loading = ref(false);
   const errorMessage = ref<string | undefined>(undefined);
   const notFound = ref(false);
@@ -99,7 +99,7 @@ export function useSessionLogLive(
   let currentWatchDir: string | undefined;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
-  function toSessionTab(entry: {
+  function toSessionLogEntry(entry: {
     kind: string;
     id: string;
     label: string;
@@ -111,11 +111,11 @@ export function useSessionLogLive(
     phaseTitle: string;
     path: string;
     content: string;
-  }): SessionTab {
+  }): SessionLogEntry {
     return {
       kind: entry.kind,
       id: entry.id,
-      label: entry.kind === "main" ? "Main" : subagentTabLabel(entry),
+      label: entry.kind === "main" ? "Main" : subagentLabel(entry),
       parentToolUseId: entry.parentToolUseId,
       name: entry.name,
       agentType: entry.agentType,
@@ -188,7 +188,7 @@ export function useSessionLogLive(
       notFound.value = true;
       return;
     }
-    sessions.value = result.value.entries.map(toSessionTab);
+    sessions.value = result.value.entries.map(toSessionLogEntry);
   }
 
   // 既存表示を保ったまま jsonl を読み直す。loading は立てず sessions の差し替えだけ。
@@ -208,7 +208,7 @@ export function useSessionLogLive(
     // entries の有無に関わらず watchDir 反映を行う。
     applyWatchDir(result.value.watchDir);
     if (!result.value.found || result.value.entries.length === 0) return;
-    sessions.value = result.value.entries.map(toSessionTab);
+    sessions.value = result.value.entries.map(toSessionLogEntry);
     notFound.value = false;
   }
 

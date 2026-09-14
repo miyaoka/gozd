@@ -3,7 +3,7 @@ undock されたセッションログメッセージ 1 件のウィンドウ。
 
 ウィンドウの実体 (in-app パネル / 昇格後の OS ウィンドウ、その切り替えと昇格の rect 換算) は
 汎用シェル UndockedWindow に委譲し、ここはヘッダ内容 (TerminalLeafTitle と同じ repo + session
-タイトルの 2 段構成) と kind 別配色の本文だけを担う。
+タイトルの 2 段構成) と話者別配色の本文だけを担う。
 
 内容は undock 時点の凍結スナップショットで dirty 状態を持たないため、close はガードなし
 (`blockClose` 常時 false で、closeRequested / closed のどちらも即 state 削除)。Cmd+S は保存
@@ -14,6 +14,7 @@ undock されたセッションログメッセージ 1 件のウィンドウ。
 import { UndockedWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
 import SessionLogMessageBody from "./SessionLogMessageBody.vue";
+import { SPEAKER_SURFACE_CLASS } from "./sessionLogView";
 import { useUndockedLog, type UndockedLog } from "./useUndockedLog";
 
 interface Props {
@@ -62,9 +63,9 @@ const handoff = takeHandoff(props.log.id);
 
     <div
       class="min-h-0 flex-1 overflow-auto select-text"
-      :class="log.kind === 'assistant' ? 'bg-chat-incoming' : 'bg-chat-outgoing'"
+      :class="SPEAKER_SURFACE_CLASS[log.speaker]"
     >
-      <SessionLogMessageBody :kind="log.kind" :text="log.text" />
+      <SessionLogMessageBody :text="log.text" :mark="log.mark" />
     </div>
   </UndockedWindow>
 </template>

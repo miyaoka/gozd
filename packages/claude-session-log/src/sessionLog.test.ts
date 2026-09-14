@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { expandAskMessages, parseSessionLog, type TranscriptEvent } from "./sessionLog";
+import { parseSessionLog } from "./sessionLog";
 
 /** 1 レコードを JSONL 1 行にする。複数行は join して渡す。 */
 function jsonl(...records: unknown[]): string {
@@ -909,7 +909,7 @@ describe("parseSessionLog", () => {
   // が切れ `claude --continue` 相当で resume されたケース。木の形:
   //
   //   u1 (user 生発話, candidate)
-  //     ├─ a0 (assistant thinking; 最新モデルは signature のみで平文は空 → NOT candidate)
+  //     ├─ a0 (assistant thinking; signature のみで平文は空 → NOT candidate)
   //     │   └─ a1 (assistant text "主要箇所…", candidate)
   //     │       └─ a2 (assistant tool_use:AskUserQuestion, NOT candidate; ここで停止)
   //     └─ r1 (user "Continue from where you left off.", isMeta:true → NOT candidate)
@@ -1306,66 +1306,6 @@ describe("parseSessionLog", () => {
       if (ev?.kind === "ask") {
         expect(ev.questions[0]?.answer).toBeUndefined();
       }
-    });
-  });
-
-  describe("expandAskMessages", () => {
-    test("ask を assistant (質問) と user (回答) に inline 展開し、他 kind は透過", () => {
-      const events: TranscriptEvent[] = [
-        { kind: "user", text: "始めて", ts: TS },
-        { kind: "thinking", text: "考え中", ts: TS },
-        {
-          kind: "ask",
-          ts: TS,
-          toolUseId: "tu1",
-          questions: [
-            { question: "Q1", header: "", multiSelect: false, options: [], answer: "A1" },
-            { question: "Q2", header: "", multiSelect: false, options: [], answer: undefined },
-          ],
-        },
-        { kind: "assistant", text: "おわり", ts: TS },
-      ];
-      // ask は (Q1 → A1) + (Q2 のみ, A2 は undefined で欠落)、thinking / assistant は素通し。
-      expect(expandAskMessages(events)).toEqual([
-        { kind: "user", text: "始めて", ts: TS },
-        { kind: "thinking", text: "考え中", ts: TS },
-        { kind: "assistant", text: "Q1", ts: TS },
-        { kind: "user", text: "A1", ts: TS },
-        { kind: "assistant", text: "Q2", ts: TS },
-        { kind: "assistant", text: "おわり", ts: TS },
-      ]);
-    });
-
-    test("空 question は質問メッセージを出さない (表示できる本文無しは bubble に倒さない)", () => {
-      expect(
-        expandAskMessages([
-          {
-            kind: "ask",
-            ts: TS,
-            toolUseId: "tu1",
-            questions: [{ question: "", header: "", multiSelect: false, options: [], answer: "A" }],
-          },
-        ]),
-      ).toEqual([{ kind: "user", text: "A", ts: TS }]);
-    });
-
-    // 「空文字 answer は未充填扱い」は parser 側で `answer = undefined` に正規化する
-    // invariant で SSOT 化済み (parseSessionLog 「空文字 answer は未充填扱いで undefined に
-    // 倒される」test 参照)。consumer (expandAskMessages / dialog) は `q.answer === undefined`
-    // の 1 条件だけで未充填判定するため、`expandAskMessages` 側に空文字 answer の独立
-    // 仕様 test は持たない (parser invariant を信頼できなくなる二重定義になる)。
-
-    test("空入力は空出力", () => {
-      expect(expandAskMessages([])).toEqual([]);
-    });
-
-    test("ask 不在の入力はそのまま透過する", () => {
-      const events: TranscriptEvent[] = [
-        { kind: "user", text: "u", ts: TS },
-        { kind: "assistant", text: "a", ts: TS },
-        { kind: "thinking", text: "t", ts: TS },
-      ];
-      expect(expandAskMessages(events)).toEqual(events);
     });
   });
 

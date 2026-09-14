@@ -1,41 +1,39 @@
 <doc lang="md">
-チャットメッセージ 1 件の本文描画 (kind 別)。terminal preview の全文 popover と
-undock されたフローティングウィンドウ (UndockedLogWindow) が共有する。
+発言 1 件の本文描画。session log dialog の吹き出し、terminal preview の全文 popover、
+undock されたフローティングウィンドウ (UndockedLogWindow)、ダッシュボードが共有する。
 
-- user は素のテキストとして描画する (markdown 解釈しない。SessionLogTranscript と同じ規律)
-- assistant は MarkdownBody + chat 配色への CSS var 上書き。`_markdown-body :deep(code)` が
-  inline code を foreground に固定するため、CSS 変数 override では足りず scoped
-  `:deep(code)` で specificity を持ち上げて chat-code 色にする。この非自明な回避策を
-  consumer ごとに再掲しないことがこのコンポーネントの存在理由
-- kind 別の背景 (bg-chat-incoming / bg-chat-outgoing) は持たない。スクロール面や角丸と
-  一体で管理すべき装飾なので consumer 側の container が担う
+- 本文は話者によらず MarkdownBody で描画し、本文の先頭に印を出す
+- 本文中の HTML は要素にせず、書かれた文字のまま出す。発言の本文は会話で書かれた文字で、
+  HTML として解釈すると文字が消えたり別の要素に化けたりする
+- 地と文字色は持たない。consumer が吹き出しを塗る要素に `SPEAKER_SURFACE_CLASS` を当て、
+  その CSS 変数を MarkdownBody が継承する
 </doc>
 
 <script setup lang="ts">
 import { MarkdownBody } from "../preview";
 
-interface Props {
-  kind: "user" | "assistant";
+defineProps<{
   text: string;
-}
+  /** 本文の先頭に出す印 */
+  mark?: string;
+}>();
 
-defineProps<Props>();
+const emit = defineEmits<{
+  /** MarkdownBody が外部送りしなかった href */
+  linkClick: [href: string];
+  /** MarkdownBody の描画完了 (高さ確定に依存する consumer のフック) */
+  rendered: [];
+}>();
 </script>
 
 <template>
-  <div
-    v-if="kind === 'assistant'"
-    class="_session-log-assistant px-3 py-2 text-chat-incoming-text [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
-  >
-    <MarkdownBody :content="text" />
-  </div>
-  <div v-else class="px-3 py-2 wrap-break-word whitespace-pre-wrap text-chat-outgoing-text">
-    {{ text }}
+  <div class="px-3 py-2">
+    <MarkdownBody
+      :content="text"
+      :lead-mark="mark"
+      literal-html
+      @link-click="emit('linkClick', $event)"
+      @rendered="emit('rendered')"
+    />
   </div>
 </template>
-
-<style scoped>
-._session-log-assistant :deep(code) {
-  color: var(--color-chat-code);
-}
-</style>

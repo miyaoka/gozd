@@ -63,9 +63,10 @@ interface ClaudeSessionLogEntry {
    * tool_use と結ぶグループキー (main の Workflow tool_result の "Run ID: wf_xxx" と一致)。 */
   workflowRunId: string;
   /** workflow の表示名 (<sessionId>/workflows/<wf_id>.json の workflowName)。
-   * タブバーのグループ見出しに使う。非 workflow subagent / main は空文字。 */
+   * 横断タイムラインのグループ見出しと Workflow 行のリンクラベルに使う。非 workflow subagent /
+   * main は空文字。 */
   workflowName: string;
-  /** workflow agent の phase 名 (workflowProgress の phaseTitle)。タブのラベルに使う。
+  /** workflow agent の phase 名 (workflowProgress の phaseTitle)。subagent の表示ラベルに使う。
    * 非 workflow subagent / main は空文字。 */
   phaseTitle: string;
 }

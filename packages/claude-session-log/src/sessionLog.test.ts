@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseSessionLog } from "./sessionLog";
+import { parseSessionLog, type TranscriptEvent } from "./sessionLog";
 
 /** 1 レコードを JSONL 1 行にする。複数行は join して渡す。 */
 function jsonl(...records: unknown[]): string {
@@ -1438,6 +1438,142 @@ describe("parseSessionLog", () => {
       { kind: "user", text: "やあ", ts: TS },
       { kind: "assistant", text: "こんにちは", ts: TS },
     ]);
+  });
+
+  describe("compact は rewind 分岐にしない", () => {
+    const SUMMARY = "This session is being continued from a previous conversation.";
+    /** boundary の子に置く要約レコード。content の形を差し替えて使う。 */
+    function summaryRecord(content: unknown) {
+      return {
+        type: "user",
+        uuid: "sum",
+        parentUuid: "cb",
+        isCompactSummary: true,
+        timestamp: TS,
+        message: { role: "user", content },
+      };
+    }
+    // compact 前の会話と compact_boundary。boundary は parentUuid:null で新しい根を作り、
+    // logicalParentUuid で compact 前の末尾 a1 を指す (実ログ形)。要約は summaryRecord で足す。
+    const beforeCompact = [
+      {
+        type: "user",
+        uuid: "u1",
+        parentUuid: null,
+        timestamp: TS,
+        message: { role: "user", content: "最初の依頼" },
+      },
+      {
+        type: "assistant",
+        uuid: "a1",
+        parentUuid: "u1",
+        timestamp: TS,
+        message: { role: "assistant", content: [{ type: "text", text: "compact 前の応答" }] },
+      },
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: "cb",
+        parentUuid: null,
+        logicalParentUuid: "a1",
+        timestamp: TS,
+      },
+    ];
+    const expected: TranscriptEvent[] = [
+      { kind: "user", text: "最初の依頼", ts: TS },
+      { kind: "assistant", text: "compact 前の応答", ts: TS },
+      { kind: "system", label: "compact", text: SUMMARY, ts: TS },
+      { kind: "assistant", text: "compact 後の応答", ts: TS },
+    ];
+
+    test("compact 後の会話が要約を経ず compact 前の末尾に直接繋がる形", () => {
+      // 実ログ形: compact 後の会話は要約ではなく、attachment を介して compact 前の末尾 a1 に繋がる。
+      // 要約を分岐候補にすると、a1 の下で compact 後の応答と兄弟になり偽分岐になる。
+      const log = parseSessionLog(
+        jsonl(
+          ...beforeCompact,
+          summaryRecord(SUMMARY),
+          { type: "attachment", uuid: "att1", parentUuid: "a1", timestamp: TS },
+          {
+            type: "assistant",
+            uuid: "a2",
+            parentUuid: "att1",
+            timestamp: TS,
+            message: { role: "assistant", content: [{ type: "text", text: "compact 後の応答" }] },
+          },
+        ),
+      );
+      expect(log.events).toEqual(expected);
+    });
+
+    test("compact 後の会話が要約の下に続く形", () => {
+      // 実ログ形: compact 後の会話は要約の子孫になる。boundary を logicalParentUuid で繋がないと、
+      // compact 後の会話がセッション先頭と同じ ROOT に並ぶ。
+      const log = parseSessionLog(
+        jsonl(...beforeCompact, summaryRecord(SUMMARY), {
+          type: "assistant",
+          uuid: "a2",
+          parentUuid: "sum",
+          timestamp: TS,
+          message: { role: "assistant", content: [{ type: "text", text: "compact 後の応答" }] },
+        }),
+      );
+      expect(log.events).toEqual(expected);
+    });
+
+    test("要約の下で rewind すると compact 前の会話的親を分岐点にし、セッション先頭を刈らない", () => {
+      // 要約と boundary を透過して会話的親 a1 に行き着く。boundary を ROOT のまま扱うと、u1 と
+      // 同じ ROOT に並んで u1 が刈られる。
+      const log = parseSessionLog(
+        jsonl(
+          ...beforeCompact,
+          summaryRecord(SUMMARY),
+          {
+            type: "user",
+            uuid: "p1",
+            parentUuid: "sum",
+            timestamp: TS,
+            message: { role: "user", content: "旧" },
+          },
+          {
+            type: "user",
+            uuid: "p2",
+            parentUuid: "sum",
+            timestamp: TS,
+            message: { role: "user", content: "新" },
+          },
+        ),
+      );
+      expect(log.events).toEqual([
+        { kind: "user", text: "最初の依頼", ts: TS },
+        { kind: "assistant", text: "compact 前の応答", ts: TS },
+        { kind: "system", label: "compact", text: SUMMARY, ts: TS },
+        {
+          kind: "branch",
+          ts: TS,
+          branchKey: "a1",
+          selectedChildUuid: "p2",
+          options: [
+            { childUuid: "p1", index: 1, lead: "旧", ts: TS },
+            { childUuid: "p2", index: 2, lead: "新", ts: TS },
+          ],
+        },
+        { kind: "user", text: "新", ts: TS },
+      ]);
+    });
+
+    test.each([
+      ["空文字", ""],
+      ["配列", [{ type: "text", text: SUMMARY }]],
+    ])("content が%sの要約は system イベントにせず skipped に数える", (_, content) => {
+      const log = parseSessionLog(jsonl(...beforeCompact, summaryRecord(content)));
+      expect(log.events).toEqual([
+        { kind: "user", text: "最初の依頼", ts: TS },
+        { kind: "assistant", text: "compact 前の応答", ts: TS },
+      ]);
+      // boundary (system レコード) と要約の 2 件
+      expect(log.skipped).toBe(2);
+    });
   });
 
   test("rewind: 分岐の親が透過ノード (system) でも会話的親 (直前の assistant) を branchKey にする", () => {

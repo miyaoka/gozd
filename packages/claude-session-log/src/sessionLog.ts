@@ -17,9 +17,10 @@
 //
 // system 注入の可視化 (`kind:"system"`): エージェントのコンテキストに注入されたシステム由来
 // テキストを system イベントとして載せる。ソースは hook 由来 attachment
-// (`hook_success` / `hook_additional_context`)。SessionStart hook の出力等、実行時に
-// system-reminder としてエージェントに届く content の永続化形。content 空の hook_success
-// (発火記録だけの PreToolUse 等が大半) は表示する中身が無いため skipped。
+// (`hook_success` / `hook_additional_context`) と compact 要約 (`isCompactSummary`)。前者は
+// SessionStart hook の出力等、実行時に system-reminder としてエージェントに届く content の
+// 永続化形。content 空の hook_success (発火記録だけの PreToolUse 等が大半) は表示する中身が
+// 無いため skipped。
 // なお output_style / task_reminder 等のランタイムリマインダは JSONL に永続化されず、原理的に
 // 表示できない。harness 追記の `<system-reminder>` (tool call バッチ推奨 / truncation 通知等) は
 // tool_result の content 内に現れ、tool イベントの result.text に全文が載るため抽出しない
@@ -40,6 +41,12 @@
 // 1 つの tool_use が「次の tool_use」と「自身の tool_result」の 2 子を持つ DAG を作るが、これは
 // rewind ではない。子 2 つを機械的に分岐とみなすと本流を捨て枝として落とすため、tool_use /
 // tool_result を候補から外して誤検出を防ぐ (詳細は isBranchCandidate)。
+//
+// compact も rewind ではない。compact は parentUuid:null の `compact_boundary` を書き、その子に
+// 要約を置く。compact 後の会話は、要約の下に続く形と、要約を経ず compact 前の末尾に直接繋がる形の
+// 両方が実ログにある。前者は物理的な親のままだとセッション先頭と同じ ROOT に並ぶため、boundary を
+// logicalParentUuid で compact 前の末尾に繋ぐ (treeParentUuid)。後者は繋いだ結果、要約と compact
+// 後の最初の応答が同じ会話的親に並ぶため、要約を分岐候補にしない (isCompactSummary)。
 
 import { tryCatch } from "@gozd/shared";
 
@@ -166,6 +173,12 @@ interface RawLine {
   // ルートで null になりうる。
   uuid?: string;
   parentUuid?: string | null;
+  // parentUuid を null にして物理的な鎖を切ったレコードが持つ、会話上の本当の親。compact 時の
+  // `compact_boundary` がこれを持ち、compact 前の会話の末尾を指す (実ログで確認済み)。
+  logicalParentUuid?: string | null;
+  // compact 時に Claude Code が書く要約メッセージ (`type:"user"`)。ユーザー発話ではなく、
+  // compact 後のコンテキストに注入されるシステム由来テキスト。
+  isCompactSummary?: boolean;
   // coordinator (親エージェント) が SendMessage で subagent に中継した発話の出所。Claude Code が
   // 中継時に `origin.kind:"coordinator"` を付ける。中継は `isMeta:true` と併記されるため、これが
   // 無いと CLI/hook 注入レコードと区別できず会話から落ちる。中継発話を救済する判別キー。
@@ -299,6 +312,19 @@ function isSyntheticAssistant(raw: RawLine): boolean {
   return raw.type === "assistant" && raw.message?.model === "<synthetic>";
 }
 
+/**
+ * compact の要約メッセージか。要約は発話ではないので分岐候補にせず、system イベントとして載せる。
+ * compact 後の会話が compact 前の末尾に直接繋がる形では、boundary を論理的な親で繋ぐと要約と
+ * compact 後の最初の応答が同じ会話的親に並ぶ。要約を候補に含めると rewind と誤検出し、偽の分岐
+ * セレクタを出して既定では要約を刈る。
+ */
+function isCompactSummary(raw: RawLine): boolean {
+  return raw.type === "user" && raw.isCompactSummary === true;
+}
+
+/** compact 要約の system イベントの label。 */
+const COMPACT_SUMMARY_LABEL = "compact";
+
 // slash command 起動は `type:"user"` の string content として記録され、先頭が
 // `<command-name>/foo</command-name>` か `<command-message>foo</command-message>` で始まる。
 // この先頭判定でだけ command block とみなす。本文中にたまたま <command-name> を含む生発話
@@ -367,7 +393,8 @@ export type TranscriptEvent =
   | { kind: "assistant"; text: string; ts: string }
   | { kind: "thinking"; text: string; ts: string }
   // エージェントのコンテキストに注入されたシステム由来テキスト。ソースは hook 由来
-  // attachment (hook_success / hook_additional_context)。label は注入元の識別子 (hook 名)。
+  // attachment (hook_success / hook_additional_context) と compact 要約。label は注入元の
+  // 識別子 (hook 名 / "compact")。
   // 会話ターンではないので branch 候補 / scroll-spy の観測対象にはしない。
   | { kind: "system"; label: string; text: string; ts: string }
   | {
@@ -528,7 +555,20 @@ export type BranchSelection = Map<string, string>;
 interface LogNode {
   raw: RawLine;
   uuid: string; // raw.uuid ?? "" (uuid 無し = 木に参加しない古いログ / 注入レコード)
-  parentUuid: string; // raw.parentUuid ?? ""
+  parentUuid: string; // treeParentUuid(raw)
+}
+
+/**
+ * rewind 木で使う親 uuid。parentUuid が string ならそれ、string でなければ logicalParentUuid、
+ * どちらも無ければ "" (ROOT)。compact は `compact_boundary` の parentUuid を null にして新しい根を
+ * 作る。物理的な根のまま扱うと、要約の下に続く compact 後の会話がセッション先頭と同じ ROOT に並んで
+ * rewind と誤検出する。論理的な親で繋ぐと compact 前後が 1 本の会話になる。
+ * raw は実行時型を保証しないため typeof で string を確認する。
+ */
+function treeParentUuid(raw: RawLine): string {
+  if (typeof raw.parentUuid === "string") return raw.parentUuid;
+  if (typeof raw.logicalParentUuid === "string") return raw.logicalParentUuid;
+  return "";
 }
 
 /**
@@ -543,7 +583,7 @@ interface LogNode {
  * 外れるため、tool の連鎖は分岐にならない。真の rewind は実発話 / 応答が同一親に複数並ぶ場合のみ。
  */
 function isBranchCandidate(raw: RawLine): boolean {
-  if (isSyntheticAssistant(raw)) return false;
+  if (isSyntheticAssistant(raw) || isCompactSummary(raw)) return false;
   const content = raw.message?.content;
   if (raw.type === "user") {
     // coordinator 中継は isMeta:true だが subagent にとっては会話ターンなので候補に含める。
@@ -641,11 +681,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       continue;
     }
     const raw = parsed.value;
-    nodes.push({
-      raw,
-      uuid: raw.uuid ?? "",
-      parentUuid: typeof raw.parentUuid === "string" ? raw.parentUuid : "",
-    });
+    nodes.push({ raw, uuid: raw.uuid ?? "", parentUuid: treeParentUuid(raw) });
   }
 
   // --- フェーズ 2: rewind 木を構築し、捨て枝 (非選択候補のサブツリー) を刈る ---
@@ -757,6 +793,18 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     // subagent にとって会話ターンなので除外しない。
     if (raw.isMeta === true && !isCoordinatorMessage(raw)) {
       skipped++;
+      continue;
+    }
+
+    // compact 要約は type:"user" だがユーザー発話ではない。compact 後のコンテキストに注入された
+    // テキストなので system イベントにする (実ログでは content は string)。
+    if (isCompactSummary(raw)) {
+      const content = raw.message?.content;
+      if (typeof content === "string" && content !== "") {
+        events.push({ kind: "system", label: COMPACT_SUMMARY_LABEL, text: content, ts });
+      } else {
+        skipped++;
+      }
       continue;
     }
 

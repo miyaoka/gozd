@@ -21,18 +21,28 @@ navigation に委ねる経路を残さないのは、consumer によって委ね
 - 相対リンク解決 / 履歴ナビゲーションが必要な consumer は `linkClick` を購読して処理する
   (MarkdownPreview 参照)。購読しない consumer では内部リンクが無効になるだけで、外部リンクは
   本コンポーネントが開く
+- `leadMark` を渡すと本文の 1 行目の先頭に印を出す。印は本文の文字列に含めない (コピーに
+  混ざらず、行頭の markdown 構文にも干渉しない)
+- `literalHtml` を渡すと本文中の HTML を要素にせず、書かれた文字のまま出す。HTML が書式ではなく
+  書かれた文字そのものである本文 (会話の発言等) のための口で、`Array<string>` の `<string>` が
+  sanitizer に消されたり、`<Button>` が button 要素になったりしない
 </doc>
 
 <script setup lang="ts">
 import { isExternalUrl, tryCatch } from "@gozd/shared";
 import DOMPurify from "dompurify";
-import { marked, type MarkedExtension } from "marked";
+import { Marked, type MarkedExtension } from "marked";
 import { nextTick, ref, watch } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
 import { isLinkActivation, openExternalOrNotify } from "../../../../shared/rpc";
+import { literalHtmlExtension } from "./literalHtml";
 
 const props = defineProps<{
   content: string;
+  /** 本文の 1 行目の先頭に出す印 */
+  leadMark?: string;
+  /** 本文中の HTML を要素にせず、書かれた文字のまま出す */
+  literalHtml?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -100,7 +110,12 @@ const mermaidExtension: MarkedExtension = {
   },
 };
 
-marked.use(frontmatterExtension, mermaidExtension);
+const markdown = new Marked(frontmatterExtension, mermaidExtension);
+const markdownWithLiteralHtml = new Marked(
+  frontmatterExtension,
+  mermaidExtension,
+  literalHtmlExtension,
+);
 
 /** mermaid は単一 instance を初期化して使い回す。block 出現時のみ遅延ロードする。 */
 let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
@@ -153,9 +168,9 @@ async function renderMermaidBlocks() {
 }
 
 watch(
-  () => props.content,
-  async (content) => {
-    const rawHtml = await marked.parse(content);
+  () => [props.content, props.literalHtml] as const,
+  async ([content, literalHtml]) => {
+    const rawHtml = await (literalHtml ? markdownWithLiteralHtml : markdown).parse(content);
     renderedHtml.value = DOMPurify.sanitize(rawHtml);
     // DOM 反映後に mermaid を描画し、その後 rendered を通知して高さ確定に依存する consumer のフックにする。
     await nextTick();
@@ -170,6 +185,7 @@ watch(
   <div
     ref="bodyEl"
     class="_markdown-body"
+    :data-lead-mark="leadMark"
     v-html="renderedHtml"
     @click="onLinkActivate"
     @auxclick="onLinkActivate"
@@ -205,6 +221,16 @@ watch(
 /* 先頭要素の上マージンを消す */
 ._markdown-body :deep(> :first-child) {
   margin-top: 0;
+}
+
+/* leadMark: 1 行目の先頭 = 最初のブロックの行頭に出す。`attr()` は擬似要素の起点要素の属性しか
+   読まず、最初のブロックは属性を持たないため、ルートでカスタムプロパティに写して継承で届ける。 */
+._markdown-body[data-lead-mark] {
+  --lead-mark: attr(data-lead-mark);
+}
+
+._markdown-body[data-lead-mark] :deep(> :first-child::before) {
+  content: var(--lead-mark) " ";
 }
 
 ._markdown-body :deep(h1) {
@@ -288,12 +314,13 @@ watch(
  * code / pre / th の背景は地色に依存する。デフォルトは暗地 (zinc-900 系) 前提の zinc-800
  * だが、より明るい地 (チャット吹き出し等) に乗せると地より暗いブロックが浮く明度反転に
  * なる。consumer が `--md-code-bg` を渡せばその地に応じた背景に切り替わる (SSOT)。
+ * code の文字色も同様に `--md-code-color` で地に合わせられる (未指定は本文と同じ色)。
  */
 ._markdown-body :deep(code) {
   padding: 0.15em 0.4em;
   border-radius: 3px;
   background: var(--md-code-bg, var(--color-panel));
-  color: var(--color-foreground);
+  color: var(--md-code-color, var(--color-foreground));
   font-size: 0.9em;
 }
 

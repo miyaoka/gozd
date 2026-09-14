@@ -12,7 +12,7 @@
 //
 // attachment は原則 skipped だが、`queued_command` (エージェント作業中にユーザーが打ち
 // queue に積んだ発話) だけは例外で、本文が `type:"user"` に昇格せず attachment.prompt にしか
-// 残らないことがあるため USER ブロックに載せる。採否は上流が分類済みの attachment.commandMode
+// 残らないことがあるため user イベントにする。採否は上流が分類済みの attachment.commandMode
 // を SSOT にし、生発話 ("prompt") のみ拾う。注入通知 ("task-notification" 等) は除外する。
 //
 // system 注入の可視化 (`kind:"system"`): エージェントのコンテキストに注入されたシステム由来
@@ -25,7 +25,7 @@
 // tool_result の content 内に現れ、tool イベントの result.text に全文が載るため抽出しない
 // (追記と「file 本文がたまたまタグ文字列を含む」偶発一致を区別する構造的マーカーが無い)。
 //
-// 平文の無い thinking (最新モデルの暗号化 signature のみ / フィールド欠落) も載せないが、
+// 平文の無い thinking (暗号化 signature のみ / フィールド欠落) も載せないが、
 // これは非会話レコードではなく会話イベントの一種なので skipped と混ぜず emptyThinking に
 // 別集計する。footer は両者を別ラベルで示し、件数の意味を 1:1 に保つ。
 //
@@ -50,7 +50,7 @@ interface TextBlock {
 }
 interface ThinkingBlock {
   type: "thinking";
-  // 信頼境界外の入力。最新モデルは平文を残さず空文字を書き、フィールド自体が欠落する
+  // 信頼境界外の入力。平文を残さず空文字を書くレコードがあり、フィールド自体が欠落する
   // ケースも型では排除できないため optional 扱いにする。
   thinking?: string;
 }
@@ -185,7 +185,7 @@ interface RawLine {
 
 // harness / CLI が user role で注入するラッパーで始まる string。これらはユーザーの
 // 生発話ではない (ローカルコマンド出力 / バックグラウンドタスク完了通知) ため
-// USER ブロック / 目次に出さない。
+// user イベントにしない。
 //
 // `type:"user"` + content=string + isMeta:null の形で main loop に注入されるため、
 // isMeta フラグでは区別できず、先頭ラッパータグで判定する。実ユーザー発話はこれらの
@@ -203,7 +203,7 @@ function isInjectedUserText(text: string): boolean {
  * `isMeta:true` で記録するが、これは CLI/hook 注入レコードと同じフラグで会話から落ちてしまう。
  * 中継には `origin.kind:"coordinator"` が併記される (2.1.178 で導入。それ以前は isMeta なしの生
  * 発話として記録され区別不要だった) ため、これを判別キーにして isMeta filter から救済する。
- * subagent にとっては応答対象の会話ターンなので、生発話と同じく USER ブロック / branch 候補に載せる。
+ * subagent にとっては応答対象の会話ターンなので、生発話と同じく user イベント / branch 候補に載せる。
  */
 function isCoordinatorMessage(raw: RawLine): boolean {
   return raw.type === "user" && raw.origin?.kind === "coordinator";
@@ -444,7 +444,7 @@ export interface ParsedSessionLog {
   skipped: number;
   /**
    * 平文が無く載せなかった thinking ブロック数。会話イベントだが表示できる中身が無い
-   * (最新モデルは暗号化 signature だけを書き thinking は空 / 欠落)。非会話レコードの
+   * (暗号化 signature だけが書かれ thinking は空 / 欠落)。非会話レコードの
    * skipped とは性質が異なるため別カウンタにし、footer で別ラベル表示する。
    */
   emptyThinking: number;
@@ -811,8 +811,8 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
                 for (const q of ask.questions) {
                   const a = answers[q.question];
                   // 「未充填」の SSOT は `q.answer === undefined` の 1 条件に閉じる。空文字
-                  // answer も「未充填」と同義として undefined に倒し、consumer (dialog の
-                  // 「(no response)」分岐 / expandAskMessages の質問のみ出力) は undefined
+                  // answer も「未充填」と同義として undefined に倒し、consumer (回答の有無で
+                  // 表示を分ける表示側) は undefined
                   // チェック 1 つだけで一貫した分岐ができる。Claude Code 仕様上空文字 answer
                   // は通常発生しないが、信頼境界外データとして来た場合の扱いを parser に
                   // 1 箇所だけ書く (consumer 側の if に `!== ""` を毎度書かない)。
@@ -882,8 +882,8 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
         if (block.type === "text") {
           events.push({ kind: "assistant", text: block.text, ts });
         } else if (block.type === "thinking") {
-          // 最新モデル (opus-4-8 / sonnet-4-6 等) は思考の平文を transcript に残さず
-          // 暗号化 signature だけを書く。この場合 thinking は空文字 / フィールド欠落になる。
+          // 思考の平文が transcript に残らず暗号化 signature だけが書かれることがある。
+          // この場合 thinking は空文字 / フィールド欠落になる。
           // 判定は signature の有無ではなく「表示できる平文があるか」で行う。平文が無ければ
           // 空ブロックとして並べず emptyThinking に計上する (件数は footer で観察可能)。
           if (block.thinking === undefined || block.thinking === "") {
@@ -936,7 +936,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     }
 
     // queued_command (ユーザーが作業中に queue に積んだ発話) は type:"user" に昇格せず
-    // attachment.prompt にしか本文が残らないことがあるため USER ブロックに載せる。採否は
+    // attachment.prompt にしか本文が残らないことがあるため user イベントにする。採否は
     // 上流が分類済みの commandMode を SSOT にし、生発話 ("prompt") のみ拾う。注入通知
     // ("task-notification" 等) は除外する。prompt は生発話なので本文を加工せずそのまま出す
     // (本文が <span> や <command-name> 始まりの正当な発話を切り詰めない)。
@@ -1009,38 +1009,4 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   const rootPromptId = typeof rootFirstPromptId === "string" ? rootFirstPromptId : "";
 
   return { events, models, versions, totalLines, malformed, skipped, emptyThinking, rootPromptId };
-}
-
-/**
- * ask イベントを通常の assistant (質問) / user (回答) メッセージに展開して inline する。
- * ask 以外の全 kind はそのまま透過する。
- *
- * 1 ask = 「assistant の質問群 + user の回答群」という意味を保ったまま、他の会話イベント
- * と同じ並びの TranscriptEvent[] に揃えるための変換。preview / dialog どちらの consumer も
- * 「ask を会話扱いしたい」点は共通しているが、選択肢を出すか・どの kind を見せるかは
- * consumer ごとに違うため、parser 側はここで「ask の inline 展開」だけに責務を絞る
- * (下流の表示制約を上流に持ち込まない)。
- *
- * 空 question (`question === ""`) はメッセージを出さず、回答は `answer === undefined`
- * の 1 条件で「未充填」を判定する (parser 側で空文字 answer を undefined に正規化済み)。
- * 表示できる本文が無いものを bubble に倒さない方針。resume 中断で answer 未充填の
- * question は質問だけが残る。
- *
- * dialog (`SessionLogTranscript`) は ask イベント本体を選択肢込みで描画するためこの helper は
- * 使わない。preview など「会話 (user / assistant) だけ見せたい」consumer は、この展開後に
- * 自前で `kind` filter をかける。
- */
-export function expandAskMessages(events: TranscriptEvent[]): TranscriptEvent[] {
-  const out: TranscriptEvent[] = [];
-  for (const ev of events) {
-    if (ev.kind !== "ask") {
-      out.push(ev);
-      continue;
-    }
-    for (const q of ev.questions) {
-      if (q.question !== "") out.push({ kind: "assistant", text: q.question, ts: ev.ts });
-      if (q.answer !== undefined) out.push({ kind: "user", text: q.answer, ts: ev.ts });
-    }
-  }
-  return out;
 }

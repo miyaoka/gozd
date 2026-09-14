@@ -34,6 +34,8 @@ NS (Nonstarter) で直前での改行が禁止されるため、通常の折り�
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { SPEAKER_SURFACE_CLASS } from "../session-log";
+import TerminalSessionPreviewSpeakerRow from "./TerminalSessionPreviewSpeakerRow.vue";
 
 interface Props {
   count: number;
@@ -46,13 +48,14 @@ const leadingDots = computed(() => "・".repeat(Math.max(props.count - 1, 0)));
 </script>
 
 <template>
-  <div v-if="count > 0" class="flex min-w-0" aria-hidden="true">
-    <!-- 会話バブルの続きに見えるよう assistant 側と同じ吹き出し -->
+  <!-- アクションしているのはこのセッションのエージェントなので、その発言と同じ側・同じ地の吹き出し -->
+  <TerminalSessionPreviewSpeakerRow v-if="count > 0" speaker="assistant" aria-hidden="true">
     <div
-      class="max-w-[85%] rounded-lg bg-chat-incoming px-2 py-1 wrap-anywhere text-chat-incoming-text"
+      class="max-w-[85%] rounded-lg px-2 py-1 wrap-anywhere"
+      :class="SPEAKER_SURFACE_CLASS.assistant"
     >
       <span>{{ leadingDots }}</span
       ><span class="_fx-blink-dot">・</span>
     </div>
-  </div>
+  </TerminalSessionPreviewSpeakerRow>
 </template>

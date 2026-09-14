@@ -8,18 +8,18 @@
 ## レイアウト
 
 上部にヘッダ (どの agent のログかを示す agent 名 + 使用 model バッジ + Claude Code バージョン + dim な id) を置き、トランスクリプト本文
-1 カラム + 下に footer。本文は LINE ダークモードに倣ったチャット表示で、user (貼り付け
-画像含む) を自分として右寄せ、assistant を左寄せの吹き出しにする。配色は chat-\* semantic
-token を介して TerminalSessionPreview と SSOT 共有する (user=`bg-chat-outgoing` + 黒文字 /
-assistant=`bg-chat-incoming` + 白文字 / inline code=`var(--color-chat-code)` の紫)。話者は
-左右寄せ + chat-outgoing/chat-incoming の塗り分けで識別できるため、アバターや話者アイコン
-は置かない。thinking / tool / system (hook 等の注入) は LINE に対応物が無いため、中央寄せの
-控えめなシステム行に畳む。現在地のナビゲーションはペイン内に持たず、親の横断タイムラインに
-集約する (`scrollTo` で時刻位置へジャンプを受ける)。
+1 カラム + 下に footer。本文は LINE ダークモードに倣ったチャット表示で、発言を話者で左右に
+振り分けた吹き出しにする (`SessionLogSpeechBubble`)。どの kind を誰の発言として出すか、貼り付け
+画像と質問ツールの未回答を誰の側に出すかは `sessionLogView` の定義に従い、左右への寄せは
+`SessionLogSpeakerRow` が持つ。話者は左右寄せ + chat-outgoing/chat-incoming の塗り分けで識別
+できるため、アバターや話者アイコンは置かない。
+tool / system (hook 等の注入) は LINE に対応物が無いため、中央寄せの控えめなシステム行に畳む。
+現在地のナビゲーションはペイン内に持たず、親の横断タイムラインに集約する (`scrollTo` で
+時刻位置へジャンプを受ける)。
 
 ## 設計判断
 
-- 吹き出し (user / assistant / image) は常時表示、システム行 (thinking / tool / system) のみ
+- 吹き出し (発言 / image) は常時表示、システム行 (tool / system) のみ
   `<details>` のネイティブ開閉に委ね、Vue 側に per-event の ref を持たない
 - rewind 分岐は `branch` イベントとして中央寄せのセレクタ行で出す。番号は古い順 (最新が最大)、
   選択中の枝をハイライトし、他をクリックで `select-branch` を emit して親に枝の切り替えを委ねる
@@ -28,13 +28,10 @@ assistant=`bg-chat-incoming` + 白文字 / inline code=`var(--color-chat-code)` 
   option のみ success 色でハイライト)、回答を user 吹き出し (右) に出す。複数 question を
   持つケースは Q→options→A のセットを縦に並べる。回答未充填 (resume 中断 / `toolUseResult.answers`
   欠落) は user 吹き出しの代わりに dim な「(no response)」を出す。scroll-spy の観測対象に含める
-  (user / assistant と同じ会話扱い)
-- teammate (`teammate` イベント = 他の Claude セッションからの発話) は user/assistant の左右
-  吹き出しと別レーンで、`teammate · {summary}` の見出し + 本文 markdown を持つ枠で出す。peer
-  からの inbound なので会話扱い (scroll-spy の観測対象に含める)
+  (発言と同じ会話扱い)
 - scroll-spy は `IntersectionObserver`。純 CSS の scroll marker / `:target-current` は
   WebKit (Safari 26 / macOS 26) 未対応のため使えない。チャット行の最外要素に `data-ev`
-  を残し、user / assistant 行を index で観測して topmost の ts を `current-ts` に出す
+  を残し、会話行 (発言 / ask) を index で観測して topmost の ts を `current-ts` に出す
 - `parsed` が差し替わる (別 subagent を選び直す等) たびに observer を貼り直す
 - `sessionKey` は v-for の :key 先頭に混ぜ、別セッションへ切り替わった際に `<details>` を
   確実に作り直す (index 単独だと Vue が要素を再利用し open 状態が別 kind に誤継承される)
@@ -59,20 +56,25 @@ import {
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { MarkdownBody } from "../preview";
+import SessionLogSpeakerRow from "./SessionLogSpeakerRow.vue";
+import SessionLogSpeechBubble from "./SessionLogSpeechBubble.vue";
 import SessionLogSubagentButton from "./SessionLogSubagentButton.vue";
-import SessionLogTimestamp from "./SessionLogTimestamp.vue";
 import SessionLogToolArg from "./SessionLogToolArg.vue";
 import {
+  ASK_SPEAKER,
   type BranchSelectPayload,
   formatModelLabel,
+  askTurns,
+  hasConversationRow,
+  IMAGE_SPEAKER,
+  isSpeech,
   nearestEventIndexByTs,
+  speechesOf,
   type SubagentLinkResult,
 } from "./sessionLogView";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideFileJson from "~icons/lucide/file-json";
 import IconLucideGitBranch from "~icons/lucide/git-branch";
-import IconLucideUsers from "~icons/lucide/users";
 
 const props = defineProps<{
   parsed: ParsedSessionLog;
@@ -100,7 +102,7 @@ const emit = defineEmits<{
   // topmost に見えている会話イベントの ts。親 (SessionLogDialog) が横断タイムラインの
   // playhead 位置に使う。スクロールに追従して発火する。
   (e: "current-ts", ts: string): void;
-  // rewind 分岐セレクタのクリック。親が payload.sessionKey のタブの branch 選択を更新して
+  // rewind 分岐セレクタのクリック。親が payload.sessionKey のセッションの branch 選択を更新して
   // transcript を該当バージョンへ再構築する。ts は選択枝先頭の時刻で、切替後にその分岐点へ寄せるのに使う。
   (e: "select-branch", payload: BranchSelectPayload): void;
   // ヘッダの「生ログを開く」ボタン。親 (dialog) が dialog を閉じて preview に filePath を出す。
@@ -111,15 +113,6 @@ const notify = useNotificationStore();
 
 function subagentLinkFor(toolUseId: string): SubagentLinkResult | undefined {
   return props.subagentLinks?.get(toolUseId);
-}
-
-type EventKind = TranscriptEvent["kind"];
-
-// thinking / tool / system はデフォルト閉じる (思考過程・ツール詳細・system 注入はノイズに
-// なりやすく、user / assistant の会話を読みやすくするため)。中央システム行として畳んだ状態で見せる。
-const DEFAULT_COLLAPSED = new Set<EventKind>(["thinking", "tool", "system"]);
-function defaultOpen(kind: EventKind): boolean {
-  return !DEFAULT_COLLAPSED.has(kind);
 }
 
 // rewind 分岐セレクタの選択肢クリック。vue-tsc 3.3.6 以降、複数行のインラインハンドラは
@@ -163,12 +156,6 @@ function imageDataUrl(source: ImageSource): string {
   return `data:${source.mediaType};base64,${source.base64}`;
 }
 
-// teammate (peer セッション) 発話の見出し。summary 優先、無ければ from。どちらも空なら "teammate"。
-function teammateHeader(ev: Extract<TranscriptEvent, { kind: "teammate" }>): string {
-  const label = ev.summary !== "" ? ev.summary : ev.from;
-  return label !== "" ? `teammate · ${label}` : "teammate";
-}
-
 const footerSummary = computed<string>(() => {
   const log = props.parsed;
   const parts = [`${log.events.length} events`, `${log.totalLines} lines`];
@@ -181,19 +168,12 @@ const footerSummary = computed<string>(() => {
 // 本文のスクロールコンテナ。時刻ジャンプ時に該当イベント要素を引いてスクロールする。
 const contentRef = ref<HTMLElement | undefined>(undefined);
 
-// playhead 用に観測する会話イベント (user / assistant / ask) の index 集合。scroll-spy は
-// この集合の topmost 可視 index を現在地とみなし、その ts を親へ emit する。ask は
-// 「assistant の質問 + user の回答」を 1 ブロックに畳んだ会話イベントなので含める。
+// playhead 用に観測する会話の行の index 集合。scroll-spy はこの集合の topmost 可視 index を
+// 現在地とみなし、その ts を親へ emit する。
 const observableIndices = computed<Set<number>>(() => {
   const set = new Set<number>();
   props.parsed.events.forEach((ev, index) => {
-    if (
-      ev.kind === "user" ||
-      ev.kind === "assistant" ||
-      ev.kind === "ask" ||
-      ev.kind === "teammate"
-    )
-      set.add(index);
+    if (hasConversationRow(ev)) set.add(index);
   });
   return set;
 });
@@ -303,8 +283,7 @@ let pendingScrollTs: string | undefined;
 // (rendered 不発火で残るケース)。抑止は scrollTo watch が立てて parsed watch が 1 回で消す
 // 専用フラグに分離し、pendingScrollTs (補正用) の生存と切り離す。
 let bottomFollowSkipOnce = false;
-const hasMarkdownEvent = (): boolean =>
-  props.parsed.events.some((ev) => ev.kind === "assistant" || ev.kind === "teammate");
+const hasMarkdownEvent = (): boolean => props.parsed.events.some((ev) => speechesOf(ev).length > 0);
 
 function applyScroll(ts: string) {
   const index = nearestEventIndexByTs(props.parsed.events, ts);
@@ -347,7 +326,7 @@ function onAssistantLinkClick(href: string) {
 // --- scroll-spy (現在地 → 横断タイムラインの playhead) ---
 //
 // 純 CSS の scroll marker / :target-current は WebKit 未対応 (2026-05 時点) のため、
-// IntersectionObserver で「本文上部バンドに入っている user/assistant イベント」を検出し、
+// IntersectionObserver で「本文上部バンドに入っている会話イベント」を検出し、
 // その topmost の ts を親へ emit する。親はそれを横断タイムラインの playhead 位置に使う。
 // bottom margin -65% で現在地判定をコンテナ上部 35% に絞る。
 let observer: IntersectionObserver | undefined;
@@ -373,7 +352,6 @@ function setupObserver() {
   const root = contentRef.value;
   if (root === undefined) return;
 
-  // user/assistant イベントだけを監視対象にする。
   const targetIndices = observableIndices.value;
 
   observer = new IntersectionObserver(
@@ -528,8 +506,8 @@ onBeforeUnmount(teardownObserver);
     </p>
 
     <!-- トランスクリプト本文 (LINE 風チャット)。現在地は横断タイムラインの playhead が示す。
-         会話本文はコピー対象コンテンツなので select-text で選択可にする (assistant の markdown は
-         MarkdownBody 側で text、user / ask / tool I/O の plain text はここで担保)。
+         会話本文はコピー対象コンテンツなので select-text で選択可にする (発言の markdown は
+         MarkdownBody 側で text、選択肢 / tool I/O の plain text はここで担保)。
          折りたたみ操作の summary だけは内側で select-none を保ち、操作と選択を分離する。 -->
     <div
       v-else
@@ -564,39 +542,27 @@ onBeforeUnmount(teardownObserver);
           </button>
         </div>
 
-        <!-- ask (AskUserQuestion): assistant の質問 + user の回答を 1 ブロックに畳む。
-               複数 question を取りうるので、それぞれを (質問吹き出し + 選択肢 chip 列 +
-               回答吹き出し) のセットで縦に並べる。回答未充填 (resume 中断) は user 吹き出しの
-               代わりに dim な「(no response)」を出す。選択肢を出すのは dialog だけで、
-               terminal preview 側は flattenAskToMessages で text のみ抽出する。 -->
+        <!-- ask (AskUserQuestion): 1 問ずつ (質問の発言 + 選択肢 chip 列 + 回答の発言) の
+               セットで縦に並べる。質問と回答を発言にする規則は askTurns が持つ。回答未充填
+               (resume 中断) は回答の吹き出しの代わりに dim な「(no response)」を出す。 -->
         <div v-else-if="ev.kind === 'ask'" :data-ev="i" class="scroll-mt-2 space-y-3">
-          <div v-for="(q, qi) in ev.questions" :key="qi" class="space-y-1.5">
-            <!-- 質問本体 (assistant 左寄せ吹き出し) -->
-            <div class="flex items-end gap-1.5">
-              <div
-                class="min-w-0 rounded-2xl bg-chat-incoming px-3 py-1.5 text-sm wrap-break-word whitespace-pre-wrap text-chat-incoming-text"
-              >
-                <!-- header があれば質問の上にバッジで出す (元データの "次のステップ" 等) -->
-                <p
-                  v-if="q.header !== ''"
-                  class="mb-1 text-[10px] font-medium text-chat-incoming-text-low"
-                >
-                  {{ q.header }}
-                </p>
-                {{ q.question }}
-              </div>
-              <SessionLogTimestamp :ts="ev.ts" align="left" />
-            </div>
+          <div v-for="(turn, qi) in askTurns(ev)" :key="qi" class="space-y-1.5">
+            <SessionLogSpeechBubble
+              v-if="turn.question"
+              :speech="turn.question"
+              @link-click="onAssistantLinkClick"
+              @rendered="onMarkdownRendered"
+            />
 
-            <!-- 選択肢 (assistant 側に寄せる)。multiSelect は見出しに小さく明示。
-                   選択された option を success 色でハイライトし、それ以外は dim に倒す。 -->
-            <ul v-if="q.options.length > 0" class="ml-2 space-y-1">
+            <!-- 選択肢 (質問側に寄せる)。選択された option を success 色でハイライトし、
+                   それ以外は dim に倒す。 -->
+            <ul v-if="turn.options.length > 0" class="ml-2 space-y-1">
               <li
-                v-for="(opt, oi) in q.options"
+                v-for="(opt, oi) in turn.options"
                 :key="oi"
                 class="flex max-w-[85%] flex-col gap-0.5 rounded-md border px-2 py-1 text-xs"
                 :class="
-                  q.answer !== undefined && opt.label === q.answer
+                  opt.label === turn.answer?.text
                     ? 'border-success bg-success-subtle text-success-text'
                     : 'border-border-subtle bg-panel text-foreground-low'
                 "
@@ -608,30 +574,24 @@ onBeforeUnmount(teardownObserver);
               </li>
             </ul>
 
-            <!-- 回答 (user 右寄せ吹き出し)。未充填 (resume 中断) は dim placeholder。 -->
-            <div class="flex flex-row-reverse items-end gap-1.5">
-              <div
-                v-if="q.answer !== undefined"
-                class="min-w-0 rounded-2xl bg-chat-outgoing px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-chat-outgoing-text"
-              >
-                {{ q.answer }}
-              </div>
-              <span
-                v-else
-                class="rounded-2xl bg-panel px-3 py-1.5 text-xs text-foreground-low italic"
-              >
+            <SessionLogSpeechBubble
+              v-if="turn.answer"
+              :speech="turn.answer"
+              @link-click="onAssistantLinkClick"
+              @rendered="onMarkdownRendered"
+            />
+            <SessionLogSpeakerRow v-else :speaker="ASK_SPEAKER.answer" :ts="ev.ts">
+              <span class="rounded-2xl bg-panel px-3 py-1.5 text-xs text-foreground-low italic">
                 (no response)
               </span>
-              <SessionLogTimestamp :ts="ev.ts" align="right" />
-            </div>
+            </SessionLogSpeakerRow>
           </div>
         </div>
 
-        <!-- thinking / tool / system: 中央寄せの控えめなシステム行 (デフォルト閉じ) -->
+        <!-- tool / system: 中央寄せの控えめなシステム行 (デフォルト閉じ) -->
         <details
-          v-else-if="ev.kind === 'thinking' || ev.kind === 'tool' || ev.kind === 'system'"
+          v-else-if="ev.kind === 'tool' || ev.kind === 'system'"
           :data-ev="i"
-          :open="defaultOpen(ev.kind)"
           class="scroll-mt-2"
         >
           <!-- 控えめなシステム行。会話 (塗り吹き出し) と「塗り面か否か」で峻別するため、
@@ -642,10 +602,9 @@ onBeforeUnmount(teardownObserver);
           <summary
             class="mx-auto flex w-fit max-w-[70%] cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-foreground-low select-none hover:bg-element-hover [&::-webkit-details-marker]:hidden"
           >
-            <span v-if="ev.kind === 'thinking'">thinking</span>
             <!-- system 注入: 種別を dim で、注入元 (hook 名) を primary で出す
                  (tool 行の「tool 名 = primary」と同じ主従)。 -->
-            <template v-else-if="ev.kind === 'system'">
+            <template v-if="ev.kind === 'system'">
               <span class="shrink-0">system</span>
               <span class="min-w-0 truncate font-mono font-medium text-foreground">{{
                 ev.label
@@ -671,9 +630,9 @@ onBeforeUnmount(teardownObserver);
             </template>
           </summary>
 
-          <!-- thinking / system 平文 -->
+          <!-- system 平文 -->
           <div
-            v-if="ev.kind === 'thinking' || ev.kind === 'system'"
+            v-if="ev.kind === 'system'"
             class="mx-auto mt-1 max-w-[85%] rounded-md bg-element px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-foreground-low"
           >
             {{ ev.text }}
@@ -696,77 +655,40 @@ onBeforeUnmount(teardownObserver);
           </div>
         </details>
 
-        <!-- teammate: 他の Claude セッション (peer) からの発話。user/assistant の吹き出しとは
-               別レーンで、summary を見出しにし本文を markdown 描画する。 -->
-        <div
-          v-else-if="ev.kind === 'teammate'"
-          :data-ev="i"
-          class="flex scroll-mt-2 flex-col gap-1 rounded-2xl border border-border-subtle bg-panel px-3 py-2"
-        >
-          <div class="flex items-center gap-1.5 text-xs font-medium text-foreground-low">
-            <IconLucideUsers class="size-3.5 shrink-0" />
-            <span class="min-w-0 truncate" :title="teammateHeader(ev)">{{
-              teammateHeader(ev)
-            }}</span>
-          </div>
-          <MarkdownBody
-            :content="ev.text"
+        <!-- 発言: 話者で左右に振り分けた吹き出し (本文が空の発言は speechesOf が除く) -->
+        <template v-else-if="isSpeech(ev)">
+          <SessionLogSpeechBubble
+            v-for="(speech, si) in speechesOf(ev)"
+            :key="si"
+            :speech="speech"
+            :data-ev="i"
+            class="scroll-mt-2"
             @link-click="onAssistantLinkClick"
             @rendered="onMarkdownRendered"
           />
-          <SessionLogTimestamp :ts="ev.ts" align="left" />
-        </div>
+        </template>
 
-        <!-- user / image (自分, 右寄せ) と assistant (相手, 左寄せ) の吹き出し。
-               話者は左右寄せ + 緑/zinc の塗り分けで識別でき、アバターは置かない。 -->
-        <div
+        <!-- image: 吹き出し背景なしで素の角丸画像。source 不明なら placeholder。
+               parse は検証済み {mediaType,base64} までを載せ、HTML 固有の data: URL 化は view で行う。 -->
+        <SessionLogSpeakerRow
           v-else
+          :speaker="IMAGE_SPEAKER"
+          :ts="ev.ts"
           :data-ev="i"
-          class="flex scroll-mt-2 items-end gap-1.5"
-          :class="ev.kind === 'assistant' ? 'flex-row' : 'flex-row-reverse'"
+          class="scroll-mt-2"
         >
-          <!-- assistant: markdown 吹き出し (相手色 = chat-incoming = 暗グレー)。
-                 LINE ダーク風の暗背景に明文字で、`--color-foreground` / `--color-foreground-low`
-                 を chat-incoming-text 系で local override し、MarkdownBody 内の :deep セレクタ
-                 が当てる文字色を明側へ寄せる。inline code は背景なし + 明 violet (scoped
-                 :deep(code) で chat-code を当てる)。 -->
-          <div
-            v-if="ev.kind === 'assistant'"
-            class="_transcript-assistant min-w-0 rounded-2xl bg-chat-incoming px-3 py-1.5 text-sm text-chat-incoming-text [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
-          >
-            <MarkdownBody
-              :content="ev.text"
-              @link-click="onAssistantLinkClick"
-              @rendered="onMarkdownRendered"
-            />
-          </div>
-
-          <!-- user: 素テキスト吹き出し (自分色 = chat-outgoing = LINE 緑、文字は chat-outgoing-text = 黒)。 -->
-          <div
-            v-else-if="ev.kind === 'user'"
-            class="min-w-0 rounded-2xl bg-chat-outgoing px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-chat-outgoing-text"
-          >
-            {{ ev.text }}
-          </div>
-
-          <!-- image: 吹き出し背景なしで素の角丸画像。source 不明なら placeholder。
-                 parse は検証済み {mediaType,base64} までを載せ、HTML 固有の data: URL 化は view で行う。 -->
           <img
-            v-else-if="ev.kind === 'image' && ev.source"
+            v-if="ev.kind === 'image' && ev.source"
             :src="imageDataUrl(ev.source)"
             alt="session log image"
             class="max-h-96 max-w-[75%] rounded-2xl border border-border"
           />
           <span
-            v-else-if="ev.kind === 'image'"
+            v-else
             class="max-w-[75%] rounded-2xl bg-panel px-3 py-2 text-sm text-foreground-low italic"
             >(image content unavailable)</span
           >
-
-          <!-- 時刻は吹き出しの下端脇に小さく。別日は日付 / 時刻を 2 行に分け、
-                 隣接する吹き出し側 (assistant=左 / user=右) に寄せる。 -->
-          <SessionLogTimestamp :ts="ev.ts" :align="ev.kind === 'assistant' ? 'left' : 'right'" />
-        </div>
+        </SessionLogSpeakerRow>
       </template>
 
       <!-- 追従が外れている間に更新が来たら下部に通知ボタン。クリックで最新へ飛ぶ。
@@ -795,12 +717,3 @@ onBeforeUnmount(teardownObserver);
     </div>
   </div>
 </template>
-
-<style scoped>
-/* MarkdownBody は :deep(code) で固定色 (var(--color-foreground)) を当てるため、
-   wrapper 側の text-* utility では inline code 色を上書きできない。assistant 吹き出し
-   scope に :deep(code) を足して specificity を持ち上げ、chat-code (紫) で塗る。 */
-._transcript-assistant :deep(code) {
-  color: var(--color-chat-code);
-}
-</style>

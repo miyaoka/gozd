@@ -1,15 +1,19 @@
 import type { TranscriptEvent } from "@gozd/claude-session-log";
 import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import {
+  askTurns,
   buildSubagentLinks,
   buildTimelineTracks,
   formatModelLabel,
   formatSessionTime,
   groupByWorkflow,
+  hasConversationRow,
+  isSameSpeech,
   nearestEventIndexByTs,
   newestSubagentTrackId,
   sessionTimeRange,
-  subagentTabLabel,
+  speechesOf,
+  subagentLabel,
   timelineAxisRange,
   type SubagentDescriptor,
   type SubagentLinkResult,
@@ -404,31 +408,31 @@ describe("buildSubagentLinks", () => {
   });
 });
 
-describe("subagentTabLabel", () => {
-  function entry(over: Partial<Parameters<typeof subagentTabLabel>[0]>) {
+describe("subagentLabel", () => {
+  function entry(over: Partial<Parameters<typeof subagentLabel>[0]>) {
     return { id: "", label: "", agentType: "", phaseTitle: "", ...over };
   }
 
   test("phaseTitle と label が両方あれば `phaseTitle · label`", () => {
-    expect(subagentTabLabel(entry({ phaseTitle: "Verify", label: "reactivity" }))).toBe(
+    expect(subagentLabel(entry({ phaseTitle: "Verify", label: "reactivity" }))).toBe(
       "Verify · reactivity",
     );
   });
 
   test("phaseTitle 単独でも phaseTitle を出す (label 空で取りこぼさない)", () => {
-    expect(subagentTabLabel(entry({ phaseTitle: "Verify", agentType: "Explore" }))).toBe("Verify");
+    expect(subagentLabel(entry({ phaseTitle: "Verify", agentType: "Explore" }))).toBe("Verify");
   });
 
   test("label 単独なら label", () => {
-    expect(subagentTabLabel(entry({ label: "reviewer", agentType: "Explore" }))).toBe("reviewer");
+    expect(subagentLabel(entry({ label: "reviewer", agentType: "Explore" }))).toBe("reviewer");
   });
 
   test("phaseTitle / label 空なら agentType", () => {
-    expect(subagentTabLabel(entry({ agentType: "Explore" }))).toBe("Explore");
+    expect(subagentLabel(entry({ agentType: "Explore" }))).toBe("Explore");
   });
 
   test("すべて空なら agentId 先頭 8 文字", () => {
-    expect(subagentTabLabel(entry({ id: "abcdef0123456789" }))).toBe("abcdef01");
+    expect(subagentLabel(entry({ id: "abcdef0123456789" }))).toBe("abcdef01");
   });
 });
 
@@ -671,15 +675,179 @@ describe("newestSubagentTrackId", () => {
     expect(newestSubagentTrackId([])).toBeUndefined();
   });
 });
+
+describe("speechesOf", () => {
+  test("user / assistant はそれぞれの話者の発言で、印を持たない", () => {
+    expect(speechesOf({ kind: "user", text: "hi", ts: TS })).toEqual([
+      { speaker: "user", text: "hi", mark: undefined, ts: TS },
+    ]);
+    expect(speechesOf({ kind: "assistant", text: "ok", ts: TS })).toEqual([
+      { speaker: "assistant", text: "ok", mark: undefined, ts: TS },
+    ]);
+  });
+
+  test("thinking は 💭 の印を持つエージェント (assistant) の発言", () => {
+    expect(speechesOf({ kind: "thinking", text: "hmm", ts: TS })).toEqual([
+      { speaker: "assistant", text: "hmm", mark: "💭", ts: TS },
+    ]);
+  });
+
+  test("teammate は送り手を添えた 👥 の印を持つ指示する側 (user) の発言。送り手が空なら 👥 だけ", () => {
+    expect(
+      speechesOf({ kind: "teammate", from: "peer", summary: "", text: "msg", ts: TS }),
+    ).toEqual([{ speaker: "user", text: "msg", mark: "👥 peer", ts: TS }]);
+    expect(speechesOf({ kind: "teammate", from: "", summary: "", text: "msg", ts: TS })).toEqual([
+      { speaker: "user", text: "msg", mark: "👥", ts: TS },
+    ]);
+  });
+
+  test("text が空文字の発言は発言にしない", () => {
+    expect(speechesOf({ kind: "assistant", text: "", ts: TS })).toEqual([]);
+  });
+
+  test("tool / system / image は発言ではない", () => {
+    const events: TranscriptEvent[] = [
+      { kind: "tool", name: "Bash", input: {}, toolUseId: "t1", ts: TS, result: undefined },
+      { kind: "system", label: "hook", text: "x", ts: TS },
+      { kind: "image", ts: TS, source: undefined },
+    ];
+    expect(events.flatMap(speechesOf)).toEqual([]);
+  });
+
+  test("質問ツールは質問 (エージェント) と回答 (指示する側) の発言に分ける。未回答は質問だけ", () => {
+    expect(
+      speechesOf({
+        kind: "ask",
+        ts: TS,
+        toolUseId: "tu1",
+        questions: [
+          { question: "Q1", header: "H1", multiSelect: false, options: [], answer: "A1" },
+          { question: "Q2", header: "", multiSelect: false, options: [], answer: undefined },
+        ],
+      }),
+    ).toEqual([
+      { speaker: "assistant", text: "Q1", mark: "H1", ts: TS },
+      { speaker: "user", text: "A1", mark: undefined, ts: TS },
+      { speaker: "assistant", text: "Q2", mark: undefined, ts: TS },
+    ]);
+  });
+
+  test("質問ツールの空の質問は発言にしない", () => {
+    expect(
+      speechesOf({
+        kind: "ask",
+        ts: TS,
+        toolUseId: "tu1",
+        questions: [{ question: "", header: "", multiSelect: false, options: [], answer: "A" }],
+      }),
+    ).toEqual([{ speaker: "user", text: "A", mark: undefined, ts: TS }]);
+  });
+});
+
+describe("askTurns", () => {
+  test("1 問ずつ質問・回答・選択肢に分ける。未回答の回答は undefined", () => {
+    const options = [{ label: "A1", description: "" }];
+    expect(
+      askTurns({
+        kind: "ask",
+        ts: TS,
+        toolUseId: "tu1",
+        questions: [
+          { question: "Q1", header: "H1", multiSelect: false, options, answer: "A1" },
+          { question: "Q2", header: "", multiSelect: false, options: [], answer: undefined },
+        ],
+      }),
+    ).toEqual([
+      {
+        question: { speaker: "assistant", text: "Q1", mark: "H1", ts: TS },
+        answer: { speaker: "user", text: "A1", mark: undefined, ts: TS },
+        options,
+      },
+      {
+        question: { speaker: "assistant", text: "Q2", mark: undefined, ts: TS },
+        answer: undefined,
+        options: [],
+      },
+    ]);
+  });
+});
+
+describe("hasConversationRow", () => {
+  // 質問の本文が空でも、選択肢と未回答の表示を描く
+  test("質問ツールは発言が無くても問いがあれば行を描く", () => {
+    expect(
+      hasConversationRow({
+        kind: "ask",
+        ts: TS,
+        toolUseId: "tu1",
+        questions: [
+          {
+            question: "",
+            header: "",
+            multiSelect: false,
+            options: [{ label: "A", description: "" }],
+            answer: undefined,
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  test("問いの無い質問ツールは行を描かない", () => {
+    expect(hasConversationRow({ kind: "ask", ts: TS, toolUseId: "tu1", questions: [] })).toBe(
+      false,
+    );
+  });
+
+  test("発言は本文があれば行を描き、発言でない event は描かない", () => {
+    expect(hasConversationRow({ kind: "assistant", text: "a", ts: TS })).toBe(true);
+    expect(hasConversationRow({ kind: "assistant", text: "", ts: TS })).toBe(false);
+    expect(
+      hasConversationRow({
+        kind: "tool",
+        name: "Bash",
+        input: {},
+        toolUseId: "t1",
+        ts: TS,
+        result: undefined,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isSameSpeech", () => {
+  const speech = { speaker: "assistant", text: "Q", mark: "H1", ts: TS } as const;
+
+  test("全フィールドが等しければ同じ", () => {
+    expect(isSameSpeech(speech, { ...speech })).toBe(true);
+  });
+
+  // 同じ質問本文で見出しだけ違う問いは、同じ質問ツールの中で時刻も同じになる
+  test("印だけが違えば別の発言", () => {
+    expect(isSameSpeech(speech, { ...speech, mark: "H2" })).toBe(false);
+  });
+});
+
 describe("formatModelLabel", () => {
-  test("既知 model を family + version に整形 (日付サフィックスは捨てる)", () => {
+  test("family + major.minor に整形 (日付サフィックスは捨てる)", () => {
     expect(formatModelLabel("claude-opus-4-8")).toBe("Opus 4.8");
     expect(formatModelLabel("claude-sonnet-4-6")).toBe("Sonnet 4.6");
     expect(formatModelLabel("claude-haiku-4-5-20251001")).toBe("Haiku 4.5");
+    expect(formatModelLabel("claude-fable-5-1")).toBe("Fable 5.1");
   });
 
-  test("既知パターンに合わない値は生のまま返す", () => {
+  test("minor の無い ID は major だけを出す", () => {
+    expect(formatModelLabel("claude-opus-5")).toBe("Opus 5");
+    expect(formatModelLabel("claude-sonnet-5")).toBe("Sonnet 5");
+  });
+
+  test("major 直後の日付サフィックスを minor とみなさない", () => {
+    expect(formatModelLabel("claude-opus-4-20250514")).toBe("Opus 4");
+  });
+
+  test("パターンに合わない値は生のまま返す", () => {
     expect(formatModelLabel("gpt-4o")).toBe("gpt-4o");
     expect(formatModelLabel("claude-unknown")).toBe("claude-unknown");
+    expect(formatModelLabel("claude-3-5-sonnet-20241022")).toBe("claude-3-5-sonnet-20241022");
   });
 });

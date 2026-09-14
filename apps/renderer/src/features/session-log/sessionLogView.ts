@@ -1,33 +1,167 @@
 // session log ダイアログ / プレビューの view 層が使う gozd 固有の純関数群。
 //
 // parse モデル (TranscriptEvent / ParsedSessionLog) は @gozd/claude-session-log が SSOT。
-// ここは gozd の UI 都合 (subagent タブの紐付け / 横断タイムラインの組み立て / model・時刻の
+// ここは gozd の UI 都合 (発言の定義 / subagent の紐付け / 横断タイムラインの組み立て / model・時刻の
 // 表示整形) に閉じた変換で、他プロジェクトに持ち出す対象ではないため package には入れない。
 
 import type { TranscriptEvent } from "@gozd/claude-session-log";
 
-// model ID の family 部分 → 表示名。バージョンは正規表現で抽出するため family のみ table 化する。
-const MODEL_FAMILY_LABELS: Record<string, string> = {
-  opus: "Opus",
-  sonnet: "Sonnet",
-  haiku: "Haiku",
-};
+// `claude-<family>-<major>[-<minor>]` の先頭部分。version 番号は 1-2 桁で、直後に数字が続く
+// 並び (日付サフィックス) は version とみなさない。family は列挙しない: 表示名は family の
+// 先頭大文字化で決まり、列挙すると列挙外の family が出た時点で表示が生 ID に落ちる。
+const MODEL_ID_RE = /^claude-([a-z]+)-(\d{1,2})(?!\d)(?:-(\d{1,2})(?!\d))?/;
 
 /**
- * model ID を短い表示名にする。`claude-opus-4-8` → `Opus 4.8`、
+ * model ID を短い表示名にする。`claude-opus-4-8` → `Opus 4.8`、`claude-opus-5` → `Opus 5`、
  * `claude-haiku-4-5-20251001` → `Haiku 4.5` (日付サフィックスは捨てる)。
- * 既知パターンに合わない値は生のまま返し、未知 model を握り潰さず可視化する。
+ * パターンに合わない値は生のまま返し、未知の形式を握り潰さず可視化する。
  */
 export function formatModelLabel(model: string): string {
-  const match = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/.exec(model);
+  const match = MODEL_ID_RE.exec(model);
   if (match === null) return model;
-  const [, family = "", major = "", minor = ""] = match;
-  return `${MODEL_FAMILY_LABELS[family]} ${major}.${minor}`;
+  const [, family = "", major = "", minor] = match;
+  const name = `${family.charAt(0).toUpperCase()}${family.slice(1)}`;
+  return minor === undefined ? `${name} ${major}` : `${name} ${major}.${minor}`;
+}
+
+// --- 発言 (吹き出し) の定義 (session log を表示する全ての面が共有する) ---
+
+/**
+ * 吹き出しの話者。user = このセッションのエージェントに指示する側 (main は人間、サブエージェント
+ * は親エージェント。右側)、assistant = 指示を受けて動くこのセッションのエージェント (左側)。
+ */
+export type SpeechSpeaker = "user" | "assistant";
+
+/** 吹き出しにする発言 1 件。本文は話者によらず markdown として描画する。 */
+export interface Speech {
+  speaker: SpeechSpeaker;
+  text: string;
+  /** 本文の先頭に出す印 */
+  mark: string | undefined;
+  ts: string;
+}
+
+/**
+ * 話者ごとの吹き出しの地と文字色 (class 名)。吹き出しを塗る要素は各表示面が持ち、話者から色への
+ * 対応はここだけが持つ。MarkdownBody が参照する色の CSS 変数も地に合わせて上書きする (緑の地では
+ * リンク色も文字色に寄せ、コードの地は吹き出しの地を透かす)。
+ */
+export const SPEAKER_SURFACE_CLASS: Record<SpeechSpeaker, string> = {
+  assistant:
+    "bg-chat-incoming text-chat-incoming-text [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent] [--md-code-color:var(--color-chat-code)]",
+  user: "bg-chat-outgoing text-chat-outgoing-text [--color-foreground-low:var(--color-chat-outgoing-text)] [--color-foreground:var(--color-chat-outgoing-text)] [--color-primary:var(--color-chat-outgoing-text)] [--md-code-bg:transparent]",
+};
+
+/** 話者ごとの吹き出しの寄せ方向。指示する側は右、指示を受けて動くエージェントは左。 */
+export const SPEAKER_SIDE: Record<SpeechSpeaker, "left" | "right"> = {
+  user: "right",
+  assistant: "left",
+};
+
+// kind → その kind の event。表を kind で引いたとき event の型も同じ kind に絞るために使う。
+type EventOf = { [E in TranscriptEvent as E["kind"]]: E };
+type SpeechKind = "user" | "assistant" | "thinking" | "teammate";
+
+// 発言として吹き出しに出す kind → 話者と本文冒頭の印。発言はどれも同じ形式で、違いは印でだけ示す。
+// thinking はこのセッションのエージェントの思考でエージェント側、teammate は他セッションの
+// エージェントからこのエージェントに届いた指示で指示する側に出し、誰から届いたかを印に添える。
+// ask は発言そのものではなく、質問 (エージェントの発言) と回答 (指示する側の発言) を束ねたもの
+// (askTurns)。表に無い kind (tool / system / image / branch) は発言ではない。
+const SPEECH: {
+  [K in SpeechKind]: { speaker: SpeechSpeaker; mark: (ev: EventOf[K]) => string | undefined };
+} = {
+  user: { speaker: "user", mark: () => undefined },
+  assistant: { speaker: "assistant", mark: () => undefined },
+  thinking: { speaker: "assistant", mark: () => "💭" },
+  teammate: { speaker: "user", mark: (ev) => (ev.from === "" ? "👥" : `👥 ${ev.from}`) },
+};
+
+/** 質問ツールの質問はエージェントの発言、回答は指示する側の発言。未回答の表示も回答の側に出す。 */
+export const ASK_SPEAKER = {
+  question: "assistant",
+  answer: "user",
+} as const satisfies Record<"question" | "answer", SpeechSpeaker>;
+
+/** image event は話者を持たない。ユーザーが貼り付けた画像として指示する側に出す。 */
+export const IMAGE_SPEAKER: SpeechSpeaker = "user";
+
+/** 発言として吹き出しに出す event。 */
+export type SpeechEvent = EventOf[SpeechKind];
+
+export function isSpeech(ev: TranscriptEvent): ev is SpeechEvent {
+  return ev.kind in SPEECH;
+}
+
+// 発言を組み立てる唯一の口。text が空文字の発言は表示する中身が無いため発言にしない。
+function speechOf(
+  speaker: SpeechSpeaker,
+  text: string,
+  mark: string | undefined,
+  ts: string,
+): Speech | undefined {
+  if (text === "") return undefined;
+  return { speaker, text, mark, ts };
+}
+
+// kind と event の型の対応を保ったまま表を引く。K を介さず union のまま引くと、mark の引数が
+// 全 kind の event の交差型になり呼べない。
+function speechOfEvent<K extends SpeechKind>(kind: K, ev: EventOf[K]): Speech | undefined {
+  const rule = SPEECH[kind];
+  return speechOf(rule.speaker, ev.text, rule.mark(ev), ev.ts);
+}
+
+/** 質問ツールの 1 問。質問 (エージェントの発言) と回答 (指示する側の発言) の間に選択肢を置く。 */
+export interface AskTurn {
+  question: Speech | undefined;
+  /** 未回答 (resume 中断等) は undefined */
+  answer: Speech | undefined;
+  options: EventOf["ask"]["questions"][number]["options"];
+}
+
+/** 質問ツールの event を 1 問ずつ発言に分ける。質問の見出し (header) は質問の本文冒頭の印にする。 */
+export function askTurns(ev: EventOf["ask"]): AskTurn[] {
+  return ev.questions.map((q) => ({
+    question: speechOf(
+      ASK_SPEAKER.question,
+      q.question,
+      q.header === "" ? undefined : q.header,
+      ev.ts,
+    ),
+    answer:
+      q.answer === undefined ? undefined : speechOf(ASK_SPEAKER.answer, q.answer, undefined, ev.ts),
+    options: q.options,
+  }));
+}
+
+/** event を吹き出しにする発言の列にする。発言でない event は空。質問ツールは質問と回答に分ける。 */
+export function speechesOf(ev: TranscriptEvent): Speech[] {
+  if (ev.kind === "ask") {
+    return askTurns(ev)
+      .flatMap((t) => [t.question, t.answer])
+      .filter((s): s is Speech => s !== undefined);
+  }
+  if (!isSpeech(ev)) return [];
+  const speech = speechOfEvent(ev.kind, ev);
+  return speech === undefined ? [] : [speech];
+}
+
+/**
+ * 会話の行を描く event か。質問ツールは問いごとに選択肢と回答 (未回答の表示を含む) を描くため、
+ * 発言が無くても問いが 1 つあれば行を描く。
+ */
+export function hasConversationRow(ev: TranscriptEvent): boolean {
+  if (ev.kind === "ask") return askTurns(ev).length > 0;
+  return speechesOf(ev).length > 0;
+}
+
+/** 2 つの発言が同じか。`Speech` の全フィールドが等しいとき同じ。 */
+export function isSameSpeech(a: Speech, b: Speech): boolean {
+  return (Object.keys(a) as (keyof Speech)[]).every((key) => a[key] === b[key]);
 }
 
 /**
  * SessionLogTranscript の `select-branch` emit payload (SessionLogDialog との契約)。
- * sessionKey で発火元タブを自己記述する。親側ハンドラでタブを特定し直す形にすると
+ * sessionKey で発火元のセッションを自己記述する。親側ハンドラでセッションを特定し直す形にすると
  * v-if で narrowing した値の参照が必要になり、vue-tsc 3.3.6 以降インラインハンドラは
  * 関数スコープに包まれて narrowing が届かないため、payload 側で完結させる。
  */
@@ -58,7 +192,7 @@ interface SubagentLink {
  */
 export type SubagentLinkResult = ({ status: "resolved" } & SubagentLink) | { status: "unresolved" };
 
-/** buildSubagentLinks が参照する subagent の最小情報 (SessionTab の射影)。 */
+/** buildSubagentLinks が参照する subagent の最小情報 (SessionLogEntry の射影)。 */
 export interface SubagentDescriptor {
   id: string; // agent_id
   label: string; // 表示ラベル
@@ -84,7 +218,7 @@ export interface SubagentDescriptor {
 // (許容文字クラスは正規表現本体の `[A-Za-z0-9-]` が SSOT。特定の桁数 / 基数は仮定しない)。
 const WORKFLOW_RUN_ID_RE = /Run ID:\s*(wf_[A-Za-z0-9-]+)/;
 
-/** groupByWorkflow が要求する最小情報。SessionTab / SubagentDescriptor 双方の射影。 */
+/** groupByWorkflow が要求する最小情報。SessionLogEntry / SubagentDescriptor 双方の射影。 */
 export interface WorkflowGroupItem {
   id: string;
   workflowRunId: string;
@@ -102,9 +236,8 @@ export interface WorkflowGroup<T extends WorkflowGroupItem> {
  * workflow agent (`workflowRunId !== ""`) を workflowRunId ごとにグループ化する (出現順保持)。
  * 非 workflow subagent (`workflowRunId === ""`) は除外する。
  *
- * タブバーのグループ表示と Workflow 行リンクの両方がこの 1 関数を SSOT に使い、
- * 「グループ先頭 agent = リンク先 agent」の一貫性を構造的に保証する (グループ化条件を
- * 2 箇所に複製すると先頭の取り方が無言で乖離するため)。
+ * 横断タイムラインのグループと Workflow 行リンクの両方がこの 1 関数を SSOT に使い、グループの
+ * 構成と見出し名を一致させる (グループ化条件を 2 箇所に複製すると無言で乖離するため)。
  */
 export function groupByWorkflow<T extends WorkflowGroupItem>(items: T[]): WorkflowGroup<T>[] {
   const groups = new Map<string, WorkflowGroup<T>>();
@@ -126,14 +259,14 @@ export function groupByWorkflow<T extends WorkflowGroupItem>(items: T[]): Workfl
 }
 
 /**
- * subagent タブのラベル。phaseTitle / label を独立に評価し、両方あれば `phaseTitle · label`、
+ * subagent の表示ラベル。phaseTitle / label を独立に評価し、両方あれば `phaseTitle · label`、
  * 片方だけならそれ単独で出す (workflow agent は phaseTitle、Task subagent は label が埋まる)。
  * どちらも空なら agentType、それも空なら agentId 先頭に倒す。
  *
  * phaseTitle と label は別ソース (workflowProgress の異なるフィールド) 由来で片方だけ埋まる
  * 状態を信頼境界外データとして排除できないため、AND 連結ではなく段階的に拾って情報落ちを防ぐ。
  */
-export function subagentTabLabel(entry: {
+export function subagentLabel(entry: {
   id: string;
   label: string;
   agentType: string;
@@ -176,7 +309,7 @@ export function subagentTabLabel(entry: {
  *   ないため promptId 照合は使えない (再開先の subagent ファイルに新規ルートレコードは増えない)
  * - Workflow (workflow 起動): main の Workflow tool_result テキストの `Run ID: wf_xxx` ===
  *   workflow agent 群の `workflowRunId`。1 Workflow = N agent なので先頭 agent に結ぶ
- *   (右ペインで開いた後はタブバーのグループから他 agent へ辿れる)。ラベルは `<名> (件数)`。
+ *   (右ペインで開いた後は横断タイムラインのグループから他 agent へ辿れる)。ラベルは `<名> (件数)`。
  *
  * toolUseId が空 (id 欠落 tool_use) の event は対象外 (entry を作らない)。
  */
@@ -213,8 +346,8 @@ export function buildSubagentLinks(
       else byAgentType.set(sub.agentType, sub);
     }
   }
-  // workflowRunId → グループ。タブバー表示と同じ groupByWorkflow を SSOT に使い、
-  // 「グループ先頭 agent = Workflow 行リンク先」の一貫性を保つ。
+  // workflowRunId → グループ。横断タイムラインと同じ groupByWorkflow を SSOT に使い、
+  // グループの構成と見出し名を一致させる。
   const byWorkflowRunId = new Map(groupByWorkflow(subagents).map((g) => [g.runId, g]));
 
   // id → name → agentType の順にフォールバック。曖昧な name / agentType は引かない。
@@ -480,7 +613,7 @@ export interface FormattedSessionTime {
 // 時刻 / 日付の Intl formatter (SSOT)。生成コストの高い formatter をモジュールレベルで
 // 一度だけ作り、イベントごとの整形で使い回す。いずれも 24h 固定 (引数なしの toLocale* は
 // 環境次第で AM/PM になり tabular-nums 整列が崩れる)。
-// - 時刻: 秒ありは目次 (時刻の一意性に依存)、秒なしは吹き出し脇 (会話の時刻は分まで)
+// - 時刻: 秒ありは横断タイムラインの軸ラベル、秒なしは吹き出し脇 (会話の時刻は分まで)
 // - 日付: 同年は M/D、別年は YYYY/M/D
 const TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
   hour: "2-digit",
@@ -506,10 +639,10 @@ const DATE_FORMATTER_OTHER_YEAR = new Intl.DateTimeFormat(undefined, {
 /**
  * ISO timestamp を表示用に日付 / 時刻へ分解する (SSOT)。空 / 不正なら両方空文字。
  *
- * 秒は `seconds` で出し分ける: 目次は時刻の一意性に依存するため秒まで出すが、吹き出し脇は
+ * 秒は `seconds` で出し分ける: 横断タイムラインの軸ラベルは秒まで出すが、吹き出し脇は
  * 会話の時刻表示なので分までで足りる。日付は今日なら空文字、今年は M/D、別年は YYYY/M/D を
  * 返し、resume で日 / 年をまたいだセッションのエントリを一意に区別できるようにする。
- * 目次は日付 + 時刻を 1 行に連結し、吹き出し脇は 2 行に分けて使う。
+ * 軸ラベルは日付 + 時刻を 1 行に連結し、吹き出し脇は 2 行に分けて使う。
  */
 export function formatSessionTime(
   ts: string,

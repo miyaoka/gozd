@@ -27,12 +27,12 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
   委譲する。dialog は `context.sessionId` を入力に composable から `sessions` / `loading` /
   `errorMessage` / `notFound` を受け、表示・分岐選択・スクロール同期に専念する
 - 各 entry を `parseSessionLog` で transcript 化する (`entries[0]` が main、残りが subagents)。
-  subagent タブを選ぶと右ペインの transcript が切り替わる
+  subagent を選ぶ (横断タイムライン / main の起動元のツール行) と右ペインの transcript が切り替わる
 - 取得失敗 / 未発見 / 空ログはそれぞれ明示メッセージを出す (fallback で握り潰さない)
 - 各ペインヘッダの「生ログを開く」ボタンは dialog を閉じてから preview に `forceSelect` する。
   modal dialog と preview popover はどちらも top layer に載り同時に見せられないため
 - rewind があるセッションはデフォルトで最新枝だけを表示する。分岐点に出る branch セレクタを
-  クリックすると `branchSelections` (tabId → branchKey → childUuid) を更新し、`parsedSessions`
+  クリックすると `branchSelections` (session id → branchKey → childUuid) を更新し、`parsedSessions`
   computed がそのバージョンへ再 parse する。選択はライブ refresh を跨いで保持し、別セッション
   load でクリアする
 
@@ -68,7 +68,7 @@ import {
   type TimelineSession,
   type TimelineTrack,
 } from "./sessionLogView";
-import { useSessionLogLive, type SessionTab } from "./useSessionLogLive";
+import { useSessionLogLive, type SessionLogEntry } from "./useSessionLogLive";
 import { useSessionLogViewer } from "./useSessionLogViewer";
 import IconLucideX from "~icons/lucide/x";
 
@@ -76,32 +76,32 @@ const { context, close } = useSessionLogViewer();
 
 const dialogRef = ref<HTMLDialogElement | undefined>(undefined);
 
-// dialog の `context.sessionId` を入力とし、生 SessionTab[] とロード状態を
+// dialog の `context.sessionId` を入力とし、生 SessionLogEntry[] とロード状態を
 // `useSessionLogLive` に出させる。load / debounce refresh / rpcFsWatch / rpcFsUnwatch
 // のライフサイクル全部は composable 側に閉じ、dialog は表示・分岐選択・スクロール同期に
 // 専念する。dialog 自身は rpcClaudeSessionLog / rpcFsWatch / rpcFsUnwatch を直接触らない。
 const sessionId = computed(() => context.value?.sessionId);
 const { sessions, loading, errorMessage, notFound } = useSessionLogLive(sessionId);
 
-// parse 済みタブ。content + そのタブの branch 選択から parsed を導出した派生型。
-interface ParsedSessionTab extends SessionTab {
+// parse 済みセッション。content + そのセッションの branch 選択から parsed を導出した派生型。
+interface ParsedSessionLogEntry extends SessionLogEntry {
   parsed: ParsedSessionLog;
 }
 
-// rewind 分岐の選択状態。tabId (session_id / agent_id) → そのタブの BranchSelection
+// rewind 分岐の選択状態。session id (session_id / agent_id) → そのセッションの BranchSelection
 // (branchKey → 選択 childUuid)。未選択の分岐点は parseSessionLog 側が最新枝にフォールバックする。
 // ライブ refresh を跨いで保持し (キーが安定なら選択が残る)、別セッション load でクリアする。
 const branchSelections = ref<Map<string, BranchSelection>>(new Map());
 
-// content + branch 選択から各タブを parse する。selection 変更で該当バージョンへ再構築される。
-const parsedSessions = computed<ParsedSessionTab[]>(() =>
+// content + branch 選択から各セッションを parse する。selection 変更で該当バージョンへ再構築される。
+const parsedSessions = computed<ParsedSessionLogEntry[]>(() =>
   sessions.value.map((s) => ({
     ...s,
     parsed: parseSessionLog(s.content, branchSelections.value.get(s.id)),
   })),
 );
 
-// 分岐セレクタのクリック: そのタブの branchKey を指定 childUuid に切り替える (枝の差し替え)。
+// 分岐セレクタのクリック: そのセッションの branchKey を指定 childUuid に切り替える (枝の差し替え)。
 // reactivity のため Map は複製して差し替える。併せて該当ペインを選択枝の先頭 (ts) へ寄せる:
 // 枝切替は parsed を差し替えるため Transcript の parsed watch が走るが、scrollTarget を立てて
 // おくとボトム追従を抑止して分岐点位置を保てる。scrollTarget は scrollNonce で必ず変化させ、
@@ -119,14 +119,14 @@ function selectBranch({ sessionKey, branchKey, childUuid, ts }: BranchSelectPayl
 }
 
 // entries[0] が main。subagents はそれ以降。
-const mainSession = computed<ParsedSessionTab | undefined>(() =>
+const mainSession = computed<ParsedSessionLogEntry | undefined>(() =>
   parsedSessions.value.find((s) => s.kind === "main"),
 );
-const subagents = computed<ParsedSessionTab[]>(() =>
+const subagents = computed<ParsedSessionLogEntry[]>(() =>
   parsedSessions.value.filter((s) => s.kind !== "main"),
 );
 // Task ツール subagent (workflowRunId 空)。横断タイムラインで main の次に並べる。
-const plainSubagents = computed<ParsedSessionTab[]>(() =>
+const plainSubagents = computed<ParsedSessionLogEntry[]>(() =>
   subagents.value.filter((s) => s.workflowRunId === ""),
 );
 // workflow agent は workflowRunId でグループ化する (出現順保持)。タイムラインのトラック順
@@ -136,7 +136,7 @@ const workflowGroups = computed(() => groupByWorkflow(subagents.value));
 
 // 右ペインに出す subagent。subagent が 1 つでもあれば先頭を初期選択する。
 const activeSubId = ref<string | undefined>(undefined);
-const activeSub = computed<ParsedSessionTab | undefined>(() =>
+const activeSub = computed<ParsedSessionLogEntry | undefined>(() =>
   subagents.value.find((s) => s.id === activeSubId.value),
 );
 
@@ -191,7 +191,7 @@ const playheadMs = computed<number | undefined>(() => {
 
 // 1 セッション → 1 session トラック。生存期間は sessionTimeRange (純関数) が events の
 // min/max ts から算出。
-function toTimelineSession(s: ParsedSessionTab): TimelineSession {
+function toTimelineSession(s: ParsedSessionLogEntry): TimelineSession {
   return { id: s.id, label: s.label, events: s.parsed.events, models: s.parsed.models };
 }
 

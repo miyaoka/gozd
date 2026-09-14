@@ -11,7 +11,6 @@
 
 export {
   parseSessionLog,
-  expandAskMessages,
   type TranscriptEvent,
   type ParsedSessionLog,
   type BranchSelection,

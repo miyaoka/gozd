@@ -13,8 +13,14 @@
 <script setup lang="ts">
 import { refDebounced } from "@vueuse/core";
 import { computed } from "vue";
-import { parseSessionLog, SessionLogMessageBody, useSessionLogLive } from "../session-log";
-import type { TranscriptEvent } from "../session-log";
+import {
+  parseSessionLog,
+  SessionLogMessageBody,
+  SPEAKER_SURFACE_CLASS,
+  speechesOf,
+  useSessionLogLive,
+} from "../session-log";
+import type { Speech, TranscriptEvent } from "../session-log";
 import type { DashboardRow } from "./collectDashboardRows";
 
 const props = defineProps<{
@@ -35,12 +41,25 @@ const events = computed((): TranscriptEvent[] => {
   return parseSessionLog(main.content).events;
 });
 
-const firstUser = computed(() => events.value.find((e) => e.kind === "user"));
+// kind の event の発言 (session-log の発言の定義で組み立てる。本文が空の event は発言にならない)。
+function speechOfKind(event: TranscriptEvent, kind: "user" | "assistant"): Speech | undefined {
+  if (event.kind !== kind) return undefined;
+  const [speech] = speechesOf(event);
+  return speech;
+}
 
-const lastAssistant = computed(() => {
+const firstUser = computed((): Speech | undefined => {
+  for (const event of events.value) {
+    const speech = speechOfKind(event, "user");
+    if (speech !== undefined) return speech;
+  }
+  return undefined;
+});
+
+const lastAssistant = computed((): Speech | undefined => {
   for (let i = events.value.length - 1; i >= 0; i--) {
-    const event = events.value[i];
-    if (event.kind === "assistant") return event;
+    const speech = speechOfKind(events.value[i], "assistant");
+    if (speech !== undefined) return speech;
   }
   return undefined;
 });
@@ -72,16 +91,16 @@ const emptyMessage = computed((): string | undefined => {
         <h3 class="text-[10px] font-semibold tracking-wide text-foreground-muted uppercase">
           First prompt
         </h3>
-        <div class="rounded-md bg-chat-outgoing">
-          <SessionLogMessageBody kind="user" :text="firstUser.text" />
+        <div class="rounded-md" :class="SPEAKER_SURFACE_CLASS[firstUser.speaker]">
+          <SessionLogMessageBody :text="firstUser.text" :mark="firstUser.mark" />
         </div>
       </template>
       <template v-if="lastAssistant">
         <h3 class="text-[10px] font-semibold tracking-wide text-foreground-muted uppercase">
           Last response
         </h3>
-        <div class="rounded-md bg-chat-incoming">
-          <SessionLogMessageBody kind="assistant" :text="lastAssistant.text" />
+        <div class="rounded-md" :class="SPEAKER_SURFACE_CLASS[lastAssistant.speaker]">
+          <SessionLogMessageBody :text="lastAssistant.text" :mark="lastAssistant.mark" />
         </div>
       </template>
     </div>

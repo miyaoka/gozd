@@ -55,9 +55,7 @@ tool が残っていない。
 
 main と sub で判定の確からしさが非対称になる。main は PTY を持ち、ClaudeStatus
 (`claudeStatus.ts`) が hooks + PTY 出力の interrupt パターンマッチで「本当に working か」を
-継続的に更新している。ユーザーが Ctrl+C/Escape で中断すると Claude Code は transcript に
-新規イベントを追記しない (interrupt 通知フックが無いため) ので、transcript 末尾だけで判定
-すると次の発言まで進行中表示が居座り続けて ClaudeStatus の badge (idle) と食い違う。そのため
+継続的に更新している。transcript は記録を経由した推定で、badge と食い違わないよう、
 `mainActionCount` は `ClaudeStatus` (`getClaudeState(leafId) === "working"`) が working でない
 限り 0 に倒し、より確からしい信号を優先する。sub は Task ツールで起動される仮想セッションで
 PTY / ClaudeStatus を持たないため、transcript ベースの推定のみで妥協する。
@@ -265,12 +263,9 @@ const mainParsed = computed<ParsedPreview>(() => {
     ? { id: "", speeches: [], actionCount: 0, interrupted: false }
     : parsePreview(main);
 });
-// transcript 末尾が tool でも、ユーザーが Ctrl+C/Escape で中断した直後は
-// Claude Code が transcript に新規イベントを追記しない (interrupt 通知フックが無いため。
-// docs/claude-status.md 参照)。この場合 `ClaudeStatus` は PTY 出力のパターンマッチで
-// 既に idle に落ちているのに、transcript ベースの判定だけだと次の発言までインジケータが
-// 居座り続けて食い違う。main は PTY を持つため `ClaudeStatus` (TerminalLeafTitle の badge と
-// 同じ `getClaudeState`) で確定させ、transcript ベースの推定より優先する。
+// main は PTY を持つため `ClaudeStatus` (TerminalLeafTitle の badge と同じ `getClaudeState`) で
+// 確定させ、transcript ベースの推定より優先する。transcript は記録を経由した推定で、badge と
+// 食い違わないよう、より確からしい信号に揃える。
 const mainActionCount = computed<number>(() =>
   terminalStore.getClaudeState(props.leafId) === "working" ? mainParsed.value.actionCount : 0,
 );

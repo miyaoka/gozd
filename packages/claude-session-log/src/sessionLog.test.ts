@@ -948,6 +948,38 @@ describe("parseSessionLog", () => {
     expect(log.events).toEqual([{ kind: "user", text: "[Request interrupted by user]", ts: TS }]);
   });
 
+  // 文言は全文の完全一致で見る。前後の空白を落として一致させない
+  test("文言に末尾の改行が付いた単一 text 配列は中断ではない", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "[Request interrupted by user]\n" }],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "[Request interrupted by user]\n", ts: TS }]);
+  });
+
+  // 判定は記録の形と文言だけで行い、origin / promptSource の有無を条件にしない
+  test("origin / promptSource が付いていても、形と文言が一致すれば中断にする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        origin: { kind: "human" },
+        promptSource: "typed",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "[Request interrupted by user]" }],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "interrupt", ts: TS }]);
+  });
+
   test("マーカーの文言に他のブロックが並ぶ配列は中断ではない", () => {
     const log = parseSessionLog(
       jsonl({

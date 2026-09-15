@@ -705,11 +705,12 @@ describe("speechesOf", () => {
     expect(speechesOf({ kind: "assistant", text: "", ts: TS })).toEqual([]);
   });
 
-  test("tool / system / image は発言ではない", () => {
+  test("tool / system / image / interrupt は発言ではない", () => {
     const events: TranscriptEvent[] = [
       { kind: "tool", name: "Bash", input: {}, toolUseId: "t1", ts: TS, result: undefined },
       { kind: "system", label: "hook", text: "x", ts: TS },
       { kind: "image", ts: TS, source: undefined },
+      { kind: "interrupt", ts: TS },
     ];
     expect(events.flatMap(speechesOf)).toEqual([]);
   });

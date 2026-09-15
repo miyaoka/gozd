@@ -66,7 +66,7 @@ type SpeechKind = "user" | "assistant" | "thinking" | "teammate";
 // thinking はこのセッションのエージェントの思考でエージェント側、teammate は他セッションの
 // エージェントからこのエージェントに届いた指示で指示する側に出し、誰から届いたかを印に添える。
 // ask は発言そのものではなく、質問 (エージェントの発言) と回答 (指示する側の発言) を束ねたもの
-// (askTurns)。表に無い kind (tool / system / image / branch) は発言ではない。
+// (askTurns)。表に無い kind (tool / system / image / branch / interrupt) は発言ではない。
 const SPEECH: {
   [K in SpeechKind]: { speaker: SpeechSpeaker; mark: (ev: EventOf[K]) => string | undefined };
 } = {

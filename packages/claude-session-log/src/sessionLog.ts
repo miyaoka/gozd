@@ -15,6 +15,9 @@
 // 残らないことがあるため user イベントにする。採否は上流が分類済みの attachment.commandMode
 // を SSOT にし、生発話 ("prompt") のみ拾う。注入通知 ("task-notification" 等) は除外する。
 //
+// ユーザーの中断 (Esc) は Claude Code が `type:"user"` のマーカー行として書く。発話ではないため
+// interrupt イベントにし、分岐候補にもしない (判定は isInterruptMarker)。
+//
 // system 注入の可視化 (`kind:"system"`): エージェントのコンテキストに注入されたシステム由来
 // テキストを system イベントとして載せる。ソースは hook 由来 attachment
 // (`hook_success` / `hook_additional_context`) と compact 要約 (`isCompactSummary`)。前者は
@@ -325,6 +328,27 @@ function isCompactSummary(raw: RawLine): boolean {
 /** compact 要約の system イベントの label。 */
 const COMPACT_SUMMARY_LABEL = "compact";
 
+// ユーザーが Esc で応答を中断したとき Claude Code が書くマーカーの文言。Claude Code 本体が定数として
+// 持つ固定文字列で、生成中の応答を止めたときと tool の実行を止めたときの 2 種がある。
+const INTERRUPT_MARKER_TEXTS = new Set([
+  "[Request interrupted by user]",
+  "[Request interrupted by user for tool use]",
+]);
+
+/**
+ * ユーザーの中断を記録したマーカーか。マーカーは `type:"user"` の content 配列に text 1 ブロックだけを
+ * 持ち、その全文が固定文言と一致する。同じ文字列を人間が打つと content は string で記録されるため、
+ * 本文だけでは区別できず、配列の形との AND で判定する。マーカーを示す専用フラグは無い
+ * (`interruptedMessageId` は付かないマーカーがある)。
+ */
+function isInterruptMarker(raw: RawLine): boolean {
+  if (raw.type !== "user") return false;
+  const content = raw.message?.content;
+  if (!Array.isArray(content) || content.length !== 1) return false;
+  const [block] = content;
+  return block?.type === "text" && INTERRUPT_MARKER_TEXTS.has(block.text);
+}
+
 // slash command 起動は `type:"user"` の string content として記録され、先頭が
 // `<command-name>/foo</command-name>` か `<command-message>foo</command-message>` で始まる。
 // この先頭判定でだけ command block とみなす。本文中にたまたま <command-name> を含む生発話
@@ -422,6 +446,9 @@ export type TranscriptEvent =
       questions: AskQuestion[];
     }
   | { kind: "image"; ts: string; source: ImageSource | undefined }
+  // ユーザーが Esc で応答を中断した位置。本文は固定文言なので持たない。会話ターンではないので
+  // branch 候補にしない。
+  | { kind: "interrupt"; ts: string }
   // team 機能で他の Claude セッション (peer) が <teammate-message> で送ってきた発話。`from` は
   // teammate_id、`summary` は peer 自身が付けた 1 行要約 (空のことがある)、`text` は本文。1 つの
   // user レコードに複数ブロックが入りうるため、ブロックごとに 1 イベント。見出しの組み方や
@@ -583,7 +610,7 @@ function treeParentUuid(raw: RawLine): string {
  * 外れるため、tool の連鎖は分岐にならない。真の rewind は実発話 / 応答が同一親に複数並ぶ場合のみ。
  */
 function isBranchCandidate(raw: RawLine): boolean {
-  if (isSyntheticAssistant(raw) || isCompactSummary(raw)) return false;
+  if (isSyntheticAssistant(raw) || isCompactSummary(raw) || isInterruptMarker(raw)) return false;
   const content = raw.message?.content;
   if (raw.type === "user") {
     // coordinator 中継は isMeta:true だが subagent にとっては会話ターンなので候補に含める。
@@ -805,6 +832,12 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       } else {
         skipped++;
       }
+      continue;
+    }
+
+    // 中断マーカーは type:"user" だがユーザー発話ではない。中断が起きた位置として載せる。
+    if (isInterruptMarker(raw)) {
+      events.push({ kind: "interrupt", ts });
       continue;
     }
 

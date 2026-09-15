@@ -14,6 +14,7 @@
 `SessionLogSpeakerRow` が持つ。話者は左右寄せ + chat-outgoing/chat-incoming の塗り分けで識別
 できるため、アバターや話者アイコンは置かない。
 tool / system (hook 等の注入) は LINE に対応物が無いため、中央寄せの控えめなシステム行に畳む。
+ユーザーの中断 (`interrupt`) も発言ではないため、中央寄せの素テキスト行で位置だけを示す。
 現在地のナビゲーションはペイン内に持たず、親の横断タイムラインに集約する (`scrollTo` で
 時刻位置へジャンプを受ける)。
 
@@ -654,6 +655,15 @@ onBeforeUnmount(teardownObserver);
             <p v-else class="text-[10px] text-foreground-low italic">(no result recorded)</p>
           </div>
         </details>
+
+        <!-- 中断: ユーザーが応答を止めた位置。発言ではないので吹き出しにせず、中央寄せの素テキストで示す -->
+        <p
+          v-else-if="ev.kind === 'interrupt'"
+          :data-ev="i"
+          class="flex scroll-mt-2 justify-center px-2 py-1 text-[11px] text-foreground-low"
+        >
+          Interrupted by user
+        </p>
 
         <!-- 発言: 話者で左右に振り分けた吹き出し (本文が空の発言は speechesOf が除く) -->
         <template v-else-if="isSpeech(ev)">

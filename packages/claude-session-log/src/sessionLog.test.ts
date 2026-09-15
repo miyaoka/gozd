@@ -905,6 +905,147 @@ describe("parseSessionLog", () => {
     ]);
   });
 
+  // 実ログの形: Claude Code は中断を content 配列に text 1 ブロックだけを持つ user 行として書く。
+  test("中断マーカーは発言ではなく interrupt イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          timestamp: TS,
+          interruptedMessageId: "msg_1",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "[Request interrupted by user]" }],
+          },
+        },
+        {
+          type: "user",
+          timestamp: TS,
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "[Request interrupted by user for tool use]" }],
+          },
+        },
+      ),
+    );
+    expect(log.events).toEqual([
+      { kind: "interrupt", ts: TS },
+      { kind: "interrupt", ts: TS },
+    ]);
+  });
+
+  // 人間が同じ文字列を打つと content は string で記録される (実ログで確認済み)。本文では区別できない。
+  test("マーカーと同じ文字列を打った発話は user イベントのまま", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        origin: { kind: "human" },
+        promptSource: "typed",
+        message: { role: "user", content: "[Request interrupted by user]" },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "[Request interrupted by user]", ts: TS }]);
+  });
+
+  // 文言は全文の完全一致で見る。前後の空白を落として一致させない
+  test("文言に末尾の改行が付いた単一 text 配列は中断ではない", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "[Request interrupted by user]\n" }],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "[Request interrupted by user]\n", ts: TS }]);
+  });
+
+  // 判定は記録の形と文言だけで行い、origin / promptSource の有無を条件にしない
+  test("origin / promptSource が付いていても、形と文言が一致すれば中断にする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        origin: { kind: "human" },
+        promptSource: "typed",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "[Request interrupted by user]" }],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "interrupt", ts: TS }]);
+  });
+
+  test("マーカーの文言に他のブロックが並ぶ配列は中断ではない", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [
+            { type: "text", text: "[Request interrupted by user]" },
+            { type: "text", text: "続けて" },
+          ],
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: "[Request interrupted by user]", ts: TS },
+      { kind: "user", text: "続けて", ts: TS },
+    ]);
+  });
+
+  // 中断マーカーと次の発話が同じ会話的親に並ぶ形 (実ログで確認済み)。マーカーを候補にすると rewind と
+  // 誤検出し、既定で古い側のマーカーを刈って分岐セレクタを出す。
+  test("rewind: 中断マーカーは分岐候補にしない", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          uuid: "u1",
+          parentUuid: null,
+          timestamp: TS,
+          message: { role: "user", content: "?" },
+        },
+        {
+          type: "assistant",
+          uuid: "a1",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: { role: "assistant", content: [{ type: "text", text: "どうぞ" }] },
+        },
+        {
+          type: "user",
+          uuid: "m1",
+          parentUuid: "a1",
+          timestamp: TS,
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "[Request interrupted by user]" }],
+          },
+        },
+        {
+          type: "user",
+          uuid: "u2",
+          parentUuid: "a1",
+          timestamp: TS,
+          message: { role: "user", content: "続けて" },
+        },
+      ),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: "?", ts: TS },
+      { kind: "assistant", text: "どうぞ", ts: TS },
+      { kind: "interrupt", ts: TS },
+      { kind: "user", text: "続けて", ts: TS },
+    ]);
+  });
+
   // 実観測形 (studio-front jsonl) を再現する fixture builder。AskUserQuestion 投げた直後にセッション
   // が切れ `claude --continue` 相当で resume されたケース。木の形:
   //

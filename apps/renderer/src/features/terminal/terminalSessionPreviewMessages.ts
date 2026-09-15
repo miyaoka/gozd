@@ -4,26 +4,43 @@
 import { speechesOf, type Speech, type SpeechSpeaker, type TranscriptEvent } from "../session-log";
 
 /**
- * 直近の発言以降に積まれた tool 呼び出しの件数を数える。0 なら進行中でない (末尾が発言、
- * または発言も作業もない)。1 以上ならその件数がそのまま進行中インジケータの点の数になる。
+ * ターン境界か。ターン境界はエージェントの作業の区切りで、吹き出しになる発言と、ユーザーの中断が
+ * これにあたる。中断は吹き出しにならないが、それより前の作業はユーザーが止めたもので、中断の時点で
+ * 応答は終わっている。
  *
- * 末尾から走査し、吹き出しになる発言を持つ event (`speechesOf`) で打ち切る。打ち切りの判定を
- * 吹き出しの生成と同じ関数に置くのは、preview の bubble 列と件数の増減を一致させるため。bubble に
- * 現れない event で打ち切ると、画面に何も現れないまま点の数が巻き戻る。
- *
- * 吹き出しにならない tool 以外の event (system / image / branch 等) は数えずに読み飛ばす。
- * system は tool_use → hook attachment → tool_result の JSONL 順で tool_result 到着前に末尾へ
- * 来るため、打ち切ると tool 実行中に進行中表示が消える。
+ * 発言の判定を吹き出しの生成と同じ関数 (`speechesOf`) に置くのは、preview の bubble 列と進行中の
+ * 表示の増減を一致させるため。bubble に現れない発言以外の event (system / image / branch 等) を
+ * 境界にすると、画面に何も現れないまま点の数が巻き戻る。system は tool_use → hook attachment →
+ * tool_result の JSONL 順で tool_result 到着前に末尾へ来るため、境界にすると tool 実行中に進行中
+ * 表示が消える。
+ */
+function isTurnBoundary(ev: TranscriptEvent): boolean {
+  return ev.kind === "interrupt" || speechesOf(ev).length > 0;
+}
+
+/**
+ * 直近のターン境界以降に積まれた tool 呼び出しの件数を数える。0 なら進行中でない (末尾が
+ * ターン境界、または境界も作業もない)。1 以上ならその件数がそのまま進行中インジケータの点の数になる。
  */
 export function countInProgressActions(events: TranscriptEvent[]): number {
   let count = 0;
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
     if (ev === undefined) continue;
-    if (speechesOf(ev).length > 0) return count;
+    if (isTurnBoundary(ev)) return count;
     if (ev.kind === "tool") count++;
   }
   return count;
+}
+
+/** 直近のターン境界が中断か。中断で終わったログは応答中ではない。 */
+export function endsWithInterrupt(events: TranscriptEvent[]): boolean {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev === undefined) continue;
+    if (isTurnBoundary(ev)) return ev.kind === "interrupt";
+  }
+  return false;
 }
 
 /** 吹き出しにする発言と、その発言が属する rewind の枝。 */
@@ -66,9 +83,9 @@ export interface PreviewRun {
   foldedCount: number;
 }
 
-// assistant が応答中 (= ログ末尾の run が assistant) のときだけ、その run を畳んでも末尾 3 件
-// 見せる (進行中の連続応答の流れを見せる)。user が最新なら応答は完結しているので、全 run を
-// 最後の 1 件で代表させる
+// assistant が応答中 (= ログ末尾の run が assistant で、ログが中断で終わっていない) のときだけ、
+// その run を畳んでも末尾 3 件見せる (進行中の連続応答の流れを見せる)。user が最新、または中断で
+// 終わっていれば応答は完結しているので、全 run を最後の 1 件で代表させる
 const LATEST_ASSISTANT_RUN_FOLDED_COUNT = 3;
 const RUN_FOLDED_COUNT = 1;
 
@@ -76,8 +93,9 @@ const RUN_FOLDED_COUNT = 1;
  * 1 overlay 分の発言を run に束ね、出現順で並べる。LINE 同様の時系列読みになる (上から下が
  * 時間の経過方向)。ts="" / parse 不能 ts の発言が混ざっても順序が崩れないよう、ts での sort は
  * しない。分岐点では同じ話者の発言でも run を分け、run が枝をまたがないようにする。
+ * `interrupted` はログが中断で終わったか (`endsWithInterrupt`)。
  */
-export function collectRuns(items: PreviewSpeech[]): PreviewRun[] {
+export function collectRuns(items: PreviewSpeech[], interrupted: boolean): PreviewRun[] {
   const runs: PreviewRun[] = [];
   items.forEach(({ speech, branch }, index) => {
     const last = runs[runs.length - 1];
@@ -95,7 +113,9 @@ export function collectRuns(items: PreviewSpeech[]): PreviewRun[] {
   });
 
   const latestRun = runs[runs.length - 1];
-  if (latestRun?.speaker === "assistant") latestRun.foldedCount = LATEST_ASSISTANT_RUN_FOLDED_COUNT;
+  if (latestRun?.speaker === "assistant" && !interrupted) {
+    latestRun.foldedCount = LATEST_ASSISTANT_RUN_FOLDED_COUNT;
+  }
   return runs;
 }
 

@@ -12,9 +12,10 @@ main / sub を独立した 2 つの overlay に分け、terminal の右上に ma
 
 各 overlay の内側は「応答 (run)」単位で表示する。連続する同じ話者の発言を 1 つの run と
 して束ね、session の全 run を並べる (件数に上限は無く、古い側はスクロールで遡る)。各 run は
-既定で畳み、最後の発言 1 件で代表させる。assistant が応答中 (ログ末尾の run が assistant) の
-ときだけ、その run は畳んでも末尾 3 件を見せる (進行中の連続応答の流れを見せるため。user が
-最新なら応答は完結しているので全 run を 1 件に畳む)。
+既定で畳み、最後の発言 1 件で代表させる。assistant が応答中 (ログ末尾の run が assistant で、
+ログがユーザーの中断で終わっていない) のときだけ、その run は畳んでも末尾 3 件を見せる (進行中の
+連続応答の流れを見せるため。user が最新、または中断で終わっていれば応答は完結しているので全 run を
+1 件に畳む)。
 
 畳むと隠れる発言がある run は、開閉トグルで全件を開閉できる。開閉状態は表示中のセッションログと
 run の組ごとに持ち、ログの追記や最新 run の入れ替わりでは変わらない。rewind で表示する枝が
@@ -188,6 +189,7 @@ import { keepInPlace } from "./keepInPlace";
 import {
   collectRuns,
   countInProgressActions,
+  endsWithInterrupt,
   type PreviewRun,
   type PreviewSpeech,
   previewSpeeches,
@@ -221,15 +223,17 @@ const { sessions } = useSessionLogLive(sessionId);
 // JSONL を都度 parse する。preview は最新の会話発話だけを run 単位で見せるため
 // branchSelection は不要 (parseSessionLog は未指定で最新枝にフォールバックする)。
 //
-// events 列のうち吹き出しにするのは `previewSpeeches` が返す発言だけ。actionCount は吹き出し選別前の
-// events 列 (末尾に積まれた tool の件数) から数えるため、speeches と同じ 1 回の parse 結果を
-// 両方の派生元にする。id は run の開閉状態の key に使い、発言と同じセッションログから取る。
+// events 列のうち吹き出しにするのは `previewSpeeches` が返す発言だけ。actionCount と interrupted は
+// 吹き出し選別前の events 列 (末尾に積まれた tool の件数 / 直近のターン境界) から決めるため、speeches と
+// 同じ 1 回の parse 結果を派生元にする。id は run の開閉状態の key に使い、発言と同じセッションログから取る。
 interface ParsedPreview {
   /** セッションログ 1 本の id (main は session_id、sub は agent_id) */
   id: string;
   speeches: PreviewSpeech[];
-  /** 直近の発言以降のアクション件数。0 なら進行中でない */
+  /** 直近のターン境界以降のアクション件数。0 なら進行中でない */
   actionCount: number;
+  /** ログが中断で終わったか。中断で終わったログの末尾 run は応答中として展開しない */
+  interrupted: boolean;
 }
 
 function parsePreview(log: { id: string; content: string }): ParsedPreview {
@@ -238,6 +242,7 @@ function parsePreview(log: { id: string; content: string }): ParsedPreview {
     id: log.id,
     speeches: previewSpeeches(events),
     actionCount: countInProgressActions(events),
+    interrupted: endsWithInterrupt(events),
   };
 }
 
@@ -256,7 +261,9 @@ function lastConversationTs(items: PreviewSpeech[]): number {
 // computed に切る。
 const mainParsed = computed<ParsedPreview>(() => {
   const main = sessions.value.find((s) => s.kind === "main");
-  return main === undefined ? { id: "", speeches: [], actionCount: 0 } : parsePreview(main);
+  return main === undefined
+    ? { id: "", speeches: [], actionCount: 0, interrupted: false }
+    : parsePreview(main);
 });
 // transcript 末尾が tool でも、ユーザーが Ctrl+C/Escape で中断した直後は
 // Claude Code が transcript に新規イベントを追記しない (interrupt 通知フックが無いため。
@@ -273,7 +280,14 @@ const mainActionCount = computed<number>(() =>
 // subagent はここでの最新性に寄与させない。events と label を 1 つの computed にまとめておくと
 // sub overlay の見出しと本文が同じ subagent から派生する不変条件を構造的に担保できる。
 const newestSub = computed<
-  { id: string; label: string; events: PreviewSpeech[]; actionCount: number } | undefined
+  | {
+      id: string;
+      label: string;
+      events: PreviewSpeech[];
+      actionCount: number;
+      interrupted: boolean;
+    }
+  | undefined
 >(() => {
   const subs = sessions.value
     .filter((s) => s.kind !== "main")
@@ -284,6 +298,7 @@ const newestSub = computed<
         label: s.label,
         events: parsed.speeches,
         actionCount: parsed.actionCount,
+        interrupted: parsed.interrupted,
       };
     })
     .filter((x) => x.events.length > 0);
@@ -314,8 +329,12 @@ const subLabel = computed<string>(() => {
 
 // run への束ねと行の並びは純粋関数 `collectRuns` / `runRows` (terminalSessionPreviewMessages.ts)
 // に委譲する。規則の詳細はそちらのコメントとテストを参照。
-const mainRuns = computed<PreviewRun[]>(() => collectRuns(mainParsed.value.speeches));
-const subRuns = computed<PreviewRun[]>(() => collectRuns(subEvents.value));
+const mainRuns = computed<PreviewRun[]>(() =>
+  collectRuns(mainParsed.value.speeches, mainParsed.value.interrupted),
+);
+const subRuns = computed<PreviewRun[]>(() =>
+  collectRuns(subEvents.value, newestSub.value?.interrupted ?? false),
+);
 
 // 開いた発言をトグルのどちら側に出すか (<doc> の「表示」)
 const REVEAL_SIDE: Record<"main" | "sub", RevealSide> = {

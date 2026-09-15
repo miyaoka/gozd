@@ -3,6 +3,7 @@ import type { TranscriptEvent } from "../session-log";
 import {
   collectRuns,
   countInProgressActions,
+  endsWithInterrupt,
   type PreviewSpeech,
   previewSpeeches,
   type RunRow,
@@ -32,9 +33,9 @@ function labels(rows: RunRow[]): string[] {
   return rows.map((row) => (row.kind === "toggle" ? `[+${row.foldableCount}]` : row.speech.text));
 }
 
-// 全 run を畳んだ状態で表示される発言
-function texts(input: PreviewSpeech[]): string[] {
-  return collectRuns(input).flatMap((run) =>
+// 全 run を畳んだ状態で表示される発言。interrupted はログが中断で終わったか
+function texts(input: PreviewSpeech[], interrupted = false): string[] {
+  return collectRuns(input, interrupted).flatMap((run) =>
     runRows(run, false, "below").flatMap((row) => (row.kind === "speech" ? [row.speech.text] : [])),
   );
 }
@@ -84,6 +85,12 @@ describe("collectRuns (全 run を畳んだ表示)", () => {
     expect(texts(input)).toEqual(["a2", "a3", "a4"]);
   });
 
+  // 中断で応答は終わっている。末尾の assistant run を応答中として展開しない
+  test("ログが中断で終わっていれば、末尾の assistant run も 1 件代表に畳む", () => {
+    const input = speeches("u1", "a1-1", "a1-2", "a1-3");
+    expect(texts(input, true)).toEqual(["u1", "a1-3"]);
+  });
+
   // 空文字の発言は発言にならないため、挟まっても同じ話者の連続は 1 run に束ねられる。
   // 空 user で分断されると assistant run が 2 つに割れ a1-1 が代表化されてしまう
   test("空文字の発言を挟んだ同じ話者の連続は 1 run に束ねられる", () => {
@@ -100,14 +107,14 @@ describe("collectRuns (全 run を畳んだ表示)", () => {
 
   test("分岐点の前後で同じ話者の発言が続いても、run を分ける", () => {
     const events = [event("u1"), event("a1"), branchEvent("x"), event("a2"), event("a3")];
-    const runs = collectRuns(previewSpeeches(events));
+    const runs = collectRuns(previewSpeeches(events), false);
     expect(runs.map((r) => r.speeches.map((s) => s.text))).toEqual([["u1"], ["a1"], ["a2", "a3"]]);
   });
 
   // start は開閉状態の識別に使うため、末尾への追記で既存 run の値が変わってはならない
   test("run の start は発言列全体での先頭位置で、追記しても既存 run の値は変わらない", () => {
-    const before = collectRuns(speeches("u1", "a", "a1", "u2"));
-    const after = collectRuns(speeches("u1", "a", "a1", "u2", "u", "a2"));
+    const before = collectRuns(speeches("u1", "a", "a1", "u2"), false);
+    const after = collectRuns(speeches("u1", "a", "a1", "u2", "u", "a2"), false);
     expect(before.map((r) => r.start)).toEqual([0, 1, 3]);
     expect(after.map((r) => r.start)).toEqual([0, 1, 3, 5]);
   });
@@ -126,12 +133,12 @@ describe("previewSpeeches", () => {
 
 describe("runKey", () => {
   function keysOf(events: TranscriptEvent[]): string[] {
-    return collectRuns(previewSpeeches(events)).map((run) => runKey("s", run));
+    return collectRuns(previewSpeeches(events), false).map((run) => runKey("s", run));
   }
 
   // 表示するセッションログが切り替わっても、同じ start の別の run と状態を共有しない
   test("同じ start の run でも、セッションログが違えば key が違う", () => {
-    const [run] = collectRuns(speeches("u1"));
+    const [run] = collectRuns(speeches("u1"), false);
     if (run === undefined) throw new Error("no run");
     expect(runKey("agent-a", run)).not.toBe(runKey("agent-b", run));
   });
@@ -168,7 +175,7 @@ describe("runKey", () => {
 
 describe("runRows", () => {
   function runOf(...input: string[]) {
-    const run = collectRuns(speeches(...input)).at(-1);
+    const run = collectRuns(speeches(...input), false).at(-1);
     if (run === undefined) throw new Error("no run");
     return run;
   }
@@ -310,5 +317,36 @@ describe("countInProgressActions", () => {
 
   test("中断より後の tool だけを数える", () => {
     expect(countInProgressActions([user, tool, interrupt, tool])).toBe(1);
+  });
+});
+
+describe("endsWithInterrupt", () => {
+  const interrupt: TranscriptEvent = { kind: "interrupt", ts: TS };
+  const tool: TranscriptEvent = {
+    kind: "tool",
+    name: "Bash",
+    input: {},
+    toolUseId: "t1",
+    ts: TS,
+    result: undefined,
+  };
+  const system: TranscriptEvent = { kind: "system", label: "hook", text: "x", ts: TS };
+
+  test("直近のターン境界が中断なら true", () => {
+    expect(endsWithInterrupt([event("u1"), event("a1"), interrupt])).toBe(true);
+  });
+
+  // 境界にならない event は読み飛ばして直近の境界を見る
+  test("中断の後ろに境界でない event が続いても true", () => {
+    expect(endsWithInterrupt([event("a1"), interrupt, tool, system])).toBe(true);
+  });
+
+  test("中断の後ろに発言があれば false", () => {
+    expect(endsWithInterrupt([event("a1"), interrupt, event("u2")])).toBe(false);
+  });
+
+  test("中断が無ければ false", () => {
+    expect(endsWithInterrupt([event("u1"), event("a1"), tool])).toBe(false);
+    expect(endsWithInterrupt([])).toBe(false);
   });
 });

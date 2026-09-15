@@ -64,10 +64,6 @@ bun は `*.test.*` / `*.spec.*` / `*_test.*` / `*_spec.*` を拾う。browser mo
 
 `click({ position })` でピクセルを指定するのは、**その要素のどこが効かないか自体が検証対象**のときに限る。通常の操作で座標を書くと、レイアウトを変えるたびに意味を失って壊れる。
 
-### 失敗時の証跡が残る
-
-DOM ダンプがコンソールに出て、スクリーンショットが `__screenshots__` に、添付が `.vitest-attachments` に残る（どちらも gitignore 済み）。原因を推測する前にこれを見る。
-
 ### 重い依存を足した直後は dep 最適化のリロードで落ちる
 
 `Vite unexpectedly reloaded a test` で全ファイルが import エラーになる。警告が名指しした依存を `vite.config.ts` の `optimizeDeps.include` に足す。再実行すれば通るが、それは最適化が済んだだけで、cold cache の CI では再発する。

@@ -1,6 +1,5 @@
-// TerminalSessionPreview の bubble 選択ロジック。session ログの会話イベント列から
-// 「応答 (run) 単位」で preview に出すメッセージを選ぶ純粋関数。SFC から分離して
-// 回帰テスト (collectMessages.test.ts 相当) を書けるようにしている。
+// TerminalSessionPreview の bubble 選択ロジック。session ログの会話イベント列を「応答 (run)
+// 単位」に束ね、各 run の畳み方を決める純粋関数。SFC から分離して回帰テストを書けるようにしている。
 
 import { speechesOf, type Speech, type SpeechSpeaker, type TranscriptEvent } from "../session-log";
 
@@ -27,50 +26,114 @@ export function countInProgressActions(events: TranscriptEvent[]): number {
   return count;
 }
 
-// 連続する同じ話者の発言を 1 つの run (応答の塊) として束ねた表示単位。
-interface PreviewRun {
-  speaker: SpeechSpeaker;
-  speeches: Speech[];
+/** 吹き出しにする発言と、その発言が属する rewind の枝。 */
+export interface PreviewSpeech {
+  speech: Speech;
+  /**
+   * 直前の分岐点 (`branch` イベント) で表示している枝の先頭レコードの uuid。分岐点より前の
+   * 発言は空文字。rewind すると新しい枝の先頭レコードが新しい uuid を持つので、分岐点より後ろの
+   * 発言はすべて別の値になる
+   */
+  branch: string;
 }
 
-// 各話者とも最新 3 run (= 3 応答分) を表示対象にする
-const RUNS_PER_SPEAKER = 3;
-// assistant が応答中 (= ログ末尾の run が assistant) のときだけ、その run を末尾 3 件まで
-// 展開する (進行中の連続応答の流れを見せる)。user が最新なら応答は完結しているので
-// 全 run を最後の 1 件で代表させる
-const LATEST_ASSISTANT_RUN_MESSAGES = 3;
-
-/**
- * 1 overlay 分の吹き出しを run 単位で選び、出現順で並べる。LINE 同様の時系列読みになる
- * (上から下が時間の経過方向)。
- */
-export function collectMessages(speeches: Speech[]): Speech[] {
-  const runs: PreviewRun[] = [];
-  for (const s of speeches) {
-    const last = runs[runs.length - 1];
-    if (last !== undefined && last.speaker === s.speaker) {
-      last.speeches.push(s);
+/** event 列から吹き出しにする発言を取り出し、それぞれに属する枝を添える。 */
+export function previewSpeeches(events: TranscriptEvent[]): PreviewSpeech[] {
+  const out: PreviewSpeech[] = [];
+  let branch = "";
+  for (const ev of events) {
+    if (ev.kind === "branch") {
+      branch = ev.selectedChildUuid;
       continue;
     }
-    runs.push({ speaker: s.speaker, speeches: [s] });
-  }
-
-  // 各話者の最新 RUNS_PER_SPEAKER run だけ残す
-  const kept = new Set<PreviewRun>();
-  for (const speaker of ["user", "assistant"] as const) {
-    const ofSpeaker = runs.filter((r) => r.speaker === speaker);
-    for (const run of ofSpeaker.slice(-RUNS_PER_SPEAKER)) kept.add(run);
-  }
-
-  // runs は出現順なので、選んだ発言をそのまま flatten すれば表示順になる。
-  // ts="" / parse 不能 ts の event が混ざっても順序が崩れない (ts での sort はしない)
-  const latestRun = runs[runs.length - 1];
-  const expandedRun = latestRun?.speaker === "assistant" ? latestRun : undefined;
-  const out: Speech[] = [];
-  for (const run of runs) {
-    if (!kept.has(run)) continue;
-    const take = run === expandedRun ? LATEST_ASSISTANT_RUN_MESSAGES : 1;
-    out.push(...run.speeches.slice(-take));
+    for (const speech of speechesOf(ev)) out.push({ speech, branch });
   }
   return out;
+}
+
+/** 連続する同じ話者・同じ枝の発言を 1 つに束ねた表示単位 (応答の塊)。 */
+export interface PreviewRun {
+  /**
+   * run 先頭の発言の、発言列全体での位置。同じ枝の上でログが追記される限り、既存 run の値は
+   * 変わらない
+   */
+  start: number;
+  /** run の発言が属する枝 (`PreviewSpeech.branch`)。run は枝をまたがない */
+  branch: string;
+  speaker: SpeechSpeaker;
+  speeches: Speech[];
+  /** 畳んだ状態で見せる末尾の件数 */
+  foldedCount: number;
+}
+
+// assistant が応答中 (= ログ末尾の run が assistant) のときだけ、その run を畳んでも末尾 3 件
+// 見せる (進行中の連続応答の流れを見せる)。user が最新なら応答は完結しているので、全 run を
+// 最後の 1 件で代表させる
+const LATEST_ASSISTANT_RUN_FOLDED_COUNT = 3;
+const RUN_FOLDED_COUNT = 1;
+
+/**
+ * 1 overlay 分の発言を run に束ね、出現順で並べる。LINE 同様の時系列読みになる (上から下が
+ * 時間の経過方向)。ts="" / parse 不能 ts の発言が混ざっても順序が崩れないよう、ts での sort は
+ * しない。分岐点では同じ話者の発言でも run を分け、run が枝をまたがないようにする。
+ */
+export function collectRuns(items: PreviewSpeech[]): PreviewRun[] {
+  const runs: PreviewRun[] = [];
+  items.forEach(({ speech, branch }, index) => {
+    const last = runs[runs.length - 1];
+    if (last !== undefined && last.speaker === speech.speaker && last.branch === branch) {
+      last.speeches.push(speech);
+      return;
+    }
+    runs.push({
+      start: index,
+      branch,
+      speaker: speech.speaker,
+      speeches: [speech],
+      foldedCount: RUN_FOLDED_COUNT,
+    });
+  });
+
+  const latestRun = runs[runs.length - 1];
+  if (latestRun?.speaker === "assistant") latestRun.foldedCount = LATEST_ASSISTANT_RUN_FOLDED_COUNT;
+  return runs;
+}
+
+/**
+ * run の開閉状態の key。セッションログ 1 本の id (main は session_id、sub は agent_id)、run の枝、
+ * run の start の組にする。id が無いと、表示するセッションログが切り替わったとき同じ start の別の
+ * run が開閉状態を引き継ぐ。枝が無いと、rewind で分岐点より後ろが新しい枝に置き換わったとき、
+ * 同じ start に来た新しい run が引き継ぐ。同じ枝への追記では key は変わらない。
+ */
+export function runKey(logId: string, run: PreviewRun): string {
+  return `${logId}:${run.branch}:${run.start}`;
+}
+
+/** 開いたとき、畳んでいた発言を開閉トグルのどちら側に出すか */
+export type RevealSide = "above" | "below";
+
+/** run を描く行。開閉トグルか、発言と、その発言列全体での位置 */
+export type RunRow =
+  | { kind: "toggle"; foldableCount: number }
+  | { kind: "speech"; index: number; speech: Speech };
+
+/**
+ * run を開閉状態に応じて行に並べる。畳んだ run は古い側 (先頭) を隠して末尾を残し、隠れる発言が
+ * あれば末尾の直前に開閉トグルを置く。開くと隠れていた発言をトグルの `revealSide` 側に出す。
+ * 畳むと隠れる件数は開閉状態によらず一定で、トグルは開閉のどちらでも出る。
+ */
+export function runRows(run: PreviewRun, expanded: boolean, revealSide: RevealSide): RunRow[] {
+  const foldableCount = Math.max(run.speeches.length - run.foldedCount, 0);
+  const speechRows = run.speeches.map((speech, i): RunRow => ({
+    kind: "speech",
+    index: run.start + i,
+    speech,
+  }));
+  const tail = speechRows.slice(foldableCount);
+  if (foldableCount === 0) return tail;
+
+  const toggle: RunRow = { kind: "toggle", foldableCount };
+  if (!expanded) return [toggle, ...tail];
+  const revealed = speechRows.slice(0, foldableCount);
+  return revealSide === "above" ? [...revealed, toggle, ...tail] : [toggle, ...revealed, ...tail];
 }

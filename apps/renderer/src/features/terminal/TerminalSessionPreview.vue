@@ -11,19 +11,33 @@ main / sub を独立した 2 つの overlay に分け、terminal の右上に ma
 物理的距離で分離する設計。
 
 各 overlay の内側は「応答 (run)」単位で表示する。連続する同じ話者の発言を 1 つの run と
-して束ね、話者ごとに最新 3 run を表示対象にする。各 run は最後の発言 1 件で代表させ、
-assistant が応答中 (ログ末尾の run が assistant) のときだけ、その run を末尾 3 件まで展開する
-(進行中の連続応答の流れを見せるため。user が最新なら応答は完結しているので全 run を畳む)。
+して束ね、session の全 run を並べる (件数に上限は無く、古い側はスクロールで遡る)。各 run は
+既定で畳み、最後の発言 1 件で代表させる。assistant が応答中 (ログ末尾の run が assistant) の
+ときだけ、その run は畳んでも末尾 3 件を見せる (進行中の連続応答の流れを見せるため。user が
+最新なら応答は完結しているので全 run を 1 件に畳む)。
+
+畳むと隠れる発言がある run は、開閉トグルで全件を開閉できる。開閉状態は表示中のセッションログと
+run の組ごとに持ち、ログの追記や最新 run の入れ替わりでは変わらない。rewind で表示する枝が
+替わると、分岐点以降の run は畳んだ状態から始まる。run は分岐点をまたがず、分岐点の前後で同じ
+話者の発言が続いても別の run にする。
+
+押したトグルはポインタの下に留まり、同じ場所をもう一度押せば閉じられる。そのために開いた発言は
+overlay が伸びる側に出す。main (上端固定) はトグルの下、sub (下端固定) はトグルの上に出す。
+スクロール面が溢れているときに残るずれは `keepInPlace` が吸収する。
+
+トグルの下に出す main では、スクロール位置が末尾にあるときに開くと、末尾側 (最新の発言と
+進行中インジケータ) が可視域の下へ押し出される。スクロール位置が末尾から離れるため、以後の追記に
+追従しない。開いている間に追記が無ければ、閉じるとスクロール位置も末尾に戻る。
+
 吹き出しにするのは session-log の `speechesOf` が返す発言だけで (tool / image / branch は
 出さない)、どの kind を誰の発言として出すか・質問ツールの質問と回答の扱いもそれに従う。
 選択肢は吹き出しに出さない。回答未充填 (resume 中断) の question は質問だけ残る。吹き出しの
 左右は `TerminalSessionPreviewSpeakerRow` が session-log の `SPEAKER_SIDE` で寄せ、配色は
 `SPEAKER_SURFACE_CLASS` に従う。角丸は対称 (話者方向を示す尖り角は付けない)。
 
-run 単位で話者ごとに件数を確保するため、assistant が連続応答するケースでも user の
-最近の発言が落ちず、対話の流れが追える。表示順は events の出現順そのまま (上から下が
-時間の経過方向)。各 bubble は本文の抜粋で、話者によらず書式を解釈せず平文で出す (本文は
-全文 preview で markdown として読む)。span ラップした
+run 単位で畳むため、assistant が連続応答するケースでも応答は 1 件に代表され、対話の流れが
+追える。表示順は events の出現順そのまま (上から下が時間の経過方向)。各 bubble は本文の抜粋で、
+話者によらず書式を解釈せず平文で出す (本文は全文 preview で markdown として読む)。span ラップした
 `line-clamp-2` で 2 行省略する (WebKit の button native renderer が
 `-webkit-box-orient: vertical` を無視するため、button 直下では line-clamp が効かず
 中間 span に逃がしている)。bubble が 0 件の overlay は非表示にし、両 overlay とも空なら
@@ -82,11 +96,9 @@ pointer を `UndockDragHandoff` でウィンドウへ引き継ぎ、popover を�
 別レイヤーへ昇格させる設計。Popover は `shared/popover` の `usePopover` を per-instance で使う。
 
 anchor は被クリック bubble そのものではなく、クリック時点の bubble rect を overlay root
-相対で写した proxy 要素 (main / sub の各 overlay root 直下に absolute 配置)。bubble は
-ログ追記のたびに v-for 再レンダリングで DOM ごと作り替えられ (key が index 込みのため
-選択窓のスライドで key が変わる)、3 run 窓から押し出されると消える。bubble を直接
-anchor にすると、開いている popover が anchor 喪失で UA fallback 位置 (`inset: 0` +
-自前 `m-0` = 左上) へ飛ぶ。v-for の外で unmount されない proxy に寄生させることで、
+相対で写した proxy 要素 (main / sub の各 overlay root 直下に absolute 配置)。bubble は表示内容の
+変化に追従して消えることがある。bubble を直接 anchor にすると、開いている popover が anchor
+喪失で UA fallback 位置 (`inset: 0` + 自前 `m-0` = 左上) へ飛ぶ。v-for の外で unmount されない proxy に寄生させることで、
 popover はログがいくら追記されても開いた位置に留まり続ける。proxy を viewport 固定
 (fixed) ではなく overlay root 内の absolute にするのは、pane / window リサイズで overlay が
 動いたとき proxy ごと動かし、CSS anchor positioning の live な追随で popover を付いて
@@ -159,7 +171,7 @@ box が伸び続ける挙動を構造的に排除する。
 </doc>
 
 <script setup lang="ts">
-import { computed, ref, useTemplateRef, watch } from "vue";
+import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { usePopover } from "../../shared/popover";
 import { taskDisplayTitle, useRepoStore } from "../../shared/repo";
 import type { UndockDragHandoff } from "../floating-window";
@@ -167,16 +179,23 @@ import {
   isSameSpeech,
   parseSessionLog,
   SessionLogMessageBody,
-  SessionLogSpeechText,
   SPEAKER_SURFACE_CLASS,
-  speechesOf,
   type Speech,
   useUndockedLog,
   useSessionLogLive,
 } from "../session-log";
-import { collectMessages, countInProgressActions } from "./terminalSessionPreviewMessages";
+import { keepInPlace } from "./keepInPlace";
+import {
+  collectRuns,
+  countInProgressActions,
+  type PreviewRun,
+  type PreviewSpeech,
+  previewSpeeches,
+  type RevealSide,
+  runKey,
+} from "./terminalSessionPreviewMessages";
 import TerminalSessionPreviewProgressDots from "./TerminalSessionPreviewProgressDots.vue";
-import TerminalSessionPreviewSpeakerRow from "./TerminalSessionPreviewSpeakerRow.vue";
+import TerminalSessionPreviewRun from "./TerminalSessionPreviewRun.vue";
 import { useTerminalStore } from "./useTerminalStore";
 import IconMdiDockWindow from "~icons/mdi/dock-window";
 
@@ -202,27 +221,32 @@ const { sessions } = useSessionLogLive(sessionId);
 // JSONL を都度 parse する。preview は最新の会話発話だけを run 単位で見せるため
 // branchSelection は不要 (parseSessionLog は未指定で最新枝にフォールバックする)。
 //
-// events 列のうち吹き出しにするのは `speechesOf` が返す発言だけ。actionCount は吹き出し選別前の
+// events 列のうち吹き出しにするのは `previewSpeeches` が返す発言だけ。actionCount は吹き出し選別前の
 // events 列 (末尾に積まれた tool の件数) から数えるため、speeches と同じ 1 回の parse 結果を
-// 両方の派生元にする。
+// 両方の派生元にする。id は run の開閉状態の key に使い、発言と同じセッションログから取る。
 interface ParsedPreview {
-  speeches: Speech[];
+  /** セッションログ 1 本の id (main は session_id、sub は agent_id) */
+  id: string;
+  speeches: PreviewSpeech[];
   /** 直近の発言以降のアクション件数。0 なら進行中でない */
   actionCount: number;
 }
 
-function parsePreview(content: string): ParsedPreview {
-  const { events } = parseSessionLog(content);
-  return { speeches: events.flatMap(speechesOf), actionCount: countInProgressActions(events) };
+function parsePreview(log: { id: string; content: string }): ParsedPreview {
+  const { events } = parseSessionLog(log.content);
+  return {
+    id: log.id,
+    speeches: previewSpeeches(events),
+    actionCount: countInProgressActions(events),
+  };
 }
 
 // 最後に発言があった ts。tool だけ走り続けている subagent (大規模 grep / spawn) はここの
 // 最新性に寄与させない。tool ts まで含めると実際に対話している subagent が押し出されて
 // preview の主役が反転するため。
-function lastConversationTs(events: Speech[]): number {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i];
-    const ms = Date.parse(e.ts);
+function lastConversationTs(items: PreviewSpeech[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const ms = Date.parse(items[i].speech.ts);
     if (!Number.isNaN(ms)) return ms;
   }
   return 0;
@@ -232,7 +256,7 @@ function lastConversationTs(events: Speech[]): number {
 // computed に切る。
 const mainParsed = computed<ParsedPreview>(() => {
   const main = sessions.value.find((s) => s.kind === "main");
-  return main === undefined ? { speeches: [], actionCount: 0 } : parsePreview(main.content);
+  return main === undefined ? { id: "", speeches: [], actionCount: 0 } : parsePreview(main);
 });
 // transcript 末尾が tool でも、ユーザーが Ctrl+C/Escape で中断した直後は
 // Claude Code が transcript に新規イベントを追記しない (interrupt 通知フックが無いため。
@@ -244,33 +268,38 @@ const mainActionCount = computed<number>(() =>
   terminalStore.getClaudeState(props.leafId) === "working" ? mainParsed.value.actionCount : 0,
 );
 
-// 最後に発言があった subagent 1 つの events + 表示ラベル (subagentLabel が組み立てた
+// 最後に発言があった subagent 1 つの id + events + 表示ラベル (subagentLabel が組み立てた
 // agent 名 / workflow 見出し) + actionCount。発言の最終 ts で判定し、tool 単独走行の
 // subagent はここでの最新性に寄与させない。events と label を 1 つの computed にまとめておくと
 // sub overlay の見出しと本文が同じ subagent から派生する不変条件を構造的に担保できる。
-const newestSub = computed<{ label: string; events: Speech[]; actionCount: number } | undefined>(
-  () => {
-    const subs = sessions.value
-      .filter((s) => s.kind !== "main")
-      .map((s) => {
-        const parsed = parsePreview(s.content);
-        return { label: s.label, events: parsed.speeches, actionCount: parsed.actionCount };
-      })
-      .filter((x) => x.events.length > 0);
-    if (subs.length === 0) return undefined;
-    let newest = subs[0];
-    let newestMs = lastConversationTs(newest.events);
-    for (let i = 1; i < subs.length; i++) {
-      const ms = lastConversationTs(subs[i].events);
-      if (ms > newestMs) {
-        newestMs = ms;
-        newest = subs[i];
-      }
+const newestSub = computed<
+  { id: string; label: string; events: PreviewSpeech[]; actionCount: number } | undefined
+>(() => {
+  const subs = sessions.value
+    .filter((s) => s.kind !== "main")
+    .map((s) => {
+      const parsed = parsePreview(s);
+      return {
+        id: parsed.id,
+        label: s.label,
+        events: parsed.speeches,
+        actionCount: parsed.actionCount,
+      };
+    })
+    .filter((x) => x.events.length > 0);
+  if (subs.length === 0) return undefined;
+  let newest = subs[0];
+  let newestMs = lastConversationTs(newest.events);
+  for (let i = 1; i < subs.length; i++) {
+    const ms = lastConversationTs(subs[i].events);
+    if (ms > newestMs) {
+      newestMs = ms;
+      newest = subs[i];
     }
-    return newest;
-  },
-);
-const subEvents = computed<Speech[]>(() => newestSub.value?.events ?? []);
+  }
+  return newest;
+});
+const subEvents = computed<PreviewSpeech[]>(() => newestSub.value?.events ?? []);
 // sub は Task ツールで起動される仮想セッションで PTY を持たず ClaudeStatus が存在しないため、
 // main と異なり transcript ベースの推定 (`parsePreview` の actionCount) だけで判定する。
 const subActionCount = computed<number>(() => newestSub.value?.actionCount ?? 0);
@@ -283,10 +312,44 @@ const subLabel = computed<string>(() => {
   return label !== undefined && label !== "" ? label : "Subagent";
 });
 
-// bubble 選択は run 単位の純粋関数 `collectMessages` (terminalSessionPreviewMessages.ts) に
-// 委譲する。選択規則の詳細はそちらのコメントとテストを参照。
-const mainMessages = computed<Speech[]>(() => collectMessages(mainParsed.value.speeches));
-const subMessages = computed<Speech[]>(() => collectMessages(subEvents.value));
+// run への束ねと行の並びは純粋関数 `collectRuns` / `runRows` (terminalSessionPreviewMessages.ts)
+// に委譲する。規則の詳細はそちらのコメントとテストを参照。
+const mainRuns = computed<PreviewRun[]>(() => collectRuns(mainParsed.value.speeches));
+const subRuns = computed<PreviewRun[]>(() => collectRuns(subEvents.value));
+
+// 開いた発言をトグルのどちら側に出すか (<doc> の「表示」)
+const REVEAL_SIDE: Record<"main" | "sub", RevealSide> = {
+  main: "below",
+  sub: "above",
+};
+
+// 開いている run の key (`runKey`) の集合
+const expandedRunKeys = ref(new Set<string>());
+
+function logIdOf(origin: "main" | "sub"): string {
+  if (origin === "main") return mainParsed.value.id;
+  const sub = newestSub.value;
+  if (sub === undefined) throw new Error("sub overlay has no session log");
+  return sub.id;
+}
+
+function isRunExpanded(origin: "main" | "sub", run: PreviewRun): boolean {
+  return expandedRunKeys.value.has(runKey(logIdOf(origin), run));
+}
+
+const mainScrollerRef = useTemplateRef<HTMLElement>("mainScroller");
+const subScrollerRef = useTemplateRef<HTMLElement>("subScroller");
+
+async function toggleRun(origin: "main" | "sub", run: PreviewRun, anchor: HTMLElement) {
+  const scroller = origin === "main" ? mainScrollerRef.value : subScrollerRef.value;
+  if (scroller === null) throw new Error(`${origin} overlay has no scroller`);
+  const key = runKey(logIdOf(origin), run);
+  await keepInPlace(anchor, scroller, async () => {
+    // delete が false (= 閉じていた) なら開く
+    if (!expandedRunKeys.value.delete(key)) expandedRunKeys.value.add(key);
+    await nextTick();
+  });
+}
 
 // クリックで全文を出す popover。origin は anchor が main / sub overlay のどちらに属するかで、
 // popover の開く向きに使う (main は anchor の下に、sub は anchor の上に開く)。
@@ -333,9 +396,7 @@ function isShowingPreview(msg: Speech, origin: "main" | "sub"): boolean {
   return ctx.origin === origin && isSameSpeech(ctx.msg, msg);
 }
 
-function togglePreview(event: MouseEvent, msg: Speech, origin: "main" | "sub") {
-  const anchor = event.currentTarget;
-  if (!(anchor instanceof HTMLElement)) return;
+function togglePreview(anchor: HTMLElement, msg: Speech, origin: "main" | "sub") {
   // 同 message の再クリックは close。light-dismiss (pointerdown) が click より先に popover を
   // 閉じていても、@toggle "closed" は task-queued で context がまだ残っているため同期判定できる
   // (usePopover.toggle と同じ理屈)。hidePopover は dismiss 済みなら no-op の冪等な保険。
@@ -500,10 +561,10 @@ function onSubToggle(event: Event) {
   subOpen.value = event.target.open;
 }
 
-// 各 overlay は bubble が 1 件でもあれば出す。session が無いときは events が空なので
-// collectMessages も空配列を返し、副次的にカバーされる。
-const hasMain = computed(() => mainMessages.value.length > 0);
-const hasSub = computed(() => subMessages.value.length > 0);
+// 各 overlay は run が 1 つでもあれば出す (run は必ず発言を 1 件以上持つ)。session が無いときは
+// events が空なので collectRuns も空配列を返し、副次的にカバーされる。
+const hasMain = computed(() => mainRuns.value.length > 0);
+const hasSub = computed(() => subRuns.value.length > 0);
 
 // anchor proxy は overlay root (v-if) ごと unmount され得る (session 切替で sessions が
 // 一旦空になる等)。anchor を失った popover は UA fallback 位置 (左上) へ飛ぶため、表示中
@@ -520,8 +581,7 @@ watch([hasMain, hasSub], ([main, sub]) => {
 </script>
 
 <template>
-  <!-- main: 右上。最新 3 応答分 (run 単位) を時系列順に LINE 風吹き出しで並べる。
-       key に index を含めるのは、最新 assistant run の連続発言が同一 ts を持ち得るため -->
+  <!-- main: 右上。全 run を時系列順に LINE 風吹き出しで並べる -->
   <div
     v-if="hasMain"
     class="pointer-events-none absolute top-1 right-3 z-10 w-56 max-w-[35%] overflow-hidden rounded-md bg-background/70 text-xs/tight"
@@ -550,24 +610,19 @@ watch([hasMain, hasSub], ([main, sub]) => {
            通常の scroll container (bubble の隙間でも wheel が overlay のスクロールに
            なる)。root の余白だけが pointer-events-none でターミナルへ透過する -->
       <div
+        ref="mainScroller"
         class="pointer-events-auto flex max-h-[calc(50cqh-2rem)] flex-col-reverse overflow-y-auto p-2"
       >
         <div class="flex flex-col gap-1">
-          <TerminalSessionPreviewSpeakerRow
-            v-for="(msg, i) in mainMessages"
-            :key="`${i}-${msg.speaker}-${msg.ts}`"
-            :speaker="msg.speaker"
-          >
-            <button
-              type="button"
-              class="block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
-              :class="SPEAKER_SURFACE_CLASS[msg.speaker]"
-              :title="msg.text"
-              @click="togglePreview($event, msg, 'main')"
-            >
-              <SessionLogSpeechText class="line-clamp-2" :text="msg.text" :mark="msg.mark" />
-            </button>
-          </TerminalSessionPreviewSpeakerRow>
+          <TerminalSessionPreviewRun
+            v-for="run in mainRuns"
+            :key="run.start"
+            :run="run"
+            :expanded="isRunExpanded('main', run)"
+            :reveal-side="REVEAL_SIDE.main"
+            @toggle="toggleRun('main', run, $event)"
+            @select="(anchor, msg) => togglePreview(anchor, msg, 'main')"
+          />
           <TerminalSessionPreviewProgressDots :count="mainActionCount" />
         </div>
       </div>
@@ -600,24 +655,19 @@ watch([hasMain, hasSub], ([main, sub]) => {
            open/close と summary 表示制御だけに使い、レイアウト / スクロールは中の div に
            閉じる。wrapper の構造は main と同じ。 -->
       <div
+        ref="subScroller"
         class="pointer-events-auto flex max-h-[calc(50cqh-2rem)] flex-col-reverse overflow-y-auto p-2"
       >
         <div class="flex flex-col gap-1">
-          <TerminalSessionPreviewSpeakerRow
-            v-for="(msg, i) in subMessages"
-            :key="`${i}-${msg.speaker}-${msg.ts}`"
-            :speaker="msg.speaker"
-          >
-            <button
-              type="button"
-              class="block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
-              :class="SPEAKER_SURFACE_CLASS[msg.speaker]"
-              :title="msg.text"
-              @click="togglePreview($event, msg, 'sub')"
-            >
-              <SessionLogSpeechText class="line-clamp-2" :text="msg.text" :mark="msg.mark" />
-            </button>
-          </TerminalSessionPreviewSpeakerRow>
+          <TerminalSessionPreviewRun
+            v-for="run in subRuns"
+            :key="run.start"
+            :run="run"
+            :expanded="isRunExpanded('sub', run)"
+            :reveal-side="REVEAL_SIDE.sub"
+            @toggle="toggleRun('sub', run, $event)"
+            @select="(anchor, msg) => togglePreview(anchor, msg, 'sub')"
+          />
           <TerminalSessionPreviewProgressDots :count="subActionCount" />
         </div>
       </div>

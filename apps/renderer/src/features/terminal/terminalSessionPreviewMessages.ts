@@ -14,13 +14,16 @@ import { speechesOf, type Speech, type SpeechSpeaker, type TranscriptEvent } fro
  * 吹き出しにならない tool 以外の event (system / image / branch 等) は数えずに読み飛ばす。
  * system は tool_use → hook attachment → tool_result の JSONL 順で tool_result 到着前に末尾へ
  * 来るため、打ち切ると tool 実行中に進行中表示が消える。
+ *
+ * 例外は中断 (`interrupt`) で、吹き出しにならないが打ち切る。中断より前の tool はユーザーが
+ * 止めた作業で、進行中ではない。
  */
 export function countInProgressActions(events: TranscriptEvent[]): number {
   let count = 0;
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
     if (ev === undefined) continue;
-    if (speechesOf(ev).length > 0) return count;
+    if (ev.kind === "interrupt" || speechesOf(ev).length > 0) return count;
     if (ev.kind === "tool") count++;
   }
   return count;

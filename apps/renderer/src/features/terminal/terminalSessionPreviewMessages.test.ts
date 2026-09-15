@@ -300,4 +300,15 @@ describe("countInProgressActions", () => {
   test("末尾が image でも直近のアクション件数を返す", () => {
     expect(countInProgressActions([user, tool, tool, image])).toBe(2);
   });
+
+  const interrupt: TranscriptEvent = { kind: "interrupt", ts: "2026-06-12T00:00:00Z" };
+
+  // 中断は吹き出しに出ないが、それより前の tool はユーザーが止めた作業で進行中ではない。
+  test("末尾が中断ならリセットされる", () => {
+    expect(countInProgressActions([user, tool, tool, interrupt])).toBe(0);
+  });
+
+  test("中断より後の tool だけを数える", () => {
+    expect(countInProgressActions([user, tool, interrupt, tool])).toBe(1);
+  });
 });

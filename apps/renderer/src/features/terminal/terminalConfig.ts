@@ -15,7 +15,7 @@ import { ref } from "vue";
  * の CSS は確実に DOM に load 済み。module top-level での同期評価は避ける
  * (CSS の load 順序と JS module evaluation の順序保証がない)。
  *
- * 失敗は silent fallback せず throw する (CLAUDE.md 規約):
+ * 失敗は silent fallback せず throw する:
  *   - CSS variable 未解決 → CSS が load 前に呼ばれている。bug
  *   - canvas context unavailable → renderer 環境異常。bug
  */

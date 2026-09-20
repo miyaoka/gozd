@@ -155,7 +155,7 @@ export function useSessionLogLive(
   }
 
   // native の watch_dir 契約は「常に非空の path を返す」。空文字は contract 違反なので
-  // silent に「watch 解除」に倒さず error 化する (CLAUDE.md「fallback せずエラーにする」)。
+  // silent に「watch 解除」に倒さず error 化する (fallback せずエラーにする)。
   function applyWatchDir(watchDir: string) {
     if (watchDir === "") {
       notify.error(

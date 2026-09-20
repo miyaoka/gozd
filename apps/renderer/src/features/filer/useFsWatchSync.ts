@@ -11,7 +11,7 @@
  *   `rpcFsWatch` / `rpcFsUnwatch` で発射する。watch 対象集合の計算ロジックは store に
  *   閉じている（SSOT: repos の所有者 = 派生値の所有者）
  * - 非 git project（`isGitRepo === false`）は rootDir そのものを watch（FS 変化のみ）
- * - 失敗はトーストで通知（CLAUDE.md 規律）。複数同時失敗は集約 1 件にする
+ * - 失敗はトーストで通知する。複数同時失敗は集約 1 件にする
  * - 新規 watch 開始後に `fsWatchReady` を発射して、購読側に 1 度だけ再同期させる
  * - **並列実行を generation で serialize する**: `watch` は依存変更で再 run するが
  *   前回の async コールバック完了を待たない。前回が `watchedDirs` を更新する前に次回が

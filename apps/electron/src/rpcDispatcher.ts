@@ -20,7 +20,7 @@ export interface RpcContext {
 /** webContents 宛の push を作る。破棄済みで送れなかった push は観察ログに残す。
  *
  * silent drop にしないのは、push の一部が「mount 時の pull で取り直せない payload」を
- * 運ぶため（CLAUDE.md の silent drop 禁止）。取りこぼしたことすら残らないと、UI に何も
+ * 運ぶため（silent drop 禁止）。取りこぼしたことすら残らないと、UI に何も
  * 起きなかった理由を後から再構築できない。
  *
  * webContents の破棄はウィンドウの close を意味し、gozd は単一ウィンドウ運用で直後に

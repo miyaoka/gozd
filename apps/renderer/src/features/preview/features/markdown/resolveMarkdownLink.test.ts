@@ -120,7 +120,7 @@ describe("resolveMarkdownLink", () => {
     });
 
     test("../ で親ディレクトリに上がる", () => {
-      expectInternalRel("../CLAUDE.md", relBase("docs/preview.md"), { relPath: "CLAUDE.md" });
+      expectInternalRel("../README.md", relBase("docs/preview.md"), { relPath: "README.md" });
     });
 
     test("名前のみのリンクは basePath の dir 基準で解決", () => {
@@ -128,7 +128,7 @@ describe("resolveMarkdownLink", () => {
     });
 
     test("/ 始まりは worktree ルート相対", () => {
-      expectInternalRel("/CLAUDE.md", relBase("docs/preview.md"), { relPath: "CLAUDE.md" });
+      expectInternalRel("/README.md", relBase("docs/preview.md"), { relPath: "README.md" });
     });
 
     test("root file から ./other.md は worktree root 基準で結合", () => {

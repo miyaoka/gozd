@@ -19,7 +19,7 @@
  * toast 自身の操作であり primary action ではない)。見逃しは center が受け皿として回収する。
  *
  * `error` / `warning` / `info` は toast 表示 + console 出力、`debug` は **console.debug への
- * 集約窓口**で toast 表示なし。renderer 規約 (CLAUDE.md エラーハンドリング) で
+ * 集約窓口**で toast 表示なし。renderer 規約で
  * 「呼び出し側で console を直書きしない (store 経由)」方針を満たすため、
  * 切り分け用 log もこの store 経由で発火する。
  */
@@ -223,7 +223,7 @@ function clear() {
  * 観測専用の log を出す。toast には載せず console.debug にだけ出力する。
  * 「ユーザーには見せたくないが dev tools での切り分けには使いたい」用途
  * (state machine の no-op 経路、低頻度の境界条件) を notification store 経由に
- * 集約することで、CLAUDE.md「呼び出し側で console を直書きしない」規約と整合させる。
+ * 集約することで、「呼び出し側で console を直書きしない」規約と整合させる。
  */
 function debug(message: string, payload?: unknown) {
   console.debug(message, ...(payload !== undefined ? [payload] : []));

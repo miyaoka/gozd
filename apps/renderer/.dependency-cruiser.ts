@@ -1,4 +1,4 @@
-// feature 間依存の循環禁止 (CLAUDE.md「feature 間の依存」)。
+// feature 間依存の循環禁止。
 //
 // scope: "folder" は module を全祖先フォルダへ集約したフォルダ粒度のグラフで循環を
 // 判定する。包含関係にあるフォルダ間（feature とその子 feature）は原理的に循環に

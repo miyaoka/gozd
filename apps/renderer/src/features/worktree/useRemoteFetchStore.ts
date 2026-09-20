@@ -122,7 +122,7 @@ export function isRepoFetchDue(args: {
  *   同時実行数を絞る。可視集合の同時 fetch が cap を超えたぶんは queue し、TLS 接続バーストによる
  *   connect hang を断つ
  * - 成功・失敗を区別せず 60s の単一周期で lock（`REMOTE_FETCH_INTERVAL_MS`）
- * - 失敗の通知は経路ごとに方針が分かれる (CLAUDE.md `console.error で握り潰さない`)。間引く側は
+ * - 失敗の通知は経路ごとに方針が分かれる (`console.error` で握り潰さない)。間引く側は
  *   同一 repo を `FAILURE_NOTIFY_INTERVAL_MS` に 1 回へ絞る: 毎周期の再通知は center の 100 件枠を
  *   食い潰し、他サブシステムの未読 error を巻き添えで押し出すため。event-log には毎回
  *   detail 込みで残す。成功で間引きは解除され、次の失敗エピソードは即通知に戻る

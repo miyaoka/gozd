@@ -4,7 +4,7 @@
  * 実行される (module 評価は import 時に 1 回)。コードファイルを開かないユーザーはロードしない。
  *
  * Vite plugin (`vite-plugin-monaco-editor-esm` 等) は使わない。最終更新から 1 年以上経過しており
- * 依存先として採用しない (CLAUDE.md 生存判定規律)。代わりに Vite 標準の `?worker` import で
+ * 依存先として採用しない。代わりに Vite 標準の `?worker` import で
  * worker を手動セットアップする (同ジャンルの実プロダクト stablyai/orca と同じ方式)。
  *
  * TypeScript の semantic validation (noSemanticValidation 等) は無効化しない。gozd は viewer /

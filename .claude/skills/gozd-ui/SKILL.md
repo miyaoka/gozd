@@ -382,12 +382,11 @@ native アプリ志向の UI なので、chrome (ボタン / ラベル / ツリ�
 - 矢印キー navigation の container に WAI-ARIA role が付いているか
 - focus を受け取る要素に focus ring 表現があるか
 - 固定値の inline style (`:style="{ marginTop: '2px' }"` 等) を使っていないか
-- 新規 SFC に `<doc lang="md">` ブロックを書いたか (apps/renderer/CLAUDE.md 規約)
-- 新規 SFC のテキストが英語か (apps/renderer/CLAUDE.md 規約)
+- 新規 SFC に `<doc lang="md">` ブロックを書いたか
+- 新規 SFC のテキストが英語か
 
 ## 参照
 
 - Token SSOT: `apps/renderer/src/assets/main.css` の `:root` (Tier 1) + `@theme inline` (Tier 2)
 - Primitive 生成 package: [`packages/design-tokens`](../../../packages/design-tokens) (Adobe Leonardo contrast-driven、prepare で自動 build)
 - Lint plugin: `packages/eslint-plugin/src/rules/noRawTailwindPalette.ts`
-- Renderer 全体規約: `apps/renderer/CLAUDE.md`

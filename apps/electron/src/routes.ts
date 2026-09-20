@@ -257,7 +257,7 @@ let ptyPush: PushFn | undefined;
 // thunk で受ける。二段構えの理由: event-log push は packaged UI で見えるが、束縛前や window
 // クローズ後は無音で落ちる。console.error は packaged では UI に出ないが dev で可視かつ push が
 // 落ちても残る floor になる。両方出して失敗経路（crashed / fatal-error 等）の silent drop を
-// 防ぐ（CLAUDE.md 観察ログ規約）。隔離プロセス側（watcherProcess / ptyHost）の child stderr は
+// 防ぐ。隔離プロセス側（watcherProcess / ptyHost）の child stderr は
 // 不可視なので、そちらは console.error を使わず log message を main へ投げる分業はそのまま
 const makeDebugLogPush =
   (getPush: () => PushFn | undefined) => (channel: string, label: string, detail: string) => {

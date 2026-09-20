@@ -288,8 +288,8 @@ export function readClaudeSessionLog(
   projectsDir: string = defaultProjectsDir(),
 ): ClaudeSessionLogResult {
   // projectsDir 不在 (Claude 未起動環境など) では watchDir を空文字に倒す。renderer 側で
-  // notify.error 化され、silent に「watch なし」状態にならない (CLAUDE.md「fallback せずに
-  // エラーにする」)。ワイヤ契約「非空 watchDir は実在を保証」をここで担保する
+  // notify.error 化され、silent に「watch なし」状態にならない (fallback せずエラーにする)。
+  // ワイヤ契約「非空 watchDir は実在を保証」をここで担保する
   if (!isDirectory(projectsDir)) {
     return { found: false, entries: [], watchDir: "" };
   }

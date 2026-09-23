@@ -34,7 +34,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: ./.github/actions/setup-environment
+      - uses: $/.github/actions/setup-environment
 
       # 各 package の fix は lint --fix → oxfmt の順で formatter が最後に走るため 1 パスで
       # 固定点に達する。収束を待つループは不要

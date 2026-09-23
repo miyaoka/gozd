@@ -130,7 +130,7 @@ jobs:
           # トークンを git config に残さない
           persist-credentials: false
 
-      - uses: ./.github/actions/setup-environment
+      - uses: $/.github/actions/setup-environment
 
       # リリースビルドは canary / stable どちらも stable identity（GOZD_BUILD_CHANNEL）。
       # canary は tag 由来の version を extraMetadata で焼き込む。stable は人間が bump 済みの

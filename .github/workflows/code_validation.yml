@@ -42,8 +42,8 @@ jobs:
           # matrix はスクリプト名だけを持ち、コマンド行は step 側に固定する。matrix にコマンド
           # 文字列を持たせて実行すると、そこへ混入した式は検査から見えないままシェルで実行される
           #
-          # script: 差分モードで選択した各 workspace で実行するスクリプト。持たない列は差分
-          #   フィルタを持たず、両モードで full_script を実行する
+          # script: 差分モードで選択した各 workspace で実行するスクリプト。script を持たない
+          #   エントリは差分フィルタを持たず、両モードで full_script を実行する
           # full_script: 全体モードで実行する root のスクリプト
           #
           # 差分モードに --include-workspace-root は要らない: 正のフィルタ（`--filter`）を
@@ -106,7 +106,7 @@ jobs:
       # pnpm-workspace.yaml: catalog でバージョン管理、各 package.json は catalog: 参照のため差分が出ない
       # mise.toml: Node.js/pnpm/Bun バージョン
       # package.json: 集約スクリプト（*:all）の定義元。root には build / typecheck の script が
-      # 無く差分モードでは --if-present で素通りするため、ここを触った PR は full_command に
+      # 無く差分モードでは --if-present で素通りするため、ここを触った PR は全体モードに
       # 切り替えないと集約スクリプト自身の破損を検出できない（glob に ** を付けないので
       # apps/*/package.json は対象外。そちらは差分フィルタが当該パッケージを選ぶ）
       - uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62 # v47

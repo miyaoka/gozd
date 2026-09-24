@@ -133,14 +133,11 @@ interface RawMessage {
 // - "task-notification": バックグラウンドタスクの完了通知
 // - "peer": 他のエージェントからのメッセージ。このセッションの subagent (hand-back 報告と
 //   SendMessage) は senderTaskId を持ち、他セッションからの cross-session メッセージは持たない
-// 信頼境界外の入力なので、値の型は使う側で typeof を確かめる (unknown で宣言する)。
 interface RawQueueOrigin {
   kind?: unknown;
   senderTaskId?: unknown;
-  // 送り手の表示名。cross-session では相手セッション名、名前付き subagent ではその名前。
   name?: unknown;
-  // 送り手の識別子 (hand-back は subagent id / 名前付き subagent はその名前 / cross-session は
-  // ソケットパス)。name が無いときの送り手表示に使う。
+  // hand-back は subagent id、cross-session はソケットパス。
   from?: unknown;
   // ラッパータグを含まないメッセージ本文。
   body?: unknown;
@@ -246,10 +243,7 @@ function isCoordinatorMessage(raw: RawLine): boolean {
   return raw.type === "user" && raw.origin?.kind === "coordinator";
 }
 
-/**
- * queued_command の話者。"hidden" は会話に載せず skipped に計上する。teammate は送り手と
- * ラッパータグを含まない本文を origin から取る。
- */
+/** queued_command の話者。"hidden" は会話に載せず skipped に計上する。 */
 type QueuedCommandSpeaker =
   | { speaker: "user" }
   | { speaker: "teammate"; from: string; text: string }
@@ -258,15 +252,13 @@ type QueuedCommandSpeaker =
 const USER: QueuedCommandSpeaker = { speaker: "user" };
 const HIDDEN: QueuedCommandSpeaker = { speaker: "hidden" };
 
-/** 信頼境界外の値を string に限って取り出す。 */
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
 /**
- * peer の話者。このセッションの subagent (senderTaskId あり) からのメッセージは sub 側の
- * transcript で読めるため main には出さない。他セッションからのメッセージは読める場所が
- * 他に無いため teammate として出す。本文が空なら出す中身が無いので hidden。
+ * このセッションの subagent からのメッセージは sub 側の transcript で読めるため main には
+ * 出さない。他セッションからのメッセージは読める場所が他に無いため teammate として出す。
  */
 function peerSpeaker(origin: RawQueueOrigin): QueuedCommandSpeaker {
   if (origin.senderTaskId !== undefined) return HIDDEN;
@@ -284,13 +276,11 @@ const QUEUED_COMMAND_SPEAKER_BY_KIND = new Map<
   (origin: RawQueueOrigin) => QueuedCommandSpeaker
 >([
   ["human", () => USER],
-  // /goal はユーザーの操作なので、待機中に打って `<command-name>/goal` として記録される場合と
-  // 同じくユーザーの発言として出す。
+  // 待機中に打った /goal と同じくユーザーの発言として出す。
   ["auto-continuation", () => USER],
   ["peer", peerSpeaker],
 ]);
 
-/** commandMode:"prompt" の queued_command を誰の発言として出すか。 */
 function queuedCommandSpeaker(attachment: RawAttachment): QueuedCommandSpeaker {
   const origin = attachment.origin;
   if (origin === undefined) return USER;

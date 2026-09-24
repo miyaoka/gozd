@@ -748,7 +748,6 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(0);
   });
 
-  // 作業中に打った /goal は harness が "Goal set: <条件>" として積む。ユーザーの操作なので出す。
   test("queued_command の origin:auto-continuation は user イベントにする", () => {
     const log = parseSessionLog(
       jsonl({
@@ -766,9 +765,7 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(0);
   });
 
-  // このセッションの subagent の報告は senderTaskId を持ち、sub 側の transcript で読めるため
-  // main には出さない。実ログの isMeta は peer の attachment 内に付き、record の top-level には
-  // 付かないため、top-level の isMeta filter では落ちない。
+  // 実ログの isMeta は attachment 内に付き、top-level の isMeta filter では落ちない。
   test.each([
     {
       label: "hand-back",
@@ -807,8 +804,6 @@ describe("parseSessionLog", () => {
     },
   );
 
-  // 他セッションからのメッセージは senderTaskId を持たず、読める場所が他に無いため teammate
-  // として出す。本文はラッパータグを含まない origin.body を使う。
   test("queued_command の cross-session peer は teammate イベントにする", () => {
     const log = parseSessionLog(
       jsonl({
@@ -854,8 +849,6 @@ describe("parseSessionLog", () => {
     ]);
   });
 
-  // 通知と、話者または本文を判別できない origin はユーザー発言にしない。origin は信頼境界外の
-  // 入力なので、null や prototype のメンバー名の kind でも例外にせず skipped に倒す。
   test.each([
     { label: "task-notification", origin: { kind: "task-notification" } },
     { label: "未知の kind", origin: { kind: "future-kind" } },
@@ -1198,8 +1191,8 @@ describe("parseSessionLog", () => {
     ]);
   });
 
-  // 実観測形 (studio-front jsonl) を再現する fixture builder。AskUserQuestion 投げた直後にセッション
-  // が切れ `claude --continue` 相当で resume されたケース。木の形:
+  // AskUserQuestion 投げた直後にセッションが切れ `claude --continue` 相当で resume されたケース。
+  // 木の形:
   //
   //   u1 (user 生発話, candidate)
   //     ├─ a0 (assistant thinking; signature のみで平文は空 → NOT candidate)

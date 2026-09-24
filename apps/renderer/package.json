@@ -48,7 +48,7 @@
     "@miyaoka/vite-plugin-doc-block": "0.0.3",
     "@tailwindcss/vite": "catalog:",
     "@types/bun": "catalog:",
-    "@vitejs/plugin-vue": "6.0.8",
+    "@vitejs/plugin-vue": "6.0.9",
     "@vitest/browser-playwright": "5.0.1",
     "@vue/eslint-config-prettier": "10.2.0",
     "@vue/eslint-config-typescript": "14.9.0",

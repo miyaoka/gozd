@@ -731,7 +731,152 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(1);
   });
 
-  // commandMode を採否の SSOT にするため、本文がタグ始まりの正当な生発話 (<span> や
+  test("queued_command の origin:human は user イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          commandMode: "prompt",
+          origin: { kind: "human" },
+          prompt: "これも見て",
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "これも見て", ts: TS }]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("queued_command の origin:auto-continuation は user イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          commandMode: "prompt",
+          origin: { kind: "auto-continuation" },
+          prompt: "Goal set: テストを通す",
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "Goal set: テストを通す", ts: TS }]);
+    expect(log.skipped).toBe(0);
+  });
+
+  // 実ログの isMeta は attachment 内に付き、top-level の isMeta filter では落ちない。
+  test.each([
+    {
+      label: "hand-back",
+      origin: { kind: "peer", from: "a1", senderTaskId: "a1", body: "report", handback: true },
+      prompt: '<agent-message from="a1">\n  report\n</agent-message>',
+    },
+    {
+      label: "名前付き subagent の SendMessage",
+      origin: {
+        kind: "peer",
+        from: "reviewer",
+        name: "reviewer",
+        senderTaskId: "areviewer-1",
+        body: "done",
+      },
+      prompt: '<agent-message from="reviewer">\ndone\n</agent-message>',
+    },
+  ])(
+    "queued_command の subagent からの peer ($label) は載せず skipped に計上",
+    ({ origin, prompt }) => {
+      const log = parseSessionLog(
+        jsonl({
+          type: "attachment",
+          timestamp: TS,
+          attachment: {
+            type: "queued_command",
+            commandMode: "prompt",
+            origin,
+            isMeta: true,
+            prompt,
+          },
+        }),
+      );
+      expect(log.events).toEqual([]);
+      expect(log.skipped).toBe(1);
+    },
+  );
+
+  test("queued_command の cross-session peer は teammate イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          commandMode: "prompt",
+          origin: {
+            kind: "peer",
+            from: "uds:/tmp/x.sock",
+            name: "session-a",
+            fromMode: "prompting",
+            body: "実装に進んでください",
+          },
+          isMeta: true,
+          prompt:
+            '<cross-session-message from="uds:/tmp/x.sock" from-name="session-a">\n実装に進んでください\n</cross-session-message>',
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "teammate", ts: TS, from: "session-a", summary: "", text: "実装に進んでください" },
+    ]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("queued_command の cross-session peer は name が無ければ from を送り手にする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          commandMode: "prompt",
+          origin: { kind: "peer", from: "uds:/tmp/x.sock", body: "確認して" },
+          prompt: "",
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "teammate", ts: TS, from: "uds:/tmp/x.sock", summary: "", text: "確認して" },
+    ]);
+  });
+
+  test.each([
+    { label: "task-notification", origin: { kind: "task-notification" } },
+    { label: "未知の kind", origin: { kind: "future-kind" } },
+    { label: "kind 欠落", origin: {} },
+    { label: "origin が null", origin: null },
+    { label: "prototype メンバー名の kind (toString)", origin: { kind: "toString" } },
+    { label: "prototype メンバー名の kind (__proto__)", origin: { kind: "__proto__" } },
+    { label: "cross-session peer の body 欠落", origin: { kind: "peer", name: "s" } },
+    {
+      label: "cross-session peer の body が string 以外",
+      origin: { kind: "peer", name: "s", body: 1 },
+    },
+  ])(
+    "queued_command の origin ($label) は commandMode:prompt でも載せず skipped に計上",
+    ({ origin }) => {
+      const log = parseSessionLog(
+        jsonl({
+          type: "attachment",
+          timestamp: TS,
+          attachment: { type: "queued_command", commandMode: "prompt", origin, prompt: "本文" },
+        }),
+      );
+      expect(log.events).toEqual([]);
+      expect(log.skipped).toBe(1);
+    },
+  );
+
+  // 採否を構造化フィールドで決め本文パターンを見ないため、本文がタグ始まりの正当な生発話 (<span> や
   // <command-name> を含む議論) を切り詰めず verbatim で出す。
   test("queued_command の commandMode:prompt はタグ始まりの本文も verbatim で出す", () => {
     const log = parseSessionLog(
@@ -1046,8 +1191,8 @@ describe("parseSessionLog", () => {
     ]);
   });
 
-  // 実観測形 (studio-front jsonl) を再現する fixture builder。AskUserQuestion 投げた直後にセッション
-  // が切れ `claude --continue` 相当で resume されたケース。木の形:
+  // AskUserQuestion 投げた直後にセッションが切れ `claude --continue` 相当で resume されたケース。
+  // 木の形:
   //
   //   u1 (user 生発話, candidate)
   //     ├─ a0 (assistant thinking; signature のみで平文は空 → NOT candidate)

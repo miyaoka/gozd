@@ -10,10 +10,10 @@
 // ParsedSessionLog.skipped に集計して観察可能性を残す (silent drop 禁止規律: 落とした事実を
 // 呼び出し元が UI で示せるようにする)。
 //
-// attachment は原則 skipped だが、`queued_command` (エージェント作業中にユーザーが打ち
-// queue に積んだ発話) だけは例外で、本文が `type:"user"` に昇格せず attachment.prompt にしか
-// 残らないことがあるため user イベントにする。採否は上流が分類済みの attachment.commandMode
-// を SSOT にし、生発話 ("prompt") のみ拾う。注入通知 ("task-notification" 等) は除外する。
+// attachment は原則 skipped だが、`queued_command` (エージェント作業中に queue に積まれた
+// 会話ターン) だけは例外で、本文が `type:"user"` に昇格せず attachment.prompt にしか残らない
+// ことがあるため会話イベントにする。queue に積む主体はユーザーに限らない。採否と話者は上流が
+// 分類済みの attachment.commandMode と attachment.origin で決める (queuedCommandSpeaker)。
 //
 // ユーザーの中断 (Esc) は Claude Code が `type:"user"` のマーカー行として書く。発話ではないため
 // interrupt イベントにし、分岐候補にもしない (判定は isInterruptMarker)。
@@ -127,16 +127,34 @@ interface RawMessage {
   // null / 空 / システム生成の "<synthetic>" がありうるため optional かつ null 許容にする。
   model?: string | null;
 }
+// queued_command の `attachment.origin`。kind ごとの意味 (実ログで確認済み):
+// - "human": ユーザーの入力
+// - "auto-continuation": 作業中に打った /goal を harness が `Goal set: <条件>` として積んだもの
+// - "task-notification": バックグラウンドタスクの完了通知
+// - "peer": 他のエージェントからのメッセージ。このセッションの subagent (hand-back 報告と
+//   SendMessage) は senderTaskId を持ち、他セッションからの cross-session メッセージは持たない
+interface RawQueueOrigin {
+  kind?: unknown;
+  senderTaskId?: unknown;
+  name?: unknown;
+  // hand-back は subagent id、cross-session はソケットパス。
+  from?: unknown;
+  // ラッパータグを含まないメッセージ本文。
+  body?: unknown;
+}
 // `type:"attachment"` レコードの中身。queued_command (会話) と hook 系 (system 注入) を読む。
 interface RawAttachment {
   type?: string;
-  // queued_command が積んだ発話本文。`message.content` と同じ shape を取り、テキストのみなら
+  // queued_command が積んだ本文。`message.content` と同じ shape を取り、テキストのみなら
   // string、画像添付があると ContentBlock[] (text + image) になる。信頼境界外の入力なので
   // optional。string と決め打ちすると画像添付時に配列が text に流れ込み base64 が生露出する。
   prompt?: string | ContentBlock[];
-  // queue 種別の SSOT。"prompt" = ユーザーの生発話 / "task-notification" = 注入通知。
-  // 上流 (Claude Code) が分類済みのため本文パターンで再導出せずこのフィールドで採否を決める。
+  // queue 種別。"prompt" = 会話ターンとして積まれた本文 / "task-notification" = 注入通知。
+  // "prompt" はユーザーの生発話に限らないため、話者は origin で判定する。
   commandMode?: string;
+  // queue に積んだ主体。origin を持たないレコードは commandMode:"prompt" をユーザーの入力にだけ
+  // 使う形式 (実ログで確認済み)。
+  origin?: RawQueueOrigin | null;
   // hook 系 attachment の発火元 hook 名 (例 "SessionStart:startup" / "PreToolUse:Bash")。
   // system イベントの label に使う。
   hookName?: string;
@@ -223,6 +241,53 @@ function isInjectedUserText(text: string): boolean {
  */
 function isCoordinatorMessage(raw: RawLine): boolean {
   return raw.type === "user" && raw.origin?.kind === "coordinator";
+}
+
+/** queued_command の話者。"hidden" は会話に載せず skipped に計上する。 */
+type QueuedCommandSpeaker =
+  | { speaker: "user" }
+  | { speaker: "teammate"; from: string; text: string }
+  | { speaker: "hidden" };
+
+const USER: QueuedCommandSpeaker = { speaker: "user" };
+const HIDDEN: QueuedCommandSpeaker = { speaker: "hidden" };
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * このセッションの subagent からのメッセージは sub 側の transcript で読めるため main には
+ * 出さない。他セッションからのメッセージは読める場所が他に無いため teammate として出す。
+ */
+function peerSpeaker(origin: RawQueueOrigin): QueuedCommandSpeaker {
+  if (origin.senderTaskId !== undefined) return HIDDEN;
+  const text = stringOrUndefined(origin.body) ?? "";
+  if (text === "") return HIDDEN;
+  const from = stringOrUndefined(origin.name) ?? stringOrUndefined(origin.from) ?? "";
+  return { speaker: "teammate", from, text };
+}
+
+// origin.kind → 話者。表に無い kind (kind 欠落を含む) は hidden に倒す: 話者を偽って表示する
+// より、skipped に計上して件数で観察できる方が誤りが小さい。kind は信頼境界外の文字列なので、
+// prototype のメンバー名が当たらないよう Map で引く。
+const QUEUED_COMMAND_SPEAKER_BY_KIND = new Map<
+  string,
+  (origin: RawQueueOrigin) => QueuedCommandSpeaker
+>([
+  ["human", () => USER],
+  // 待機中に打った /goal と同じくユーザーの発言として出す。
+  ["auto-continuation", () => USER],
+  ["peer", peerSpeaker],
+]);
+
+function queuedCommandSpeaker(attachment: RawAttachment): QueuedCommandSpeaker {
+  const origin = attachment.origin;
+  if (origin === undefined) return USER;
+  if (typeof origin !== "object" || origin === null) return HIDDEN;
+  const kind = stringOrUndefined(origin.kind);
+  const resolve = kind === undefined ? undefined : QUEUED_COMMAND_SPEAKER_BY_KIND.get(kind);
+  return resolve === undefined ? HIDDEN : resolve(origin);
 }
 
 // 中継ラッパーの前後の定型句。本文はこの 2 つに挟まれる。Claude Code が中継 string を
@@ -1016,10 +1081,10 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       continue;
     }
 
-    // queued_command (ユーザーが作業中に queue に積んだ発話) は type:"user" に昇格せず
-    // attachment.prompt にしか本文が残らないことがあるため user イベントにする。採否は
-    // 上流が分類済みの commandMode を SSOT にし、生発話 ("prompt") のみ拾う。注入通知
-    // ("task-notification" 等) は除外する。prompt は生発話なので本文を加工せずそのまま出す
+    // queued_command (作業中に queue に積まれた会話ターン) は type:"user" に昇格せず
+    // attachment.prompt にしか本文が残らないことがあるため会話イベントにする。採否と話者は
+    // 上流が分類済みの commandMode と origin で決め (queuedCommandSpeaker)、本文パターンで
+    // 再導出しない。user として出す prompt は本文を加工せずそのまま出す
     // (本文が <span> や <command-name> 始まりの正当な発話を切り詰めない)。
     //
     // prompt は message.content と同じ shape: テキストのみなら string、画像添付があると
@@ -1028,7 +1093,17 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     // が生露出するため、shape で分岐する。
     if (raw.type === "attachment" && raw.attachment?.type === "queued_command") {
       const { commandMode, prompt } = raw.attachment;
-      if (commandMode !== "prompt" || prompt === undefined) {
+      const resolved = commandMode === "prompt" ? queuedCommandSpeaker(raw.attachment) : HIDDEN;
+      if (resolved.speaker === "hidden") {
+        skipped++;
+        continue;
+      }
+      if (resolved.speaker === "teammate") {
+        const { from, text } = resolved;
+        events.push({ kind: "teammate", ts, from, summary: "", text });
+        continue;
+      }
+      if (prompt === undefined) {
         skipped++;
         continue;
       }

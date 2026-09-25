@@ -40,6 +40,8 @@ import type {
   FsWatchFileAbsoluteRequest,
   FsWatchFileAbsoluteResponse,
   FsWatchRequest,
+  FsSetFocusDirRequest,
+  FsSetFocusDirResponse,
   FsWatchResponse,
   FsWriteFileAbsoluteRequest,
   FsWriteFileAbsoluteResponse,
@@ -629,6 +631,12 @@ async function handleFsWatch(body: unknown, ctx: RpcContext): Promise<unknown> {
   fsPush = ctx.push;
   await fsWatchRegistry.watch(req.dir);
   return {} satisfies FsWatchResponse;
+}
+
+function handleFsSetFocusDir(body: unknown): unknown {
+  const req = body as FsSetFocusDirRequest;
+  fsWatchRegistry.setFocusDir(req.dir);
+  return {} satisfies FsSetFocusDirResponse;
 }
 
 function handleFsUnwatch(body: unknown): unknown {
@@ -1253,6 +1261,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/fs/watch", handleFsWatch],
   ["/fs/unwatch", handleFsUnwatch],
   ["/fs/unwatchAll", handleFsUnwatchAll],
+  ["/fs/setFocusDir", handleFsSetFocusDir],
   ["/fs/watchFileAbsolute", handleFsWatchFileAbsolute],
   ["/fs/unwatchFileAbsolute", handleFsUnwatchFileAbsolute],
   ["/git/status", handleGitStatus],

@@ -65,6 +65,14 @@ export interface FsWatchRequest {
 
 export type FsWatchResponse = EmptyMessage;
 
+/** ユーザーが注視している dir を伝える。監視起点の git status のうち、この dir のものは
+ * 画面の要求と同じ優先度で走る（それ以外は後回し）。`dir` 不在は注視先なし。 */
+export interface FsSetFocusDirRequest {
+  dir?: string;
+}
+
+export type FsSetFocusDirResponse = EmptyMessage;
+
 /** 監視を停止する。watch されていない dir でも no-op で成功する。 */
 export interface FsUnwatchRequest {
   dir: string;

@@ -74,6 +74,8 @@ export type {
   FsExistsAbsoluteResponse,
   FsReadFileRequest,
   FsReadFileResponse,
+  FsSetFocusDirRequest,
+  FsSetFocusDirResponse,
   FsStatRequest,
   FsStatResponse,
   FsUnwatchAllRequest,

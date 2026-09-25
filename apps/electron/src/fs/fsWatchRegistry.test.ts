@@ -8,9 +8,10 @@
 import { subscribe as parcelSubscribe } from "@parcel/watcher";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runFixtureGit } from "../testGitFixture";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { currentGitTier } from "../git/gitAdmission";
 import { gitStatusFull } from "../git/gitOps";
 import type { StatusFull } from "../git/porcelain";
 import { createFsWatchRegistry, type WatchTransport } from "./fsWatchRegistry";
@@ -150,6 +151,26 @@ describe("FSWatchRegistry (integration)", () => {
     await registry.watch(dir);
 
     await waitUntil(() => recorded.statusDirs.includes(dir), "gitStatusChange after re-watch");
+  });
+
+  test("注視中の dir の status は interactive、それ以外は background で取る", async () => {
+    const focused = makeTempRepo();
+    const other = makeTempRepo();
+    const tierByDir = new Map<string, string>();
+    const { registry } = createRecordingRegistry(async (target) => {
+      tierByDir.set(target, currentGitTier());
+      return gitStatusFull(target);
+    });
+    cleanups.push(() => registry.unwatchAll());
+
+    registry.setFocusDir(focused);
+    await registry.watch(focused);
+    await registry.watch(other);
+
+    await waitUntil(() => tierByDir.size === 2, "initial status of both dirs");
+    // registry のキーは realpath（macOS の TMPDIR は symlink 配下）
+    expect(tierByDir.get(realpathSync.native(focused))).toBe("interactive");
+    expect(tierByDir.get(realpathSync.native(other))).toBe("background");
   });
 
   test("取得中に届いた status 要求は、完了後の 1 回の取り直しにまとまる", async () => {

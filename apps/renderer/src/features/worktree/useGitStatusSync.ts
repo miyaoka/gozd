@@ -1,15 +1,19 @@
 /**
  * git status を最新に保つ app-scope な watcher。更新の契機は 3 つ:
- * - dir 切替時（監視起点の status は後回しで届くため、切替先は画面の要求として即取得する）
+ * - dir 切替時（切替先は画面の要求として即取得し、以後の監視起点の status も優先させるため
+ *   注視先として main に伝える）
  * - 同 dir に紐づく PTY の Claude state 遷移時
  * - native 側 FSWatchRegistry からの gitStatusChange push（全 worktree が対象。payload の dir で
  *   該当 worktree に直接反映する）
  */
 import type { GitStatusChangePayload } from "@gozd/rpc";
+import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted, watch } from "vue";
 import { logEvent } from "../../shared/debug";
+import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
+import { rpcFsSetFocusDir } from "./rpc";
 import { useGitStatusStore } from "./useGitStatusStore";
 import { useWorktreeStore } from "./useWorktreeStore";
 
@@ -24,14 +28,22 @@ export function useGitStatusSync(options: GitStatusSyncOptions) {
   const repoStore = useRepoStore();
   const worktreeStore = useWorktreeStore();
   const gitStatusStore = useGitStatusStore();
+  const notify = useNotificationStore();
 
   watch(
     () => worktreeStore.dir,
-    () => {
+    (dir) => {
       void gitStatusStore.loadGitStatus();
+      void setFocusDir(dir);
     },
     { immediate: true },
   );
+
+  /** 監視起点の status のうち、注視中の dir のものを後回しにさせない */
+  async function setFocusDir(dir: string | undefined) {
+    const result = await tryCatch(rpcFsSetFocusDir(dir === undefined ? {} : { dir }));
+    if (!result.ok) notify.error("Failed to set the focused worktree", result.error);
+  }
 
   watch(
     () => {

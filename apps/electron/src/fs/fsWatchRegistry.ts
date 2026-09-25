@@ -151,6 +151,9 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
   const pendingWatches = new Map<string, Promise<void>>();
   /** watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を抑止する */
   let nextGeneration = 0;
+  /** ユーザーが注視している dir（realpath 解決済み）。この dir の status は画面の要求と同じ
+   * 優先度で取る。ファイラーの色分けやグラフの HEAD 追従が、他 worktree の status を待たない */
+  let focusDir: string | undefined;
 
   /** realpath で symlink を解決した絶対パスを返す。解決失敗時は入力をそのまま返す
    * （FSEvents 由来の event path は realpath で届くため、`/var` と `/private/var` のような
@@ -524,9 +527,10 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     originalDir: string,
   ): Promise<void> {
     if (!isActive(dir, watchGeneration)) return;
-    // 監視起点の status は画面の要求より後回しにしてよい。worktree の数だけ並ぶため、
-    // interactive と同じ枠で走らせると git log やアクティブ worktree の status を待たせる
-    const result = await tryCatch(withGitTier("background", () => statusFetcher(dir)));
+    // 監視起点の status は、注視中の dir 以外は画面の要求より後回しにしてよい。worktree の数だけ
+    // 並ぶため、interactive と同じ枠で走らせると git log や注視中の dir の status を待たせる
+    const tier = dir === focusDir ? "interactive" : "background";
+    const result = await tryCatch(withGitTier(tier, () => statusFetcher(dir)));
     if (!result.ok) {
       // 観察可能性のためログを残す。renderer は次の event バッチで再 fetch するため
       // 致命的ではないが、繰り返し発生していれば一時障害として診断したい
@@ -542,7 +546,12 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     onGitStatusChange(originalDir, status);
   }
 
-  return { watch, unwatch, unwatchAll };
+  /** 注視中の dir を差し替える。undefined は注視先なし。取得を始める時点の値で優先度が決まる */
+  function setFocusDir(userDir: string | undefined): void {
+    focusDir = userDir === undefined ? undefined : realpathOr(userDir);
+  }
+
+  return { watch, unwatch, unwatchAll, setFocusDir };
 }
 
 /** StatusFull の内容等値比較。Swift 版は Equatable 導出に相当 */

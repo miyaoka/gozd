@@ -1848,6 +1848,64 @@ describe("parseSessionLog", () => {
       ]);
     });
 
+    test("手動 compact が要約の下に重複して書く /compact は分岐にせず、元の入力だけを要約の前に出す", () => {
+      // 実ログ形: 入力した /compact を compact 前の末尾 a1 の下に書き、boundary → 要約 → caveat の
+      // 下に同じ promptId の command block として再度書く。compact 後の会話は後者の下に続く。
+      const log = parseSessionLog(
+        jsonl(
+          ...beforeCompact.slice(0, 2),
+          {
+            type: "user",
+            uuid: "c1",
+            parentUuid: "a1",
+            promptId: "p-compact",
+            timestamp: TS,
+            message: { role: "user", content: "/compact 日本語で" },
+          },
+          beforeCompact[2],
+          summaryRecord(SUMMARY),
+          {
+            type: "user",
+            uuid: "caveat",
+            parentUuid: "sum",
+            promptId: "p-compact",
+            isMeta: true,
+            timestamp: TS,
+            message: {
+              role: "user",
+              content: "<local-command-caveat>Caveat</local-command-caveat>",
+            },
+          },
+          {
+            type: "user",
+            uuid: "c2",
+            parentUuid: "caveat",
+            promptId: "p-compact",
+            timestamp: TS,
+            message: {
+              role: "user",
+              content:
+                "<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args>日本語で</command-args>",
+            },
+          },
+          {
+            type: "assistant",
+            uuid: "a2",
+            parentUuid: "c2",
+            timestamp: TS,
+            message: { role: "assistant", content: [{ type: "text", text: "compact 後の応答" }] },
+          },
+        ),
+      );
+      expect(log.events).toEqual([
+        { kind: "user", text: "最初の依頼", ts: TS },
+        { kind: "assistant", text: "compact 前の応答", ts: TS },
+        { kind: "user", text: "/compact 日本語で", ts: TS },
+        { kind: "system", label: "compact", text: SUMMARY, ts: TS },
+        { kind: "assistant", text: "compact 後の応答", ts: TS },
+      ]);
+    });
+
     test.each([
       ["空文字", ""],
       ["配列", [{ type: "text", text: SUMMARY }]],

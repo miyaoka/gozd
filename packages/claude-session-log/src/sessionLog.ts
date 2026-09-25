@@ -49,7 +49,9 @@
 // 要約を置く。compact 後の会話は、要約の下に続く形と、要約を経ず compact 前の末尾に直接繋がる形の
 // 両方が実ログにある。前者は物理的な親のままだとセッション先頭と同じ ROOT に並ぶため、boundary を
 // logicalParentUuid で compact 前の末尾に繋ぐ (treeParentUuid)。後者は繋いだ結果、要約と compact
-// 後の最初の応答が同じ会話的親に並ぶため、要約を分岐候補にしない (isCompactSummary)。
+// 後の最初の応答が同じ会話的親に並ぶため、要約を分岐候補にしない (isCompactSummary)。手動 compact は
+// 入力した `/compact` を compact 前の末尾と要約の下に重複して書き、繋いだ結果この 2 つも同じ会話的親に
+// 並ぶ。同じ promptId の兄弟は重複として後の方を落とす (withoutEchoes)。
 
 import { tryCatch } from "@gozd/shared";
 
@@ -695,6 +697,29 @@ function isBranchCandidate(raw: RawLine): boolean {
 }
 
 /**
+ * 同一分岐点の候補から、先に出た user 候補と同じ promptId を持つ user 候補を除き、除いた uuid を
+ * `echoes` に積む。promptId は 1 回のプロンプト送信に採番されるため、rewind で打ち直した発話は
+ * 別の値を持つ。同じ値の兄弟は 1 回の入力を 2 箇所に書いた重複で、手動 compact がこれを書く
+ * (入力した `/compact` を compact 前の末尾と要約の下の両方に書く。実ログで確認済み)。重複を候補に
+ * 残すと偽の分岐セレクタが出て、古い側を選ぶと compact 後の会話が丸ごと刈られる。
+ *
+ * 先に出た方を残すのは、compact 前に書かれた入力が要約より前に並び、「指示 → 要約」の順で読めるため。
+ */
+function withoutEchoes(candidates: LogNode[], echoes: Set<string>): LogNode[] {
+  const seenPromptIds = new Set<string>();
+  return candidates.filter((c) => {
+    const promptId = c.raw.promptId;
+    if (c.raw.type !== "user" || typeof promptId !== "string" || promptId === "") return true;
+    if (!seenPromptIds.has(promptId)) {
+      seenPromptIds.add(promptId);
+      return true;
+    }
+    echoes.add(c.uuid);
+    return false;
+  });
+}
+
+/**
  * 分岐候補ノードの先頭テキスト (選択肢の識別ラベル)。空なら ""。表示上の切り詰めは consumer の
  * 責務 (view が CSS truncate + title で全文 hover を出す) なので、ここでは全文を返す。
  */
@@ -833,10 +858,14 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     }
   };
 
+  // 同じ入力を重複して書いた候補の uuid (withoutEchoes)。分岐にも表示にも使わない。
+  const echoes = new Set<string>();
+
   // 分岐点を検出する。同一会話的親に分岐候補が 2 つ以上並ぶ箇所が rewind 分岐。非選択候補のサブツリーを
   // 刈り、選択枝の先頭に branch イベントを用意する。処理順は結果に影響しない (各分岐点は独立に
   // 自分の非選択候補だけを刈り、pruned は冪等な集合のため)。
-  for (const [ancestor, candidates] of convChildren) {
+  for (const [ancestor, siblings] of convChildren) {
+    const candidates = withoutEchoes(siblings, echoes);
     if (candidates.length < 2) continue;
     // 選択: selection 指定が候補にあればそれ、無ければ最新 (出現順で最後)。
     let selected = candidates[candidates.length - 1];
@@ -867,6 +896,11 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   for (const node of nodes) {
     if (pruned.has(node.uuid)) continue;
     totalLines++;
+    // 重複した入力は元の入力が表示済み。子孫は刈らず、この行だけを落とす。
+    if (echoes.has(node.uuid)) {
+      skipped++;
+      continue;
+    }
     // この行が分岐の選択枝の先頭なら、直前に branch セレクタを挿す。
     const branch = branchAtChild.get(node.uuid);
     if (branch !== undefined) events.push(branch);

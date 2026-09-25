@@ -175,16 +175,23 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     });
   }
 
-  /** dir 配下に入れ子で watch されている別 worktree の root を返す。@parcel/watcher は再帰
-   * watch なので、repo 内に置かれた worktree（`.claude/worktrees/*` 等）の変更は外側の
-   * subscription にも届く。per-worktree git dir が同じものは同一作業ツリーのサブディレクトリ
-   * であり、その変更は外側の status を変えるため含めない */
-  function nestedWorktreeDirsOf(dir: string, perWorktreeGitDir: string | undefined): string[] {
+  /** dir 配下に入れ子で watch されている、同じ repo の別 worktree の root を返す。
+   * @parcel/watcher は再帰 watch なので、repo 内に置かれた worktree（`.claude/worktrees/*` 等）
+   * の変更は外側の subscription にも届く。次のものは内部の変更が外側の status を変えるため含めない:
+   * - per-worktree git dir が同じもの: 同一作業ツリーのサブディレクトリ
+   * - common git dir が異なるもの: submodule（内部の変更が外側に gitlink の変更として現れる）や
+   *   別 repo の clone */
+  function nestedWorktreeDirsOf(
+    dir: string,
+    perWorktreeGitDir: string | undefined,
+    commonGitDir: string | undefined,
+  ): string[] {
+    if (commonGitDir === undefined) return [];
     const dirWithSlash = dir.endsWith("/") ? dir : `${dir}/`;
     const nested: string[] = [];
     for (const [key, entry] of entries) {
       if (!key.startsWith(dirWithSlash)) continue;
-      if (entry.perWorktreeGitDir === undefined) continue;
+      if (entry.commonGitDir !== commonGitDir) continue;
       if (entry.perWorktreeGitDir === perWorktreeGitDir) continue;
       nested.push(key);
     }
@@ -365,7 +372,7 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
       dir,
       perWorktreeGitDir,
       commonGitDir,
-      nestedWorktreeDirs: nestedWorktreeDirsOf(dir, perWorktreeGitDir),
+      nestedWorktreeDirs: nestedWorktreeDirsOf(dir, perWorktreeGitDir, commonGitDir),
       paths,
     });
 

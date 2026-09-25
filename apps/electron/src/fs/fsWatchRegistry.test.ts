@@ -168,6 +168,23 @@ describe("FSWatchRegistry (integration)", () => {
     expect(recorded.statusDirs).not.toContain(dir);
   });
 
+  test("別 entry として watch した submodule の変更は外側の git status を取り直す", async () => {
+    const dir = makeTempRepo();
+    const upstream = makeTempRepo();
+    runFixtureGit(["-c", "protocol.file.allow=always", "submodule", "add", upstream, "sub"], dir);
+    runFixtureGit(["commit", "-m", "add submodule"], dir);
+    const sub = join(dir, "sub");
+    const { registry, recorded } = createRecordingRegistry();
+    cleanups.push(() => registry.unwatchAll());
+
+    await registry.watch(dir);
+    await registry.watch(sub);
+    // tracked file の変更は外側の status に gitlink の変更（`.M`）として現れる
+    writeFileSync(join(sub, "init.txt"), "changed\n");
+
+    await waitUntil(() => recorded.statusDirs.includes(dir), "outer gitStatusChange");
+  });
+
   test("unwatchAll は全 entry を破棄して件数を返し、以降イベントが届かない", async () => {
     const dir = makeTempRepo();
     const { registry, recorded } = createRecordingRegistry();

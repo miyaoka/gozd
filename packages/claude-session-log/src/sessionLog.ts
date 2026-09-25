@@ -705,9 +705,14 @@ function isBranchCandidate(raw: RawLine): boolean {
  * promptId はプロンプト処理サイクル単位の id で、同じサイクルに積まれた別の発話も共有しうる。
  * このため promptId だけでなく本文の一致まで要求する。rewind で打ち直した発話は別のサイクルに
  * なるため echo にならない。
+ *
+ * 比べるのは string content 同士に限る。echo は両方とも string で書かれ、配列 content
+ * (text + image) は nodeLeadText が先頭 text しか返さず、後続のブロックが違っても一致してしまう。
  */
 function isEchoOf(node: LogNode, original: LogNode): boolean {
   if (node.raw.type !== "user" || original.raw.type !== "user") return false;
+  if (typeof node.raw.message?.content !== "string") return false;
+  if (typeof original.raw.message?.content !== "string") return false;
   const promptId = node.raw.promptId;
   if (typeof promptId !== "string" || promptId === "" || promptId !== original.raw.promptId) {
     return false;

@@ -1852,7 +1852,7 @@ describe("parseSessionLog", () => {
       // 実ログ形: 入力した /compact (c1) を compact 前の末尾 a1 の下に書き、boundary → 要約 → caveat
       // の下に同じ promptId の command block (c2) として再度書く。compact 後の会話は c2 の下に続く。
       // c2Content を差し替えると、promptId は同じで本文の違う兄弟を作れる。
-      function manualCompact(c2Content: string) {
+      function manualCompact(c2Content: unknown) {
         return [
           ...beforeCompact.slice(0, 2),
           {
@@ -1971,6 +1971,36 @@ describe("parseSessionLog", () => {
             options: [compactOption, { childUuid: "c2", index: 2, lead: "別の発話", ts: TS }],
           },
           { kind: "user", text: "別の発話", ts: TS },
+          { kind: "assistant", text: "compact 後の応答", ts: TS },
+        ]);
+      });
+
+      test("promptId と先頭 text が同じでも、配列 content の兄弟は書き直しとみなさず分岐にする", () => {
+        // 先頭 text だけを比べると、後続の image が違う発話まで書き直しとして隠してしまう。
+        const log = parseSessionLog(
+          jsonl(
+            ...manualCompact([
+              { type: "text", text: "/compact 日本語で" },
+              { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+            ]),
+          ),
+        );
+        expect(log.events).toEqual([
+          { kind: "user", text: "最初の依頼", ts: TS },
+          { kind: "assistant", text: "compact 前の応答", ts: TS },
+          { kind: "user", text: SUMMARY, ts: TS },
+          {
+            kind: "branch",
+            ts: TS,
+            branchKey: "a1",
+            selectedChildUuid: "c2",
+            options: [
+              compactOption,
+              { childUuid: "c2", index: 2, lead: "/compact 日本語で", ts: TS },
+            ],
+          },
+          { kind: "user", text: "/compact 日本語で", ts: TS },
+          { kind: "image", ts: TS, source: { mediaType: "image/png", base64: "AAAA" } },
           { kind: "assistant", text: "compact 後の応答", ts: TS },
         ]);
       });

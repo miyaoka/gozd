@@ -17,6 +17,7 @@ describe("classify (worktree 配置)", () => {
       dir,
       perWorktreeGitDir: perWt,
       commonGitDir: common,
+      nestedWorktreeDirs: [],
       paths: ["/parent/.git/worktrees/foo/HEAD"],
     });
     expect(result.hasGitStatusChange).toBe(true);
@@ -30,6 +31,7 @@ describe("classify (worktree 配置)", () => {
       dir,
       perWorktreeGitDir: perWt,
       commonGitDir: common,
+      nestedWorktreeDirs: [],
       paths: ["/parent/.git/refs/heads/main"],
     });
     expect(result.hasBranchChange).toBe(true);
@@ -45,6 +47,7 @@ describe("classify (worktree 配置)", () => {
       dir,
       perWorktreeGitDir: perWt,
       commonGitDir: common,
+      nestedWorktreeDirs: [],
       paths: ["/parent/.git/packed-refs"],
     });
     expect(result.hasBranchChange).toBe(true);
@@ -58,6 +61,7 @@ describe("classify (worktree 配置)", () => {
       dir,
       perWorktreeGitDir: perWt,
       commonGitDir: common,
+      nestedWorktreeDirs: [],
       paths: ["/parent/.git/refs/remotes/origin/main"],
     });
     expect(result.hasGitStatusChange).toBe(true);
@@ -72,6 +76,7 @@ describe("classify (worktree 配置)", () => {
       dir,
       perWorktreeGitDir: perWt,
       commonGitDir: common,
+      nestedWorktreeDirs: [],
       paths: ["/parent/.git/refs/remotes/origin/HEAD"],
     });
     expect(result.hasGitStatusChange).toBe(true);
@@ -84,6 +89,7 @@ describe("classify (worktree 配置)", () => {
       dir,
       perWorktreeGitDir: perWt,
       commonGitDir: common,
+      nestedWorktreeDirs: [],
       paths: ["/parent/.git/refs/remotes/origin/feature/sub"],
     });
     expect(result.hasGitStatusChange).toBe(true);
@@ -96,6 +102,7 @@ describe("classify (worktree 配置)", () => {
       dir,
       perWorktreeGitDir: perWt,
       commonGitDir: common,
+      nestedWorktreeDirs: [],
       paths: ["/parent/.git/refs/tags/v1.0.0"],
     });
     expect(result.hasGitStatusChange).toBe(false);
@@ -109,6 +116,7 @@ describe("classify (worktree 配置)", () => {
       dir,
       perWorktreeGitDir: perWt,
       commonGitDir: common,
+      nestedWorktreeDirs: [],
       paths: ["/parent/.git/worktrees/bar/HEAD"],
     });
     expect(result.hasWorktreeChange).toBe(true);
@@ -121,6 +129,7 @@ describe("classify (worktree 配置)", () => {
       dir,
       perWorktreeGitDir: perWt,
       commonGitDir: common,
+      nestedWorktreeDirs: [],
       paths: ["/parent/.git/worktrees/foo/locked"],
     });
     expect(result.hasWorktreeChange).toBe(false);
@@ -132,6 +141,7 @@ describe("classify (worktree 配置)", () => {
       dir,
       perWorktreeGitDir: perWt,
       commonGitDir: common,
+      nestedWorktreeDirs: [],
       paths: ["/wt/foo/src/a.ts"],
     });
     expect(result.hasFsChange).toBe(true);
@@ -149,6 +159,7 @@ describe("classify (通常 clone)", () => {
       dir,
       perWorktreeGitDir: gitDir,
       commonGitDir: gitDir,
+      nestedWorktreeDirs: [],
       paths: ["/repo/.git/HEAD", "/repo/.git/refs/heads/main"],
     });
     expect(result.hasGitStatusChange).toBe(true);
@@ -168,6 +179,7 @@ describe("classify (通常 clone)", () => {
       dir,
       perWorktreeGitDir: gitDir,
       commonGitDir: gitDir,
+      nestedWorktreeDirs: [],
       paths: ["/repo/.git/HEAD"],
     });
     expect(result.hasGitStatusChange).toBe(true);
@@ -182,6 +194,7 @@ describe("classify (通常 clone)", () => {
       dir,
       perWorktreeGitDir: gitDir,
       commonGitDir: gitDir,
+      nestedWorktreeDirs: [],
       paths: ["/repo/.git/index"],
     });
     expect(result.hasGitStatusChange).toBe(true);
@@ -195,6 +208,7 @@ describe("classify (通常 clone)", () => {
       dir,
       perWorktreeGitDir: gitDir,
       commonGitDir: gitDir,
+      nestedWorktreeDirs: [],
       paths: ["/repo/.git/objects/ab/cdef"],
     });
     expect(result.hasFsChange).toBe(false);
@@ -208,6 +222,7 @@ describe("classify (通常 clone)", () => {
       dir,
       perWorktreeGitDir: gitDir,
       commonGitDir: gitDir,
+      nestedWorktreeDirs: [],
       paths: ["/repo/.git/packed-refs"],
     });
     expect(result.hasBranchChange).toBe(true);
@@ -215,11 +230,47 @@ describe("classify (通常 clone)", () => {
     expect(result.hasRemoteRefsChange).toBe(true);
   });
 
+  test("入れ子 worktree の内部は fsChange のみ（gitStatusChange は立てない）", () => {
+    const result = classify({
+      dir,
+      perWorktreeGitDir: gitDir,
+      commonGitDir: gitDir,
+      nestedWorktreeDirs: ["/repo/.claude/worktrees/agent"],
+      paths: ["/repo/.claude/worktrees/agent/node_modules/x/index.js"],
+    });
+    expect(result.hasFsChange).toBe(true);
+    expect(result.hasGitStatusChange).toBe(false);
+    expect(result.fsRelDirs).toEqual(new Set([".claude/worktrees/agent/node_modules/x"]));
+  });
+
+  test("入れ子 worktree root 自身の作成 / 削除は gitStatusChange", () => {
+    const result = classify({
+      dir,
+      perWorktreeGitDir: gitDir,
+      commonGitDir: gitDir,
+      nestedWorktreeDirs: ["/repo/.claude/worktrees/agent"],
+      paths: ["/repo/.claude/worktrees/agent"],
+    });
+    expect(result.hasGitStatusChange).toBe(true);
+  });
+
+  test("入れ子 worktree と prefix が一致するだけの兄弟 path は gitStatusChange", () => {
+    const result = classify({
+      dir,
+      perWorktreeGitDir: gitDir,
+      commonGitDir: gitDir,
+      nestedWorktreeDirs: ["/repo/.claude/worktrees/agent"],
+      paths: ["/repo/.claude/worktrees/agent-other/a.ts"],
+    });
+    expect(result.hasGitStatusChange).toBe(true);
+  });
+
   test("dir 配下でも git dir 配下でもない event は無視", () => {
     const result = classify({
       dir,
       perWorktreeGitDir: gitDir,
       commonGitDir: gitDir,
+      nestedWorktreeDirs: [],
       paths: ["/elsewhere/x.txt"],
     });
     expect(result.hasFsChange).toBe(false);
@@ -235,6 +286,7 @@ describe("classify (非 git dir)", () => {
       dir: "/somewhere",
       perWorktreeGitDir: undefined,
       commonGitDir: undefined,
+      nestedWorktreeDirs: [],
       paths: ["/somewhere/note.txt"],
     });
     expect(result.hasFsChange).toBe(true);
@@ -252,6 +304,7 @@ describe("classify (reftable backend)", () => {
       dir: "/repo",
       perWorktreeGitDir: "/repo/.git",
       commonGitDir: "/repo/.git",
+      nestedWorktreeDirs: [],
       paths: ["/repo/.git/reftable/tables.list"],
     });
     expect(result.hasBranchChange).toBe(true);
@@ -267,6 +320,7 @@ describe("classify (reftable backend)", () => {
       dir: "/wt/foo",
       perWorktreeGitDir: "/parent/.git/worktrees/foo",
       commonGitDir: "/parent/.git",
+      nestedWorktreeDirs: [],
       paths: ["/parent/.git/worktrees/foo/reftable/tables.list"],
     });
     expect(result.hasGitStatusChange).toBe(true);
@@ -281,6 +335,7 @@ describe("classify (reftable backend)", () => {
       dir: "/repo",
       perWorktreeGitDir: "/repo/.git",
       commonGitDir: "/repo/.git",
+      nestedWorktreeDirs: [],
       paths: ["/repo/.git/worktrees/foo/reftable/tables.list"],
     });
     expect(result.hasWorktreeChange).toBe(true);

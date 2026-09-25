@@ -1975,6 +1975,39 @@ describe("parseSessionLog", () => {
         ]);
       });
 
+      test("promptId と summary が同じでも、本文の違う teammate-message の兄弟は書き直しとみなさず分岐にする", () => {
+        // 分岐セレクタの見出しは summary を優先するため、見出しで比べると本文の違う発話を隠してしまう。
+        const teammate = (uuid: string, body: string) => ({
+          type: "user",
+          uuid,
+          parentUuid: "a1",
+          promptId: "p-peer",
+          timestamp: TS,
+          message: {
+            role: "user",
+            content: `<teammate-message teammate_id="peer" summary="進捗">\n${body}\n</teammate-message>`,
+          },
+        });
+        const log = parseSessionLog(
+          jsonl(...beforeCompact.slice(0, 2), teammate("t1", "前半"), teammate("t2", "後半")),
+        );
+        expect(log.events).toEqual([
+          { kind: "user", text: "最初の依頼", ts: TS },
+          { kind: "assistant", text: "compact 前の応答", ts: TS },
+          {
+            kind: "branch",
+            ts: TS,
+            branchKey: "a1",
+            selectedChildUuid: "t2",
+            options: [
+              { childUuid: "t1", index: 1, lead: "進捗", ts: TS },
+              { childUuid: "t2", index: 2, lead: "進捗", ts: TS },
+            ],
+          },
+          { kind: "teammate", ts: TS, from: "peer", summary: "進捗", text: "後半" },
+        ]);
+      });
+
       test("promptId と先頭 text が同じでも、配列 content の兄弟は書き直しとみなさず分岐にする", () => {
         // 先頭 text だけを比べると、後続の image が違う発話まで書き直しとして隠してしまう。
         const log = parseSessionLog(

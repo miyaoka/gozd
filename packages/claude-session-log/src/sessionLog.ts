@@ -700,24 +700,27 @@ function isBranchCandidate(raw: RawLine): boolean {
 /**
  * node が original と同じ 1 回の入力を別の箇所に書き直したもの (echo) か。手動 compact は入力した
  * `/compact` を compact 前の末尾と要約の下の両方に書き、両者は同じ promptId と同じ本文 (後者は
- * command block で、表示テキストに正規化すると一致する) を持つ (実ログで確認済み)。
+ * command block で、userTextOf で正規化すると一致する) を持つ (実ログで確認済み)。
  *
  * promptId はプロンプト処理サイクル単位の id で、同じサイクルに積まれた別の発話も共有しうる。
- * このため promptId だけでなく本文の一致まで要求する。rewind で打ち直した発話は別のサイクルに
+ * このため promptId だけでなく本文全体の一致まで要求する。rewind で打ち直した発話は別のサイクルに
  * なるため echo にならない。
  *
- * 比べるのは string content 同士に限る。echo は両方とも string で書かれ、配列 content
- * (text + image) は nodeLeadText が先頭 text しか返さず、後続のブロックが違っても一致してしまう。
+ * 比べるのは string content 同士に限る。echo は両方とも string で書かれる。本文の比較に
+ * nodeLeadText (分岐セレクタの見出し) を使わないのは、配列 content の先頭 text や
+ * teammate-message の summary しか返さず、本文の違う発話まで一致させてしまうため。
  */
 function isEchoOf(node: LogNode, original: LogNode): boolean {
   if (node.raw.type !== "user" || original.raw.type !== "user") return false;
-  if (typeof node.raw.message?.content !== "string") return false;
-  if (typeof original.raw.message?.content !== "string") return false;
   const promptId = node.raw.promptId;
   if (typeof promptId !== "string" || promptId === "" || promptId !== original.raw.promptId) {
     return false;
   }
-  return nodeLeadText(node.raw) === nodeLeadText(original.raw);
+  const content = node.raw.message?.content;
+  const originalContent = original.raw.message?.content;
+  if (typeof content !== "string" || typeof originalContent !== "string") return false;
+  const text = userTextOf(content);
+  return text !== undefined && text === userTextOf(originalContent);
 }
 
 /**

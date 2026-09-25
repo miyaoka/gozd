@@ -1920,7 +1920,9 @@ describe("parseSessionLog", () => {
       });
 
       test("同じ分岐点で打ち直しが選ばれると、書き直しの下の compact 後の会話も刈る", () => {
-        // boundary と要約はどの候補の配下にも無いため刈られない。
+        // 捨てた枝の要約が残るのは既知の不足で、望む挙動ではない。boundary は logicalParentUuid で
+        // a1 に繋がり、どの候補の配下にも無いため刈られない。要約を、compact を起こした枝に
+        // 所属させると解消し、この期待値から要約が消える。
         const log = parseSessionLog(jsonl(...manualCompact(ECHO), retry));
         expect(log.events).toEqual([
           { kind: "user", text: "最初の依頼", ts: TS },

@@ -19,20 +19,7 @@ export interface WorktreeEntry {
   head: string;
   branch: string;
   isMain: boolean;
-  /** ファイル相対パス → porcelain v2 XY コード（未変更側は "."。例: ".M", "A.", "R.", "??"） */
-  gitStatuses: Record<string, string>;
-  /** rename / copy エントリの 新パス → 旧パス。`gitStatuses` のキーは新パスのみ持つため、
-   * 旧パス (HEAD 側の比較元) はこの map で運ぶ。rename が無ければ空。 */
-  renameOldPaths: Record<string, string>;
   tasks: Task[];
-  /** upstream（追跡リモートブランチ）に対する差分。upstream 未設定なら不在。
-   * optional により「未設定」をフィールド不在で表現し、ahead/behind を見るには
-   * upstream 自体の存在をチェックする契約を型レベルで強制する。 */
-  upstream?: UpstreamStatus;
-  /** 変更ファイルの最終更新時刻 (Unix 秒)。`gitStatuses` の各パスを stat した最大値。
-   * clean (差分なし) / stat 全失敗のときは 0。削除済みパスは stat 失敗で自動除外される。
-   * `gitStatuses` / `upstream` と同じ 1 セットとして書き込まれる契約 (SSOT)。 */
-  latestMtime: number;
 }
 
 /** upstream（追跡リモートブランチ）との差分。`git status --porcelain=v2 --branch` の

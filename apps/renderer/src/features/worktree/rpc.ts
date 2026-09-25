@@ -3,6 +3,8 @@ import {
   CreateTaskWorktreeResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
+  FsSetFocusDirRequest,
+  FsSetFocusDirResponse,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
   GitGithubIdentityRequest,
@@ -20,6 +22,10 @@ import {
 import { rpc } from "../../shared/rpc";
 
 export const rpcGitStatus = (req: GitStatusRequest) => rpc<GitStatusResponse>("/git/status", req);
+
+// 注視中の dir を main の監視に伝える。監視起点の status の優先度に使う。
+export const rpcFsSetFocusDir = (req: FsSetFocusDirRequest) =>
+  rpc<FsSetFocusDirResponse>("/fs/setFocusDir", req);
 
 export const rpcGitFetchRemotes = (req: GitFetchRemotesRequest) =>
   rpc<GitFetchRemotesResponse>("/git/fetchRemotes", req);

@@ -8,13 +8,41 @@ import {
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 
+/** worktree ごとの git status 由来の状態。worktree 一覧は運ばず、fs 監視の push
+ * （`gitStatusChange`）と単発の `rpcGitStatus` だけが書く。`gitStatusFull` 出力の 1 セットとして
+ * 原子的に書き換える */
+export interface WorktreeGitState {
+  /** ファイル相対パス → porcelain v2 XY コード（未変更側は "."。例: ".M", "A.", "R.", "??"） */
+  gitStatuses: Record<string, string>;
+  /** rename / copy エントリの 新パス → 旧パス。`gitStatuses` のキーは新パスのみ持つため、
+   * 旧パス (HEAD 側の比較元) はこの map で運ぶ。rename が無ければ空。 */
+  renameOldPaths: Record<string, string>;
+  /** upstream（追跡リモートブランチ）に対する差分。upstream 未設定、または未観測なら不在 */
+  upstream?: UpstreamStatus;
+  /** 変更ファイルの最終更新時刻 (Unix 秒)。clean / stat 全失敗 / 未観測のときは 0 */
+  latestMtime: number;
+}
+
+/** repoStore が保持する worktree。一覧の構造に、監視から届いた status を重ねたもの */
+export type RepoWorktree = WorktreeEntry & WorktreeGitState;
+
+/** status 未観測の worktree が持つ値。status が届くまでバッジは出ない */
+function emptyGitState(): WorktreeGitState {
+  return { gitStatuses: {}, renameOldPaths: {}, upstream: undefined, latestMtime: 0 };
+}
+
+/** 一覧の worktree を、status 未観測の状態で repoStore に載せる形にする */
+export function toRepoWorktree(entry: WorktreeEntry): RepoWorktree {
+  return { ...entry, ...emptyGitState() };
+}
+
 export interface RepoState {
   /** gozdOpen で受信した dir（git toplevel）。repos の Map キーと一致する */
   rootDir: string;
   repoName: string;
   isGitRepo: boolean;
-  /** rpcGitWorktreeList の結果。Phase 6 で repoStore が直接保持するようにした */
-  worktrees: WorktreeEntry[];
+  /** rpcGitWorktreeList の構造に status を重ねたもの */
+  worktrees: RepoWorktree[];
   /**
    * origin remote から解決した GitHub identity（repo 単位、全 worktree で共通）。
    * undefined は「解決中」で transient（useSidebarData の fetch 経路が非 git repo /
@@ -29,7 +57,7 @@ export interface RepoState {
 /** repo が所有する dir 1 件。非 git project は rootDir 自身を指すため worktree を持たない */
 export interface RepoDirEntry {
   dir: string;
-  worktree: WorktreeEntry | undefined;
+  worktree: RepoWorktree | undefined;
 }
 
 /**
@@ -192,15 +220,21 @@ export const useRepoStore = defineStore("repo", () => {
   }
 
   /**
-   * worktree.gitStatuses の per-dir 書き込み世代。
-   * `setWorktreeGitStatuses` のたびに該当 dir のカウンタを進めるため、
-   * 並行する loadGitStatus / fetchRepo の RPC レスポンスは開始時の世代を覚えておき、
-   * 帰ってきた時点で世代が進んでいれば「より新しい push / 個別更新が後勝ちで入った」
-   * と判断して捨てる。reactivity 不要なため ref ではなく素の Map で持つ。
+   * per-dir の書き込み世代。往復中の RPC レスポンスは開始時の世代を覚えておき、帰ってきた
+   * 時点で世代が進んでいれば「より新しい観測が後勝ちで入った」と判断してその値を捨てる。
+   *
+   * status と head で世代を分けるのは、書き手が違うため。status は監視の push と単発の
+   * `rpcGitStatus` だけが書き、head はそれに加えて worktree 一覧も書く。1 本にすると、
+   * 一覧の反映が往復中の status を古いとみなして捨ててしまう。
+   * reactivity 不要なため ref ではなく素の Map で持つ。
    */
-  const gitStatusGenByDir = new Map<string, number>();
-  function getGitStatusGen(dir: string): number {
-    return gitStatusGenByDir.get(dir) ?? 0;
+  const statusGenByDir = new Map<string, number>();
+  const headGenByDir = new Map<string, number>();
+  function bumpGen(gens: Map<string, number>, dir: string): void {
+    gens.set(dir, (gens.get(dir) ?? 0) + 1);
+  }
+  function getObservationGen(dir: string): { status: number; head: number } {
+    return { status: statusGenByDir.get(dir) ?? 0, head: headGenByDir.get(dir) ?? 0 };
   }
 
   /**
@@ -367,50 +401,42 @@ export const useRepoStore = defineStore("repo", () => {
   /**
    * 既存 repo の worktrees を更新（rpcGitWorktreeList 結果の反映）。
    *
-   * `gitStatusesGenSnapshot` には fetch 開始時に各 wt について `getGitStatusGen` で
-   * 取った世代スナップショットを渡す。fetch 中に `setWorktreeGitStatuses` が走って
-   * 世代が進んでいる wt については、fetch レスポンスの古い `gitStatuses` を捨てて
-   * 現時点で repoStore に入っている fresher な値を保持する。
-   * 渡されなかった場合は merge せず単純差し替え（hydrate / 初回登録など世代が無意味な経路）。
+   * 一覧は構造だけを運ぶため、status は同じ path の worktree が持っていた値を引き継ぐ。
+   * 新しく現れた worktree は status 未観測で始まり、監視の push が届いた時点で埋まる。
+   *
+   * `headGenSnapshot` には fetch 開始時に各 wt について `getObservationGen` で取った head の
+   * 世代を渡す。往復中に status が head を書いていた wt は、一覧の head（往復前に読んだ OID）を
+   * 採用すると巻き戻るため、現値を保持する。
+   * 渡されなかった場合は一覧の head をそのまま使う（hydrate / 初回登録など世代が無意味な経路）。
    */
   function updateRepoData(
     rootDir: string,
     worktrees: WorktreeEntry[],
-    gitStatusesGenSnapshot?: Map<string, number>,
+    headGenSnapshot?: Map<string, number>,
   ) {
     const current = repos.value[rootDir];
     if (current === undefined) return;
-    let merged = worktrees;
-    if (gitStatusesGenSnapshot !== undefined) {
-      merged = worktrees.map((wt) => {
-        const beforeGen = gitStatusesGenSnapshot.get(wt.path);
-        const currentGen = gitStatusGenByDir.get(wt.path);
-        if (beforeGen !== undefined && currentGen !== undefined && currentGen !== beforeGen) {
-          // fetch 中に push / 単発更新が走っていた → 現値を保持。
-          // `gitStatusFull` 出力の atomic snapshot 契約 (statuses / renameOldPaths /
-          // upstream / latestMtime / head を 1 セットで扱う) に合わせ、まとめて fresher 由来に倒す。
-          // `head` は worktree 一覧側も書くが、往復前に読んだ OID なので採用すると巻き戻る。
-          const fresher = current.worktrees.find((w) => w.path === wt.path);
-          if (fresher !== undefined) {
-            return {
-              ...wt,
-              gitStatuses: fresher.gitStatuses,
-              renameOldPaths: fresher.renameOldPaths,
-              upstream: fresher.upstream,
-              latestMtime: fresher.latestMtime,
-              head: fresher.head,
+    const merged = worktrees.map((wt): RepoWorktree => {
+      const prior = current.worktrees.find((w) => w.path === wt.path);
+      const gitState: WorktreeGitState =
+        prior === undefined
+          ? emptyGitState()
+          : {
+              gitStatuses: prior.gitStatuses,
+              renameOldPaths: prior.renameOldPaths,
+              upstream: prior.upstream,
+              latestMtime: prior.latestMtime,
             };
-          }
-        }
-        return wt;
-      });
-      // bulk 反映で touch した全 wt の世代を進める。
-      // これがないと、fetchRepo 開始前から走っていた loadGitStatus が後着したとき
-      // startGen と現 gen が一致してしまい、古いレスポンスが ここで採用した
-      // 新スナップショットを上書きできてしまう。
-      for (const wt of merged) {
-        gitStatusGenByDir.set(wt.path, (gitStatusGenByDir.get(wt.path) ?? 0) + 1);
-      }
+      const headObservedDuringFetch =
+        headGenSnapshot !== undefined &&
+        prior !== undefined &&
+        headGenSnapshot.get(wt.path) !== (headGenByDir.get(wt.path) ?? 0);
+      return { ...wt, ...gitState, head: headObservedDuringFetch ? prior.head : wt.head };
+    });
+    if (headGenSnapshot !== undefined) {
+      // 一覧の head を書いた wt の世代を進める。fetch 開始前から往復中だった loadGitStatus が
+      // 後着したとき、その head（一覧より古い観測かもしれない）で巻き戻さないため
+      for (const wt of merged) bumpGen(headGenByDir, wt.path);
     }
     // selectedDir がこの repo に属していた（current.worktrees に含まれていた）かつ
     // 更新後の worktrees から消えている場合のみ、同 repo の rootDir に倒す。これがないと
@@ -458,16 +484,17 @@ export const useRepoStore = defineStore("repo", () => {
     /** 変更ファイルの mtime 最大値 (Unix 秒)。clean / 未取得時は 0。
      * `statuses` / `upstream` と原子的に同一 patch で書く契約 (SSOT)。 */
     latestMtime: number;
-    /** HEAD が指す commit OID。契約は `WorktreeEntry.head` を参照。 */
-    head: string;
+    /** HEAD が指す commit OID。契約は `WorktreeEntry.head` を参照。
+     * undefined は「この観測の head は採用しない」（往復中に新しい head が書かれた場合） */
+    head: string | undefined;
   }
 
   /**
    * 任意 dir に対応する worktree の gitStatuses + upstream 情報をピンポイント更新する。
    * gitStatusChange push / 単発の rpcGitStatus 結果を反映する経路で使用。
    * dir に該当する worktree が見つからなければ no-op。
-   * 書き込み毎に per-dir 世代を進め、in-flight な loadGitStatus / fetchRepo の
-   * 古いレスポンスがこの値を上書きできないようにする。
+   * 書き込み毎に status の世代（head を書くなら head の世代も）を進め、in-flight な
+   * loadGitStatus / fetchRepo の古いレスポンスがこの値を上書きできないようにする。
    *
    * **不変条件**: 呼び出しごとに `worktree` と上位 `repo` を新規オブジェクトに置き換える
    * （shallow copy）。`useGitStatusStore.gitStatuses` computed の reference 同一性を変化させ、
@@ -480,7 +507,8 @@ export const useRepoStore = defineStore("repo", () => {
     if (repo === undefined) return;
     const idx = repo.worktrees.findIndex((wt) => wt.path === dir);
     if (idx < 0) return;
-    gitStatusGenByDir.set(dir, (gitStatusGenByDir.get(dir) ?? 0) + 1);
+    bumpGen(statusGenByDir, dir);
+    if (patch.head !== undefined) bumpGen(headGenByDir, dir);
     const next = [...repo.worktrees];
     next[idx] = {
       ...next[idx],
@@ -488,7 +516,7 @@ export const useRepoStore = defineStore("repo", () => {
       renameOldPaths: patch.renameOldPaths,
       upstream: patch.upstream,
       latestMtime: patch.latestMtime,
-      head: patch.head,
+      head: patch.head ?? next[idx].head,
     };
     repos.value[repo.rootDir] = { ...repo, worktrees: next };
   }
@@ -534,12 +562,14 @@ export const useRepoStore = defineStore("repo", () => {
     }
     // 配下 wt と rootDir 自身の世代エントリを掃除（追加削除の繰り返しでメモリが膨らまないように）
     if (removed !== undefined) {
-      gitStatusGenByDir.delete(removed.rootDir);
-      for (const wt of removed.worktrees) gitStatusGenByDir.delete(wt.path);
+      for (const dir of [removed.rootDir, ...removed.worktrees.map((wt) => wt.path)]) {
+        statusGenByDir.delete(dir);
+        headGenByDir.delete(dir);
+      }
     }
     // git 真値到達フラグも掃除する。残すと同 rootDir を再追加したとき applyRepoTasks が
     // 永久 no-op になり、起動時 task 高速ロード（prefetch）の便益が失われて layout shift が
-    // 一段戻る。gitStatusGenByDir と同じ per-root 補助状態として同じライフサイクルで掃除する。
+    // 一段戻る。世代と同じ per-root 補助状態として同じライフサイクルで掃除する。
     gitTruthAppliedRoots.delete(rootDir);
     if (selectedDir.value !== undefined) {
       const stillOwned = findRepoOwning(selectedDir.value);
@@ -632,8 +662,8 @@ export const useRepoStore = defineStore("repo", () => {
    *
    * worktrees はキャッシュ（path/branch/isMain のみ）から実カードとして復元し、
    * 起動直後の layout shift を消す。git status / tasks / upstream は欠けた状態で
-   * 描画され、`fetchRepo` → `updateRepoData` の真値が来たら同一 path のカードが
-   * key 維持で in-place 更新される（楽観描画）。SSOT は git。
+   * 描画され、tasks は `fetchRepo` → `updateRepoData`、status は監視の push が届いたら
+   * 同一 path のカードが key 維持で in-place 更新される（楽観描画）。SSOT は git。
    */
   function hydrateFromAppState(state: AppState) {
     const nextRepos: Record<string, RepoState> = {};
@@ -645,17 +675,20 @@ export const useRepoStore = defineStore("repo", () => {
         rootDir: r.rootDir,
         repoName: r.repoName,
         isGitRepo: r.isGitRepo,
-        // キャッシュに無い残りフィールドは空で埋め、rpcGitWorktreeList の真値で上書きされる
-        worktrees: r.worktrees.map((wt): WorktreeEntry => ({
-          path: wt.path,
-          branch: wt.branch,
-          isMain: wt.isMain,
-          head: "",
-          gitStatuses: {},
-          renameOldPaths: {},
-          tasks: [],
-          latestMtime: 0,
-        })),
+        // キャッシュに無い残りフィールドは空で埋め、rpcGitWorktreeList の真値で上書きされる。
+        // hydrate 前に登録済みの worktree は、キャッシュより新しい観測（status を含む）を持つので
+        // そのまま使う。空で置き換えると、監視は登録済みのため status が届き直さない
+        worktrees: r.worktrees.map(
+          (wt) =>
+            repos.value[r.rootDir]?.worktrees.find((current) => current.path === wt.path) ??
+            toRepoWorktree({
+              path: wt.path,
+              branch: wt.branch,
+              isMain: wt.isMain,
+              head: "",
+              tasks: [],
+            }),
+        ),
         // githubIdentity は persist しない派生値（origin remote から都度解決）。
         // hydrate 前に gozdOpen → fetch 済みの repo は poolDirs が変わらず useSidebarData の
         // 新規 dir watch が再発火しないため、ここで引き継がないと再取得されない。
@@ -754,7 +787,7 @@ export const useRepoStore = defineStore("repo", () => {
     applyRepoTasks,
     setWorktreeGitStatuses,
     setGithubIdentity,
-    getGitStatusGen,
+    getObservationGen,
     appendWorktree,
     selectDir,
     removeRepo,

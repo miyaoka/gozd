@@ -1,14 +1,15 @@
-import { Task, type WorktreeEntry } from "@gozd/rpc";
+import { Task } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
 import {
   collectFsWatchTargetDirs,
   type RepoState,
+  type RepoWorktree,
   repoDirEntries,
   useRepoStore,
 } from "./useRepoStore";
 
-function wt(path: string, branch: string, isMain = false): WorktreeEntry {
+function wt(path: string, branch: string, isMain = false): RepoWorktree {
   return {
     path,
     head: "",
@@ -209,39 +210,51 @@ describe("applyRepoTasks", () => {
 });
 
 describe("updateRepoData", () => {
-  test("世代が進んだ wt は status 経路が書いた snapshot を丸ごと保持する（head も含む）", () => {
+  const observed = {
+    statuses: { "b.txt": "R." },
+    renameOldPaths: { "b.txt": "a.txt" },
+    upstream: { ahead: 1, behind: 0 },
+    latestMtime: 42,
+  };
+
+  test("一覧は status を運ばないので、同じ path の worktree の status を引き継ぐ", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();
     store.addRepo({
       rootDir: "/r1",
       repoName: "r1",
       isGitRepo: true,
-      worktrees: [{ ...wt("/r1/wt-1", "feat"), head: "old" }],
+      worktrees: [wt("/r1/wt-1", "feat")],
     });
+    store.setWorktreeGitStatuses("/r1/wt-1", { ...observed, head: "h" });
 
-    const genSnapshot = new Map([["/r1/wt-1", store.getGitStatusGen("/r1/wt-1")]]);
-    // rpcGitWorktreeList の往復中に status 経路が HEAD の移動を書く。
-    // 全フィールドを wt() の既定値と区別できる値にする。既定値と同値だと、引き継ぎから
-    // そのフィールドを削っても ...wt が同じ値を埋めてしまい回帰を検出できない
-    store.setWorktreeGitStatuses("/r1/wt-1", {
-      statuses: { "b.txt": "R." },
-      renameOldPaths: { "b.txt": "a.txt" },
-      upstream: { ahead: 1, behind: 0 },
-      latestMtime: 42,
-      head: "new",
-    });
-    // 往復前の HEAD を載せたレスポンスが後着する
-    store.updateRepoData("/r1", [{ ...wt("/r1/wt-1", "feat"), head: "old" }], genSnapshot);
+    store.updateRepoData("/r1", [
+      { path: "/r1/wt-1", head: "h", branch: "feat", isMain: false, tasks: [] },
+    ]);
 
     const target = store.repos["/r1"]?.worktrees[0];
-    expect(target?.head).toBe("new");
     expect(target?.gitStatuses).toEqual({ "b.txt": "R." });
     expect(target?.renameOldPaths).toEqual({ "b.txt": "a.txt" });
     expect(target?.upstream).toEqual({ ahead: 1, behind: 0 });
     expect(target?.latestMtime).toBe(42);
   });
 
-  test("世代エントリを持つ wt でも、往復中に status が走らなければレスポンスを採る", () => {
+  test("新しく現れた worktree は status 未観測で始まる", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] });
+
+    store.updateRepoData("/r1", [
+      { path: "/r1/new", head: "h", branch: "new", isMain: false, tasks: [] },
+    ]);
+
+    const target = store.repos["/r1"]?.worktrees[0];
+    expect(target?.gitStatuses).toEqual({});
+    expect(target?.upstream).toBeUndefined();
+    expect(target?.latestMtime).toBe(0);
+  });
+
+  test("往復中に status が head を書いた wt は、一覧の古い head で巻き戻さない", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();
     store.addRepo({
@@ -250,36 +263,47 @@ describe("updateRepoData", () => {
       isGitRepo: true,
       worktrees: [{ ...wt("/r1/wt-1", "feat"), head: "old" }],
     });
-    // 2 回目以降の fetchRepo と同じ状態。updateRepoData は末尾で全 wt の世代を進めるため、
-    // 定常状態では世代エントリが必ず存在する
-    store.setWorktreeGitStatuses("/r1/wt-1", {
-      statuses: {},
-      renameOldPaths: {},
-      upstream: undefined,
-      latestMtime: 0,
-      head: "current",
-    });
 
-    const genSnapshot = new Map([["/r1/wt-1", store.getGitStatusGen("/r1/wt-1")]]);
-    store.updateRepoData("/r1", [{ ...wt("/r1/wt-1", "feat"), head: "fetched" }], genSnapshot);
+    const headGenSnapshot = new Map([["/r1/wt-1", store.getObservationGen("/r1/wt-1").head]]);
+    store.setWorktreeGitStatuses("/r1/wt-1", { ...observed, head: "new" });
+    store.updateRepoData("/r1", [{ ...wt("/r1/wt-1", "feat"), head: "old" }], headGenSnapshot);
+
+    expect(store.repos["/r1"]?.worktrees[0]?.head).toBe("new");
+  });
+
+  test("往復中に head の観測が無ければ一覧の head を採る", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [{ ...wt("/r1/wt-1", "feat"), head: "old" }],
+    });
+    store.setWorktreeGitStatuses("/r1/wt-1", { ...observed, head: "current" });
+
+    const headGenSnapshot = new Map([["/r1/wt-1", store.getObservationGen("/r1/wt-1").head]]);
+    store.updateRepoData("/r1", [{ ...wt("/r1/wt-1", "feat"), head: "fetched" }], headGenSnapshot);
 
     expect(store.repos["/r1"]?.worktrees[0]?.head).toBe("fetched");
   });
 
-  test("世代エントリを持たない wt（hydrate 直後の初回 fetch）はレスポンスを採る", () => {
+  test("一覧の反映は status の世代を進めない（往復中の単発 status を捨てさせない）", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();
     store.addRepo({
       rootDir: "/r1",
       repoName: "r1",
       isGitRepo: true,
-      worktrees: [{ ...wt("/r1/wt-1", "feat"), head: "old" }],
+      worktrees: [wt("/r1/wt-1", "feat")],
     });
 
-    const genSnapshot = new Map([["/r1/wt-1", store.getGitStatusGen("/r1/wt-1")]]);
-    store.updateRepoData("/r1", [{ ...wt("/r1/wt-1", "feat"), head: "fetched" }], genSnapshot);
+    const before = store.getObservationGen("/r1/wt-1");
+    const headGenSnapshot = new Map([["/r1/wt-1", before.head]]);
+    store.updateRepoData("/r1", [wt("/r1/wt-1", "feat")], headGenSnapshot);
 
-    expect(store.repos["/r1"]?.worktrees[0]?.head).toBe("fetched");
+    expect(store.getObservationGen("/r1/wt-1").status).toBe(before.status);
+    expect(store.getObservationGen("/r1/wt-1").head).not.toBe(before.head);
   });
 });
 

@@ -84,24 +84,25 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
    * active dir の git status を rpcGitStatus で取得し直して repoStore を更新する。
    * dir 切替時 / Claude state 遷移時 / Filer の初期読み込みで呼ばれる。
    *
-   * 世代管理は repoStore.gitStatusGenByDir に集約。`setWorktreeGitStatuses` を
-   * 経由する push 経路と、ここでの RPC レスポンス到着が競合した場合、
-   * 開始時の世代と現在の世代を比較して RPC レスポンスが古ければ捨てる。
+   * 世代管理は repoStore の `getObservationGen` に集約。往復中に push で新しい status が
+   * 届いていればレスポンスごと捨てる。worktree 一覧が head だけを書いていた場合は、
+   * status は採用し head だけ捨てる。
    */
   async function loadGitStatus() {
     if (!repoStore.selectedIsGitRepo) return;
     const dir = repoStore.selectedDir;
     if (dir === undefined) return;
-    const startGen = repoStore.getGitStatusGen(dir);
+    const startGen = repoStore.getObservationGen(dir);
     const result = await tryCatch(rpcGitStatus({ dir }));
-    if (repoStore.getGitStatusGen(dir) !== startGen) return;
+    const currentGen = repoStore.getObservationGen(dir);
+    if (currentGen.status !== startGen.status) return;
     if (result.ok) {
       repoStore.setWorktreeGitStatuses(dir, {
         statuses: result.value.entries,
         renameOldPaths: result.value.renameOldPaths,
         upstream: result.value.upstream,
         latestMtime: result.value.latestMtime,
-        head: result.value.head,
+        head: currentGen.head === startGen.head ? result.value.head : undefined,
       });
     } else {
       const notify = useNotificationStore();

@@ -39,13 +39,11 @@ export function useSidebarData() {
     const gen = (fetchGenByRoot.get(rootDir) ?? 0) + 1;
     fetchGenByRoot.set(rootDir, gen);
 
-    // fetch 開始時点の per-wt gitStatuses 世代スナップショット。
-    // RPC 往復中に gitStatusChange push / loadGitStatus が走って個別 wt の status を
-    // 更新した場合、ここで取った世代より進んでいるので、レスポンスの古い gitStatuses を
-    // 捨てて現値を保持する判断に使う。
-    const gitStatusGenSnapshot = new Map<string, number>();
+    // fetch 開始時点の per-wt head 世代スナップショット。RPC 往復中に status が head を
+    // 書いていた wt は、レスポンスの（往復前に読んだ）head を捨てて現値を保持する判断に使う。
+    const headGenSnapshot = new Map<string, number>();
     for (const wt of repo.worktrees) {
-      gitStatusGenSnapshot.set(wt.path, repoStore.getGitStatusGen(wt.path));
+      headGenSnapshot.set(wt.path, repoStore.getObservationGen(wt.path).head);
     }
 
     const result = await tryCatch(rpcGitWorktreeList({ dir: rootDir }));
@@ -66,15 +64,15 @@ export function useSidebarData() {
     const newPaths = new Set(wtList.map((wt) => wt.path));
     const stalePaths = repo.worktrees.map((w) => w.path).filter((p) => !newPaths.has(p));
 
-    repoStore.updateRepoData(rootDir, wtList, gitStatusGenSnapshot);
+    repoStore.updateRepoData(rootDir, wtList, headGenSnapshot);
 
     for (const dir of stalePaths) terminalStore.remove(dir);
   }
 
   /**
    * git 非依存で tasks.json を読み、起動直後に worktree キャッシュから描画したカードへ
-   * task 行を即埋める高速経路。`fetchRepo`（git worktree list + 各 wt の git status を
-   * 含む重い真値取得）と並走させ、task の SSOT (tasks.json) を git の往復を待たずに反映する。
+   * task 行を即埋める高速経路。`fetchRepo`（git worktree list を経る真値取得）と並走させ、
+   * task の SSOT (tasks.json) を git の往復を待たずに反映する。
    * 失敗時は fetchRepo の真値が task を届けるため silent に諦める（補助経路。fetchRepo 側が
    * 失敗を notify する）。
    */

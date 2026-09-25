@@ -3,6 +3,8 @@ export {
   collectFsWatchTargetDirs,
   repoDirEntries,
   type RepoState,
+  type RepoWorktree,
+  toRepoWorktree,
   useRepoStore,
 } from "./useRepoStore";
 export {

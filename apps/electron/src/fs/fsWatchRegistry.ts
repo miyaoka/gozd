@@ -11,7 +11,8 @@
 //   [worktree root, common git dir] の 2 本）。
 // - **actor → 素の closure state**。Node はシングルスレッドで排他は不要だが、await
 //   （gitDirs 解決 / refDigest / git status）を跨ぐ間に unwatch や後続 event が割り込む
-//   構造は同じなので、watch 世代 + status リクエスト世代の二重チェックはそのまま移植する。
+//   構造は同じなので、await 前後で watch 世代を確かめる。同じ dir の status 取得は
+//   single-flight で直列化し、古い取得が新しい結果を上書きしない。
 // - **構築中の同 dir 並行 watch は pendingWatches で直列化**。Swift actor にも
 //   `await gitDirs` 中の reentrancy 窓（entry 二重構築 → 先行 stream leak）があるが、
 //   こちらは構築 promise を待たせて構造的に塞ぐ。
@@ -34,6 +35,7 @@
 
 import { tryCatch } from "@gozd/shared";
 import { realpathSync } from "node:fs";
+import { withGitTier } from "../git/gitAdmission";
 import { gitDirs, gitStatusFull, refDigest, type RefDigest } from "../git/gitOps";
 import type { StatusFull } from "../git/porcelain";
 import { classify } from "./classify";
@@ -140,15 +142,18 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
   /** dir ごとの working-tree status trailing-debounce タイマー。新しい working-tree event の
    * 到着で先行タイマーをキャンセルし、最新リクエストだけを status 取得まで進める */
   const statusDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** dir ごとの status リクエスト世代。in-flight の git status は Node ではキャンセルできない
-   * ため、await 前後で「自分が最新リクエストか」を再チェックし、古い in-flight が新しい結果を
-   * 上書きするのを弾く（watch 世代とは独立。同一 watch 内での request 順序を守る軸） */
-  const statusRequestGenerationByDir = new Map<string, number>();
+  /** status を取得中（admission の待機を含む）の dir。`startStatusRefresh` の single-flight 用 */
+  const statusInFlightDirs = new Set<string>();
+  /** 取得中に新しい要求が届いた dir。完了時に 1 回だけ取り直す */
+  const statusRerunDirs = new Set<string>();
   /** 構築中（await gitDirs / subscribe 中）の同 dir 並行 watch を待たせる。二重構築による
    * 先行 subscription の leak を防ぐ */
   const pendingWatches = new Map<string, Promise<void>>();
   /** watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を抑止する */
   let nextGeneration = 0;
+  /** ユーザーが注視している dir（realpath 解決済み）。この dir の status は画面の要求と同じ
+   * 優先度で取る。ファイラーの色分けやグラフの HEAD 追従が、他 worktree の status を待たない */
+  let focusDir: string | undefined;
 
   /** realpath で symlink を解決した絶対パスを返す。解決失敗時は入力をそのまま返す
    * （FSEvents 由来の event path は realpath で届くため、`/var` と `/private/var` のような
@@ -276,6 +281,9 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     resolvedKeyByOriginalDir.set(userDir, dir);
     if (commonGitDir !== undefined) {
       recomputePrimary(commonGitDir);
+      // 登録の成立を再同期の起点にする。登録前からの状態と、subscribe の往復中に起きた変化を
+      // 1 回の status で拾う
+      scheduleStatusRefresh(dir, generation, userDir);
     }
   }
 
@@ -295,6 +303,13 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     if (existing !== undefined) {
       existing.refCount++;
       resolvedKeyByOriginalDir.set(userDir, dir);
+      // 購読者が増えたときも登録の成立として status を届け直す。renderer を作り直すと
+      // 既存の entry に watch が重なるだけで、新しい renderer は status を持たないため、
+      // 内容が直近の push と同じでも送る
+      if (existing.commonGitDir !== undefined) {
+        lastPushedStatusByDir.delete(dir);
+        scheduleStatusRefresh(dir, existing.generation, existing.originalDir);
+      }
       return;
     }
     const building = buildEntry(userDir, dir);
@@ -349,7 +364,8 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     const timer = statusDebounceTimers.get(dir);
     if (timer !== undefined) clearTimeout(timer);
     statusDebounceTimers.delete(dir);
-    statusRequestGenerationByDir.delete(dir);
+    // 取得中の git は止められないため in-flight 印は完了時に外れる。取り直しの印だけ消す
+    statusRerunDirs.delete(dir);
     // 同一 resolved dir を指していた他の userDir 逆引きも掃除する（symlink パスと非 symlink
     // パスで watch が重ねられた状態で片方しか unwatch されないと逆引きが leak するため）
     for (const [orig, resolved] of resolvedKeyByOriginalDir) {
@@ -465,8 +481,6 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
   }
 
   function scheduleStatusRefresh(dir: string, watchGeneration: number, originalDir: string): void {
-    const requestGeneration = (statusRequestGenerationByDir.get(dir) ?? 0) + 1;
-    statusRequestGenerationByDir.set(dir, requestGeneration);
     const existing = statusDebounceTimers.get(dir);
     if (existing !== undefined) clearTimeout(existing);
     // trailing-debounce: 窓の間に新 event が来れば先行タイマーがキャンセルされ、
@@ -475,23 +489,48 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
       dir,
       setTimeout(() => {
         statusDebounceTimers.delete(dir);
-        void runStatusRefresh(dir, watchGeneration, requestGeneration, originalDir);
+        startStatusRefresh(dir, watchGeneration, originalDir);
       }, statusDebounceMs),
     );
   }
 
-  /** debounce 窓を生き延びたリクエストの git status を実行し、最新であれば push する。
-   * await 前後で watch 世代（unwatch / 再 watch）と request 世代（後続 event による新
-   * リクエスト）の両方を再チェックし、古い in-flight status が新しい結果を上書きするのを防ぐ */
+  /** dir ごとに status の取得を 1 本に絞る。取得は admission の枠を待つことがあり、その間に
+   * 届いた要求まで起動すると、同じ作業ツリーの走査が枠の数だけ積み上がる。実行中（待機中を
+   * 含む）に届いた要求は印だけ付け、完了後に最新の entry で 1 回だけ取り直す。取得は直列なので、
+   * 古い取得の結果が新しい取得の結果を上書きすることは起きない */
+  function startStatusRefresh(dir: string, watchGeneration: number, originalDir: string): void {
+    if (statusInFlightDirs.has(dir)) {
+      statusRerunDirs.add(dir);
+      return;
+    }
+    statusInFlightDirs.add(dir);
+    void (async () => {
+      const result = await tryCatch(runStatusRefresh(dir, watchGeneration, originalDir));
+      // 失敗しても印は必ず外す。残るとこの dir の status が二度と取られない
+      statusInFlightDirs.delete(dir);
+      if (!result.ok) {
+        console.error(`[FSWatchRegistry] status refresh failed for ${dir}: ${result.error}`);
+      }
+      if (!statusRerunDirs.delete(dir)) return;
+      // unwatch → 再 watch をまたいだ要求を落とさないよう、世代は現在の entry から読み直す
+      const entry = entries.get(dir);
+      if (entry === undefined) return;
+      startStatusRefresh(dir, entry.generation, entry.originalDir);
+    })();
+  }
+
+  /** git status を実行し、内容が変わっていれば push する。await 前後で watch 世代を確かめ、
+   * unwatch / 再 watch 後に古い watch の結果を push しない */
   async function runStatusRefresh(
     dir: string,
     watchGeneration: number,
-    requestGeneration: number,
     originalDir: string,
   ): Promise<void> {
     if (!isActive(dir, watchGeneration)) return;
-    if (statusRequestGenerationByDir.get(dir) !== requestGeneration) return;
-    const result = await tryCatch(statusFetcher(dir));
+    // 監視起点の status は、注視中の dir 以外は画面の要求より後回しにしてよい。worktree の数だけ
+    // 並ぶため、interactive と同じ枠で走らせると git log や注視中の dir の status を待たせる
+    const tier = dir === focusDir ? "interactive" : "background";
+    const result = await tryCatch(withGitTier(tier, () => statusFetcher(dir)));
     if (!result.ok) {
       // 観察可能性のためログを残す。renderer は次の event バッチで再 fetch するため
       // 致命的ではないが、繰り返し発生していれば一時障害として診断したい
@@ -499,7 +538,6 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
       return;
     }
     if (!isActive(dir, watchGeneration)) return;
-    if (statusRequestGenerationByDir.get(dir) !== requestGeneration) return;
     const status = result.value;
     // 内容が直近 push と同一なら push しない（gitignore 対象の書き込み連射を止める）
     const last = lastPushedStatusByDir.get(dir);
@@ -508,7 +546,12 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     onGitStatusChange(originalDir, status);
   }
 
-  return { watch, unwatch, unwatchAll };
+  /** 注視中の dir を差し替える。undefined は注視先なし。取得を始める時点の値で優先度が決まる */
+  function setFocusDir(userDir: string | undefined): void {
+    focusDir = userDir === undefined ? undefined : realpathOr(userDir);
+  }
+
+  return { watch, unwatch, unwatchAll, setFocusDir };
 }
 
 /** StatusFull の内容等値比較。Swift 版は Equatable 導出に相当 */

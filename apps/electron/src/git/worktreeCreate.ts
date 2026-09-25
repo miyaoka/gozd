@@ -20,18 +20,13 @@ import { resolveStartPoint } from "./gitBranch";
 import type { WorktreeInfo } from "./porcelain";
 import { createWorktree } from "./worktreeOps";
 
-/** 作成直後の worktree を WorktreeEntry に写す。git status / mtime は fs 監視と
- * `worktreeList` の後追いで埋まるため、ここでは空で送り出す。 */
+/** 作成直後の worktree を WorktreeEntry に写す */
 export function toWorktreeEntry(info: WorktreeInfo, tasks: Task[]): WorktreeEntry {
   return {
     path: info.path,
     head: info.head,
     branch: info.branch ?? "",
     isMain: info.isMain,
-    gitStatuses: {},
-    renameOldPaths: {},
-    latestMtime: 0,
-    upstream: undefined,
     tasks,
   };
 }

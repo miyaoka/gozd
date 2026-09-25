@@ -1,14 +1,14 @@
-import type { CreateTaskWorktreeResponse, WorktreeEntry } from "@gozd/rpc";
+import type { CreateTaskWorktreeResponse } from "@gozd/rpc";
 import { describe, expect, spyOn, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
 import { useNotificationStore } from "../../shared/notification";
-import { useRepoStore } from "../../shared/repo";
+import { type RepoWorktree, useRepoStore } from "../../shared/repo";
 import { useWorktreeStore } from "../worktree";
 import { openCreatedWorktree } from "./openCreatedWorktree";
 import { collectLeafIds } from "./splitTree";
 import { useTerminalStore } from "./useTerminalStore";
 
-function wt(path: string, branch: string, isMain = false): WorktreeEntry {
+function wt(path: string, branch: string, isMain = false): RepoWorktree {
   return {
     path,
     head: "",

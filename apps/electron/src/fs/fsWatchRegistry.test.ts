@@ -8,9 +8,12 @@
 import { subscribe as parcelSubscribe } from "@parcel/watcher";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runFixtureGit } from "../testGitFixture";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { currentGitTier } from "../git/gitAdmission";
+import { gitStatusFull } from "../git/gitOps";
+import type { StatusFull } from "../git/porcelain";
 import { createFsWatchRegistry, type WatchTransport } from "./fsWatchRegistry";
 
 // production は utilityProcess 隔離した watcherClient を注入するが、統合テストでは
@@ -63,7 +66,7 @@ interface Recorded {
   worktreeDirs: string[];
 }
 
-function createRecordingRegistry() {
+function createRecordingRegistry(statusFetcher?: (dir: string) => Promise<StatusFull>) {
   const recorded: Recorded = {
     fsChanges: [],
     statusDirs: [],
@@ -79,9 +82,19 @@ function createRecordingRegistry() {
       onRemoteRefsChange: (dir) => recorded.remoteDirs.push(dir),
       onWorktreeChange: (dir) => recorded.worktreeDirs.push(dir),
     },
-    { statusDebounceMs: TEST_STATUS_DEBOUNCE_MS, transport: realParcelTransport },
+    { statusDebounceMs: TEST_STATUS_DEBOUNCE_MS, transport: realParcelTransport, statusFetcher },
   );
   return { registry, recorded };
+}
+
+/** 監視の登録で届く初回の status を待ってから記録を空にする。以降に届く status は
+ * テスト内で起こした変更によるものだけになる */
+async function settleInitialStatus(recorded: Recorded, dirs: string[]): Promise<void> {
+  await waitUntil(
+    () => dirs.every((dir) => recorded.statusDirs.includes(dir)),
+    "initial gitStatusChange",
+  );
+  recorded.statusDirs.length = 0;
 }
 
 describe("FSWatchRegistry (integration)", () => {
@@ -106,6 +119,7 @@ describe("FSWatchRegistry (integration)", () => {
     cleanups.push(() => registry.unwatchAll());
 
     await registry.watch(dir);
+    await settleInitialStatus(recorded, [dir]);
     writeFileSync(join(dir, "note.txt"), "hello\n");
 
     await waitUntil(() => recorded.fsChanges.length > 0, "fsChange");
@@ -114,6 +128,113 @@ describe("FSWatchRegistry (integration)", () => {
     expect(recorded.fsChanges[0].relDir).toBe("");
     await waitUntil(() => recorded.statusDirs.length > 0, "gitStatusChange");
     expect(recorded.statusDirs[0]).toBe(dir);
+  });
+
+  test("監視の登録が成立すると、変更が無くても初回の gitStatusChange が届く", async () => {
+    const dir = makeTempRepo();
+    const { registry, recorded } = createRecordingRegistry();
+    cleanups.push(() => registry.unwatchAll());
+
+    await registry.watch(dir);
+
+    await waitUntil(() => recorded.statusDirs.includes(dir), "initial gitStatusChange");
+  });
+
+  test("同じ dir の再 watch で、内容が変わっていなくても status を届け直す", async () => {
+    const dir = makeTempRepo();
+    const { registry, recorded } = createRecordingRegistry();
+    cleanups.push(() => registry.unwatchAll());
+
+    await registry.watch(dir);
+    await settleInitialStatus(recorded, [dir]);
+    // renderer を作り直したときと同じく、既存 entry に watch が重なる
+    await registry.watch(dir);
+
+    await waitUntil(() => recorded.statusDirs.includes(dir), "gitStatusChange after re-watch");
+  });
+
+  test("注視中の dir の status は interactive、それ以外は background で取る", async () => {
+    const focused = makeTempRepo();
+    const other = makeTempRepo();
+    const tierByDir = new Map<string, string>();
+    const { registry } = createRecordingRegistry(async (target) => {
+      tierByDir.set(target, currentGitTier());
+      return gitStatusFull(target);
+    });
+    cleanups.push(() => registry.unwatchAll());
+
+    registry.setFocusDir(focused);
+    await registry.watch(focused);
+    await registry.watch(other);
+
+    await waitUntil(() => tierByDir.size === 2, "initial status of both dirs");
+    // registry のキーは realpath（macOS の TMPDIR は symlink 配下）
+    expect(tierByDir.get(realpathSync.native(focused))).toBe("interactive");
+    expect(tierByDir.get(realpathSync.native(other))).toBe("background");
+  });
+
+  test("取得中に届いた status 要求は、完了後の 1 回の取り直しにまとまる", async () => {
+    const dir = makeTempRepo();
+    let calls = 0;
+    const pending: (() => void)[] = [];
+    // 取得の完了を外から制御する。取得中に要求を重ねて、起動回数を数える
+    const { registry, recorded } = createRecordingRegistry(async (target) => {
+      calls++;
+      await new Promise<void>((resolve) => pending.push(resolve));
+      return gitStatusFull(target);
+    });
+    cleanups.push(() => registry.unwatchAll());
+
+    await registry.watch(dir);
+    await waitUntil(() => calls === 1, "initial status started");
+    for (const name of ["a.txt", "b.txt", "c.txt"]) {
+      writeFileSync(join(dir, name), "x\n");
+      // debounce 窓を抜けさせ、要求を 1 件ずつ取得中の dir に届ける
+      await new Promise((resolve) => setTimeout(resolve, TEST_STATUS_DEBOUNCE_MS * 3));
+    }
+    expect(calls).toBe(1);
+
+    pending.shift()?.();
+    // 取得中に要求が重なっても、その取得の結果は捨てずに push する（取り直しの完了を待たない）
+    await waitUntil(() => recorded.statusDirs.length === 1, "push of the first result");
+    await waitUntil(() => calls === 2, "single rerun");
+    pending.shift()?.();
+    // 負の証明は時間で切る: 取り直しは 1 回だけで、以後は起動しない
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(calls).toBe(2);
+  });
+
+  test("status の push が例外を投げても、その dir の status は以後も取られる", async () => {
+    const dir = makeTempRepo();
+    let fetches = 0;
+    let pushes = 0;
+    const registry = createFsWatchRegistry(
+      {
+        onFsChange: () => {},
+        onGitStatusChange: () => {
+          pushes++;
+          if (pushes === 1) throw new Error("push failed");
+        },
+        onBranchChange: () => {},
+        onRemoteRefsChange: () => {},
+        onWorktreeChange: () => {},
+      },
+      {
+        statusDebounceMs: TEST_STATUS_DEBOUNCE_MS,
+        transport: realParcelTransport,
+        statusFetcher: (target) => {
+          fetches++;
+          return gitStatusFull(target);
+        },
+      },
+    );
+    cleanups.push(() => registry.unwatchAll());
+
+    await registry.watch(dir);
+    await waitUntil(() => pushes === 1, "first push throws");
+    writeFileSync(join(dir, "after-failure.txt"), "x\n");
+
+    await waitUntil(() => fetches >= 2 && pushes === 2, "status after the failed push");
   });
 
   test("commit は branchChange を撃つが remoteRefsChange は撃たない（digest gating）", async () => {
@@ -157,6 +278,7 @@ describe("FSWatchRegistry (integration)", () => {
 
     await registry.watch(dir);
     await registry.watch(nested);
+    await settleInitialStatus(recorded, [dir, nested]);
     writeFileSync(join(nested, "agent.txt"), "x\n");
 
     // 入れ子側は自分の status を取り直す
@@ -179,6 +301,7 @@ describe("FSWatchRegistry (integration)", () => {
 
     await registry.watch(dir);
     await registry.watch(sub);
+    await settleInitialStatus(recorded, [dir, sub]);
     // tracked file の変更は外側の status に gitlink の変更（`.M`）として現れる
     writeFileSync(join(sub, "init.txt"), "changed\n");
 

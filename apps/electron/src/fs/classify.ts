@@ -19,8 +19,9 @@
 //         （local / remote のどちらが動いたかファイル名で判別できないため全候補）
 //       - `reftable/...` を branchChange + gitStatusChange + remoteRefsChange 候補、root
 //         (perWtSameAsCommon) では head 候補も（local / remote / HEAD が同居し判別不能）
-//       - `worktrees/...` を worktreeChange（worktree 追加削除 + secondary の branch 切替。
-//         構造変化を表す path 信号で、digest を経由せず即発火する）
+//       - `worktrees/<name>` 自体と、その直下の HEAD / gitdir / locked / reftable を
+//         worktreeChange（worktree 追加削除 + secondary の branch 切替。構造変化を表す path 信号で、
+//         digest を経由せず即発火する）。index や reflog は worktree 一覧を変えないため無視する
 //   (3) 作業ツリー配下（git dir 配下に該当しない場合）→ fsChange + gitStatusChange
 //       - ただし入れ子の worktree（`.claude/worktrees/*` のように dir 配下に置かれた同じ repo の
 //         別 worktree）の内部は fsChange のみ。git は入れ子 worktree を 1 エントリとしか見ないため、
@@ -115,7 +116,7 @@ export function classify(input: ClassifyInput): Classification {
     if (underCommon !== undefined) {
       matchedGitDir = true;
       if (underCommon.startsWith("worktrees/")) {
-        hasWorktreeChange = true;
+        if (isWorktreeStructureChange(underCommon)) hasWorktreeChange = true;
       } else if (underCommon.startsWith("refs/heads/")) {
         hasBranchChange = true;
       } else if (underCommon.startsWith("refs/remotes/")) {
@@ -172,6 +173,19 @@ export function classify(input: ClassifyInput): Classification {
     hasWorktreeChange,
     hasHeadChange,
   };
+}
+
+/** `worktrees/<name>/` 直下のうち、worktree 一覧（path / branch / lock）の出力を変えうるもの。
+ * `reftable` は reftable backend で per-worktree の HEAD を格納する場所 */
+const WORKTREE_STRUCTURE_ENTRIES = new Set(["HEAD", "gitdir", "locked", "reftable"]);
+
+/** common git dir からの相対 path（`worktrees/...`）が worktree 一覧を変えうるかを返す。
+ * `worktrees/<name>` 自体は worktree の作成 / 削除。index や reflog の書き込みは
+ * 一覧を変えないため含めない（その worktree の status は自身の watcher が拾う） */
+function isWorktreeStructureChange(underCommon: string): boolean {
+  const [, , entry] = underCommon.split("/");
+  if (entry === undefined) return true;
+  return WORKTREE_STRUCTURE_ENTRIES.has(entry);
 }
 
 /** path が root 配下なら root からの相対パスを返す。配下でなければ undefined。

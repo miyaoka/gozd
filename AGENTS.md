@@ -162,6 +162,8 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 
 - `pnpm dev` — renderer（Vite HMR）と Electron shell を concurrently で同時起動。port / socket は
   worktree 単位で分離されるため、複数 worktree での並列起動が可能
+- `GOZD_DEV_REMOTE_DEBUGGING_PORT=<port> pnpm dev` — renderer を Chrome DevTools Protocol に公開して
+  起動する（`http://127.0.0.1:<port>/json` で target を取得）。未パッケージの起動でのみ効く
 - `pnpm --filter @gozd/electron build:app` — `.app` バンドルを生成（無指定は local channel の
   `apps/electron/out/mac-arm64/Gozd Local.app`。stable identity は release CI のみ。docs/release.md）
 

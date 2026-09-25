@@ -1768,7 +1768,7 @@ describe("parseSessionLog", () => {
     const expected: TranscriptEvent[] = [
       { kind: "user", text: "最初の依頼", ts: TS },
       { kind: "assistant", text: "compact 前の応答", ts: TS },
-      { kind: "system", label: "compact", text: SUMMARY, ts: TS },
+      { kind: "user", text: SUMMARY, ts: TS },
       { kind: "assistant", text: "compact 後の応答", ts: TS },
     ];
 
@@ -1833,7 +1833,7 @@ describe("parseSessionLog", () => {
       expect(log.events).toEqual([
         { kind: "user", text: "最初の依頼", ts: TS },
         { kind: "assistant", text: "compact 前の応答", ts: TS },
-        { kind: "system", label: "compact", text: SUMMARY, ts: TS },
+        { kind: "user", text: SUMMARY, ts: TS },
         {
           kind: "branch",
           ts: TS,
@@ -1901,7 +1901,7 @@ describe("parseSessionLog", () => {
         { kind: "user", text: "最初の依頼", ts: TS },
         { kind: "assistant", text: "compact 前の応答", ts: TS },
         { kind: "user", text: "/compact 日本語で", ts: TS },
-        { kind: "system", label: "compact", text: SUMMARY, ts: TS },
+        { kind: "user", text: SUMMARY, ts: TS },
         { kind: "assistant", text: "compact 後の応答", ts: TS },
       ]);
     });
@@ -1909,7 +1909,7 @@ describe("parseSessionLog", () => {
     test.each([
       ["空文字", ""],
       ["配列", [{ type: "text", text: SUMMARY }]],
-    ])("content が%sの要約は system イベントにせず skipped に数える", (_, content) => {
+    ])("content が%sの要約は user イベントにせず skipped に数える", (_, content) => {
       const log = parseSessionLog(jsonl(...beforeCompact, summaryRecord(content)));
       expect(log.events).toEqual([
         { kind: "user", text: "最初の依頼", ts: TS },

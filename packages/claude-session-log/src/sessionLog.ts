@@ -20,10 +20,12 @@
 //
 // system 注入の可視化 (`kind:"system"`): エージェントのコンテキストに注入されたシステム由来
 // テキストを system イベントとして載せる。ソースは hook 由来 attachment
-// (`hook_success` / `hook_additional_context`) と compact 要約 (`isCompactSummary`)。前者は
-// SessionStart hook の出力等、実行時に system-reminder としてエージェントに届く content の
-// 永続化形。content 空の hook_success (発火記録だけの PreToolUse 等が大半) は表示する中身が
-// 無いため skipped。
+// (`hook_success` / `hook_additional_context`) で、SessionStart hook の出力等、実行時に
+// system-reminder としてエージェントに届く content の永続化形。content 空の hook_success
+// (発火記録だけの PreToolUse 等が大半) は表示する中身が無いため skipped。
+//
+// compact 要約 (`isCompactSummary`) は user イベントにする。compact 後のエージェントは要約を
+// user role の発言として受け取り、それを起点に会話を続けるため。
 // なお output_style / task_reminder 等のランタイムリマインダは JSONL に永続化されず、原理的に
 // 表示できない。harness 追記の `<system-reminder>` (tool call バッチ推奨 / truncation 通知等) は
 // tool_result の content 内に現れ、tool イベントの result.text に全文が載るため抽出しない
@@ -199,8 +201,8 @@ interface RawLine {
   // parentUuid を null にして物理的な鎖を切ったレコードが持つ、会話上の本当の親。compact 時の
   // `compact_boundary` がこれを持ち、compact 前の会話の末尾を指す (実ログで確認済み)。
   logicalParentUuid?: string | null;
-  // compact 時に Claude Code が書く要約メッセージ (`type:"user"`)。ユーザー発話ではなく、
-  // compact 後のコンテキストに注入されるシステム由来テキスト。
+  // compact 時に Claude Code が書く要約メッセージ (`type:"user"`)。人間が打った発話ではないが、
+  // compact 後のエージェントには user role の発言として渡る。
   isCompactSummary?: boolean;
   // coordinator (親エージェント) が SendMessage で subagent に中継した発話の出所。Claude Code が
   // 中継時に `origin.kind:"coordinator"` を付ける。中継は `isMeta:true` と併記されるため、これが
@@ -383,7 +385,7 @@ function isSyntheticAssistant(raw: RawLine): boolean {
 }
 
 /**
- * compact の要約メッセージか。要約は発話ではないので分岐候補にせず、system イベントとして載せる。
+ * compact の要約メッセージか。要約は user イベントとして載せるが、分岐候補にはしない。
  * compact 後の会話が compact 前の末尾に直接繋がる形では、boundary を論理的な親で繋ぐと要約と
  * compact 後の最初の応答が同じ会話的親に並ぶ。要約を候補に含めると rewind と誤検出し、偽の分岐
  * セレクタを出して既定では要約を刈る。
@@ -391,9 +393,6 @@ function isSyntheticAssistant(raw: RawLine): boolean {
 function isCompactSummary(raw: RawLine): boolean {
   return raw.type === "user" && raw.isCompactSummary === true;
 }
-
-/** compact 要約の system イベントの label。 */
-const COMPACT_SUMMARY_LABEL = "compact";
 
 // ユーザーが Esc で応答を中断したとき Claude Code が書くマーカーの文言。Claude Code 本体が定数として
 // 持つ固定文字列で、生成中の応答を止めたときと tool の実行を止めたときの 2 種がある。
@@ -484,8 +483,7 @@ export type TranscriptEvent =
   | { kind: "assistant"; text: string; ts: string }
   | { kind: "thinking"; text: string; ts: string }
   // エージェントのコンテキストに注入されたシステム由来テキスト。ソースは hook 由来
-  // attachment (hook_success / hook_additional_context) と compact 要約。label は注入元の
-  // 識別子 (hook 名 / "compact")。
+  // attachment (hook_success / hook_additional_context)。label は注入元の hook 名。
   // 会話ターンではないので branch 候補 / scroll-spy の観測対象にはしない。
   | { kind: "system"; label: string; text: string; ts: string }
   | {
@@ -922,12 +920,12 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       continue;
     }
 
-    // compact 要約は type:"user" だがユーザー発話ではない。compact 後のコンテキストに注入された
-    // テキストなので system イベントにする (実ログでは content は string)。
+    // compact 要約は compact 後のエージェントが user role の発言として受け取る本文なので、user
+    // イベントにする (実ログでは content は string)。分岐候補にはしない (isBranchCandidate)。
     if (isCompactSummary(raw)) {
       const content = raw.message?.content;
       if (typeof content === "string" && content !== "") {
-        events.push({ kind: "system", label: COMPACT_SUMMARY_LABEL, text: content, ts });
+        events.push({ kind: "user", text: content, ts });
       } else {
         skipped++;
       }

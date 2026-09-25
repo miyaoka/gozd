@@ -34,6 +34,11 @@ const MIN_GENERAL_CAP = 2;
 const MAX_GENERAL_CAP = 4;
 /** renderer / 他プロセスの取り分として残すコア数 */
 const RESERVED_CORES = 4;
+/** 同一ホストへ同時に張る TLS 接続の上限。多数の repo が一度に fetch すると、バーストで負けた
+ * 接続が確立できず OS の TCP timeout まで hang する。git には connect timeout を縛る config が
+ * 無い（`http.lowSpeedLimit/Time` は接続後の転送しか縛れない）ため、発射側で同時数を絞る。
+ * VSCode が複数 repo 横断の git 操作を並列 5 に絞る（`Limiter(5)`）のと同値・同理由 */
+const NETWORK_CAP = 5;
 
 export const DEFAULT_GIT_ADMISSION_LIMITS: GitAdmissionLimits = {
   generalCap: Math.max(
@@ -41,8 +46,26 @@ export const DEFAULT_GIT_ADMISSION_LIMITS: GitAdmissionLimits = {
     Math.min(MAX_GENERAL_CAP, availableParallelism() - RESERVED_CORES),
   ),
   interactiveHeadroom: 2,
-  networkCap: 3,
+  networkCap: NETWORK_CAP,
 };
+
+/** ネットワークを待つ git サブコマンド。認証やリモートの応答で長く居座るため general と分ける */
+const NETWORK_SUBCOMMANDS = new Set(["fetch", "pull", "push", "ls-remote", "clone"]);
+
+/** git の引数列から予算を決める。`-c key=value` などの前置オプションを飛ばしたサブコマンドで判定する */
+export function gitBudgetOf(args: string[]): GitBudget {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    // 値を別引数に取る前置オプション
+    if (arg === "-c" || arg === "-C") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    return NETWORK_SUBCOMMANDS.has(arg) ? "network" : "general";
+  }
+  return "general";
+}
 
 interface Waiter {
   budget: GitBudget;

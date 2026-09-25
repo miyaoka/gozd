@@ -15,16 +15,6 @@ import { rpcGitFetchRemotes } from "./rpc";
  */
 export const REMOTE_FETCH_INTERVAL_MS = 60_000;
 /**
- * 背景 fetch の同時実行上限。可視集合（`useRemoteFetchSync` の対象「画面に写っている repo ∪
- * active repo」）が一度に多数入る（mount 時 / スクロールで多数カードが可視化）と、対象 repo が
- * 同時に fetch を要求しうる。無制限だと N 本の `git fetch` が同一瞬間に同一ホストへ TLS 接続を
- * 張り、バーストで負けた接続が確立できず OS TCP timeout（~75s）まで hang する。git には connect
- * timeout を縛る config が無い（`http.lowSpeedLimit/Time` は接続後の転送しか縛れない）ため、
- * 発射側で同時数を絞る。VSCode が複数 repo 横断の初期 git 操作を並列 5 に絞る
- * （microsoft/vscode `Limiter<void>(5)`, issue #318279 ext host starvation 回避）のと同値・同理由。
- */
-const MAX_CONCURRENT_FETCH = 5;
-/**
  * 背景 fetch の同一 repo 失敗を再通知する最小間隔 (ms)。継続失敗が 60s 周期のまま center の
  * 100 件枠を食い潰すのを防ぎつつ、恒久失敗 (認証切れ等) の再告知は保つ間隔として選んだ。
  * 初回の失敗は即通知され、成功でリセットされるため失敗エピソードごとに必ず 1 回は通知される
@@ -45,49 +35,6 @@ export function isFailureNotifyDue(args: {
 }): boolean {
   const { lastNotifiedAt, now } = args;
   return lastNotifiedAt === undefined || now - lastNotifiedAt >= FAILURE_NOTIFY_INTERVAL_MS;
-}
-
-/**
- * 同時実行数を `concurrency` に絞るキュー。VSCode の `Limiter`
- * (microsoft/vscode `extensions/git/src/util.ts`) を、class 禁止の gozd 規約に合わせ関数化して
- * 移植した。`outstanding` に積んだ factory を、実行中 (`running`) が上限未満のあいだ `consume` が
- * while で dequeue して発火し、1 つ完了 (成否問わず) するごとに `consumed` が枠を返して再 consume
- * する。factory の解決値 / reject は呼び出し側へ透過する。単一 consumer のためここに閉じ shared 化しない。
- */
-export function createConcurrencyLimiter<T>(concurrency: number) {
-  interface QueuedTask {
-    factory: () => Promise<T>;
-    resolve: (value: T | PromiseLike<T>) => void;
-    reject: (reason: unknown) => void;
-  }
-  const outstanding: QueuedTask[] = [];
-  let running = 0;
-
-  function consume() {
-    while (outstanding.length > 0 && running < concurrency) {
-      const task = outstanding.shift();
-      if (task === undefined) return;
-      running++;
-      // factory() が Promise を返す前に同期 throw しても、reject 経路に載せて枠を必ず解放するため
-      // async で包む (裸で呼ぶと throw が consume を抜け running が減らず、cap 回累積で deadlock する)
-      const promise = (async () => task.factory())();
-      // 解決値 / reject を caller へ透過。別の then で成否どちらでも枠を返す
-      // (両ハンドラが consumed のため reject は再送されず unhandled にならない)
-      void promise.then(task.resolve, task.reject);
-      void promise.then(consumed, consumed);
-    }
-  }
-
-  function consumed() {
-    running--;
-    if (outstanding.length > 0) consume();
-  }
-
-  return (factory: () => Promise<T>): Promise<T> =>
-    new Promise<T>((resolve, reject) => {
-      outstanding.push({ factory, resolve, reject });
-      consume();
-    });
 }
 
 /**
@@ -118,9 +65,8 @@ export function isRepoFetchDue(args: {
  *
  * 既存規律:
  * - in-flight ロックで同 rootDir 並列発射を抑止 (`inFlight` Map で dedup)
- * - 全 fetch 経路が共有する `fetchLimiter` (`createConcurrencyLimiter(MAX_CONCURRENT_FETCH)`) で
- *   同時実行数を絞る。可視集合の同時 fetch が cap を超えたぶんは queue し、TLS 接続バーストによる
- *   connect hang を断つ
+ * - 同時実行数は main の git admission が network 予算で絞る（TLS 接続バーストによる connect hang を
+ *   断つ上限の持ち主は main。`docs/git.md` の「git の同時実行」）
  * - 成功・失敗を区別せず 60s の単一周期で lock（`REMOTE_FETCH_INTERVAL_MS`）
  * - 失敗の通知は経路ごとに方針が分かれる (`console.error` で握り潰さない)。間引く側は
  *   同一 repo を `FAILURE_NOTIFY_INTERVAL_MS` に 1 回へ絞る: 毎周期の再通知は center の 100 件枠を
@@ -138,7 +84,7 @@ export function isRepoFetchDue(args: {
  * - `requestFollowUpFetch(dir)`: bypass / 間引く。自動追従。**撃てたかどうかを判断材料にする
  *   呼び出しは backoff に載せない** — lock は poll が張り直し続けるため、no-op を失敗と誤読する
  *
- * bypass 側も `fetchLimiter` の cap は共有する。`dir` は worktree path / rootDir どちらも可。
+ * `dir` は worktree path / rootDir どちらも可。
  *
  * 内部 `runFetch` は public に出さない。直接呼びで backoff を bypass 連射する経路を
  * 型レベルで塞ぐため、外部からアクセス不可能な closure に閉じる。
@@ -151,8 +97,6 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   const nextFetchAllowedAt = new Map<string, number>();
   /** rootDir → 現在 in-flight な fetch の Promise (dedup 用) */
   const inFlight = new Map<string, Promise<FetchOutcome>>();
-  /** 全 fetch 経路が共有する同時実行上限キュー。cap 超過ぶんは queue され順に実行される */
-  const fetchLimiter = createConcurrencyLimiter<FetchOutcome>(MAX_CONCURRENT_FETCH);
   /** rootDir → 背景経路で最後に失敗を通知した時刻 (ms epoch)。成功で削除し即通知に戻す */
   const lastFailureNotifiedAt = new Map<string, number>();
 
@@ -178,9 +122,8 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
     }
     logEvent("fetch", "queue", name);
 
-    // cap 超過ぶんは fetchLimiter が queue し、slot が空いてから実行する。"fire" は queue 通過後の
-    // 実ネットワーク開始を指す (queue と fire の間隔で発射バーストの詰まりが観察できる)。
-    const promise = fetchLimiter(async () => {
+    // "fire" は main への要求の送出を指す。main の admission が network 予算の空きを待たせることがある
+    const promise = (async (): Promise<FetchOutcome> => {
       logEvent("fetch", "fire", name);
       const result = await tryCatch(rpcGitFetchRemotes({ dir: rootDir }));
       nextFetchAllowedAt.set(rootDir, Date.now() + REMOTE_FETCH_INTERVAL_MS);
@@ -195,7 +138,7 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       logEvent("fetch", "done", name);
       lastFailureNotifiedAt.delete(rootDir);
       return { ok: true as const };
-    });
+    })();
 
     inFlight.set(rootDir, promise);
     void promise.finally(() => inFlight.delete(rootDir));
@@ -235,8 +178,8 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   }
 
   /**
-   * on-demand fetch。background polling の backoff を bypass して fetch を要求する。ただし
-   * `fetchLimiter` の同時実行 cap は共有するため、cap が埋まっていれば slot 空き待ちが入りうる。
+   * on-demand fetch。background polling の backoff を bypass して fetch を要求する。同時実行数の
+   * 上限は main の admission が持つため、枠が埋まっていれば空き待ちが入りうる。
    *
    * `dir` は repo 配下の任意 path (worktree path / rootDir どちらも可)。内部で
    * `findRepoOwning(dir)?.rootDir` に正規化するため呼び出し側は変換不要。

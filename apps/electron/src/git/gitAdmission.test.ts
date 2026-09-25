@@ -1,8 +1,10 @@
+import { tryCatch } from "@gozd/shared";
 import { describe, expect, test } from "bun:test";
 import {
   createGitAdmission,
   currentGitTier,
   type GitBudget,
+  gitBudgetOf,
   type GitTier,
   withGitTier,
 } from "./gitAdmission";
@@ -22,7 +24,7 @@ function controllableTask() {
   return { task, state, finish: (ok = true) => finish(ok) };
 }
 
-/** microtask を流して、待機列の再評価を反映させる */
+/** タイマー 1 周ぶん待ち、完了した task の枠の返却と待機列の再評価を反映させる */
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -90,7 +92,8 @@ describe("createGitAdmission", () => {
     await flush();
 
     tasks[0].finish(false);
-    expect(tasks[0].done).rejects.toThrow("failed");
+    const failed = await tryCatch(tasks[0].done);
+    expect(failed.ok ? undefined : String(failed.error)).toBe("Error: failed");
     await flush();
     expect(tasks[2].state.started).toBe(true);
   });
@@ -108,5 +111,17 @@ describe("withGitTier", () => {
     });
     expect(observed).toBe("background");
     expect(currentGitTier()).toBe("interactive");
+  });
+});
+
+describe("gitBudgetOf", () => {
+  test.each([
+    [["fetch", "--all"], "network"],
+    [["-c", "core.quotePath=false", "fetch", "origin", "main"], "network"],
+    [["push", "origin", "HEAD"], "network"],
+    [["status", "--porcelain=v2"], "general"],
+    [["-c", "fetch.prune=true", "log", "--stdin"], "general"],
+  ] as const)("%p は %s", (args, budget) => {
+    expect(gitBudgetOf([...args])).toBe(budget);
   });
 });

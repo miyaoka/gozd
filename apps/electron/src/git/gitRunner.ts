@@ -18,16 +18,16 @@ import {
   createGitAdmission,
   currentGitTier,
   DEFAULT_GIT_ADMISSION_LIMITS,
-  type GitBudget,
+  gitBudgetOf,
 } from "./gitAdmission";
 
 const execFileAsync = promisify(execFile);
 
 const admission = createGitAdmission(DEFAULT_GIT_ADMISSION_LIMITS);
 
-/** git を解決して実行する唯一の入口。起動前に admission の枠を取る（`gitAdmission.ts`） */
-function runResolvedGit<T>(budget: GitBudget, fn: (gitPath: string) => Promise<T>): Promise<T> {
-  return admission.run(budget, currentGitTier(), () => withResolvedCommand("git", fn));
+/** git を解決して実行する唯一の入口。起動前に、サブコマンドで決まる予算の枠を取る（`gitAdmission.ts`） */
+function runResolvedGit<T>(args: string[], fn: (gitPath: string) => Promise<T>): Promise<T> {
+  return admission.run(gitBudgetOf(args), currentGitTier(), () => withResolvedCommand("git", fn));
 }
 
 /** git status の出力は repo サイズ依存で大きくなり得るため、node デフォルト (1MB) を広げる */
@@ -85,7 +85,7 @@ function buildNonInteractiveEnv(base: Record<string, string>): Record<string, st
 }
 
 async function execGit(args: string[], cwd: string): Promise<string> {
-  return runResolvedGit("general", async (gitPath) => {
+  return runResolvedGit(args, async (gitPath) => {
     const result = await tryCatch(
       execFileAsync(gitPath, args, { cwd, env: gozdGitEnv(gitPath), maxBuffer: GIT_MAX_BUFFER }),
     );
@@ -106,7 +106,7 @@ async function execGit(args: string[], cwd: string): Promise<string> {
  * 壊すため、binary 判定が要る経路はこちらを使う
  */
 export async function runGitBuffer(args: string[], cwd: string): Promise<Buffer> {
-  return runResolvedGit("general", async (gitPath) => {
+  return runResolvedGit(args, async (gitPath) => {
     const result = await tryCatch(
       execFileAsync(gitPath, args, {
         cwd,
@@ -129,7 +129,7 @@ export async function runGitBuffer(args: string[], cwd: string): Promise<Buffer>
  * exit > 1 は通常エラー扱い（Swift runGitDiffNoIndex と同契約）
  */
 export async function runGitAllowExit1(args: string[], cwd: string): Promise<string> {
-  return runResolvedGit("general", async (gitPath) => {
+  return runResolvedGit(args, async (gitPath) => {
     const result = await tryCatch(
       execFileAsync(gitPath, args, { cwd, env: gozdGitEnv(gitPath), maxBuffer: GIT_MAX_BUFFER }),
     );
@@ -161,7 +161,7 @@ export function runGitWithStdin(
   stdin: string,
   { treatNonZeroExitAsSuccess = false } = {},
 ): Promise<string> {
-  return runResolvedGit("general", (gitPath) =>
+  return runResolvedGit(args, (gitPath) =>
     runGitWithStdinOnce(gitPath, args, cwd, stdin, { treatNonZeroExitAsSuccess }),
   );
 }
@@ -209,7 +209,7 @@ function runGitWithStdinOnce(
  *   （renderer の失敗トースト）を trace 行で押し流すため
  */
 export async function runGitNonInteractive(args: string[], cwd: string): Promise<string> {
-  return runResolvedGit("network", async (gitPath) => {
+  return runResolvedGit(args, async (gitPath) => {
     const env = buildNonInteractiveEnv(gozdGitEnv(gitPath));
     const traceEnabled = process.env.GOZD_GIT_TRACE === "1";
     if (traceEnabled) env.GIT_TRACE = "1";

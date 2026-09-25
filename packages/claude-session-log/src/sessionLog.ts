@@ -20,14 +20,16 @@
 //
 // system 注入の可視化 (`kind:"system"`): エージェントのコンテキストに注入されたシステム由来
 // テキストを system イベントとして載せる。ソースは hook 由来 attachment
-// (`hook_success` / `hook_additional_context`) と compact 要約 (`isCompactSummary`)。前者は
-// SessionStart hook の出力等、実行時に system-reminder としてエージェントに届く content の
-// 永続化形。content 空の hook_success (発火記録だけの PreToolUse 等が大半) は表示する中身が
-// 無いため skipped。
+// (`hook_success` / `hook_additional_context`) で、SessionStart hook の出力等、実行時に
+// system-reminder としてエージェントに届く content の永続化形。content 空の hook_success
+// (発火記録だけの PreToolUse 等が大半) は表示する中身が無いため skipped。
 // なお output_style / task_reminder 等のランタイムリマインダは JSONL に永続化されず、原理的に
 // 表示できない。harness 追記の `<system-reminder>` (tool call バッチ推奨 / truncation 通知等) は
 // tool_result の content 内に現れ、tool イベントの result.text に全文が載るため抽出しない
 // (追記と「file 本文がたまたまタグ文字列を含む」偶発一致を区別する構造的マーカーが無い)。
+//
+// compact 要約 (`isCompactSummary`) は user イベントにする。compact 後のエージェントは要約を
+// user role の発言として受け取り、それを起点に会話を続けるため。
 //
 // 平文の無い thinking (暗号化 signature のみ / フィールド欠落) も載せないが、
 // これは非会話レコードではなく会話イベントの一種なので skipped と混ぜず emptyThinking に
@@ -49,7 +51,9 @@
 // 要約を置く。compact 後の会話は、要約の下に続く形と、要約を経ず compact 前の末尾に直接繋がる形の
 // 両方が実ログにある。前者は物理的な親のままだとセッション先頭と同じ ROOT に並ぶため、boundary を
 // logicalParentUuid で compact 前の末尾に繋ぐ (treeParentUuid)。後者は繋いだ結果、要約と compact
-// 後の最初の応答が同じ会話的親に並ぶため、要約を分岐候補にしない (isCompactSummary)。
+// 後の最初の応答が同じ会話的親に並ぶため、要約を分岐候補にしない (isCompactSummary)。手動 compact は
+// 入力した `/compact` を compact 前の末尾と要約の下に重複して書き、繋いだ結果この 2 つも同じ会話的親に
+// 並ぶ。後の方は元の入力の別名 (echo) として候補から外し、表示もしない (withoutEchoes)。
 
 import { tryCatch } from "@gozd/shared";
 
@@ -197,8 +201,8 @@ interface RawLine {
   // parentUuid を null にして物理的な鎖を切ったレコードが持つ、会話上の本当の親。compact 時の
   // `compact_boundary` がこれを持ち、compact 前の会話の末尾を指す (実ログで確認済み)。
   logicalParentUuid?: string | null;
-  // compact 時に Claude Code が書く要約メッセージ (`type:"user"`)。ユーザー発話ではなく、
-  // compact 後のコンテキストに注入されるシステム由来テキスト。
+  // compact 時に Claude Code が書く要約メッセージ (`type:"user"`)。人間が打った発話ではないが、
+  // compact 後のエージェントには user role の発言として渡る。
   isCompactSummary?: boolean;
   // coordinator (親エージェント) が SendMessage で subagent に中継した発話の出所。Claude Code が
   // 中継時に `origin.kind:"coordinator"` を付ける。中継は `isMeta:true` と併記されるため、これが
@@ -381,7 +385,7 @@ function isSyntheticAssistant(raw: RawLine): boolean {
 }
 
 /**
- * compact の要約メッセージか。要約は発話ではないので分岐候補にせず、system イベントとして載せる。
+ * compact の要約メッセージか。要約は user イベントとして載せるが、分岐候補にはしない。
  * compact 後の会話が compact 前の末尾に直接繋がる形では、boundary を論理的な親で繋ぐと要約と
  * compact 後の最初の応答が同じ会話的親に並ぶ。要約を候補に含めると rewind と誤検出し、偽の分岐
  * セレクタを出して既定では要約を刈る。
@@ -389,9 +393,6 @@ function isSyntheticAssistant(raw: RawLine): boolean {
 function isCompactSummary(raw: RawLine): boolean {
   return raw.type === "user" && raw.isCompactSummary === true;
 }
-
-/** compact 要約の system イベントの label。 */
-const COMPACT_SUMMARY_LABEL = "compact";
 
 // ユーザーが Esc で応答を中断したとき Claude Code が書くマーカーの文言。Claude Code 本体が定数として
 // 持つ固定文字列で、生成中の応答を止めたときと tool の実行を止めたときの 2 種がある。
@@ -482,8 +483,7 @@ export type TranscriptEvent =
   | { kind: "assistant"; text: string; ts: string }
   | { kind: "thinking"; text: string; ts: string }
   // エージェントのコンテキストに注入されたシステム由来テキスト。ソースは hook 由来
-  // attachment (hook_success / hook_additional_context) と compact 要約。label は注入元の
-  // 識別子 (hook 名 / "compact")。
+  // attachment (hook_success / hook_additional_context)。label は注入元の hook 名。
   // 会話ターンではないので branch 候補 / scroll-spy の観測対象にはしない。
   | { kind: "system"; label: string; text: string; ts: string }
   | {
@@ -559,7 +559,10 @@ export interface ParsedSessionLog {
   totalLines: number;
   /** JSON parse に失敗した行数 (末尾の追記途中行など) */
   malformed: number;
-  /** transcript に載せなかった非会話レコード数 (attachment / system 等) */
+  /**
+   * transcript に載せなかったレコード数。attachment / system 等の非会話レコードと、元の入力が
+   * 表示済みの重複入力 (echo。withoutEchoes) を含む
+   */
   skipped: number;
   /**
    * 平文が無く載せなかった thinking ブロック数。会話イベントだが表示できる中身が無い
@@ -692,6 +695,55 @@ function isBranchCandidate(raw: RawLine): boolean {
     );
   }
   return false;
+}
+
+/**
+ * node が original と同じ 1 回の入力を別の箇所に書き直したもの (echo) か。手動 compact は入力した
+ * `/compact` を compact 前の末尾と要約の下の両方に書き、両者は同じ promptId と同じ本文 (後者は
+ * command block で、userTextOf で正規化すると一致する) を持つ (実ログで確認済み)。
+ *
+ * promptId はプロンプト処理サイクル単位の id で、同じサイクルに積まれた別の発話も共有しうる。
+ * このため promptId だけでなく本文全体の一致まで要求する。rewind で打ち直した発話は別のサイクルに
+ * なるため echo にならない。
+ *
+ * 比べるのは string content 同士に限る。echo は両方とも string で書かれる。本文の比較に
+ * nodeLeadText (分岐セレクタの見出し) を使わないのは、配列 content の先頭 text や
+ * teammate-message の summary しか返さず、本文の違う発話まで一致させてしまうため。
+ */
+function isEchoOf(node: LogNode, original: LogNode): boolean {
+  if (node.raw.type !== "user" || original.raw.type !== "user") return false;
+  const promptId = node.raw.promptId;
+  if (typeof promptId !== "string" || promptId === "" || promptId !== original.raw.promptId) {
+    return false;
+  }
+  const content = node.raw.message?.content;
+  const originalContent = original.raw.message?.content;
+  if (typeof content !== "string" || typeof originalContent !== "string") return false;
+  const text = userTextOf(content);
+  return text !== undefined && text === userTextOf(originalContent);
+}
+
+/**
+ * 同一分岐点の候補から echo (isEchoOf) を除き、残した元の入力の uuid → echo の uuid 列を
+ * `echoesOf` に積む。echo を候補に残すと偽の分岐セレクタが出て、古い側を選ぶと compact 後の会話が
+ * 丸ごと刈られる。echo は元の入力の別名として扱い、元の入力の枝が捨てられるときは echo の
+ * サブツリーも一緒に捨てる。
+ *
+ * 先に出た方を残すのは、compact 前に書かれた入力が要約より前に並び、「指示 → 要約」の順で読めるため。
+ */
+function withoutEchoes(candidates: LogNode[], echoesOf: Map<string, string[]>): LogNode[] {
+  const kept: LogNode[] = [];
+  for (const cand of candidates) {
+    const original = kept.find((k) => isEchoOf(cand, k));
+    if (original === undefined) {
+      kept.push(cand);
+      continue;
+    }
+    const echoes = echoesOf.get(original.uuid);
+    if (echoes === undefined) echoesOf.set(original.uuid, [cand.uuid]);
+    else echoes.push(cand.uuid);
+  }
+  return kept;
 }
 
 /**
@@ -833,10 +885,14 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     }
   };
 
+  // 元の入力の uuid → その echo の uuid 列 (withoutEchoes)。echo は分岐候補にも表示にも使わない。
+  const echoesOf = new Map<string, string[]>();
+
   // 分岐点を検出する。同一会話的親に分岐候補が 2 つ以上並ぶ箇所が rewind 分岐。非選択候補のサブツリーを
   // 刈り、選択枝の先頭に branch イベントを用意する。処理順は結果に影響しない (各分岐点は独立に
   // 自分の非選択候補だけを刈り、pruned は冪等な集合のため)。
-  for (const [ancestor, candidates] of convChildren) {
+  for (const [ancestor, siblings] of convChildren) {
+    const candidates = withoutEchoes(siblings, echoesOf);
     if (candidates.length < 2) continue;
     // 選択: selection 指定が候補にあればそれ、無ければ最新 (出現順で最後)。
     let selected = candidates[candidates.length - 1];
@@ -846,7 +902,9 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       if (found !== undefined) selected = found;
     }
     for (const cand of candidates) {
-      if (cand.uuid !== selected.uuid) pruneSubtree(cand.uuid);
+      if (cand.uuid === selected.uuid) continue;
+      pruneSubtree(cand.uuid);
+      for (const echo of echoesOf.get(cand.uuid) ?? []) pruneSubtree(echo);
     }
     branchAtChild.set(selected.uuid, {
       kind: "branch",
@@ -862,11 +920,18 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     });
   }
 
+  const echoes = new Set([...echoesOf.values()].flat());
+
   // --- フェーズ 3: 捨て枝以外をファイル順にイベント化する ---
   // pruned は uuid を持つレコードのみ含む。uuid 無し (古いログ / 注入) は常に表示される。
   for (const node of nodes) {
     if (pruned.has(node.uuid)) continue;
     totalLines++;
+    // 重複した入力は元の入力が表示済み。子孫は刈らず、この行だけを落とす。
+    if (echoes.has(node.uuid)) {
+      skipped++;
+      continue;
+    }
     // この行が分岐の選択枝の先頭なら、直前に branch セレクタを挿す。
     const branch = branchAtChild.get(node.uuid);
     if (branch !== undefined) events.push(branch);
@@ -888,12 +953,12 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       continue;
     }
 
-    // compact 要約は type:"user" だがユーザー発話ではない。compact 後のコンテキストに注入された
-    // テキストなので system イベントにする (実ログでは content は string)。
+    // compact 要約は compact 後のエージェントが user role の発言として受け取る本文なので、user
+    // イベントにする (実ログでは content は string)。分岐候補にはしない (isBranchCandidate)。
     if (isCompactSummary(raw)) {
       const content = raw.message?.content;
       if (typeof content === "string" && content !== "") {
-        events.push({ kind: "system", label: COMPACT_SUMMARY_LABEL, text: content, ts });
+        events.push({ kind: "user", text: content, ts });
       } else {
         skipped++;
       }

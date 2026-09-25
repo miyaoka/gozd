@@ -1768,7 +1768,7 @@ describe("parseSessionLog", () => {
     const expected: TranscriptEvent[] = [
       { kind: "user", text: "最初の依頼", ts: TS },
       { kind: "assistant", text: "compact 前の応答", ts: TS },
-      { kind: "system", label: "compact", text: SUMMARY, ts: TS },
+      { kind: "user", text: SUMMARY, ts: TS },
       { kind: "assistant", text: "compact 後の応答", ts: TS },
     ];
 
@@ -1833,7 +1833,7 @@ describe("parseSessionLog", () => {
       expect(log.events).toEqual([
         { kind: "user", text: "最初の依頼", ts: TS },
         { kind: "assistant", text: "compact 前の応答", ts: TS },
-        { kind: "system", label: "compact", text: SUMMARY, ts: TS },
+        { kind: "user", text: SUMMARY, ts: TS },
         {
           kind: "branch",
           ts: TS,
@@ -1848,10 +1848,201 @@ describe("parseSessionLog", () => {
       ]);
     });
 
+    describe("手動 compact が要約の下に書き直す /compact", () => {
+      // 実ログ形: 入力した /compact (c1) を compact 前の末尾 a1 の下に書き、boundary → 要約 → caveat
+      // の下に同じ promptId の command block (c2) として再度書く。compact 後の会話は c2 の下に続く。
+      // c2Content を差し替えると、promptId は同じで本文の違う兄弟を作れる。
+      function manualCompact(c2Content: unknown) {
+        return [
+          ...beforeCompact.slice(0, 2),
+          {
+            type: "user",
+            uuid: "c1",
+            parentUuid: "a1",
+            promptId: "p-compact",
+            timestamp: TS,
+            message: { role: "user", content: "/compact 日本語で" },
+          },
+          beforeCompact[2],
+          summaryRecord(SUMMARY),
+          {
+            type: "user",
+            uuid: "caveat",
+            parentUuid: "sum",
+            promptId: "p-compact",
+            isMeta: true,
+            timestamp: TS,
+            message: {
+              role: "user",
+              content: "<local-command-caveat>Caveat</local-command-caveat>",
+            },
+          },
+          {
+            type: "user",
+            uuid: "c2",
+            parentUuid: "caveat",
+            promptId: "p-compact",
+            timestamp: TS,
+            message: { role: "user", content: c2Content },
+          },
+          {
+            type: "assistant",
+            uuid: "a2",
+            parentUuid: "c2",
+            timestamp: TS,
+            message: { role: "assistant", content: [{ type: "text", text: "compact 後の応答" }] },
+          },
+        ];
+      }
+      const ECHO =
+        "<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args>日本語で</command-args>";
+      // a1 の下で打ち直したプロンプト。別のプロンプト処理サイクルなので promptId が異なる。
+      const retry = {
+        type: "user",
+        uuid: "r",
+        parentUuid: "a1",
+        promptId: "p-retry",
+        timestamp: TS,
+        message: { role: "user", content: "打ち直し" },
+      };
+      const compactOption = { childUuid: "c1", index: 1, lead: "/compact 日本語で", ts: TS };
+      const retryOption = { childUuid: "r", index: 2, lead: "打ち直し", ts: TS };
+
+      test("分岐にせず、元の入力だけを要約の前に出す", () => {
+        const log = parseSessionLog(jsonl(...manualCompact(ECHO)));
+        expect(log.events).toEqual([
+          { kind: "user", text: "最初の依頼", ts: TS },
+          { kind: "assistant", text: "compact 前の応答", ts: TS },
+          { kind: "user", text: "/compact 日本語で", ts: TS },
+          { kind: "user", text: SUMMARY, ts: TS },
+          { kind: "assistant", text: "compact 後の応答", ts: TS },
+        ]);
+      });
+
+      test("同じ分岐点で打ち直しが選ばれると、書き直しの下の compact 後の会話も刈る", () => {
+        // 捨てた枝の要約が残るのは既知の不足で、望む挙動ではない。boundary は logicalParentUuid で
+        // a1 に繋がり、どの候補の配下にも無いため刈られない。要約を、compact を起こした枝に
+        // 所属させると解消し、この期待値から要約が消える。
+        const log = parseSessionLog(jsonl(...manualCompact(ECHO), retry));
+        expect(log.events).toEqual([
+          { kind: "user", text: "最初の依頼", ts: TS },
+          { kind: "assistant", text: "compact 前の応答", ts: TS },
+          { kind: "user", text: SUMMARY, ts: TS },
+          {
+            kind: "branch",
+            ts: TS,
+            branchKey: "a1",
+            selectedChildUuid: "r",
+            options: [compactOption, retryOption],
+          },
+          { kind: "user", text: "打ち直し", ts: TS },
+        ]);
+      });
+
+      test("同じ分岐点で元の入力が選ばれると、書き直しの下の compact 後の会話を出す", () => {
+        const log = parseSessionLog(jsonl(...manualCompact(ECHO), retry), new Map([["a1", "c1"]]));
+        expect(log.events).toEqual([
+          { kind: "user", text: "最初の依頼", ts: TS },
+          { kind: "assistant", text: "compact 前の応答", ts: TS },
+          {
+            kind: "branch",
+            ts: TS,
+            branchKey: "a1",
+            selectedChildUuid: "c1",
+            options: [compactOption, retryOption],
+          },
+          { kind: "user", text: "/compact 日本語で", ts: TS },
+          { kind: "user", text: SUMMARY, ts: TS },
+          { kind: "assistant", text: "compact 後の応答", ts: TS },
+        ]);
+      });
+
+      test("promptId が同じでも本文が違う兄弟は書き直しとみなさず分岐にする", () => {
+        const log = parseSessionLog(jsonl(...manualCompact("別の発話")));
+        expect(log.events).toEqual([
+          { kind: "user", text: "最初の依頼", ts: TS },
+          { kind: "assistant", text: "compact 前の応答", ts: TS },
+          { kind: "user", text: SUMMARY, ts: TS },
+          {
+            kind: "branch",
+            ts: TS,
+            branchKey: "a1",
+            selectedChildUuid: "c2",
+            options: [compactOption, { childUuid: "c2", index: 2, lead: "別の発話", ts: TS }],
+          },
+          { kind: "user", text: "別の発話", ts: TS },
+          { kind: "assistant", text: "compact 後の応答", ts: TS },
+        ]);
+      });
+
+      test("promptId と summary が同じでも、本文の違う teammate-message の兄弟は書き直しとみなさず分岐にする", () => {
+        // 分岐セレクタの見出しは summary を優先するため、見出しで比べると本文の違う発話を隠してしまう。
+        const teammate = (uuid: string, body: string) => ({
+          type: "user",
+          uuid,
+          parentUuid: "a1",
+          promptId: "p-peer",
+          timestamp: TS,
+          message: {
+            role: "user",
+            content: `<teammate-message teammate_id="peer" summary="進捗">\n${body}\n</teammate-message>`,
+          },
+        });
+        const log = parseSessionLog(
+          jsonl(...beforeCompact.slice(0, 2), teammate("t1", "前半"), teammate("t2", "後半")),
+        );
+        expect(log.events).toEqual([
+          { kind: "user", text: "最初の依頼", ts: TS },
+          { kind: "assistant", text: "compact 前の応答", ts: TS },
+          {
+            kind: "branch",
+            ts: TS,
+            branchKey: "a1",
+            selectedChildUuid: "t2",
+            options: [
+              { childUuid: "t1", index: 1, lead: "進捗", ts: TS },
+              { childUuid: "t2", index: 2, lead: "進捗", ts: TS },
+            ],
+          },
+          { kind: "teammate", ts: TS, from: "peer", summary: "進捗", text: "後半" },
+        ]);
+      });
+
+      test("promptId と先頭 text が同じでも、配列 content の兄弟は書き直しとみなさず分岐にする", () => {
+        // 先頭 text だけを比べると、後続の image が違う発話まで書き直しとして隠してしまう。
+        const log = parseSessionLog(
+          jsonl(
+            ...manualCompact([
+              { type: "text", text: "/compact 日本語で" },
+              { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+            ]),
+          ),
+        );
+        expect(log.events).toEqual([
+          { kind: "user", text: "最初の依頼", ts: TS },
+          { kind: "assistant", text: "compact 前の応答", ts: TS },
+          { kind: "user", text: SUMMARY, ts: TS },
+          {
+            kind: "branch",
+            ts: TS,
+            branchKey: "a1",
+            selectedChildUuid: "c2",
+            options: [
+              compactOption,
+              { childUuid: "c2", index: 2, lead: "/compact 日本語で", ts: TS },
+            ],
+          },
+          { kind: "user", text: "/compact 日本語で", ts: TS },
+          { kind: "image", ts: TS, source: { mediaType: "image/png", base64: "AAAA" } },
+          { kind: "assistant", text: "compact 後の応答", ts: TS },
+        ]);
+      });
+    });
+
     test.each([
       ["空文字", ""],
       ["配列", [{ type: "text", text: SUMMARY }]],
-    ])("content が%sの要約は system イベントにせず skipped に数える", (_, content) => {
+    ])("content が%sの要約は user イベントにせず skipped に数える", (_, content) => {
       const log = parseSessionLog(jsonl(...beforeCompact, summaryRecord(content)));
       expect(log.events).toEqual([
         { kind: "user", text: "最初の依頼", ts: TS },

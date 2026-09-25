@@ -346,3 +346,36 @@ describe("classify (reftable backend)", () => {
     expect(result.hasFsChange).toBe(false);
   });
 });
+
+describe("classify (worktrees/ 配下の構造変化)", () => {
+  function classifyRootWatcher(path: string) {
+    return classify({
+      dir: "/repo",
+      perWorktreeGitDir: "/repo/.git",
+      commonGitDir: "/repo/.git",
+      nestedWorktreeDirs: [],
+      paths: [path],
+    });
+  }
+
+  test.each([
+    ["worktree の作成 / 削除", "/repo/.git/worktrees/foo"],
+    ["branch 切替", "/repo/.git/worktrees/foo/HEAD"],
+    ["作業ツリーの移動", "/repo/.git/worktrees/foo/gitdir"],
+    ["lock", "/repo/.git/worktrees/foo/locked"],
+  ])("%s は worktreeChange", (_label, path) => {
+    expect(classifyRootWatcher(path).hasWorktreeChange).toBe(true);
+  });
+
+  test.each([
+    ["index の書き込み", "/repo/.git/worktrees/foo/index"],
+    ["index.lock", "/repo/.git/worktrees/foo/index.lock"],
+    ["reflog", "/repo/.git/worktrees/foo/logs/HEAD"],
+    ["ORIG_HEAD", "/repo/.git/worktrees/foo/ORIG_HEAD"],
+    ["AUTO_MERGE", "/repo/.git/worktrees/foo/AUTO_MERGE"],
+  ])("%s は worktree 一覧を変えないので worktreeChange ではない", (_label, path) => {
+    const result = classifyRootWatcher(path);
+    expect(result.hasWorktreeChange).toBe(false);
+    expect(result.hasGitStatusChange).toBe(false);
+  });
+});

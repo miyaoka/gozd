@@ -215,6 +215,41 @@ describe("classify (通常 clone)", () => {
     expect(result.hasRemoteRefsChange).toBe(true);
   });
 
+  test("入れ子 worktree の内部は fsChange のみ（gitStatusChange は立てない）", () => {
+    const result = classify({
+      dir,
+      perWorktreeGitDir: gitDir,
+      commonGitDir: gitDir,
+      nestedWorktreeDirs: ["/repo/.claude/worktrees/agent"],
+      paths: ["/repo/.claude/worktrees/agent/node_modules/x/index.js"],
+    });
+    expect(result.hasFsChange).toBe(true);
+    expect(result.hasGitStatusChange).toBe(false);
+    expect(result.fsRelDirs).toEqual(new Set([".claude/worktrees/agent/node_modules/x"]));
+  });
+
+  test("入れ子 worktree root 自身の作成 / 削除は gitStatusChange", () => {
+    const result = classify({
+      dir,
+      perWorktreeGitDir: gitDir,
+      commonGitDir: gitDir,
+      nestedWorktreeDirs: ["/repo/.claude/worktrees/agent"],
+      paths: ["/repo/.claude/worktrees/agent"],
+    });
+    expect(result.hasGitStatusChange).toBe(true);
+  });
+
+  test("入れ子 worktree と prefix が一致するだけの兄弟 path は gitStatusChange", () => {
+    const result = classify({
+      dir,
+      perWorktreeGitDir: gitDir,
+      commonGitDir: gitDir,
+      nestedWorktreeDirs: ["/repo/.claude/worktrees/agent"],
+      paths: ["/repo/.claude/worktrees/agent-other/a.ts"],
+    });
+    expect(result.hasGitStatusChange).toBe(true);
+  });
+
   test("dir 配下でも git dir 配下でもない event は無視", () => {
     const result = classify({
       dir,

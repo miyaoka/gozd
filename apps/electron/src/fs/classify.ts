@@ -22,6 +22,10 @@
 //       - `worktrees/...` を worktreeChange（worktree 追加削除 + secondary の branch 切替。
 //         構造変化を表す path 信号で、digest を経由せず即発火する）
 //   (3) 作業ツリー配下（git dir 配下に該当しない場合）→ fsChange + gitStatusChange
+//       - ただし入れ子の worktree（`.claude/worktrees/*` のように dir 配下に置かれた別 worktree）
+//         の内部は fsChange のみ。git は入れ子 worktree を 1 エントリとしか見ないため、
+//         内部の変更は外側の git status 出力を変えない。ここで status を取り直すと、入れ子側の
+//         書き込み（依存の install やビルド）のたびに外側 repo の git status が走る
 //
 // branchChange / remoteRefsChange / head 由来 worktreeChange の最終発火は dispatch 側が
 // RefDigest（heads / remotes / head）の内容比較で決める。
@@ -50,12 +54,15 @@ export interface ClassifyInput {
   perWorktreeGitDir: string | undefined;
   /** `git rev-parse --git-common-dir` の realpath。通常 clone では perWorktreeGitDir と一致 */
   commonGitDir: string | undefined;
+  /** dir 配下に入れ子で置かれた、別途 watch 中の worktree root（realpath 解決済み）。
+   * 内部の変更は外側の git status に現れないため gitStatusChange を立てない */
+  nestedWorktreeDirs?: string[];
   /** 変更イベントの絶対 path 列（1 バッチ分） */
   paths: string[];
 }
 
 export function classify(input: ClassifyInput): Classification {
-  const { dir, perWorktreeGitDir, commonGitDir, paths } = input;
+  const { dir, perWorktreeGitDir, commonGitDir, nestedWorktreeDirs = [], paths } = input;
   const dirWithSlash = dir.endsWith("/") ? dir : `${dir}/`;
 
   const fsRelDirs = new Set<string>();
@@ -145,8 +152,14 @@ export function classify(input: ClassifyInput): Classification {
     // ファイル変更のたびに git status が exit 128 で落ちて観察ログを汚すため fsChange のみ。
     if (path !== dir && !path.startsWith(dirWithSlash)) continue;
     hasFsChange = true;
-    if (commonGitDir !== undefined) hasGitStatusChange = true;
     fsRelDirs.add(relativeDir(path, dirWithSlash));
+    // 入れ子 worktree root 自身（作成 / 削除）は外側の status の 1 エントリなので対象に残し、
+    // その内部だけを外す
+    const insideNestedWorktree = nestedWorktreeDirs.some((nested) => {
+      const rel = relativeUnder(path, nested);
+      return rel !== undefined && rel !== "";
+    });
+    if (commonGitDir !== undefined && !insideNestedWorktree) hasGitStatusChange = true;
   }
 
   return {

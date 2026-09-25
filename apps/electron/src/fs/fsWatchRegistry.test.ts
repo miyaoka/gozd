@@ -148,6 +148,26 @@ describe("FSWatchRegistry (integration)", () => {
     expect(recorded.worktreeDirs[0]).toBe(dir);
   });
 
+  test("repo 内に置いた worktree の変更は外側の git status を取り直さない", async () => {
+    const dir = makeTempRepo();
+    const nested = join(dir, ".claude", "worktrees", "agent");
+    runFixtureGit(["worktree", "add", "-b", "agent", nested], dir);
+    const { registry, recorded } = createRecordingRegistry();
+    cleanups.push(() => registry.unwatchAll());
+
+    await registry.watch(dir);
+    await registry.watch(nested);
+    writeFileSync(join(nested, "agent.txt"), "x\n");
+
+    // 入れ子側は自分の status を取り直す
+    await waitUntil(() => recorded.statusDirs.includes(nested), "nested gitStatusChange");
+    // 外側にも fsChange は届く（filer がその dir を表示しうるため）
+    expect(recorded.fsChanges).toContainEqual({ dir, relDir: ".claude/worktrees/agent" });
+    // 負の証明は時間で切る: 外側の debounce + git status 往復を待っても外側の status は来ない
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(recorded.statusDirs).not.toContain(dir);
+  });
+
   test("unwatchAll は全 entry を破棄して件数を返し、以降イベントが届かない", async () => {
     const dir = makeTempRepo();
     const { registry, recorded } = createRecordingRegistry();

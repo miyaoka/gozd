@@ -1,6 +1,6 @@
 /**
  * git status を最新に保つ app-scope な watcher。更新の契機は 3 つ:
- * - dir 切替時（gitStatusChange は watch 開始時には push されないため、切替自体を契機に含める）
+ * - dir 切替時（監視起点の status は後回しで届くため、切替先は画面の要求として即取得する）
  * - 同 dir に紐づく PTY の Claude state 遷移時
  * - native 側 FSWatchRegistry からの gitStatusChange push（全 worktree が対象。payload の dir で
  *   該当 worktree に直接反映する）

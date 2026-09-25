@@ -11,6 +11,8 @@ import { runFixtureGit } from "../testGitFixture";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitStatusFull } from "../git/gitOps";
+import type { StatusFull } from "../git/porcelain";
 import { createFsWatchRegistry, type WatchTransport } from "./fsWatchRegistry";
 
 // production は utilityProcess 隔離した watcherClient を注入するが、統合テストでは
@@ -63,7 +65,7 @@ interface Recorded {
   worktreeDirs: string[];
 }
 
-function createRecordingRegistry() {
+function createRecordingRegistry(statusFetcher?: (dir: string) => Promise<StatusFull>) {
   const recorded: Recorded = {
     fsChanges: [],
     statusDirs: [],
@@ -79,7 +81,7 @@ function createRecordingRegistry() {
       onRemoteRefsChange: (dir) => recorded.remoteDirs.push(dir),
       onWorktreeChange: (dir) => recorded.worktreeDirs.push(dir),
     },
-    { statusDebounceMs: TEST_STATUS_DEBOUNCE_MS, transport: realParcelTransport },
+    { statusDebounceMs: TEST_STATUS_DEBOUNCE_MS, transport: realParcelTransport, statusFetcher },
   );
   return { registry, recorded };
 }
@@ -135,6 +137,48 @@ describe("FSWatchRegistry (integration)", () => {
     await registry.watch(dir);
 
     await waitUntil(() => recorded.statusDirs.includes(dir), "initial gitStatusChange");
+  });
+
+  test("同じ dir の再 watch で、内容が変わっていなくても status を届け直す", async () => {
+    const dir = makeTempRepo();
+    const { registry, recorded } = createRecordingRegistry();
+    cleanups.push(() => registry.unwatchAll());
+
+    await registry.watch(dir);
+    await settleInitialStatus(recorded, [dir]);
+    // renderer を作り直したときと同じく、既存 entry に watch が重なる
+    await registry.watch(dir);
+
+    await waitUntil(() => recorded.statusDirs.includes(dir), "gitStatusChange after re-watch");
+  });
+
+  test("取得中に届いた status 要求は、完了後の 1 回の取り直しにまとまる", async () => {
+    const dir = makeTempRepo();
+    let calls = 0;
+    const pending: (() => void)[] = [];
+    // 取得の完了を外から制御する。取得中に要求を重ねて、起動回数を数える
+    const { registry } = createRecordingRegistry(async (target) => {
+      calls++;
+      await new Promise<void>((resolve) => pending.push(resolve));
+      return gitStatusFull(target);
+    });
+    cleanups.push(() => registry.unwatchAll());
+
+    await registry.watch(dir);
+    await waitUntil(() => calls === 1, "initial status started");
+    for (const name of ["a.txt", "b.txt", "c.txt"]) {
+      writeFileSync(join(dir, name), "x\n");
+      // debounce 窓を抜けさせ、要求を 1 件ずつ取得中の dir に届ける
+      await new Promise((resolve) => setTimeout(resolve, TEST_STATUS_DEBOUNCE_MS * 3));
+    }
+    expect(calls).toBe(1);
+
+    pending.shift()?.();
+    await waitUntil(() => calls === 2, "single rerun");
+    pending.shift()?.();
+    // 負の証明は時間で切る: 取り直しは 1 回だけで、以後は起動しない
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(calls).toBe(2);
   });
 
   test("commit は branchChange を撃つが remoteRefsChange は撃たない（digest gating）", async () => {

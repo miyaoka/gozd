@@ -34,23 +34,20 @@ git / GitHub 連携の更新契約。何がいつ更新されるか、どこま�
 | `worktreeChange`   | worktree の追加削除・移動・lock、branch 切替                               | サイドバーの worktree 一覧         |
 | `fsWatchReady`     | 監視登録が成立した直後の再同期シグナル                                     | グラフ、サイドバーの worktree 一覧 |
 
-### worktree 一覧は構造だけを運ぶ
-
-worktree 一覧（path / branch / HEAD / task）の取得に **各 worktree の git status を同梱しない**。
-status の持ち主はファイル監視で、worktree ごとに登録の成立時に 1 回、以後は変化のたびに取り直して
-`gitStatusChange` で届ける。
-
-一覧は開いたときと構造の変化で取り直す。同梱すると、その取り直しのたびに worktree の数だけ作業ツリーの
-走査が連動して走る。
-
-- **`worktreeChange` は一覧の出力を変えうる変化だけで発火する**。worktree ごとの index や reflog の
-  書き込みは一覧を変えず、その worktree の status は自身の監視が拾うため対象にしない。エージェントが
-  各 worktree で commit を重ねても、一覧は取り直さない
-- **status 未観測の worktree はバッジを出さない**。一覧から先に現れ、監視の push で埋まる
-
 `remoteRefsChange` を `gitStatusChange` と別に持つのは、**current branch 以外の remote 参照が
 動いたときを status の upstream 情報では検知できない**ため。各 push の責務を分けることで
 取りこぼしを構造的に防ぐ。
+
+### worktree 一覧は構造だけを運ぶ
+
+worktree 一覧（path / branch / HEAD / task）の取得に **各 worktree の git status を同梱しない**。
+status の持ち主はファイル監視で、worktree ごとに監視の登録（購読者の追加を含む）の成立時に 1 回、
+以後は変化のたびに取り直して `gitStatusChange` で届ける。同梱すると、一覧を取り直すたびに
+worktree の数だけ作業ツリーの走査が連動して走る。
+
+- **worktree ごとの index や reflog の書き込みでは一覧を取り直さない**。一覧の出力を変えず、
+  その worktree の status と HEAD の鮮度は自身の監視の push が運ぶ
+- **status 未観測の worktree はバッジを出さない**。一覧から先に現れ、監視の push で埋まる
 
 ### ref backend に依存しない分類
 

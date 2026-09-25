@@ -145,6 +145,10 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
    * ため、await 前後で「自分が最新リクエストか」を再チェックし、古い in-flight が新しい結果を
    * 上書きするのを弾く（watch 世代とは独立。同一 watch 内での request 順序を守る軸） */
   const statusRequestGenerationByDir = new Map<string, number>();
+  /** status を取得中（admission の待機を含む）の dir。`startStatusRefresh` の single-flight 用 */
+  const statusInFlightDirs = new Set<string>();
+  /** 取得中に新しい要求が届いた dir。完了時に 1 回だけ取り直す */
+  const statusRerunDirs = new Set<string>();
   /** 構築中（await gitDirs / subscribe 中）の同 dir 並行 watch を待たせる。二重構築による
    * 先行 subscription の leak を防ぐ */
   const pendingWatches = new Map<string, Promise<void>>();
@@ -299,6 +303,13 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     if (existing !== undefined) {
       existing.refCount++;
       resolvedKeyByOriginalDir.set(userDir, dir);
+      // 購読者が増えたときも登録の成立として status を届け直す。renderer を作り直すと
+      // 既存の entry に watch が重なるだけで、新しい renderer は status を持たないため、
+      // 内容が直近の push と同じでも送る
+      if (existing.commonGitDir !== undefined) {
+        lastPushedStatusByDir.delete(dir);
+        scheduleStatusRefresh(dir, existing.generation, existing.originalDir);
+      }
       return;
     }
     const building = buildEntry(userDir, dir);
@@ -354,6 +365,8 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     if (timer !== undefined) clearTimeout(timer);
     statusDebounceTimers.delete(dir);
     statusRequestGenerationByDir.delete(dir);
+    // 取得中の git は止められないため in-flight 印は完了時に外れる。取り直しの印だけ消す
+    statusRerunDirs.delete(dir);
     // 同一 resolved dir を指していた他の userDir 逆引きも掃除する（symlink パスと非 symlink
     // パスで watch が重ねられた状態で片方しか unwatch されないと逆引きが leak するため）
     for (const [orig, resolved] of resolvedKeyByOriginalDir) {
@@ -479,9 +492,38 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
       dir,
       setTimeout(() => {
         statusDebounceTimers.delete(dir);
-        void runStatusRefresh(dir, watchGeneration, requestGeneration, originalDir);
+        startStatusRefresh(dir, watchGeneration, requestGeneration, originalDir);
       }, statusDebounceMs),
     );
+  }
+
+  /** dir ごとに status の取得を 1 本に絞る。取得は admission の枠を待つことがあり、その間に
+   * 届いた要求まで起動すると、結果を捨てられる走査が枠の数だけ積み上がる。実行中（待機中を
+   * 含む）に届いた要求は印だけ付け、完了後に最新の entry で 1 回だけ取り直す */
+  function startStatusRefresh(
+    dir: string,
+    watchGeneration: number,
+    requestGeneration: number,
+    originalDir: string,
+  ): void {
+    if (statusInFlightDirs.has(dir)) {
+      statusRerunDirs.add(dir);
+      return;
+    }
+    statusInFlightDirs.add(dir);
+    void runStatusRefresh(dir, watchGeneration, requestGeneration, originalDir).then(() => {
+      statusInFlightDirs.delete(dir);
+      if (!statusRerunDirs.delete(dir)) return;
+      // unwatch → 再 watch をまたいだ要求を落とさないよう、世代は現在の entry から読み直す
+      const entry = entries.get(dir);
+      if (entry === undefined) return;
+      startStatusRefresh(
+        dir,
+        entry.generation,
+        statusRequestGenerationByDir.get(dir) ?? 0,
+        entry.originalDir,
+      );
+    });
   }
 
   /** debounce 窓を生き延びたリクエストの git status を実行し、最新であれば push する。

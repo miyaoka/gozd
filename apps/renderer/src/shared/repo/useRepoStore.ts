@@ -675,15 +675,19 @@ export const useRepoStore = defineStore("repo", () => {
         rootDir: r.rootDir,
         repoName: r.repoName,
         isGitRepo: r.isGitRepo,
-        // キャッシュに無い残りフィールドは空で埋め、rpcGitWorktreeList の真値で上書きされる
-        worktrees: r.worktrees.map((wt) =>
-          toRepoWorktree({
-            path: wt.path,
-            branch: wt.branch,
-            isMain: wt.isMain,
-            head: "",
-            tasks: [],
-          }),
+        // キャッシュに無い残りフィールドは空で埋め、rpcGitWorktreeList の真値で上書きされる。
+        // hydrate 前に登録済みの worktree は、キャッシュより新しい観測（status を含む）を持つので
+        // そのまま使う。空で置き換えると、監視は登録済みのため status が届き直さない
+        worktrees: r.worktrees.map(
+          (wt) =>
+            repos.value[r.rootDir]?.worktrees.find((current) => current.path === wt.path) ??
+            toRepoWorktree({
+              path: wt.path,
+              branch: wt.branch,
+              isMain: wt.isMain,
+              head: "",
+              tasks: [],
+            }),
         ),
         // githubIdentity は persist しない派生値（origin remote から都度解決）。
         // hydrate 前に gozdOpen → fetch 済みの repo は poolDirs が変わらず useSidebarData の

@@ -45,6 +45,14 @@ const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
 // app ready より前でなければ効かない（Electron の制約）。module 実行時に済ませる
 registerPreviewSchemePrivileges();
 
+// dev で renderer を Chrome DevTools Protocol に公開する（プロファイル採取等）。
+// Chromium スイッチは app ready より前でなければ効かない。packaged では env から CDP を
+// 開けないよう未パッケージに限る
+const remoteDebuggingPort = process.env.GOZD_DEV_REMOTE_DEBUGGING_PORT;
+if (!isPackaged && remoteDebuggingPort !== undefined && remoteDebuggingPort !== "") {
+  app.commandLine.appendSwitch("remote-debugging-port", remoteDebuggingPort);
+}
+
 // Vite dev server の URL 解決。GOZD_DEV_VITE_PORT が port の SSOT
 // （root の dev script が設定。scheme + host は http://localhost 固定契約）。
 // GOZD_ELECTRON_RENDERER_URL は検証用の明示 override

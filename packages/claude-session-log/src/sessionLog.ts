@@ -23,13 +23,13 @@
 // (`hook_success` / `hook_additional_context`) で、SessionStart hook の出力等、実行時に
 // system-reminder としてエージェントに届く content の永続化形。content 空の hook_success
 // (発火記録だけの PreToolUse 等が大半) は表示する中身が無いため skipped。
-//
-// compact 要約 (`isCompactSummary`) は user イベントにする。compact 後のエージェントは要約を
-// user role の発言として受け取り、それを起点に会話を続けるため。
 // なお output_style / task_reminder 等のランタイムリマインダは JSONL に永続化されず、原理的に
 // 表示できない。harness 追記の `<system-reminder>` (tool call バッチ推奨 / truncation 通知等) は
 // tool_result の content 内に現れ、tool イベントの result.text に全文が載るため抽出しない
 // (追記と「file 本文がたまたまタグ文字列を含む」偶発一致を区別する構造的マーカーが無い)。
+//
+// compact 要約 (`isCompactSummary`) は user イベントにする。compact 後のエージェントは要約を
+// user role の発言として受け取り、それを起点に会話を続けるため。
 //
 // 平文の無い thinking (暗号化 signature のみ / フィールド欠落) も載せないが、
 // これは非会話レコードではなく会話イベントの一種なので skipped と混ぜず emptyThinking に
@@ -53,7 +53,7 @@
 // logicalParentUuid で compact 前の末尾に繋ぐ (treeParentUuid)。後者は繋いだ結果、要約と compact
 // 後の最初の応答が同じ会話的親に並ぶため、要約を分岐候補にしない (isCompactSummary)。手動 compact は
 // 入力した `/compact` を compact 前の末尾と要約の下に重複して書き、繋いだ結果この 2 つも同じ会話的親に
-// 並ぶ。同じ promptId の兄弟は重複として後の方を落とす (withoutEchoes)。
+// 並ぶ。後の方は元の入力の別名 (echo) として候補から外し、表示もしない (withoutEchoes)。
 
 import { tryCatch } from "@gozd/shared";
 
@@ -559,7 +559,10 @@ export interface ParsedSessionLog {
   totalLines: number;
   /** JSON parse に失敗した行数 (末尾の追記途中行など) */
   malformed: number;
-  /** transcript に載せなかった非会話レコード数 (attachment / system 等) */
+  /**
+   * transcript に載せなかったレコード数。attachment / system 等の非会話レコードと、元の入力が
+   * 表示済みの重複入力 (echo。withoutEchoes) を含む
+   */
   skipped: number;
   /**
    * 平文が無く載せなかった thinking ブロック数。会話イベントだが表示できる中身が無い
@@ -695,26 +698,44 @@ function isBranchCandidate(raw: RawLine): boolean {
 }
 
 /**
- * 同一分岐点の候補から、先に出た user 候補と同じ promptId を持つ user 候補を除き、除いた uuid を
- * `echoes` に積む。promptId は 1 回のプロンプト送信に採番されるため、rewind で打ち直した発話は
- * 別の値を持つ。同じ値の兄弟は 1 回の入力を 2 箇所に書いた重複で、手動 compact がこれを書く
- * (入力した `/compact` を compact 前の末尾と要約の下の両方に書く。実ログで確認済み)。重複を候補に
- * 残すと偽の分岐セレクタが出て、古い側を選ぶと compact 後の会話が丸ごと刈られる。
+ * node が original と同じ 1 回の入力を別の箇所に書き直したもの (echo) か。手動 compact は入力した
+ * `/compact` を compact 前の末尾と要約の下の両方に書き、両者は同じ promptId と同じ本文 (後者は
+ * command block で、表示テキストに正規化すると一致する) を持つ (実ログで確認済み)。
+ *
+ * promptId はプロンプト処理サイクル単位の id で、同じサイクルに積まれた別の発話も共有しうる。
+ * このため promptId だけでなく本文の一致まで要求する。rewind で打ち直した発話は別のサイクルに
+ * なるため echo にならない。
+ */
+function isEchoOf(node: LogNode, original: LogNode): boolean {
+  if (node.raw.type !== "user" || original.raw.type !== "user") return false;
+  const promptId = node.raw.promptId;
+  if (typeof promptId !== "string" || promptId === "" || promptId !== original.raw.promptId) {
+    return false;
+  }
+  return nodeLeadText(node.raw) === nodeLeadText(original.raw);
+}
+
+/**
+ * 同一分岐点の候補から echo (isEchoOf) を除き、残した元の入力の uuid → echo の uuid 列を
+ * `echoesOf` に積む。echo を候補に残すと偽の分岐セレクタが出て、古い側を選ぶと compact 後の会話が
+ * 丸ごと刈られる。echo は元の入力の別名として扱い、元の入力の枝が捨てられるときは echo の
+ * サブツリーも一緒に捨てる。
  *
  * 先に出た方を残すのは、compact 前に書かれた入力が要約より前に並び、「指示 → 要約」の順で読めるため。
  */
-function withoutEchoes(candidates: LogNode[], echoes: Set<string>): LogNode[] {
-  const seenPromptIds = new Set<string>();
-  return candidates.filter((c) => {
-    const promptId = c.raw.promptId;
-    if (c.raw.type !== "user" || typeof promptId !== "string" || promptId === "") return true;
-    if (!seenPromptIds.has(promptId)) {
-      seenPromptIds.add(promptId);
-      return true;
+function withoutEchoes(candidates: LogNode[], echoesOf: Map<string, string[]>): LogNode[] {
+  const kept: LogNode[] = [];
+  for (const cand of candidates) {
+    const original = kept.find((k) => isEchoOf(cand, k));
+    if (original === undefined) {
+      kept.push(cand);
+      continue;
     }
-    echoes.add(c.uuid);
-    return false;
-  });
+    const echoes = echoesOf.get(original.uuid);
+    if (echoes === undefined) echoesOf.set(original.uuid, [cand.uuid]);
+    else echoes.push(cand.uuid);
+  }
+  return kept;
 }
 
 /**
@@ -856,14 +877,14 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     }
   };
 
-  // 同じ入力を重複して書いた候補の uuid (withoutEchoes)。分岐にも表示にも使わない。
-  const echoes = new Set<string>();
+  // 元の入力の uuid → その echo の uuid 列 (withoutEchoes)。echo は分岐候補にも表示にも使わない。
+  const echoesOf = new Map<string, string[]>();
 
   // 分岐点を検出する。同一会話的親に分岐候補が 2 つ以上並ぶ箇所が rewind 分岐。非選択候補のサブツリーを
   // 刈り、選択枝の先頭に branch イベントを用意する。処理順は結果に影響しない (各分岐点は独立に
   // 自分の非選択候補だけを刈り、pruned は冪等な集合のため)。
   for (const [ancestor, siblings] of convChildren) {
-    const candidates = withoutEchoes(siblings, echoes);
+    const candidates = withoutEchoes(siblings, echoesOf);
     if (candidates.length < 2) continue;
     // 選択: selection 指定が候補にあればそれ、無ければ最新 (出現順で最後)。
     let selected = candidates[candidates.length - 1];
@@ -873,7 +894,9 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       if (found !== undefined) selected = found;
     }
     for (const cand of candidates) {
-      if (cand.uuid !== selected.uuid) pruneSubtree(cand.uuid);
+      if (cand.uuid === selected.uuid) continue;
+      pruneSubtree(cand.uuid);
+      for (const echo of echoesOf.get(cand.uuid) ?? []) pruneSubtree(echo);
     }
     branchAtChild.set(selected.uuid, {
       kind: "branch",
@@ -888,6 +911,8 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       })),
     });
   }
+
+  const echoes = new Set([...echoesOf.values()].flat());
 
   // --- フェーズ 3: 捨て枝以外をファイル順にイベント化する ---
   // pruned は uuid を持つレコードのみ含む。uuid 無し (古いログ / 注入) は常に表示される。

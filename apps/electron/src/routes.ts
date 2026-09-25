@@ -421,30 +421,16 @@ async function handleGitWorktreeList(body: unknown): Promise<unknown> {
   const req = body as GitWorktreeListRequest;
   const worktrees = await worktreeList(req.dir);
   const allTasks = await taskStore.list(req.dir);
-  // 各 wt の git status は補助データ。1 wt の失敗で worktree list 全体を捨てないため、
-  // per-wt で握って空 statuses で続行する（prunable wt は listing から除外済みなので、
-  // ここで失敗するのは worktree 実 path 不整合などの稀ケース）。失敗は stderr に残す
-  const entries: WorktreeEntry[] = await Promise.all(
-    worktrees.map(async (wt) => {
-      const full = await tryCatch(gitStatusFull(wt.path));
-      if (!full.ok) {
-        console.error(`[handleGitWorktreeList] gitStatusFull failed for ${wt.path}: ${full.error}`);
-      }
-      const status = full.ok ? full.value : undefined;
-      return {
-        path: wt.path,
-        head: wt.head,
-        branch: wt.branch ?? "",
-        isMain: wt.isMain,
-        gitStatuses: status?.statuses ?? {},
-        renameOldPaths: status?.renameOldPaths ?? {},
-        latestMtime: status?.latestMtime ?? 0,
-        upstream: status?.hasUpstream ? { ahead: status.ahead, behind: status.behind } : undefined,
-        // 1 wt = 複数 Claude session の前提で session 単位の Task が複数並ぶ
-        tasks: allTasks.filter((task) => task.worktreeDir === wt.path),
-      };
-    }),
-  );
+  // 各 wt の git status は載せない。status は fs 監視が worktree ごとに取り、push で届ける
+  // （一覧の取り直しに worktree 数ぶんの作業ツリー走査を連動させない）
+  const entries: WorktreeEntry[] = worktrees.map((wt) => ({
+    path: wt.path,
+    head: wt.head,
+    branch: wt.branch ?? "",
+    isMain: wt.isMain,
+    // 1 wt = 複数 Claude session の前提で session 単位の Task が複数並ぶ
+    tasks: allTasks.filter((task) => task.worktreeDir === wt.path),
+  }));
   return { worktrees: entries } satisfies GitWorktreeListResponse;
 }
 

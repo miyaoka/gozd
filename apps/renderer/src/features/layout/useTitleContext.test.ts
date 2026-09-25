@@ -8,11 +8,7 @@ function wt(path: string, branch: string): WorktreeEntry {
     head: "",
     branch,
     isMain: false,
-    gitStatuses: {},
-    renameOldPaths: {},
     tasks: [],
-    upstream: undefined,
-    latestMtime: 0,
   };
 }
 

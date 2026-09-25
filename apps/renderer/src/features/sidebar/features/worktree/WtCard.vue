@@ -48,7 +48,7 @@ task は `task.createdAt` 昇順 (append 順) で固定。新しい task は末�
 <script setup lang="ts">
 import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { computed } from "vue";
-import { branchLabel as resolveBranchLabel } from "../../../../shared/repo";
+import { type RepoWorktree, branchLabel as resolveBranchLabel } from "../../../../shared/repo";
 import { useServerStore } from "../../../server";
 import type { ClaudeState, ClaudeStatus } from "../../../terminal";
 import { displayClaudeState, useTerminalStore } from "../../../terminal";
@@ -61,7 +61,7 @@ import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
 import IconLucideServer from "~icons/lucide/server";
 
 const props = defineProps<{
-  wt: WorktreeEntry;
+  wt: RepoWorktree;
   rootDir: string;
   active: boolean;
 }>();

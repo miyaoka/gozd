@@ -1,12 +1,11 @@
-import type { WorktreeEntry } from "@gozd/rpc";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
-import { useRepoStore } from "../../shared/repo";
+import { type RepoWorktree, useRepoStore } from "../../shared/repo";
 import { useGitStatusStore } from "./useGitStatusStore";
 
 const DIR = "/repo";
 
-function wt(head: string): WorktreeEntry {
+function wt(head: string): RepoWorktree {
   return {
     path: DIR,
     head,

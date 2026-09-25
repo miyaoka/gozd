@@ -84,6 +84,16 @@ function createRecordingRegistry() {
   return { registry, recorded };
 }
 
+/** 監視の登録で届く初回の status を待ってから記録を空にする。以降に届く status は
+ * テスト内で起こした変更によるものだけになる */
+async function settleInitialStatus(recorded: Recorded, dirs: string[]): Promise<void> {
+  await waitUntil(
+    () => dirs.every((dir) => recorded.statusDirs.includes(dir)),
+    "initial gitStatusChange",
+  );
+  recorded.statusDirs.length = 0;
+}
+
 describe("FSWatchRegistry (integration)", () => {
   const tempDirs: string[] = [];
   const cleanups: (() => void)[] = [];
@@ -106,6 +116,7 @@ describe("FSWatchRegistry (integration)", () => {
     cleanups.push(() => registry.unwatchAll());
 
     await registry.watch(dir);
+    await settleInitialStatus(recorded, [dir]);
     writeFileSync(join(dir, "note.txt"), "hello\n");
 
     await waitUntil(() => recorded.fsChanges.length > 0, "fsChange");
@@ -114,6 +125,16 @@ describe("FSWatchRegistry (integration)", () => {
     expect(recorded.fsChanges[0].relDir).toBe("");
     await waitUntil(() => recorded.statusDirs.length > 0, "gitStatusChange");
     expect(recorded.statusDirs[0]).toBe(dir);
+  });
+
+  test("監視の登録が成立すると、変更が無くても初回の gitStatusChange が届く", async () => {
+    const dir = makeTempRepo();
+    const { registry, recorded } = createRecordingRegistry();
+    cleanups.push(() => registry.unwatchAll());
+
+    await registry.watch(dir);
+
+    await waitUntil(() => recorded.statusDirs.includes(dir), "initial gitStatusChange");
   });
 
   test("commit は branchChange を撃つが remoteRefsChange は撃たない（digest gating）", async () => {
@@ -157,6 +178,7 @@ describe("FSWatchRegistry (integration)", () => {
 
     await registry.watch(dir);
     await registry.watch(nested);
+    await settleInitialStatus(recorded, [dir, nested]);
     writeFileSync(join(nested, "agent.txt"), "x\n");
 
     // 入れ子側は自分の status を取り直す
@@ -179,6 +201,7 @@ describe("FSWatchRegistry (integration)", () => {
 
     await registry.watch(dir);
     await registry.watch(sub);
+    await settleInitialStatus(recorded, [dir, sub]);
     // tracked file の変更は外側の status に gitlink の変更（`.M`）として現れる
     writeFileSync(join(sub, "init.txt"), "changed\n");
 

@@ -1,11 +1,10 @@
-import type { WorktreeEntry } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
-import { useRepoStore } from "../../shared/repo";
+import { type RepoWorktree, useRepoStore } from "../../shared/repo";
 import { useWorktreeStore } from "../worktree";
 import { restoreActiveDir } from "./restoreActiveDir";
 
-function wt(path: string, branch: string, isMain = false): WorktreeEntry {
+function wt(path: string, branch: string, isMain = false): RepoWorktree {
   return {
     path,
     head: "",

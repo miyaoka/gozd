@@ -25,14 +25,28 @@ git / GitHub 連携の更新契約。何がいつ更新されるか、どこま�
 
 すべてファイル監視から発火し、payload に発火源の `dir` を持つ。
 
-| push event         | 発火源                                                     | 主な購読者                          |
-| ------------------ | ---------------------------------------------------------- | ----------------------------------- |
-| `fsChange`         | worktree 内のファイル変更                                  | ファイルツリー（active dir のみ）   |
-| `gitStatusChange`  | worktree の index / HEAD、共有の参照領域、作業ツリーの変更 | ahead / behind 表示、ツリー、グラフ |
-| `branchChange`     | ローカルブランチ参照の変化                                 | グラフ、サイドバー                  |
-| `remoteRefsChange` | リモート tracking 参照の変化（push / fetch 後）            | グラフ、PR バッジの再取得           |
-| `worktreeChange`   | worktree の追加削除、main worktree の checkout 先変化      | サイドバーの worktree 一覧          |
-| `fsWatchReady`     | 監視登録が成立した直後の再同期シグナル                     | グラフ、サイドバー                  |
+| push event         | 発火源                                                                     | 主な購読者                         |
+| ------------------ | -------------------------------------------------------------------------- | ---------------------------------- |
+| `fsChange`         | worktree 内のファイル変更                                                  | ファイルツリー（active dir のみ）  |
+| `gitStatusChange`  | 監視登録の成立、worktree の index / HEAD、共有の参照領域、作業ツリーの変更 | サイドバーのバッジ、ツリー、グラフ |
+| `branchChange`     | ローカルブランチ参照の変化                                                 | グラフ、サイドバー                 |
+| `remoteRefsChange` | リモート tracking 参照の変化（push / fetch 後）                            | グラフ、PR バッジの再取得          |
+| `worktreeChange`   | worktree の追加削除・移動・lock、branch 切替                               | サイドバーの worktree 一覧         |
+| `fsWatchReady`     | 監視登録が成立した直後の再同期シグナル                                     | グラフ、サイドバーの worktree 一覧 |
+
+### worktree 一覧は構造だけを運ぶ
+
+worktree 一覧（path / branch / HEAD / task）の取得に **各 worktree の git status を同梱しない**。
+status の持ち主はファイル監視で、worktree ごとに登録の成立時に 1 回、以後は変化のたびに取り直して
+`gitStatusChange` で届ける。
+
+一覧は開いたときと構造の変化で取り直す。同梱すると、その取り直しのたびに worktree の数だけ作業ツリーの
+走査が連動して走る。
+
+- **`worktreeChange` は一覧の出力を変えうる変化だけで発火する**。worktree ごとの index や reflog の
+  書き込みは一覧を変えず、その worktree の status は自身の監視が拾うため対象にしない。エージェントが
+  各 worktree で commit を重ねても、一覧は取り直さない
+- **status 未観測の worktree はバッジを出さない**。一覧から先に現れ、監視の push で埋まる
 
 `remoteRefsChange` を `gitStatusChange` と別に持つのは、**current branch 以外の remote 参照が
 動いたときを status の upstream 情報では検知できない**ため。各 push の責務を分けることで
@@ -90,6 +104,19 @@ git ディレクトリ外の変更は untracked や差分の可能性がある�
 - **burst の途中で取得を積み増さない**。取得が進行中の間に届いた要求はまとめ、進行中が無くなった
   時点で 1 回だけ取り直す。明示操作由来の取得も同じ集約に乗せる（**片方向でなく双方向**）
 - **並走した取得が複数完了しても、最終結果は 1 つに収束する**
+
+## git の同時実行
+
+main が起動する git はすべて、起動前に同時実行の枠を取る。
+
+git status は作業ツリー全体を走査するため、大きな作業ツリーで同時に走らせると並列度を上げても完了は
+早まらず、同時に走る無関係な git やターミナル内のプロンプトまで遅らせる。worktree の数に比例して
+走査を同時起動しない。
+
+- **画面が応答を待つ取得を、監視が裏で取り直す取得より先に通す**。監視起点の status は worktree の
+  数だけ並びうるため、それが枠を埋めていても画面の要求だけが使える余地を残す
+- **ネットワークを待つ git（fetch 等）はローカルの走査と別枠で数える**。ネットワーク待ちで長く
+  居座るものが、ローカルの走査を待たせない
 
 ## 更新トリガー
 

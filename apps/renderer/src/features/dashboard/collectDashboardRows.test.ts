@@ -1,6 +1,6 @@
-import type { Task, WorktreeEntry } from "@gozd/rpc";
+import type { Task } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
-import type { RepoState } from "../../shared/repo";
+import type { RepoState, RepoWorktree } from "../../shared/repo";
 import type { ClaudeStatus } from "../terminal";
 import { collectDashboardRows } from "./collectDashboardRows";
 
@@ -18,7 +18,7 @@ function task(id: string, sessionId: string, createdAt = "2026-07-25T00:00:00.00
   };
 }
 
-function wt(path: string, branch: string, tasks: Task[] = [], isMain = false): WorktreeEntry {
+function wt(path: string, branch: string, tasks: Task[] = [], isMain = false): RepoWorktree {
   return {
     path,
     head: "",

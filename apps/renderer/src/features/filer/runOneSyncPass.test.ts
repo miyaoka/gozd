@@ -1,9 +1,8 @@
-import type { WorktreeEntry } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
-import { collectFsWatchTargetDirs, type RepoState } from "../../shared/repo";
+import { collectFsWatchTargetDirs, type RepoState, type RepoWorktree } from "../../shared/repo";
 import { runOneSyncPass, type SyncPassDeps } from "./runOneSyncPass";
 
-function wt(path: string, branch: string, isMain = false): WorktreeEntry {
+function wt(path: string, branch: string, isMain = false): RepoWorktree {
   return {
     path,
     head: "",

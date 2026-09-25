@@ -34,6 +34,7 @@
 
 import { tryCatch } from "@gozd/shared";
 import { realpathSync } from "node:fs";
+import { withGitTier } from "../git/gitAdmission";
 import { gitDirs, gitStatusFull, refDigest, type RefDigest } from "../git/gitOps";
 import type { StatusFull } from "../git/porcelain";
 import { classify } from "./classify";
@@ -276,6 +277,9 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     resolvedKeyByOriginalDir.set(userDir, dir);
     if (commonGitDir !== undefined) {
       recomputePrimary(commonGitDir);
+      // 登録の成立を再同期の起点にする。登録前からの状態と、subscribe の往復中に起きた変化を
+      // 1 回の status で拾う
+      scheduleStatusRefresh(dir, generation, userDir);
     }
   }
 
@@ -491,7 +495,9 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
   ): Promise<void> {
     if (!isActive(dir, watchGeneration)) return;
     if (statusRequestGenerationByDir.get(dir) !== requestGeneration) return;
-    const result = await tryCatch(statusFetcher(dir));
+    // 監視起点の status は画面の要求より後回しにしてよい。worktree の数だけ並ぶため、
+    // interactive と同じ枠で走らせると git log やアクティブ worktree の status を待たせる
+    const result = await tryCatch(withGitTier("background", () => statusFetcher(dir)));
     if (!result.ok) {
       // 観察可能性のためログを残す。renderer は次の event バッチで再 fetch するため
       // 致命的ではないが、繰り返し発生していれば一時障害として診断したい

@@ -23,10 +23,7 @@ function makeWt(tasks: Task[]): WorktreeEntry {
     head: "",
     branch: "",
     isMain: false,
-    gitStatuses: {},
-    renameOldPaths: {},
     tasks,
-    latestMtime: 0,
   };
 }
 

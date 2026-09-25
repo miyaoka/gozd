@@ -177,10 +177,10 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
 
   /** dir 配下に入れ子で watch されている、同じ repo の別 worktree の root を返す。
    * @parcel/watcher は再帰 watch なので、repo 内に置かれた worktree（`.claude/worktrees/*` 等）
-   * の変更は外側の subscription にも届く。次のものは内部の変更が外側の status を変えるため含めない:
-   * - per-worktree git dir が同じもの: 同一作業ツリーのサブディレクトリ
-   * - common git dir が異なるもの: submodule（内部の変更が外側に gitlink の変更として現れる）や
-   *   別 repo の clone */
+   * の変更は外側の subscription にも届く。次のものは含めない:
+   * - per-worktree git dir が同じもの: 同一作業ツリーのサブディレクトリで、変更が外側の status を変える
+   * - common git dir が異なるもの: submodule は内部の変更が外側に gitlink の変更として現れる。
+   *   別 repo の clone はこの条件だけでは submodule と区別できないため同じく含めない */
   function nestedWorktreeDirsOf(
     dir: string,
     perWorktreeGitDir: string | undefined,

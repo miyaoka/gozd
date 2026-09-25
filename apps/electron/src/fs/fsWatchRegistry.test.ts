@@ -157,7 +157,7 @@ describe("FSWatchRegistry (integration)", () => {
     let calls = 0;
     const pending: (() => void)[] = [];
     // 取得の完了を外から制御する。取得中に要求を重ねて、起動回数を数える
-    const { registry } = createRecordingRegistry(async (target) => {
+    const { registry, recorded } = createRecordingRegistry(async (target) => {
       calls++;
       await new Promise<void>((resolve) => pending.push(resolve));
       return gitStatusFull(target);
@@ -174,11 +174,46 @@ describe("FSWatchRegistry (integration)", () => {
     expect(calls).toBe(1);
 
     pending.shift()?.();
+    // 取得中に要求が重なっても、その取得の結果は捨てずに push する（取り直しの完了を待たない）
+    await waitUntil(() => recorded.statusDirs.length === 1, "push of the first result");
     await waitUntil(() => calls === 2, "single rerun");
     pending.shift()?.();
     // 負の証明は時間で切る: 取り直しは 1 回だけで、以後は起動しない
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(calls).toBe(2);
+  });
+
+  test("status の push が例外を投げても、その dir の status は以後も取られる", async () => {
+    const dir = makeTempRepo();
+    let fetches = 0;
+    let pushes = 0;
+    const registry = createFsWatchRegistry(
+      {
+        onFsChange: () => {},
+        onGitStatusChange: () => {
+          pushes++;
+          if (pushes === 1) throw new Error("push failed");
+        },
+        onBranchChange: () => {},
+        onRemoteRefsChange: () => {},
+        onWorktreeChange: () => {},
+      },
+      {
+        statusDebounceMs: TEST_STATUS_DEBOUNCE_MS,
+        transport: realParcelTransport,
+        statusFetcher: (target) => {
+          fetches++;
+          return gitStatusFull(target);
+        },
+      },
+    );
+    cleanups.push(() => registry.unwatchAll());
+
+    await registry.watch(dir);
+    await waitUntil(() => pushes === 1, "first push throws");
+    writeFileSync(join(dir, "after-failure.txt"), "x\n");
+
+    await waitUntil(() => fetches >= 2 && pushes === 2, "status after the failed push");
   });
 
   test("commit は branchChange を撃つが remoteRefsChange は撃たない（digest gating）", async () => {

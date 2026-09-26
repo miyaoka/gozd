@@ -635,11 +635,11 @@ export const useRepoStore = defineStore("repo", () => {
   // --- 永続化サポート（I/O は feature 側で実施） ---
 
   /**
-   * AppState の sidebar 関連フィールドを現在の store の状態で組み立てて返す。
+   * AppState のうち repo の store が持つフィールドを現在の状態で組み立てて返す。
    * shared スコープの制約により RPC 呼び出しは feature 側で行うので、
-   * snapshot 構築だけここで提供する。
+   * snapshot 構築だけここで提供する。サイドバーの表示（sidebarView）は feature 側が足す。
    */
-  function buildAppStateSnapshot(): AppState {
+  function buildAppStateSnapshot(): Omit<AppState, "sidebarView"> {
     return {
       sidebarRepos: poolDirs.value.map((rootDir) => {
         const r = repos.value[rootDir];
@@ -688,7 +688,7 @@ export const useRepoStore = defineStore("repo", () => {
    * 監視の push が届いたら同一 path のカードが key 維持で in-place 更新される（楽観描画）。
    * SSOT は git。
    */
-  function hydrateFromAppState(state: AppState) {
+  function hydrateFromAppState(state: Omit<AppState, "sidebarView">) {
     const nextRepos: Record<string, RepoState> = {};
     const poolOrder: string[] = [];
     const nextCollapsed = new Set<string>();

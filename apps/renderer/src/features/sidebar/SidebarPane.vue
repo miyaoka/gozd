@@ -7,7 +7,10 @@
 - **窓口**: ツールバーの直下に固定する（docs/concierge.md）。repo list の外に置くので、list の
   切り替えや編集モードで消えない
 - **トップツールバー**: 左に view mode トグル (active worktree / claude terminals。ターミナルの
-  タイル表示だけに効き、サイドバーの表示内容は変えない)、右に時計 / SFX
+  タイル表示だけに効き、サイドバーの表示内容は変えない) と、区切り線を挟んでサイドバーの表示の
+  切り替え（repo の階層 / 状態別。docs/session.md の「サイドバー」）、右に時計 / SFX
+- **状態別の表示**: repo list バーと repo 一覧の代わりに `StatusSessionList` を出す。repo list は
+  この表示に効かないため、バーごと出さない
 - **repo list バー**: 編集トグルをツールバーではなくこのバーに置くのは、編集の対象がこの
   バー以下のリストエリアに閉じるため（配置と作用範囲の対応づけ）。表示は 2 態:
   - 通常モード: chip 列（クリックでアクティブ repo list を切り替えるだけ）+ 右端に鉛筆
@@ -71,6 +74,7 @@ import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { ConciergeSection } from "./features/concierge";
 import { RepoSection } from "./features/repo";
+import { StatusSessionList } from "./features/status-list";
 import { useWorktreeActions } from "./features/worktree";
 import ListEditDialog from "./ListEditDialog.vue";
 import ListMenu from "./ListMenu.vue";
@@ -85,11 +89,14 @@ import { useListMenu } from "./useListMenu";
 import { useRepoMenu } from "./useRepoMenu";
 import { useSessionMenu } from "./useSessionMenu";
 import { useSidebarData } from "./useSidebarData";
+import { useSidebarView } from "./useSidebarView";
 import { useWorktreeMenu } from "./useWorktreeMenu";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 import WorktreeMenu from "./WorktreeMenu.vue";
+import IconLucideActivity from "~icons/lucide/activity";
 import IconLucideBot from "~icons/lucide/bot";
 import IconLucideFolderPlus from "~icons/lucide/folder-plus";
+import IconLucideListTree from "~icons/lucide/list-tree";
 import IconLucideMonitor from "~icons/lucide/monitor";
 import IconLucidePencil from "~icons/lucide/pencil";
 import IconLucidePlus from "~icons/lucide/plus";
@@ -213,6 +220,10 @@ function toggleEditMode() {
   editMode.value = !editMode.value;
 }
 
+// --- サイドバーの表示: repo > worktree の階層か、全 repo のセッションの状態別か ---
+
+const sidebarView = useSidebarView();
+
 // --- repo list 操作 ---
 //
 // rename / delete は list 行（編集モードの縦一覧）の ⋮ メニュー経由の明示操作に限定する。
@@ -296,15 +307,16 @@ const scrollContainer = useTemplateRef<HTMLElement>("scrollContainer");
 // setOpen 冪等呼び出し (同一 dir の再確定) を拾い、dir は setOpen を経由しない fallback
 // (orphaned wt の rootDir 退避 / repo 削除。useRepoStore の直書き経路) を拾う。片方だけだと
 // もう一方の経路で list 切り替え / expand / スクロールの追従が走らない。
+// 表示の切り替えも駆動信号に含め、階層表示へ戻ったときに active wt を見える位置へ出す。
 watch(
-  [() => worktreeStore.selectionVersion, () => worktreeStore.dir],
+  [() => worktreeStore.selectionVersion, () => worktreeStore.dir, sidebarView],
   async () => {
     const dir = worktreeStore.dir;
     if (dir === undefined) return;
     // 編集モード中は全 section が強制 collapse され WtCard が描画されないため、
     // スクロール先が存在しない。list 切り替えも編集対象が足元で変わると混乱するため、
-    // 追従はまとめてスキップする。
-    if (editMode.value) return;
+    // 追従はまとめてスキップする。状態別の表示は repo 一覧を出さないので追従先が無い。
+    if (editMode.value || sidebarView.value === "status") return;
     const owner = repoStore.findRepoOwning(dir);
     if (owner !== undefined) {
       // アクティブ repo list がその repo を含まないと、repo 一覧に active wt が見えない
@@ -355,6 +367,31 @@ watch(
         >
           <IconLucideBot class="text-base" />
         </button>
+        <!-- サイドバーの表示の切り替え。上の view mode はターミナルのタイル表示に効くもので、
+             別の軸なので区切り線で分ける -->
+        <div class="mx-1 my-1.5 border-l border-border-subtle" aria-hidden="true"></div>
+        <button
+          type="button"
+          aria-label="Repositories"
+          title="Repositories"
+          :aria-pressed="sidebarView === 'tree'"
+          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground"
+          :class="sidebarView === 'tree' && 'bg-element text-foreground'"
+          @click="sidebarView = 'tree'"
+        >
+          <IconLucideListTree class="text-base" />
+        </button>
+        <button
+          type="button"
+          aria-label="Sessions by status"
+          title="Sessions by status"
+          :aria-pressed="sidebarView === 'status'"
+          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground"
+          :class="sidebarView === 'status' && 'bg-element text-foreground'"
+          @click="sidebarView = 'status'"
+        >
+          <IconLucideActivity class="text-base" />
+        </button>
       </div>
       <div class="flex items-center gap-2">
         <SidebarClock />
@@ -380,11 +417,22 @@ watch(
       />
     </div>
 
+    <!-- 状態別の表示: repo list バーと repo 一覧の代わりに出す。repo list はこの表示に効かない -->
+    <div
+      v-if="sidebarView === 'status'"
+      class="_thin-scrollbar flex min-h-0 flex-1 flex-col overflow-y-scroll px-1 py-2"
+    >
+      <StatusSessionList
+        @select="onSelectSession"
+        @open-menu="(anchorEl, row) => onOpenSessionMenu(anchorEl, row, row.rootDir)"
+      />
+    </div>
+
     <!-- repo list バー: 編集トグルはツールバーではなくこのエリアに置く。ツールバーは
          view mode 等のグローバル操作で、編集はこのバー以下のリストエリアに閉じるため
          配置で対応づける -->
     <!-- 通常モード: chip 列（切り替えのみ）+ 右端に鉛筆 -->
-    <div v-if="!editMode" class="flex items-start gap-1 px-2 pt-3 pb-1">
+    <div v-else-if="!editMode" class="flex items-start gap-1 px-2 pt-3 pb-1">
       <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
         <button
           v-for="pl in repoStore.repoLists"
@@ -454,6 +502,7 @@ watch(
     <!-- カード間・カードと縁の間隔はすべてこの容器が持つ（子側の margin では、スクロール
          端で余白が潰れるうえ最後のカードの下だけ間隔が二重になる） -->
     <div
+      v-if="sidebarView === 'tree'"
       ref="scrollContainer"
       class="_thin-scrollbar flex min-h-0 flex-1 flex-col gap-2 overflow-y-scroll px-1 py-2"
     >

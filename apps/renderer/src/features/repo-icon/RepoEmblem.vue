@@ -9,9 +9,12 @@ repo 固有の OKLCH 色 + ネオングローで描く。色だけでは判別�
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { REPO_ICON_SIZE_CLASS, type RepoIconSize } from "./repoIconSize";
 
 const props = defineProps<{
   name: string;
+  /** 既定は md */
+  size?: RepoIconSize;
 }>();
 
 /** djb2 hash。repo 名 → 安定した 32bit 整数 */
@@ -22,6 +25,8 @@ function djb2(str: string): number {
   }
   return hash >>> 0;
 }
+
+const sizeClass = computed(() => REPO_ICON_SIZE_CLASS[props.size ?? "md"]);
 
 const hash = computed(() => djb2(props.name));
 const hue = computed(() => hash.value % 360);
@@ -52,7 +57,8 @@ const cells = computed(() => {
 
 <template>
   <span
-    class="_fx-emblem grid size-6 shrink-0 place-items-center"
+    class="_fx-emblem grid shrink-0 place-items-center"
+    :class="sizeClass.box"
     :style="{ '--emblem-glow': dotColor }"
     aria-hidden="true"
   >

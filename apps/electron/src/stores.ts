@@ -14,7 +14,7 @@
 // - AppState の save は既存ファイルを raw dict として読み shallow merge し、
 //   未知 top-level キー（別バージョンが書いたフィールド）を保持する
 
-import type { AppConfig, AppState } from "@gozd/rpc";
+import { SIDEBAR_VIEWS, type AppConfig, type AppState, type SidebarView } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -153,7 +153,21 @@ export function normalizeAppState(raw: unknown): AppState {
     // 「未選択 = キー不在」の optional 契約。空文字は unset に正規化する
     // （undefined 値は JSON.stringify で落ちるため、save 時にキー不在へ戻る）
     activeDir: activeDir !== "" ? activeDir : undefined,
+    sidebarView: normalizeSidebarView(dict.sidebarView),
   };
+}
+
+/**
+ * 文字列でなければ型違反として reinit に倒す（strict）。知らない値は tree に倒す:
+ * state ディレクトリは channel をまたいで共有され、新しいビルドが足した表示を古いビルドが
+ * 読むことがあるため、表示の選択 1 つで repo の一覧ごと初期化しない
+ */
+function normalizeSidebarView(value: unknown): SidebarView {
+  const view = strictString(value, "sidebarView", "tree");
+  const known = SIDEBAR_VIEWS.find((v) => v === view);
+  if (known !== undefined) return known;
+  console.error(`[normalizeAppState] unknown sidebarView "${view}"; falling back to "tree"`);
+  return "tree";
 }
 
 /** テスト注入用に path を取る変種。

@@ -63,10 +63,11 @@ const LIVE: LiveSession[] = [
     sessionId: "live",
     dir: "/repo-a",
     status: { state: "working", lastActivityAt: LIVE_AT },
+    stateSince: LIVE_AT,
     terminalTitle: "",
   },
   // ログに現れる前（最初のプロンプト前）のセッション
-  { sessionId: "fresh", dir: "/note", status: undefined, terminalTitle: "" },
+  { sessionId: "fresh", dir: "/note", status: undefined, stateSince: undefined, terminalTitle: "" },
 ];
 
 const POOL_DIRS = ["/repo-a", "/repo-b", "/note"];

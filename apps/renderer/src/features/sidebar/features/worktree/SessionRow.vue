@@ -1,11 +1,15 @@
 <doc lang="md">
-1 Claude セッションを表すサイドバーカード内の行。Claude state アイコン（または相対時刻）、
-タイトル、bubble、hover で表示される ⋮ メニューボタンを表示する。
+1 Claude セッションを表すサイドバーの行。Claude state アイコンと相対時刻、タイトル、bubble、
+hover で表示される ⋮ メニューボタンを表示する。
 
 ## 左端カラム（アイコン / 相対時刻）
 
 左端は固定幅のカラム。端末が開いているセッションは Claude state アイコンを、開いていない
-セッションは最終更新からの相対時刻を排他表示する。両者を同時には出さない。
+セッションは最終更新からの相対時刻を出す。
+
+端末が開いているセッションの相対時刻は、利用側が求めたときだけアイコンの下に重ねて出す
+（状態別の一覧）。実行中は常に「今」なので出さない。基準は状態で変わり、要対応は承認を
+待ち始めた時刻、完了と待機は最後に応答を終えた時刻。
 
 アイコンは WCAG 1.4.1 準拠で色 + 形 + aria-label の 3 軸で状態を表現する。アニメーションは
 spin / pulse のみ（bounce は notification spam に見えるため不採用）。相対時刻の色は
@@ -26,8 +30,9 @@ overlay にする。
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { RepoIcon } from "../../../repo-icon";
 import type { SessionRow } from "../../../session";
-import { CLAUDE_STATE_VISUAL, displayClaudeState } from "../../../terminal";
+import { CLAUDE_STATE_VISUAL, displayClaudeState, type ClaudeState } from "../../../terminal";
 import { extractAskingText, extractFirstSentence } from "../../../voicevox";
 import { useRelativeTime } from "../../useRelativeTime";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
@@ -35,6 +40,10 @@ import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
 const props = defineProps<{
   row: SessionRow;
   active: boolean;
+  /** 行がどの repo のものか。repo をまたいで平らに並べる一覧だけが渡し、タイトルの下に小さく出す */
+  repo?: { name: string; owner: string | undefined };
+  /** 端末が開いている行でも、状態アイコンの下に経過時間を出す（実行中を除く） */
+  showLiveAge?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -49,7 +58,26 @@ const visual = computed(() => {
   return state === undefined ? undefined : CLAUDE_STATE_VISUAL[state];
 });
 
-const relativeTime = useRelativeTime(computed(() => props.row.lastActivity));
+/**
+ * 端末が開いている行の経過時間の基準。要対応は承認を待ち始めた時刻、完了と待機は最後に応答を
+ * 終えた時刻。実行中は常に「今」なので出さない
+ */
+const LIVE_AGE_BASE: Record<ClaudeState, ((row: SessionRow) => number | undefined) | undefined> = {
+  asking: (row) => row.stateSince,
+  done: (row) => row.lastActivity,
+  idle: (row) => row.lastActivity,
+  working: undefined,
+};
+
+const ageBase = computed(() => {
+  const row = props.row;
+  if (!row.live) return row.lastActivity;
+  if (props.showLiveAge !== true) return undefined;
+  const state = displayClaudeState(row.status);
+  return state === undefined ? undefined : LIVE_AGE_BASE[state]?.(row);
+});
+
+const relativeTime = useRelativeTime(ageBase);
 
 // 吹き出しの intent は border 色だけで識別する。地は白 (bg-foreground) + 黒文字
 // (text-background) の反転ペアで、intent の *-text token (dark 地用の step 11) は
@@ -110,11 +138,20 @@ function onMenuClick(event: MouseEvent) {
           role="img"
           :aria-label="visual.ariaLabel"
         />
-        <span v-else class="text-[10px] tabular-nums" :class="relativeTime.color">{{
-          relativeTime.text
-        }}</span>
+        <span
+          v-if="relativeTime.text !== ''"
+          class="text-[10px] tabular-nums"
+          :class="relativeTime.color"
+          >{{ relativeTime.text }}</span
+        >
       </span>
-      <span class="line-clamp-2 flex-1 text-sm break-all" :title="row.title">{{ row.title }}</span>
+      <span class="flex min-w-0 flex-1 flex-col">
+        <span class="line-clamp-2 text-sm break-all" :title="row.title">{{ row.title }}</span>
+        <span v-if="repo" class="flex min-w-0 items-center gap-1 text-xs text-foreground-low">
+          <RepoIcon :name="repo.name" :owner="repo.owner" size="sm" />
+          <span class="truncate">{{ repo.name }}</span>
+        </span>
+      </span>
     </button>
     <span v-if="visual?.progress" class="_fx-progress-line" aria-hidden="true"></span>
     <button

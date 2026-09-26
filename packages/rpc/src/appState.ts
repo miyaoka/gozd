@@ -21,7 +21,12 @@ export interface AppState {
    * 復元してターミナルを自動で開く。未選択はキー不在（undefined）で表現する。
    * CLI の launch request（`gozd <dir>`）がある起動では復元より明示 open を優先する。 */
   activeDir?: string;
+  /** サイドバーの表示。repo > worktree の階層（tree）か、全 repo のセッションの状態別（status）か */
+  sidebarView: SidebarView;
 }
+
+export const SIDEBAR_VIEWS = ["tree", "status"] as const;
+export type SidebarView = (typeof SIDEBAR_VIEWS)[number];
 
 /** サイドバーの repo list。repo プールに対する名前付きビュー（表示 repo の部分集合 + 並び順）。
  * 1 repo は複数 repo list に所属できる。 */

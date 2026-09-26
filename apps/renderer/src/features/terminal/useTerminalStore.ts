@@ -1,7 +1,7 @@
 import type { HookPayload, PtyExitPayload, PtyTextPayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { computed, ref, shallowRef } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
 import { dispatchMessage, onMessage } from "../../shared/rpc";
@@ -12,6 +12,7 @@ import { notifyLostPrompt } from "./lostPrompt";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
 import { rpcClaudeSessionRemoveByPty, rpcPtyKill, rpcPtySpawn } from "./rpc";
+import { nextStateSince, type StateSince } from "./stateSince";
 import { createTerminalLayout } from "./terminalLayout";
 import type { TerminalLayoutState } from "./terminalLayout";
 
@@ -33,6 +34,8 @@ export interface LiveSession {
   /** セッションが動いている端末の作業ディレクトリ（worktree / 非 git project の root） */
   dir: string;
   status: ClaudeStatus | undefined;
+  /** 表示上の状態に入った時刻（Unix ミリ秒）。状態が無ければ undefined */
+  stateSince: number | undefined;
   /** 端末タイトルから状態プレフィックスを落とした値。未受信なら空文字 */
   terminalTitle: string;
 }
@@ -80,6 +83,18 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /** ptyId → Claude Code の状態（idle は undefined = エントリなし） */
   const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
+
+  /** ptyId → 表示上の状態に入った時刻。状態別の一覧のグループ内の並びの基準 */
+  const stateSinceByPtyId = shallowRef<Readonly<Record<number, StateSince>>>({});
+  // flush: "sync" で状態が変わったその時刻を刻む。pre flush だと同じ tick 内の複数回の遷移を
+  // 1 回に畳み、途中の状態を経た変化を取りこぼす
+  watch(
+    claudeStatusByPtyId,
+    (statuses) => {
+      stateSinceByPtyId.value = nextStateSince(stateSinceByPtyId.value, statuses, Date.now());
+    },
+    { deep: true, flush: "sync" },
+  );
 
   /** leafId → ターミナルタイトル（OSC 0/2 で更新される） */
   const titleByLeafId = ref<Record<string, string>>({});
@@ -624,6 +639,7 @@ export const useTerminalStore = defineStore("terminal", () => {
         sessionId,
         dir: pane.dir,
         status: claudeStatusByPtyId.value[ptyId],
+        stateSince: stateSinceByPtyId.value[ptyId]?.since,
         terminalTitle: stripClaudeTitlePrefix(titleByLeafId.value[leafId] ?? ""),
       });
     }

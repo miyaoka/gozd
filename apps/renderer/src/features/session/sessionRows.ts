@@ -12,6 +12,8 @@ export interface SessionRow {
   live: boolean;
   /** 端末が開いているセッションの Claude 状態。開いていなければ undefined */
   status: ClaudeStatus | undefined;
+  /** 表示上の状態に入った時刻（Unix ミリ秒）。端末が開いていなければ undefined */
+  stateSince: number | undefined;
   /** 並びと相対時刻の基準（Unix ミリ秒）。稼働中は Claude の最終活動、それ以外はログの最終更新。
    * 端末は開いたがログがまだ無いセッション（最初のプロンプト前）は undefined */
   lastActivity: number | undefined;
@@ -52,6 +54,7 @@ export function buildSessionRows(
         title: sessionDisplayTitle(summary?.title, s.terminalTitle),
         live: true,
         status: s.status,
+        stateSince: s.stateSince,
         lastActivity: s.status?.lastActivityAt ?? summary?.lastModified,
       };
     })
@@ -65,6 +68,7 @@ export function buildSessionRows(
       title: sessionDisplayTitle(s.title, undefined),
       live: false,
       status: undefined,
+      stateSince: undefined,
       lastActivity: s.lastModified,
     }))
     .toSorted(compareRecentFirst);

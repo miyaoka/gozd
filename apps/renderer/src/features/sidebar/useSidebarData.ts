@@ -1,4 +1,4 @@
-import type { BranchChangePayload, HookPayload, WorktreeChangePayload } from "@gozd/rpc";
+import type { AppState, BranchChangePayload, HookPayload, WorktreeChangePayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
@@ -11,6 +11,7 @@ import { rpcGitGithubIdentity, rpcGitWorktreeList, useWorktreeStore } from "../w
 import { rpcConciergeInfo } from "./features/concierge";
 import { restoreActiveDir } from "./restoreActiveDir";
 import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
+import { useSidebarView } from "./useSidebarView";
 
 /**
  * サイドバーのデータ取得・状態管理。
@@ -25,6 +26,7 @@ export function useSidebarData() {
   const terminalStore = useTerminalStore();
   const repoStore = useRepoStore();
   const notify = useNotificationStore();
+  const sidebarView = useSidebarView();
 
   /** repo ごとの fetch 世代カウンタ。並行 fetch で stale なレスポンスを破棄するため */
   const fetchGenByRoot = new Map<string, number>();
@@ -301,14 +303,14 @@ export function useSidebarData() {
     if (saveTimer !== undefined) {
       clearTimeout(saveTimer);
       // 保留中の変更を即時 flush して取りこぼしを防ぐ
-      void rpcAppStateSave({ state: repoStore.buildAppStateSnapshot() });
+      void rpcAppStateSave({ state: buildSnapshot() });
     }
   });
 
   // --- 永続化（app-state.json）---
   //
   // hydrate: app-state.json を読み、repoStore に反映
-  // save: dirOrder / collapsedRoots / selectedDir の変化を debounce で書き戻す
+  // save: dirOrder / collapsedRoots / selectedDir / サイドバーの表示の変化を debounce で書き戻す
 
   let hydrated = false;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -328,9 +330,14 @@ export function useSidebarData() {
     }
     if (result.ok && result.value.state !== undefined) {
       repoStore.hydrateFromAppState(result.value.state);
+      sidebarView.value = result.value.state.sidebarView;
       restoreActiveDir(result.value.state.activeDir);
     }
     hydrated = true;
+  }
+
+  function buildSnapshot(): AppState {
+    return { ...repoStore.buildAppStateSnapshot(), sidebarView: sidebarView.value };
   }
 
   // snapshot を JSON シリアライズした文字列を watch source にする。
@@ -340,13 +347,13 @@ export function useSidebarData() {
   // Vue の値比較で callback は呼ばれず save も走らない。これにより worktrees /
   // gitStatuses の変化（git status push, fetchRepo）では `app-state.json` が save されなくなる。
   watch(
-    () => JSON.stringify(repoStore.buildAppStateSnapshot()),
+    () => JSON.stringify(buildSnapshot()),
     () => {
       if (!hydrated) return;
       if (saveTimer !== undefined) clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         saveTimer = undefined;
-        await tryCatch(rpcAppStateSave({ state: repoStore.buildAppStateSnapshot() }));
+        await tryCatch(rpcAppStateSave({ state: buildSnapshot() }));
       }, SAVE_DEBOUNCE_MS);
     },
   );

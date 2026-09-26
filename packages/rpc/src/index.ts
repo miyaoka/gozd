@@ -26,8 +26,10 @@ export type {
   SaveAppStateResponse,
   RepoList,
   SidebarRepo,
+  SidebarView,
   WorktreeCacheEntry,
 } from "./appState";
+export { SIDEBAR_VIEWS } from "./appState";
 export type {
   ClaudeSessionListRequest,
   ClaudeSessionListResponse,

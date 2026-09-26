@@ -44,7 +44,7 @@
     "@gozd/eslint-plugin": "workspace:*",
     "@iconify-json/lucide": "1.2.136",
     "@iconify-json/mdi": "1.2.3",
-    "@miyaoka/eslint-plugin-barrel-import": "0.0.0",
+    "@miyaoka/eslint-plugin-barrel-import": "0.1.0",
     "@miyaoka/vite-plugin-doc-block": "0.0.3",
     "@tailwindcss/vite": "catalog:",
     "@types/bun": "catalog:",

@@ -21,9 +21,10 @@ worktree の階層表示と切り替えて使い、両方を同時には出さ�
 
 ## 並び
 
-Active は注意が要る状態から順（要対応 → 完了・未読 → 実行中 → 待機）に並べ、同じ状態の中は
-状態に入った時刻の新しい順。repo の並びは、その repo で最も先に来る行で決まる。常に表示されて
-いるので、並びが変わるきっかけを状態の変化に限り、付随データの更新で行を動かさない。
+Active の repo は現れた順に固定し、中のセッションの増減や状態の変化では動かさない
+（`activeRepoOrder`）。repo の中の行は注意が要る状態から順（要対応 → 完了・未読 → 実行中 →
+待機）に並べ、同じ状態の中は状態に入った時刻の新しい順。常に表示されているので、並びが変わる
+きっかけを状態の変化に限り、付随データの更新で行を動かさない。
 
 Inactive は最終活動の新しい順。全 repo の過去のセッションが対象になるため、直近の数件だけを
 出し、「Show more」で一定件数ずつ広げる。
@@ -41,6 +42,7 @@ import { collectPoolSessionRows, type PoolSessionRow } from "../../../session";
 import { useTerminalStore } from "../../../terminal";
 import { useWorktreeStore } from "../../../worktree";
 import { SessionRow } from "../session-row";
+import { useActiveRepoOrder } from "./activeRepoOrder";
 import { groupByStatus } from "./statusGroups";
 
 /** 端末の開いていないセッションを最初に出す件数 */
@@ -56,6 +58,7 @@ const emit = defineEmits<{
 const repoStore = useRepoStore();
 const terminalStore = useTerminalStore();
 const worktreeStore = useWorktreeStore();
+const activeRepoOrder = useActiveRepoOrder();
 
 const groups = computed(() =>
   groupByStatus(
@@ -65,6 +68,7 @@ const groups = computed(() =>
       (rootDir) => repoStore.sessionsOf(rootDir),
       terminalStore.liveSessions,
     ),
+    activeRepoOrder.value,
   ),
 );
 

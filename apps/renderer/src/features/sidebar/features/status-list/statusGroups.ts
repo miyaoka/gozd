@@ -10,7 +10,7 @@ interface ActiveRepoGroup {
 }
 
 export interface StatusGroups {
-  /** 端末が開いているもの。repo ごとにまとめ、注意が要る行を持つ repo から順に並ぶ */
+  /** 端末が開いているもの。repo ごとにまとめ、repo が Active に現れた順に並ぶ */
   active: ActiveRepoGroup[];
   /** 端末の開いていないもの。最終活動の新しい順 */
   inactive: PoolSessionRow[];
@@ -44,10 +44,14 @@ function compareActive(a: PoolSessionRow, b: PoolSessionRow): number {
 /**
  * 全 repo のセッション行を、端末が開いているものと開いていないものに分けて並べる。
  *
- * 端末が開いているものは repo ごとにまとめる。repo の並びは、その repo で最も先に来る行の
- * 位置で決まる（注意が要る行を持つ repo が上に来る）。repo の中の行も同じ順に並ぶ。
+ * 端末が開いているものは repo ごとにまとめ、repo は `repoOrder`（Active に現れた順）に並べる。
+ * 中のセッションの増減や状態の変化では repo の位置を動かさない。`repoOrder` にまだ無い repo は
+ * 末尾に置く。repo の中の行は状態の順に並ぶ。
  */
-export function groupByStatus(rows: readonly PoolSessionRow[]): StatusGroups {
+export function groupByStatus(
+  rows: readonly PoolSessionRow[],
+  repoOrder: readonly string[],
+): StatusGroups {
   const byRepo = new Map<string, ActiveRepoGroup>();
   for (const row of rows.filter((r) => r.live).toSorted(compareActive)) {
     const group = byRepo.get(row.rootDir);
@@ -62,8 +66,12 @@ export function groupByStatus(rows: readonly PoolSessionRow[]): StatusGroups {
       rows: [row],
     });
   }
+  const positionOf = (rootDir: string) => {
+    const index = repoOrder.indexOf(rootDir);
+    return index === -1 ? repoOrder.length : index;
+  };
   return {
-    active: [...byRepo.values()],
+    active: [...byRepo.values()].toSorted((a, b) => positionOf(a.rootDir) - positionOf(b.rootDir)),
     inactive: rows.filter((row) => !row.live).toSorted(compareRecentFirst),
   };
 }

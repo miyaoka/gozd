@@ -74,7 +74,7 @@ import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { ConciergeSection } from "./features/concierge";
 import { RepoSection } from "./features/repo";
-import { StatusSessionList } from "./features/status-list";
+import { StatusSessionList, trackActiveRepoOrder } from "./features/status-list";
 import { useWorktreeActions } from "./features/worktree";
 import ListEditDialog from "./ListEditDialog.vue";
 import ListMenu from "./ListMenu.vue";
@@ -114,6 +114,9 @@ const { toggleSfx } = arcadeStore;
 // useSidebarData の onMounted で全 repo の fetch / FsWatch が起動する。
 // 戻り値は現状外側で使わないので呼び捨てる。
 useSidebarData();
+
+// 状態別の表示の repo の並び（Active に現れた順）は、表示を開いていない間も追う
+trackActiveRepoOrder();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 

@@ -531,7 +531,7 @@ export interface NewWorktreePayload extends CreateTaskWorktreeResponse {
 export interface GitWorktreeRemoveRequest {
   dir: string;
   path: string;
-  /** `docs/workspace.md` の「削除」が挙げる拒否条件と lock をすべて無視して消す */
+  /** `docs/workspace.md` の「削除」が挙げる拒否条件をすべて無視して消す */
   force: boolean;
 }
 export type GitWorktreeRemoveResponse = EmptyMessage;

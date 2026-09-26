@@ -43,7 +43,7 @@ catalog:
   vite: 8.3.0
 
 # Claude Agent SDK は Claude Code 本体のバイナリを platform 別の optionalDependencies で持つ。
-# gozd が使うのはセッションログを読み書きする関数だけで、esbuild が main に bundle するため
+# gozd が使うのはセッション一覧を読み取る関数だけで、esbuild が main に bundle するため
 # バイナリは不要
 ignoredOptionalDependencies:
   - '@anthropic-ai/claude-agent-sdk-*'

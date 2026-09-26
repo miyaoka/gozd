@@ -12,8 +12,8 @@ export interface ClaudeSessionSummary {
   sessionId: string;
   /** セッションを起動した作業ディレクトリ。worktree への帰属に使う */
   cwd: string;
-  /** 表示用タイトル。ユーザーが付けた名前 → Claude が付けた名前 → 最初のプロンプトの順に
-   * Claude Code 側が決める（`/resume` の一覧と同じ値） */
+  /** 表示用タイトル。ユーザーが付けた名前 → Claude が付けた名前の順で、どちらも無ければ
+   * プロンプトの本文で代える。決め方は SDK（Claude Code 側）が持つ */
   title: string;
   /** セッションログの最終更新時刻 (Unix ミリ秒) */
   lastModified: number;

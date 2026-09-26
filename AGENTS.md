@@ -213,6 +213,6 @@ console.error(
 );
 ```
 
-- tag は handler 関数名（`handlePtySpawn`）または store / module 名（`AppStateStore`）
+- tag は handler 関数名（`handlePtySpawn`）または store / module 名（`WindowStateStore`）
 - silent drop 禁止: 握りつぶす失敗経路には必ず観察ログを残す（1 度の取りこぼしで UI 状態が永続的にずれる push 経路が典型）
 - 分類だけでなく原因も残す。「失敗した」ことだけを記録して例外や stderr を捨てると、後から何が起きたかを再構築できない

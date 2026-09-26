@@ -163,20 +163,27 @@ export function useSidebarData() {
     },
   );
 
-  // wt 選択イベント（setOpen）の度に done バッジを消化する。
-  // 同 dir 再選択でも selectionVersion はインクリメントされるため、サイドバー再クリック
-  // やターミナル focus による同一 wt 再選択もここで一括消化される。
+  // 選択中の dir で focus が当たっている端末の done を消化する（既読の単位は端末。
+  // docs/claude-status.md の「既読の消化」）。
+  // 駆動信号は選択操作（selectionVersion）と、選択中の dir の focus 先の 2 つ。同 dir 再選択でも
+  // selectionVersion はインクリメントされるため、サイドバー再クリックやターミナル focus による
+  // 同一端末の再選択も拾う。focus 先は、同じ dir の中で別の端末へ focus を移す経路を拾う。
   // claude status の所有者は terminalStore だが、両 store 参照を持つこの場所に集約する
   // ことで、useTerminalStore → ../worktree barrel の import を増やさず cycle を避ける。
   // immediate: true は、watch 登録より先に gozdOpen 等で setOpen が呼ばれたケース
   // （hydrateFromAppState は setOpen を経由しないが、gozdOpen 経路はそうとは限らない）
-  // で初回選択イベントを取りこぼさないための保険。dir が undefined なら no-op。
+  // で初回選択イベントを取りこぼさないための保険。
   watch(
-    () => worktreeStore.selectionVersion,
-    () => {
-      const dir = worktreeStore.dir;
-      if (dir === undefined) return;
-      terminalStore.clearDoneStates(dir);
+    [
+      () => worktreeStore.selectionVersion,
+      () => {
+        const dir = worktreeStore.dir;
+        return dir === undefined ? undefined : terminalStore.layoutsByDir[dir]?.focusedLeafId;
+      },
+    ],
+    ([, focusedLeafId]) => {
+      if (focusedLeafId === undefined) return;
+      terminalStore.clearDoneState(focusedLeafId);
     },
     { immediate: true },
   );

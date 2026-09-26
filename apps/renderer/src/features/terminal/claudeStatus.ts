@@ -113,7 +113,7 @@ export type ClaudeStatus =
  * 表示用の state。`done` かつ `pendingWork`（Stop 発火時に teammate 型を除く
  * background_tasks / session_crons が残る = 裏で作業継続中）または `teammatePending`
  * （稼働中の teammate が残る）は「真の done」ではないため `working` として描画する。
- * 状態機械上は必ず `done` を経由するので `clearDoneStates`（フォーカス時の既読消化）で
+ * 状態機械上は必ず `done` を経由するので `clearDoneState`（フォーカス時の既読消化）で
  * 消化でき、状態固着しない。緑バッジ・吹き出し・通知の抑止は表示層がこの関数経由で行う。
  */
 export function displayClaudeState(status: ClaudeStatus | undefined): ClaudeState | undefined {
@@ -486,7 +486,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         // session_crons が残る = 裏で作業継続中）は done バリアントの flag として保持し、
         // 表示層 (displayClaudeState) で working として描画して緑バッジを抑止する。working を
         // 直接維持すると、Claude が再起動しないケース（background 完了通知の欠落）で状態が
-        // 固着し、done 経由でしか効かない clearDoneStates での消化経路を失う。
+        // 固着し、done 経由でしか効かない clearDoneState での消化経路を失う。
         // done を必ず経由させることで固着を防ぐ。
         const pendingWork = payload.pending_work === true;
         const hasTeammateTask = payload.has_teammate_task === true;
@@ -590,7 +590,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
    * - working プレフィックスは「実稼働の確証」として常に working にする（新ターン開始や中断後の再開）
    * - idle プレフィックスは **working からの離脱時のみ** idle に倒す。done / asking は hook 所有の
    *   状態なので温存し、未読 done を `✳` で消してしまわない（done→idle の消化はフォーカス時の
-   *   `clearDoneStates` が担う）
+   *   `clearDoneState` が担う）
    */
   function observeTitle(ptyId: number, title: string) {
     const current = claudeStatusByPtyId.value[ptyId];
@@ -674,22 +674,16 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   }
 
   /**
-   * worktree dir に属する done 状態を idle に遷移する。
-   * フォーカス時の既読消化に使う。Claude セッションは生きているため idle へ。
+   * leaf の端末の done を idle に遷移する。フォーカス時の既読消化に使う。Claude セッションは
+   * 生きているため idle へ。同じ dir の他の端末の done は消化しない（既読の単位は端末）。
    */
-  function clearDoneStates(dir: string) {
-    for (const pane of panes.iteratePanes()) {
-      if (pane.dir !== dir) continue;
-      if (pane.ptyId === undefined) continue;
-      const prev = claudeStatusByPtyId.value[pane.ptyId];
-      if (prev?.state === "done") {
-        // done → idle (既読消化) では lastActivityAt 維持
-        claudeStatusByPtyId.value[pane.ptyId] = {
-          state: "idle",
-          lastActivityAt: prev.lastActivityAt,
-        };
-      }
-    }
+  function clearDoneState(leafId: string) {
+    const ptyId = panes.getSessionPtyId(leafId);
+    if (ptyId === undefined) return;
+    const prev = claudeStatusByPtyId.value[ptyId];
+    if (prev?.state !== "done") return;
+    // done → idle (既読消化) では lastActivityAt 維持
+    claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: prev.lastActivityAt };
   }
 
   /** PTY 終了時のクリーンアップ */
@@ -724,7 +718,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     getClaudeStatusesByDir,
     getPtyIdBySessionId,
     getSessionIdByPtyId,
-    clearDoneStates,
+    clearDoneState,
     cleanupPty,
   };
 }

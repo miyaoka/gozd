@@ -51,7 +51,7 @@ describe("handleHookEvent done", () => {
       pending_work: true,
     });
     const status = claudeStatusByPtyId.value[1];
-    // 状態機械は done を経由する（clearDoneStates で消化可能・固着しない）
+    // 状態機械は done を経由する（clearDoneState で消化可能・固着しない）
     expect(status?.state).toBe("done");
     expect(status?.state === "done" && status.pendingWork).toBe(true);
     // 表示だけ working に倒し、緑バッジを抑止する
@@ -71,20 +71,43 @@ describe("handleHookEvent done", () => {
     expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
   });
 
-  test("pending な done は clearDoneStates で idle に消化できる（固着しない）", () => {
+  test("pending な done は clearDoneState で idle に消化できる（固着しない）", () => {
     const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
     const manager = createClaudeStatusManager({
       claudeStatusByPtyId,
       panes: {
-        getSessionPtyId: () => undefined,
+        getSessionPtyId: (leafId) => (leafId === "leaf-1" ? 1 : undefined),
         iteratePanes: () => [{ leafId: "leaf-1", dir: "/wt", ptyId: 1 }],
       },
       isPtyAlive: () => true,
     });
     manager.handleHookEvent(1, "done", { pending_work: true });
     expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
-    manager.clearDoneStates("/wt");
+    manager.clearDoneState("leaf-1");
     expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
+  });
+});
+
+describe("clearDoneState", () => {
+  test("消化するのは指定した端末の done だけで、同じ dir の他の端末の done は未読のまま残る", () => {
+    const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
+    const ptyIdByLeafId: Record<string, number> = { "leaf-1": 1, "leaf-2": 2 };
+    const manager = createClaudeStatusManager({
+      claudeStatusByPtyId,
+      panes: {
+        getSessionPtyId: (leafId) => ptyIdByLeafId[leafId],
+        iteratePanes: () => [
+          { leafId: "leaf-1", dir: "/wt", ptyId: 1 },
+          { leafId: "leaf-2", dir: "/wt", ptyId: 2 },
+        ],
+      },
+      isPtyAlive: () => true,
+    });
+    manager.handleHookEvent(1, "done", { pending_work: false });
+    manager.handleHookEvent(2, "done", { pending_work: false });
+    manager.clearDoneState("leaf-1");
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
+    expect(claudeStatusByPtyId.value[2]?.state).toBe("done");
   });
 });
 
@@ -214,19 +237,19 @@ describe("teammate 台帳（subagent-start / subagent-stop / teammate-idle）", 
     expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
   });
 
-  test("teammatePending な done は clearDoneStates で idle に消化できる（固着しない）", () => {
+  test("teammatePending な done は clearDoneState で idle に消化できる（固着しない）", () => {
     const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
     const manager = createClaudeStatusManager({
       claudeStatusByPtyId,
       panes: {
-        getSessionPtyId: () => undefined,
+        getSessionPtyId: (leafId) => (leafId === "leaf-1" ? 1 : undefined),
         iteratePanes: () => [{ leafId: "leaf-1", dir: "/wt", ptyId: 1 }],
       },
       isPtyAlive: () => true,
     });
     manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
     manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
-    manager.clearDoneStates("/wt");
+    manager.clearDoneState("leaf-1");
     expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
   });
 

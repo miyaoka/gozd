@@ -745,7 +745,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     getClaudeStatusesByDir: claude.getClaudeStatusesByDir,
     getPtyIdBySessionId: claude.getPtyIdBySessionId,
     getSessionIdByPtyId: claude.getSessionIdByPtyId,
-    clearDoneStates: claude.clearDoneStates,
+    clearDoneState: claude.clearDoneState,
     // pane getter
     getPaneDir,
     getPtyId,

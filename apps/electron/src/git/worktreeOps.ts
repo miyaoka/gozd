@@ -188,8 +188,8 @@ export async function removeWorktree(dir: string, path: string, force: boolean):
 }
 
 /**
- * force は git の `-f -f` に対応させる。`-f` 1 個は未コミット変更だけを無視し、locked worktree は
- * 2 個目で初めて外れる。gozd 外のツール（Claude Code の worktree 隔離 subagent 等）は worktree を
+ * force は git の `-f -f` に対応させる。`-f` 1 個目は clean 判定（submodule を含む）を、2 個目は
+ * lock 判定を外す。gozd 外のツール（Claude Code の worktree 隔離 subagent 等）は worktree を
  * lock して作るため、1 個では force しても消せない worktree が残る。
  */
 async function runWorktreeRemove(dir: string, path: string, force: boolean): Promise<void> {

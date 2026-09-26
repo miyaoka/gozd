@@ -1,6 +1,6 @@
 import { useTimeoutFn } from "@vueuse/core";
 import { ref, watch, type Ref } from "vue";
-import { formatShortAge } from "../../shared/time";
+import { formatShortRelativeAge, type RelativeAgeDisplay } from "../../shared/time";
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -19,7 +19,9 @@ function nextBoundaryDelay(elapsed: number): number {
 }
 
 /**
- * baseTime（最後の活動時刻）からの相対時刻を表示するための composable。
+ * baseTime（最後の活動時刻）からの相対時刻と鮮度色を表示するための composable。
+ * テキストと色の組は `formatShortRelativeAge` が決める。wakeup は表記の変わり目にしか起きないため、
+ * 色帯（relativeAge の `AGE_BANDS`）の境界が表記の変わり目に乗っていることを前提にしている。
  *
  * 1秒間隔の polling はせず、表示が次に変わる境界まで setTimeout で 1 回だけ wakeup する
  * adaptive 方式（github/relative-time-element と同じ）。計算は常に `Date.now() - baseTime`
@@ -30,11 +32,11 @@ function nextBoundaryDelay(elapsed: number): number {
  * - `useTimeoutFn` の cb — 自己反復。`baseTime.value` を読み直して `apply` に渡す
  * - `apply(latest)` — 唯一の更新点。display を書き換え、次の境界で再 schedule
  *
- * baseTime が undefined のあいだは空文字を返し、タイマーは VueUse が scope dispose で
+ * baseTime が undefined のあいだは text を空文字で返し、タイマーは VueUse が scope dispose で
  * 自動 stop する（`tryOnScopeDispose(stop)` が `useTimeoutFn` 内部に含まれている）。
  */
-export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<string> {
-  const display = ref("");
+export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<RelativeAgeDisplay> {
+  const display = ref<RelativeAgeDisplay>({ text: "", color: "" });
   const nextDelay = ref(MINUTE_MS);
 
   const { start, stop } = useTimeoutFn(
@@ -47,12 +49,12 @@ export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<string> 
 
   function apply(latest: number | undefined) {
     if (latest === undefined) {
-      display.value = "";
+      display.value = { text: "", color: "" };
       stop();
       return;
     }
     const now = Date.now();
-    display.value = formatShortAge(latest, now);
+    display.value = formatShortRelativeAge(latest, now);
     nextDelay.value = nextBoundaryDelay(now - latest);
     stop();
     start();

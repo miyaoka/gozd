@@ -341,23 +341,15 @@ export function readClaudeSessionLog(
   return { found: false, entries: [], watchDir: projectsDir };
 }
 
-// --- 削除済み worktree のセッション復活 (revive) ---
+// --- セッションログの末尾読み ---
 //
-// gozd 製 worktree を消すと cwd パスが失われ `claude --resume` の project key 解決が成立
-// しなくなるが、セッションログ (~/.claude/projects/<enc>/<sid>.jsonl) は残る。cwd を worktree
-// として作り直せば resume できるため、その候補一覧を列挙する。
-//
-// 抽出は全行 parse を避け tail (末尾) だけ読む。必要な 3 値はいずれも末尾側に最新値がある:
-// cwd (resume の鍵) は全レコード共通の不変値、branch (リネーム後の最終値) は最後の gitBranch、
-// title は Claude 生成の要約 (`type:"ai-title"` の aiTitle。gozd の terminalTitle と同一物) の最新値。
+// 必要な値はいずれも末尾側に最新値があるため、全行 parse を避け tail (末尾) だけ読む。
 // 1 セッションの jsonl は tool 出力込みで数 MB になりうるため、末尾だけ fd で読む。
 
-/** tail 読みの初期 window (bytes)。cwd / branch / title は通常この範囲に収まる。 */
-const REVIVE_SCAN_CHUNK = 64 * 1024;
-/** window を広げる上限 (bytes)。ここまでで見つからなければ諦める (病的に長い前置きへの上限)。 */
-const REVIVE_SCAN_MAX = 4 * 1024 * 1024;
-/** title の最大長。表示上の切り詰めは renderer が CSS で行うが、ワイヤ肥大を防ぐため主側でも上限を掛ける。 */
-const REVIVE_TITLE_MAX = 200;
+/** tail 読みの初期 window (bytes)。末尾から探す値は通常この範囲に収まる。 */
+const TAIL_SCAN_CHUNK = 64 * 1024;
+/** window を広げる上限 (bytes)。ここまでで見つからなければ諦める (病的に長い記録への上限)。 */
+const TAIL_SCAN_MAX = 4 * 1024 * 1024;
 
 /** file のサイズ (bytes)。stat 失敗は 0。 */
 function fileSize(path: string): number {
@@ -385,6 +377,80 @@ function readByteRange(path: string, start: number, length: number): string {
   });
   return result.ok ? result.value : "";
 }
+
+// --- セッションの最終活動時刻 ---
+
+/** セッションの最終活動時刻 (Unix ミリ秒)。末尾レコードの timestamp (内容由来) を SSOT にする。
+ * ISO が無い / parse 不能な病的ケースだけ mtime にフォールバックする (0 で epoch 表示に落とさない)。 */
+function lastActivityMs(path: string, timestamp: string): number {
+  const tsMs = timestamp !== "" ? Date.parse(timestamp) : Number.NaN;
+  return Number.isNaN(tsMs) ? fileMtimeMs(path) : tsMs;
+}
+
+/** 行群を末尾から逆順に parse し、timestamp を持つ最初の行の値を返す。無ければ空文字。 */
+function findLastTimestamp(lines: string[]): string {
+  for (const line of lines.toReversed()) {
+    if (line.trim() === "") continue;
+    const result = tryCatch(() => JSON.parse(line) as { timestamp?: unknown });
+    if (!result.ok) continue;
+    const ts = result.value.timestamp;
+    if (typeof ts === "string" && ts !== "") return ts;
+  }
+  return "";
+}
+
+/** file 末尾から最後の timestamp だけを読む。見つからなければ window を広げ、上限まで無ければ空文字。 */
+function readLastTimestamp(path: string): string {
+  const size = fileSize(path);
+  for (let window = TAIL_SCAN_CHUNK; ; window *= 4) {
+    const start = Math.max(0, size - window);
+    const rawLines = readByteRange(path, start, size - start).split("\n");
+    // start > 0 のとき先頭は途中からの部分行なので落とす。
+    const timestamp = findLastTimestamp(start > 0 ? rawLines.slice(1) : rawLines);
+    if (timestamp !== "" || start === 0 || window >= TAIL_SCAN_MAX) return timestamp;
+  }
+}
+
+/** sessionId ごとの最終活動時刻 (Unix ミリ秒) を返す。jsonl が見つからない sessionId は
+ * キーを持たない。projectDir ごとに 1 回だけ列挙して未解決の sessionId と突き合わせるため、
+ * コストは projectDir 数と sessionId 数の積にならない。
+ *
+ * `projectsDir` はテスト用の injection 口。production は省略して `~/.claude/projects/` を使う */
+export function readSessionsLastActivity(
+  sessionIds: readonly string[],
+  projectsDir: string = defaultProjectsDir(),
+): Record<string, number> {
+  const pending = new Set(sessionIds.filter(isSafeSessionId));
+  const found: Record<string, number> = {};
+  if (pending.size === 0 || !isDirectory(projectsDir)) return found;
+  for (const name of listDir(projectsDir)) {
+    const projectDir = join(projectsDir, name);
+    if (!isDirectory(projectDir)) continue;
+    for (const fileName of listDir(projectDir)) {
+      if (!fileName.endsWith(".jsonl")) continue;
+      const sessionId = basename(fileName, ".jsonl");
+      if (!pending.has(sessionId)) continue;
+      const path = join(projectDir, fileName);
+      found[sessionId] = lastActivityMs(path, readLastTimestamp(path));
+      pending.delete(sessionId);
+    }
+    if (pending.size === 0) break;
+  }
+  return found;
+}
+
+// --- 削除済み worktree のセッション復活 (revive) ---
+//
+// gozd 製 worktree を消すと cwd パスが失われ `claude --resume` の project key 解決が成立
+// しなくなるが、セッションログ (~/.claude/projects/<enc>/<sid>.jsonl) は残る。cwd を worktree
+// として作り直せば resume できるため、その候補一覧を列挙する。
+//
+// 必要な 3 値はいずれも末尾側に最新値がある: cwd (resume の鍵) は全レコード共通の不変値、
+// branch (リネーム後の最終値) は最後の gitBranch、title は Claude 生成の要約
+// (`type:"ai-title"` の aiTitle。gozd の terminalTitle と同一物) の最新値。
+
+/** title の最大長。表示上の切り詰めは renderer が CSS で行うが、ワイヤ肥大を防ぐため主側でも上限を掛ける。 */
+const REVIVE_TITLE_MAX = 200;
 
 interface SessionMeta {
   cwd: string;
@@ -437,7 +503,7 @@ function extractMeta(lines: string[]): SessionMeta {
  * (title / timestamp は best-effort)。全値とも末尾側に最新値があるため tail 読みで足りる。 */
 function readSessionMeta(path: string): SessionMeta {
   const size = fileSize(path);
-  let window = REVIVE_SCAN_CHUNK;
+  let window = TAIL_SCAN_CHUNK;
   while (true) {
     const start = Math.max(0, size - window);
     const text = readByteRange(path, start, size - start);
@@ -445,7 +511,7 @@ function readSessionMeta(path: string): SessionMeta {
     // start > 0 のとき先頭は途中からの部分行なので落とす。
     const lines = start > 0 ? rawLines.slice(1) : rawLines;
     const meta = extractMeta(lines);
-    if ((meta.cwd !== "" && meta.branch !== "") || start === 0 || window >= REVIVE_SCAN_MAX) {
+    if ((meta.cwd !== "" && meta.branch !== "") || start === 0 || window >= TAIL_SCAN_MAX) {
       return meta;
     }
     window *= 4;
@@ -508,16 +574,13 @@ export async function listReviveSessions(
       // 非 0 バイトでも自セッションの cwd を読めない破損 jsonl は blank 行になるため出さない
       // (正常な Claude jsonl は全レコードに cwd が載るため、cwd 空 = 実体無し)。
       if (meta.cwd === "") continue;
-      // 最終アクティビティは末尾レコードの timestamp (内容由来) を SSOT にする。ISO が無い /
-      // parse 不能な病的ケースだけ mtime にフォールバックする (0 で epoch 表示に落とさない)。
-      const tsMs = meta.timestamp !== "" ? Date.parse(meta.timestamp) : Number.NaN;
       sessions.push({
         sessionId,
         cwd,
         worktreeDir,
         branch: meta.branch,
         title: meta.title,
-        lastActivity: Number.isNaN(tsMs) ? fileMtimeMs(path) : tsMs,
+        lastActivity: lastActivityMs(path, meta.timestamp),
         sizeBytes,
       });
     }

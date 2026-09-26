@@ -21,7 +21,13 @@
  * `nowSec` は既定で現在時刻。帯の境界をテストで踏めるよう注入でき、テキストと色が同じ
  * 時計から導かれることを保証する（片方だけ現在時刻を読むと境界上でずれる）。
  */
-import { DAY_SEC, formatCompactDate, formatRelativeTime, WEEK_SEC } from "./relativeTime";
+import {
+  DAY_SEC,
+  formatCompactDate,
+  formatRelativeTime,
+  formatShortAge,
+  WEEK_SEC,
+} from "./relativeTime";
 
 const FOUR_WEEKS_SEC = 4 * WEEK_SEC;
 
@@ -67,6 +73,18 @@ export function formatRelativeAge(
     text:
       ageSec >= FOUR_WEEKS_SEC ? formatCompactDate(unixSec) : formatRelativeTime(unixSec, nowSec),
     color: ageColor(unixSec, nowSec),
+  };
+}
+
+/**
+ * 幅の狭い列向けの短縮表記（`formatShortAge`: now / 5m / 3h / 2d）と鮮度色の組。
+ * 表記は常に相対で、絶対日付へは切り替えない。色は `formatRelativeAge` と同じ `AGE_BANDS`。
+ */
+export function formatShortRelativeAge(fromMs: number, nowMs = Date.now()): RelativeAgeDisplay {
+  if (fromMs <= 0) return { text: "", color: UNKNOWN_COLOR };
+  return {
+    text: formatShortAge(fromMs, nowMs),
+    color: ageColor(Math.floor(fromMs / 1000), Math.floor(nowMs / 1000)),
   };
 }
 

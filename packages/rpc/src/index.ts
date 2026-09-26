@@ -29,6 +29,8 @@ export type {
   WorktreeCacheEntry,
 } from "./appState";
 export type {
+  ClaudeSessionLastActivityRequest,
+  ClaudeSessionLastActivityResponse,
   ClaudeSessionLogRequest,
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,

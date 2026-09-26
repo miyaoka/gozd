@@ -26,18 +26,15 @@ export function validateTasksCreatedAt(tasks: Task[]): void {
 }
 
 /**
- * Task 行の相対時刻基準を決める SSOT。
+ * Task 行の相対時刻基準（最終活動時刻）を決める SSOT。
  * - status があれば `lastActivityAt`
- * - 無ければ `task.createdAt` を ISO8601 としてパース。NaN なら `undefined`
- *
- * `task.createdAt` の妥当性検証は ingress (`validateTasksCreatedAt`) の責務。
- * ここでは NaN を呼び出し側に伝播するだけで、警告は出さない。
+ * - 無ければセッションログの最終活動時刻（`useSessionLastActivityStore`）。
+ *   session 未起動 / ログ未解決なら `undefined`
  */
 export function resolveTaskBaseTime(
   status: ClaudeStatus | undefined,
-  task: Task,
+  sessionLastActivity: number | undefined,
 ): number | undefined {
   if (status !== undefined) return status.lastActivityAt;
-  const created = Date.parse(task.createdAt);
-  return Number.isNaN(created) ? undefined : created;
+  return sessionLastActivity;
 }

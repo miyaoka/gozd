@@ -6,6 +6,8 @@
 // バイナリは `WireBytes`（送出前に `toWireBytes` で専有 buffer 化）で返す。
 
 import type {
+  ClaudeSessionLastActivityRequest,
+  ClaudeSessionLastActivityResponse,
   ClaudeSessionLogRequest,
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,
@@ -164,7 +166,11 @@ import { existsSync } from "node:fs";
 import { isChildWindow } from "./childWindows";
 import { addPreviewRoot, isWithinRoot, releasePreviewRoots } from "./previewProtocol";
 import { isValidPreviewId, pathToPreviewUrl } from "./previewUrl";
-import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
+import {
+  listReviveSessions,
+  readClaudeSessionLog,
+  readSessionsLastActivity,
+} from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import {
   existsAbsolute,
@@ -1154,6 +1160,13 @@ function handleClaudeSessionReadLog(body: unknown): unknown {
   } satisfies ClaudeSessionLogResponse;
 }
 
+function handleClaudeSessionLastActivity(body: unknown): unknown {
+  const req = body as ClaudeSessionLastActivityRequest;
+  return {
+    lastActivityBySessionId: readSessionsLastActivity(req.sessionIds),
+  } satisfies ClaudeSessionLastActivityResponse;
+}
+
 async function handleReviveSessionList(body: unknown): Promise<unknown> {
   const req = body as ReviveSessionListRequest;
   return { sessions: await listReviveSessions(req.dir) } satisfies ReviveSessionListResponse;
@@ -1318,6 +1331,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/window/setTitleContext", handleWindowSetTitleContext],
   ["/claudeSession/removeByPty", handleClaudeSessionRemoveByPty],
   ["/claudeSession/readLog", handleClaudeSessionReadLog],
+  ["/claudeSession/lastActivity", handleClaudeSessionLastActivity],
   ["/claudeSession/reviveList", handleReviveSessionList],
   ["/claudeSession/revive", handleReviveSession],
   ["/clipboard/copyFiles", handleClipboardCopyFiles],

@@ -17,7 +17,7 @@ export interface DashboardRow {
   owner: string | undefined;
   branch: string;
   title: string;
-  /** 並び順と相対時刻の基準 (最終活動 or createdAt)。ms epoch */
+  /** 並び順と相対時刻の基準 (最終活動)。session 未起動 / ログ未解決は undefined。ms epoch */
   baseTime: number | undefined;
 }
 
@@ -37,6 +37,7 @@ export function collectDashboardRows(
   poolDirs: readonly string[],
   repos: Readonly<Record<string, RepoState>>,
   statusOf: (sessionId: string) => ClaudeStatus | undefined,
+  sessionLastActivityOf: (sessionId: string) => number | undefined,
 ): DashboardRow[] {
   const rows: DashboardRow[] = [];
   for (const rootDir of poolDirs) {
@@ -56,12 +57,12 @@ export function collectDashboardRows(
           owner: repo.githubIdentity?.owner,
           branch: branchLabel(worktree.branch),
           title: taskDisplayTitle(task),
-          baseTime: resolveTaskBaseTime(status, task),
+          baseTime: resolveTaskBaseTime(status, sessionLastActivityOf(task.sessionId)),
         });
       }
     }
   }
-  // baseTime 不明 (createdAt 破損) は 0 扱いで末尾に沈める
+  // baseTime 不明 (session 未起動 / ログ未解決) は 0 扱いで末尾に沈める
   rows.sort((a, b) => (b.baseTime ?? 0) - (a.baseTime ?? 0));
   return rows;
 }

@@ -200,8 +200,16 @@ export function loadAppStateFrom(path: string): AppState {
   return empty;
 }
 
+/**
+ * このインスタンスの renderer が最後に読んだ / 保存した AppState。`app-state.json` は channel を
+ * またいで共有され、別インスタンスが後から書き換えうるため、このインスタンスの状態を問われたとき
+ * （窓口の repo 一覧）はファイルではなくこちらを見る
+ */
+let latestAppState: AppState | undefined;
+
 export function loadAppState(): AppState {
-  return loadAppStateFrom(appStatePath);
+  latestAppState = loadAppStateFrom(appStatePath);
+  return latestAppState;
 }
 
 /** テスト注入用に path を取る変種 */
@@ -223,4 +231,10 @@ function saveAppStateTo(path: string, state: AppState): void {
 
 export function saveAppState(state: AppState): void {
   saveAppStateTo(appStatePath, state);
+  latestAppState = state;
+}
+
+/** このインスタンスの AppState。renderer がまだ読んでいなければ、これから読む内容（ファイル） */
+export function currentAppState(): AppState {
+  return latestAppState ?? loadAppState();
 }

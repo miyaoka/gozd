@@ -23,7 +23,9 @@ import {
   conciergeDir,
   listRegisteredRepos,
   listRegisteredSessions,
+  openDirsOf,
   removeWorktreeForConcierge,
+  resolveSessionOpenDir,
 } from "./concierge";
 import { resolveAndCreateWorktree, toWorktreeEntry } from "./git/worktreeCreate";
 import { buildGozdOpenPayload } from "./openTarget";
@@ -37,7 +39,7 @@ import {
   worktreePathFor,
 } from "./ptySessions";
 import type { PushFn } from "./rpcDispatcher";
-import { loadAppState } from "./stores";
+import { currentAppState } from "./stores";
 
 /** session-start / session-end hook を PTY ⇔ session の紐付けに反映する */
 function applyClaudeSessionHook(hook: HookMessage, worktreePath: string): void {
@@ -154,19 +156,20 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
 
 /** `gozd repo list`。gozd に登録された repo と worktree を返す */
 async function handleRepoList(): Promise<string> {
-  const repos = await listRegisteredRepos(loadAppState().sidebarRepos);
-  return reply({ ok: true, dir: "", error: "", repos });
+  const { repos, failures } = await listRegisteredRepos(currentAppState().sidebarRepos);
+  return reply({ ok: true, dir: "", error: "", repos, failures });
 }
 
 /** `gozd session list`。登録済みの全 repo のセッションを、gozd の端末で動いているかの印付きで返す */
 async function handleSessionList(): Promise<string> {
-  const rootDirs = loadAppState().sidebarRepos.map((repo) => repo.rootDir);
+  const rootDirs = currentAppState().sidebarRepos.map((repo) => repo.rootDir);
   const live = new Set(liveSessions().map((s) => s.sessionId));
-  const sessions = await listRegisteredSessions(rootDirs, live);
-  return reply({ ok: true, dir: "", error: "", sessions });
+  const { sessions, failures } = await listRegisteredSessions(rootDirs, live);
+  return reply({ ok: true, dir: "", error: "", sessions, failures });
 }
 
-/** `gozd session open`。セッションの作業ディレクトリを引いて renderer に開かせる。
+/** `gozd session open`。開く dir を決めて renderer に開かせる。gozd で開いていない dir の
+ * セッションは renderer が開けないため、指示を出さずに失敗を返す。
  * 応答は「開く指示を出せたか」だけを表し、画面に出たことは含まない */
 async function handleSessionOpen(msg: SessionOpenMessage, push: PushFn): Promise<string> {
   if (msg.sessionId === "") return failure("sessionOpen: sessionId is required");
@@ -177,9 +180,19 @@ async function handleSessionOpen(msg: SessionOpenMessage, push: PushFn): Promise
     );
     return failure(String(cwd.error));
   }
-  if (cwd.value === undefined) return failure(`session not found: ${msg.sessionId}`);
-  push("sessionOpen", { sessionId: msg.sessionId, dir: cwd.value });
-  return reply({ ok: true, dir: cwd.value, error: "" });
+  const { repos } = await listRegisteredRepos(currentAppState().sidebarRepos);
+  const dir = tryCatch(() =>
+    resolveSessionOpenDir(msg.sessionId, {
+      liveSessions: liveSessions(),
+      cwd: cwd.value,
+      openDirs: openDirsOf(repos, conciergeDir()),
+    }),
+  );
+  if (!dir.ok) {
+    return failure(dir.error instanceof Error ? dir.error.message : String(dir.error));
+  }
+  push("sessionOpen", { sessionId: msg.sessionId, dir: dir.value });
+  return reply({ ok: true, dir: dir.value, error: "" });
 }
 
 /** `gozd worktree remove`。削除の条件は `removeWorktreeForConcierge` が強制する。

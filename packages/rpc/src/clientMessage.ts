@@ -13,6 +13,9 @@
 // `ClientReply` の JSON 1 行を返してから接続を閉じる。実行者（エージェント）が結果を
 // 知らずに次の指示へ進めないため、操作と問い合わせの種別は双方向にする。
 
+import type { ClaudeSessionSummary } from "./claudeSession";
+import type { WorktreeEntry } from "./common";
+
 export interface ClientMessage {
   hook?: HookMessage;
   open?: OpenMessage;
@@ -122,25 +125,23 @@ export interface CliRepo {
   worktrees: CliWorktree[];
 }
 
-export interface CliWorktree {
-  path: string;
-  /** detached HEAD は空文字 */
-  branch: string;
-  isMain: boolean;
-}
+/** branch は detached HEAD のとき空文字 */
+export type CliWorktree = Pick<WorktreeEntry, "path" | "branch" | "isMain">;
 
 /** `gozd session list` が返す 1 セッション。 */
-export interface CliSession {
-  sessionId: string;
-  /** セッションを起動した作業ディレクトリ */
-  cwd: string;
+export type CliSession = Omit<ClaudeSessionSummary, "lastModified"> & {
   /** 所属する repo の rootDir */
   rootDir: string;
-  title: string;
   /** セッションログの最終更新時刻 (ISO 8601) */
   lastModified: string;
   /** gozd の端末で動いているか */
   live: boolean;
+};
+
+/** 一覧を作るときに読めなかった repo。一覧全体は失わせず、欠けたことを伝える */
+export interface CliFailure {
+  rootDir: string;
+  error: string;
 }
 
 /** 応答を返す種別の ClientMessage に対して、socket が閉じる前に 1 行だけ返すメッセージ。 */
@@ -154,6 +155,8 @@ export interface ClientReply {
   repos?: CliRepo[];
   /** sessionList が ok のときだけ持つ */
   sessions?: CliSession[];
+  /** repoList / sessionList が ok のときだけ持つ。読めなかった repo */
+  failures?: CliFailure[];
 }
 
 /** hook push payload。socket で受けた `HookMessage` から送信経路情報 (`source`) を

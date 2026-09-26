@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { liveSessions, registerSpawn } from "./ptySessions";
 import { createSocketMessageHandler } from "./socketMessages";
 
 describe("socketMessages", () => {
@@ -148,7 +149,7 @@ describe("socketMessages", () => {
     expect(pushed.map((p) => p.event)).toEqual(["running"]);
   });
 
-  test("窓口以外の端末からの worktreeRemove は理由付きの失敗を応答し、push しない", async () => {
+  test("未登録の端末からの worktreeRemove は理由付きの失敗を応答し、push しない", async () => {
     const pushed: string[] = [];
     const handle = createSocketMessageHandler((type) => pushed.push(type));
     const line = await handle(
@@ -172,5 +173,28 @@ describe("socketMessages", () => {
       error: "sessionOpen: sessionId is required",
     });
     expect(pushed).toEqual([]);
+  });
+
+  test("窓口以外で開いた端末からの worktreeRemove は拒否する", async () => {
+    const ptyId = 910001;
+    registerSpawn(ptyId, "/some/other/worktree");
+    const handle = createSocketMessageHandler(() => {});
+    const line = await handle(
+      JSON.stringify({ worktreeRemove: { path: "/nonexistent/wt", ptyId } }),
+    );
+    expect(JSON.parse(line ?? "").error).toBe(
+      "worktree remove is accepted only from the concierge terminal",
+    );
+  });
+
+  test("session-start で端末とセッションが紐付き、session-end で外れる（session list の live の元）", async () => {
+    const ptyId = 910002;
+    const sessionId = "00000000-0000-0000-0000-000000910002";
+    registerSpawn(ptyId, "/repo/wt");
+    const handle = createSocketMessageHandler(() => {});
+    await handle(JSON.stringify({ hook: { event: "session-start", ptyId, sessionId } }));
+    expect(liveSessions()).toContainEqual({ sessionId, worktreePath: "/repo/wt" });
+    await handle(JSON.stringify({ hook: { event: "session-end", ptyId, sessionId } }));
+    expect(liveSessions().some((s) => s.sessionId === sessionId)).toBe(false);
   });
 });

@@ -47,6 +47,7 @@ export type { ClipboardCopyFilesRequest, ClipboardCopyFilesResponse } from "./cl
 export type {
   ClientMessage,
   ClientReply,
+  CliFailure,
   CliRepo,
   CliSession,
   CliWorktree,

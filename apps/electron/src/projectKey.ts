@@ -41,9 +41,14 @@ export async function resolveProjectKey(dir: string): Promise<string> {
   return computeProjectKey(await resolveMainRepoRoot(dir));
 }
 
+/** gozd が中身を管理するデータの root。worktree の配置と窓口のディレクトリがこの下に並ぶ */
+export function gozdDataRoot(): string {
+  return join(homedir(), ".local", "share", "gozd");
+}
+
 /** gozd の worktree 配置 root（projectKey 抜き）。`<root>/<projectKey>/<leaf>` が各 worktree のパス。
  * worktreeOps（worktree の作成先）と claudeSessionLog（revive の cwd prefix 判定）が同一 base を
  * 指すことに revive の「cwd 1 バイト一致」が依存するため、literal を 2 箇所に散らさず SSOT を置く。 */
 export function gozdWorktreesRoot(): string {
-  return join(homedir(), ".local", "share", "gozd", "worktrees");
+  return join(gozdDataRoot(), "worktrees");
 }

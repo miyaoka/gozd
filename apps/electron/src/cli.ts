@@ -16,8 +16,9 @@
 //   gozd-cli session open <id>     … セッションを開く（画面をそのセッションへ切り替える）
 //   gozd-cli --help                … usage
 //
-// open / hook は Swift 版と同一契約。worktree は TS 版で足したもので、旧版の CLI は
-// 先頭引数 `worktree` を open のパスとみなす（未知の先頭引数 = パス扱いのため）。
+// open / hook は Swift 版と同一契約。worktree / repo / session は TS 版で足したサブコマンドで、
+// この名前のディレクトリを開くには `gozd ./repo` のようにパスとして渡す。旧版の CLI はこれらの
+// 先頭引数を open のパスとみなす（未知の先頭引数 = パス扱いのため）。
 
 import type { ClientMessage, ClientReply } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
@@ -43,8 +44,10 @@ Usage:
   gozd worktree remove <path>
                         Remove a worktree (concierge terminal only)
   gozd repo list        Print the repositories registered in gozd as JSON
+                        ({ repos, failures }; failures = unreadable repos)
   gozd session list     Print the Claude sessions of all registered
                         repositories as JSON, newest first
+                        ({ sessions, failures })
   gozd session open <id>
                         Open a Claude session in gozd (switches the view)
   gozd hook <event>     Send a Claude Code hook event (reads JSON from stdin)
@@ -52,7 +55,8 @@ Usage:
 
 Environment:
   GOZD_SOCKET_PATH  Override Unix socket path (default: $TMPDIR/gozd-{channel}.sock)
-  GOZD_PTY_ID       Used by \`hook\` to attribute the event to a PTY
+  GOZD_PTY_ID       Used by \`hook\` and \`worktree remove\` to identify the
+                    terminal the request comes from
   GOZD_COLD_START   If set, \`open\` writes a launch request file instead of socket send
 `;
 
@@ -96,11 +100,12 @@ const WORKTREE_USAGE = `gozd worktree - manage gozd worktrees
 Usage:
   gozd worktree new [options]   Create a worktree, then start claude in it
   gozd worktree remove <path>   Remove a worktree. Accepted only from the
-                                concierge terminal. Refuses worktrees with
-                                modified or untracked files, a running Claude
-                                session, or the main worktree
+                                concierge terminal. Refuses the main worktree
+                                and worktrees with modified or untracked
+                                files, submodules, a lock, a detached HEAD,
+                                or a running Claude session
 
-Options:
+Options for \`new\`:
   --prompt-stdin     Read the prompt from stdin (use a heredoc for long prompts)
   --prompt <text>    Prompt passed to claude on launch (runs immediately)
   --dir <path>       Repository to create the worktree in (default: cwd)
@@ -210,7 +215,16 @@ async function repoCommand(argv: string[]): Promise<void> {
     process.exit(1);
   }
   const replied = await requestOrExit("gozd repo list", { repoList: {} });
-  process.stdout.write(`${JSON.stringify(replied.repos ?? [], null, 2)}\n`);
+  const { repos, failures } = replied;
+  if (repos === undefined || failures === undefined) exitWithMalformedReply("gozd repo list");
+  process.stdout.write(`${JSON.stringify({ repos, failures }, null, 2)}\n`);
+}
+
+/** 成功の応答に必要なフィールドが欠けているのは gozd との契約違反。空の一覧に読み替えず、
+ * 失敗として終える（読み替えると「0 件」と区別できない） */
+function exitWithMalformedReply(label: string): never {
+  process.stderr.write(`${label}: gozd replied without the expected fields\n`);
+  process.exit(1);
 }
 
 /** `gozd session list` / `gozd session open <id>` */
@@ -218,7 +232,11 @@ async function sessionCommand(argv: string[]): Promise<void> {
   const [sub, ...rest] = argv;
   if (sub === "list" && rest.length === 0) {
     const replied = await requestOrExit("gozd session list", { sessionList: {} });
-    process.stdout.write(`${JSON.stringify(replied.sessions ?? [], null, 2)}\n`);
+    const { sessions, failures } = replied;
+    if (sessions === undefined || failures === undefined) {
+      exitWithMalformedReply("gozd session list");
+    }
+    process.stdout.write(`${JSON.stringify({ sessions, failures }, null, 2)}\n`);
     return;
   }
   if (sub === "open" && rest.length === 1 && rest[0] !== undefined) {

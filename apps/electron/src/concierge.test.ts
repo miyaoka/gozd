@@ -3,13 +3,15 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { tryCatch } from "@gozd/shared";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type ConciergeRemoveGuards,
   listRegisteredRepos,
+  openDirsOf,
   removeWorktreeForConcierge,
+  resolveSessionOpenDir,
 } from "./concierge";
 import { runFixtureGit } from "./testGitFixture";
 
@@ -103,6 +105,14 @@ describe("removeWorktreeForConcierge", () => {
     expect(existsSync(join(repo, "a.txt"))).toBe(true);
   });
 
+  test("detached HEAD の worktree は拒否し、残る", async () => {
+    const { wt, concierge } = makeFixture();
+    runFixtureGit(["checkout", "--detach"], wt);
+    const error = await rejection(removeWorktreeForConcierge(wt, guards(concierge)));
+    expect(error.message).toContain("detached HEAD");
+    expect(existsSync(wt)).toBe(true);
+  });
+
   test("worktree でないパスは拒否し、実体に触れない", async () => {
     const { repo, concierge } = makeFixture();
     const sub = join(repo, "sub");
@@ -116,33 +126,81 @@ describe("removeWorktreeForConcierge", () => {
 describe("listRegisteredRepos", () => {
   test("git repo は worktree 付きで、非 git project は worktree 無しで返す", async () => {
     const { repo, wt, other } = makeFixture();
-    const repos = await listRegisteredRepos([
+    const { repos, failures } = await listRegisteredRepos([
       { rootDir: repo, repoName: "repo", isGitRepo: true, collapsed: false, worktrees: [] },
       { rootDir: other, repoName: "other", isGitRepo: false, collapsed: false, worktrees: [] },
     ]);
+    expect(failures).toEqual([]);
     expect(repos.map((r) => r.name)).toEqual(["repo", "other"]);
     const [gitRepo, plain] = repos;
     expect(gitRepo?.worktrees.map((w) => ({ branch: w.branch, isMain: w.isMain }))).toEqual([
       { branch: "main", isMain: true },
       { branch: "feature", isMain: false },
     ]);
-    expect(gitRepo?.worktrees[1]?.path.endsWith("/wt")).toBe(true);
-    expect(wt.endsWith("/wt")).toBe(true);
+    // tmpdir は /var → /private/var のシンボリックリンク越しなので実体で比べる
+    expect(realpathSync(gitRepo?.worktrees[1]?.path ?? "")).toBe(realpathSync(wt));
     expect(plain?.worktrees).toEqual([]);
   });
 
-  test("ディスクから消えた repo は一覧から外す", async () => {
+  test("ディスクから消えた repo は一覧から外し、failures に載せる", async () => {
     const { repo } = makeFixture();
-    const repos = await listRegisteredRepos([
-      {
-        rootDir: join(repo, "gone"),
-        repoName: "gone",
-        isGitRepo: true,
-        collapsed: false,
-        worktrees: [],
-      },
+    const gone = join(repo, "gone");
+    const { repos, failures } = await listRegisteredRepos([
+      { rootDir: gone, repoName: "gone", isGitRepo: true, collapsed: false, worktrees: [] },
       { rootDir: repo, repoName: "repo", isGitRepo: true, collapsed: false, worktrees: [] },
     ]);
     expect(repos.map((r) => r.name)).toEqual(["repo"]);
+    expect(failures.map((f) => f.rootDir)).toEqual([gone]);
+  });
+});
+
+describe("resolveSessionOpenDir", () => {
+  const openDirs = new Set(["/repo", "/repo/wt"]);
+
+  test("端末が開いているセッションは、その端末の dir で開く", () => {
+    const dir = resolveSessionOpenDir("s1", {
+      liveSessions: [{ sessionId: "s1", worktreePath: "/repo/wt" }],
+      cwd: "/repo/wt/sub",
+      openDirs,
+    });
+    expect(dir).toBe("/repo/wt");
+  });
+
+  test("端末の開いていないセッションは作業ディレクトリで開く", () => {
+    const dir = resolveSessionOpenDir("s1", { liveSessions: [], cwd: "/repo/wt", openDirs });
+    expect(dir).toBe("/repo/wt");
+  });
+
+  test("gozd で開いていない dir のセッションは開けない", () => {
+    expect(() =>
+      resolveSessionOpenDir("s1", { liveSessions: [], cwd: "/elsewhere", openDirs }),
+    ).toThrow("not open in gozd");
+  });
+
+  test("見つからないセッションは開けない", () => {
+    expect(() =>
+      resolveSessionOpenDir("s1", { liveSessions: [], cwd: undefined, openDirs }),
+    ).toThrow("session not found");
+  });
+});
+
+describe("openDirsOf", () => {
+  test("git repo は worktree、非 git project は root、それに窓口を含む", () => {
+    const dirs = openDirsOf(
+      [
+        {
+          rootDir: "/repo",
+          name: "repo",
+          isGitRepo: true,
+          worktrees: [
+            { path: "/repo", branch: "main", isMain: true },
+            { path: "/repo/wt", branch: "feature", isMain: false },
+          ],
+        },
+        { rootDir: "/note", name: "note", isGitRepo: false, worktrees: [] },
+      ],
+      "/concierge",
+    );
+    expect([...dirs].toSorted()).toEqual(["/concierge", "/note", "/repo", "/repo/wt"]);
   });
 });

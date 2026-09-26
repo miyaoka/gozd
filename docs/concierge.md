@@ -39,7 +39,7 @@ Claude であり、操作の対象も同じマシン上の gozd に限られる�
 
 - 変更中のファイルがある（untracked を含む）。submodule を含む
 - 稼働中のセッションがある。gozd の端末で Claude が紐付いているもの
-- detached HEAD である。そこにしか無いコミットを指しうり、worktree を消すと到達不能になる
+- detached HEAD である。そこにしか無いコミットを指すことがあり、worktree を消すと到達不能になる
 - lock されている
 - repo に登録された worktree でない。main worktree を含む
 - 要求元が窓口の端末でない。要求元は、要求を出した端末を開いたディレクトリで判定する

@@ -123,15 +123,16 @@ export interface SessionOpenSources {
  * 端末が開いているセッションは、その端末の dir で開く（サイドバーのクリックと同じ）。
  * 端末の開いていないセッションは作業ディレクトリで再開する。どちらも gozd で開いている dir で
  * なければ renderer が開けないため、指示を出さずに失敗を返す。
+ * 返すのは一致した openDirs の要素そのもの。renderer はパスを文字列で照合するため、
+ * シンボリックリンク越しに同じ実体を指す別表記を渡さない。
  */
 export function resolveSessionOpenDir(sessionId: string, sources: SessionOpenSources): string {
   const live = sources.liveSessions.find((s) => s.sessionId === sessionId && s.worktreePath !== "");
   const dir = live?.worktreePath ?? sources.cwd;
   if (dir === undefined) throw new Error(`session not found: ${sessionId}`);
-  if (![...sources.openDirs].some((open) => samePath(open, dir))) {
-    throw new Error(`'${dir}' is not open in gozd`);
-  }
-  return dir;
+  const open = [...sources.openDirs].find((candidate) => samePath(candidate, dir));
+  if (open === undefined) throw new Error(`'${dir}' is not open in gozd`);
+  return open;
 }
 
 /** 窓口からの worktree 削除で守る条件 */
@@ -152,7 +153,7 @@ export interface ConciergeRemoveGuards {
  * - repo に登録された、main でない worktree であること。`removeWorktree` は git に判定させる
  *   前に実体を退避するため、worktree でないパスを渡さない
  * - ブランチを checkout していること。worktree を消してもブランチは残るが、detached HEAD の
- *   worktree はそこにしか無いコミットを指しうり、消すと到達不能になる
+ *   worktree はそこにしか無いコミットを指すことがあり、消すと到達不能になる
  * - 稼働中のセッションが無いこと（gozd の端末で Claude が紐付いている）
  * - 変更中のファイル（untracked を含む）と submodule が無く、lock されていないこと。強制しない
  *   削除として `removeWorktree`（git）が判定する

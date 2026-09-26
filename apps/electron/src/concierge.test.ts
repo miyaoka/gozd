@@ -3,7 +3,15 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { tryCatch } from "@gozd/shared";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -22,7 +30,13 @@ afterEach(() => {
 });
 
 /** 初期 commit 1 個の repo と、そこから生やした worktree 1 個。窓口のディレクトリも並べて作る */
-function makeFixture(): { repo: string; wt: string; concierge: string; other: string } {
+function makeFixture(): {
+  root: string;
+  repo: string;
+  wt: string;
+  concierge: string;
+  other: string;
+} {
   const root = mkdtempSync(join(tmpdir(), "gozd-concierge-"));
   tempDirs.push(root);
   const repo = join(root, "repo");
@@ -39,7 +53,7 @@ function makeFixture(): { repo: string; wt: string; concierge: string; other: st
   mkdirSync(concierge);
   const other = join(root, "other");
   mkdirSync(other);
-  return { repo, wt, concierge, other };
+  return { root, repo, wt, concierge, other };
 }
 
 function guards(concierge: string, overrides: Partial<ConciergeRemoveGuards> = {}) {
@@ -169,6 +183,18 @@ describe("resolveSessionOpenDir", () => {
   test("端末の開いていないセッションは作業ディレクトリで開く", () => {
     const dir = resolveSessionOpenDir("s1", { liveSessions: [], cwd: "/repo/wt", openDirs });
     expect(dir).toBe("/repo/wt");
+  });
+
+  test("シンボリックリンク越しの作業ディレクトリは、gozd が持つ表記で返す", () => {
+    const { wt, root } = makeFixture();
+    const link = join(root, "link");
+    symlinkSync(wt, link);
+    const dir = resolveSessionOpenDir("s1", {
+      liveSessions: [],
+      cwd: link,
+      openDirs: new Set([wt]),
+    });
+    expect(dir).toBe(wt);
   });
 
   test("gozd で開いていない dir のセッションは開けない", () => {

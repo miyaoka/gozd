@@ -201,7 +201,7 @@ export function loadAppStateFrom(path: string): AppState {
 }
 
 /**
- * このインスタンスの renderer が最後に読んだ / 保存した AppState。`app-state.json` は channel を
+ * このインスタンスが最後に読んだ、または renderer が最後に保存した AppState。`app-state.json` は channel を
  * またいで共有され、別インスタンスが後から書き換えうるため、このインスタンスの状態を問われたとき
  * （窓口の repo 一覧）はファイルではなくこちらを見る
  */

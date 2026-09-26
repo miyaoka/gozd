@@ -91,6 +91,10 @@ describe("formatShortRelativeAge", () => {
     expect(short(5 * HOUR).text).toBe("5h");
   });
 
+  test("日付が分からない項目は formatRelativeAge と同じくテキストを出さない", () => {
+    expect(formatShortRelativeAge(0, NOW * 1000)).toEqual(formatRelativeAge(0, NOW));
+  });
+
   test("4 週を超えても絶対日付に切り替えず日数で出す", () => {
     expect(short(40 * DAY).text).toBe("40d");
   });

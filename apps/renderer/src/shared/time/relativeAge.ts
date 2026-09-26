@@ -81,6 +81,7 @@ export function formatRelativeAge(
  * 表記は常に相対で、絶対日付へは切り替えない。色は `formatRelativeAge` と同じ `AGE_BANDS`。
  */
 export function formatShortRelativeAge(fromMs: number, nowMs = Date.now()): RelativeAgeDisplay {
+  if (fromMs <= 0) return { text: "", color: UNKNOWN_COLOR };
   return {
     text: formatShortAge(fromMs, nowMs),
     color: ageColor(Math.floor(fromMs / 1000), Math.floor(nowMs / 1000)),

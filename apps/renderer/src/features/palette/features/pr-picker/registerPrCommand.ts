@@ -18,7 +18,7 @@ import {
   useWorktreeStore,
 } from "../../../worktree";
 import type { ListPickerPage } from "../../createListPicker";
-import { inFlightKey, useInFlightGhRefs } from "../../inFlightItems";
+import { inFlightKey, useInFlightItems } from "../../inFlightItems";
 import { usePrPicker } from "./usePrPicker";
 import type { PrPickerItem } from "./usePrPicker";
 import { fetchViewer } from "./useViewer";
@@ -29,7 +29,7 @@ export function registerPrCommand(): () => void {
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const repoStore = useRepoStore();
-  const inFlightGhRefs = useInFlightGhRefs();
+  const inFlightItems = useInFlightItems();
 
   const dispose = registry.register("workspace.openPr", {
     label: "Workspace: New Worktree from Pull Request",
@@ -101,19 +101,19 @@ export function registerPrCommand(): () => void {
         // を degraded mode (filter 非表示) にする。表示ロジックは PrPickerDialog 側の
         // `viewer !== ""` 判定で完結する。
         // callback は async で、返す promise が処理完了 (成功 / 失敗を問わず) を表す。
-        // 実行中の排他は dialog ではなくここ (コマンド層) が inFlightGhRefs で持つ。
+        // 実行中の排他は dialog ではなくここ (コマンド層) が inFlightItems で持つ。
         // dialog の状態は close / 開き直しで破棄されるため、通常選択 (close 後の
         // fire-and-forget 実行) 中に picker を開き直して同じ PR を選ぶ経路を dialog 側
         // では塞げない。dialog は同じ集合を参照して選択をブロックするので通常ここには
         // 来ないが、ブロック反映前の競合窓で到達しうるため観察可能化して弾く。
         setResult(gen, items, viewerLogin ?? "", async (item) => {
-          if (inFlightGhRefs.has(item.refKey)) {
+          if (inFlightItems.has(item.refKey)) {
             notify.info(`PR #${item.pr.number} is already being processed`);
             return;
           }
-          inFlightGhRefs.add(item.refKey);
+          inFlightItems.add(item.refKey);
           const accepted = await tryCatch(acceptPr(item));
-          inFlightGhRefs.remove(item.refKey);
+          inFlightItems.remove(item.refKey);
           if (!accepted.ok) {
             // acceptPr は失敗を notify 済みで resolve する契約なので、ここに来るのは
             // 契約違反の throw = 真の未通知失敗。packaged では console が不可視のため、

@@ -11,7 +11,7 @@ import { useRepoStore } from "../../../../shared/repo";
 import { ghErrorMessage } from "../../../github-item";
 import { openCreatedWorktree } from "../../../terminal";
 import { rpcCreateWorktree, useWorktreeStore } from "../../../worktree";
-import { inFlightKey, useInFlightGhRefs } from "../../inFlightItems";
+import { inFlightKey, useInFlightItems } from "../../inFlightItems";
 import { fetchViewer } from "../pr-picker";
 import { rpcGitIssueList } from "./rpc";
 import { useIssuePicker } from "./useIssuePicker";
@@ -23,7 +23,7 @@ export function registerIssueCommand(): () => void {
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const repoStore = useRepoStore();
-  const inFlightGhRefs = useInFlightGhRefs();
+  const inFlightItems = useInFlightItems();
 
   const dispose = registry.register("workspace.openIssue", {
     label: "Workspace: New Worktree from Issue",
@@ -84,15 +84,15 @@ export function registerIssueCommand(): () => void {
         // 通知ごと握りつぶし、操作が無反応で消える)。したがってこの分岐は稀な競合窓の
         // 保険ではなく、実行中の行を選んだときの常用経路であり、消すと連打がそのまま
         // 本数になる。dialog の状態は close / 開き直しで破棄されるため、判定を
-        // inFlightGhRefs (module singleton) に置いて picker セッションを跨がせる。
+        // inFlightItems (module singleton) に置いて picker セッションを跨がせる。
         setResult(gen, items, viewerLogin ?? "", async (item) => {
-          if (inFlightGhRefs.has(item.refKey)) {
+          if (inFlightItems.has(item.refKey)) {
             notify.info(`Issue #${item.issue.number} is already being processed`);
             return;
           }
-          inFlightGhRefs.add(item.refKey);
+          inFlightItems.add(item.refKey);
           const accepted = await tryCatch(acceptIssue(item));
-          inFlightGhRefs.remove(item.refKey);
+          inFlightItems.remove(item.refKey);
           if (!accepted.ok) {
             // acceptIssue は失敗を notify 済みで resolve する契約なので、ここに来るのは
             // 契約違反の throw = 真の未通知失敗。packaged では console が不可視のため、

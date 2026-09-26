@@ -31,6 +31,6 @@ const store = {
   },
 };
 
-export function useInFlightGhRefs() {
+export function useInFlightItems() {
   return store;
 }

@@ -11,7 +11,7 @@ import { createListPicker } from "../../createListPicker";
 /** picker 行 1 件分 */
 export interface IssuePickerItem {
   issue: GitIssue;
-  /** rootDir + issue 番号の排他キー (`inFlightKey`)。用途は inFlightGhRefs.ts の module doc。 */
+  /** rootDir + issue 番号の排他キー (`inFlightKey`)。用途は inFlightItems.ts の module doc。 */
   refKey: string;
 }
 

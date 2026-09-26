@@ -23,7 +23,7 @@ import { useEventListener, useInfiniteScroll } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
 import { fuzzyMatch } from "../../fuzzyMatch";
-import { useInFlightGhRefs } from "../../inFlightItems";
+import { useInFlightItems } from "../../inFlightItems";
 import { useListNavigation } from "../../useListNavigation";
 import { prPickerCountsLabel, prPickerEmptyMessage } from "./prPickerListDisplay";
 import PrPickerRow from "./PrPickerRow.vue";
@@ -54,8 +54,8 @@ const {
 const query = ref("");
 const filterAssignee = ref(false);
 const filterReviewer = ref(false);
-/** accept 実行中キーの共有集合。設計理由と用途は inFlightGhRefs.ts の module doc が SSOT。 */
-const inFlightGhRefs = useInFlightGhRefs();
+/** accept 実行中キーの共有集合。設計理由と用途は inFlightItems.ts の module doc が SSOT。 */
+const inFlightItems = useInFlightItems();
 
 /** 検索対象テキストを生成（title, branch, author を結合） */
 function searchText(pr: GitPullRequest): string {
@@ -216,7 +216,7 @@ function close() {
 function acceptSelected(keepOpen: boolean) {
   const item = filteredPrs.value[selectedIndex.value];
   if (!item) return;
-  if (inFlightGhRefs.has(item.refKey)) return;
+  if (inFlightItems.has(item.refKey)) return;
   if (!keepOpen) {
     close();
   }
@@ -342,7 +342,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             }
           "
         >
-          <PrPickerRow :pr="item.pr" :creating="inFlightGhRefs.has(item.refKey)" />
+          <PrPickerRow :pr="item.pr" :creating="inFlightItems.has(item.refKey)" />
         </div>
         <!--
           一覧の末尾に「この先どうなっているか」を置く。何も無いと、末尾が母集合の終端なのか

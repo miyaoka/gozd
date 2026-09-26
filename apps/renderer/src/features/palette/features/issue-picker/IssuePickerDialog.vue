@@ -24,7 +24,7 @@ import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
 import { fuzzyMatch } from "../../fuzzyMatch";
-import { useInFlightGhRefs } from "../../inFlightItems";
+import { useInFlightItems } from "../../inFlightItems";
 import { useListNavigation } from "../../useListNavigation";
 import IssuePickerRow from "./IssuePickerRow.vue";
 import { useIssuePicker } from "./useIssuePicker";
@@ -40,8 +40,8 @@ const { items: issueItems, viewer, status, showSignal, hideSignal, accept } = us
 
 const query = ref("");
 const filterAssignee = ref(false);
-/** accept 実行中キーの共有集合。設計理由と用途は inFlightGhRefs.ts の module doc が SSOT。 */
-const inFlightGhRefs = useInFlightGhRefs();
+/** accept 実行中キーの共有集合。設計理由と用途は inFlightItems.ts の module doc が SSOT。 */
+const inFlightItems = useInFlightItems();
 
 /** 検索対象テキストを生成（number, title, author を結合） */
 function searchText(issue: GitIssue): string {
@@ -244,7 +244,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             }
           "
         >
-          <IssuePickerRow :issue="item.issue" :creating="inFlightGhRefs.has(item.refKey)" />
+          <IssuePickerRow :issue="item.issue" :creating="inFlightItems.has(item.refKey)" />
         </div>
       </div>
     </div>

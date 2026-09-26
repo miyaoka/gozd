@@ -1,6 +1,6 @@
 import { useTimeoutFn } from "@vueuse/core";
 import { ref, watch, type Ref } from "vue";
-import { formatShortAge } from "../../shared/time";
+import { ageColor, formatShortAge } from "../../shared/time";
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -18,8 +18,15 @@ function nextBoundaryDelay(elapsed: number): number {
   return DAY_MS - (elapsed % DAY_MS);
 }
 
+export interface RelativeTimeDisplay {
+  text: string;
+  color: string;
+}
+
 /**
- * baseTime（最後の活動時刻）からの相対時刻を表示するための composable。
+ * baseTime（最後の活動時刻）からの相対時刻と鮮度色を表示するための composable。
+ * 色はダッシュボード等の一覧と同じ age-* スケール（`ageColor`）で塗る。色帯の境界
+ * （1 日 / 1 週 / 4 週）はいずれも日単位の表示境界と一致するため、同じ wakeup で色も追従する。
  *
  * 1秒間隔の polling はせず、表示が次に変わる境界まで setTimeout で 1 回だけ wakeup する
  * adaptive 方式（github/relative-time-element と同じ）。計算は常に `Date.now() - baseTime`
@@ -30,11 +37,11 @@ function nextBoundaryDelay(elapsed: number): number {
  * - `useTimeoutFn` の cb — 自己反復。`baseTime.value` を読み直して `apply` に渡す
  * - `apply(latest)` — 唯一の更新点。display を書き換え、次の境界で再 schedule
  *
- * baseTime が undefined のあいだは空文字を返し、タイマーは VueUse が scope dispose で
+ * baseTime が undefined のあいだは text を空文字で返し、タイマーは VueUse が scope dispose で
  * 自動 stop する（`tryOnScopeDispose(stop)` が `useTimeoutFn` 内部に含まれている）。
  */
-export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<string> {
-  const display = ref("");
+export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<RelativeTimeDisplay> {
+  const display = ref<RelativeTimeDisplay>({ text: "", color: "" });
   const nextDelay = ref(MINUTE_MS);
 
   const { start, stop } = useTimeoutFn(
@@ -47,12 +54,15 @@ export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<string> 
 
   function apply(latest: number | undefined) {
     if (latest === undefined) {
-      display.value = "";
+      display.value = { text: "", color: "" };
       stop();
       return;
     }
     const now = Date.now();
-    display.value = formatShortAge(latest, now);
+    display.value = {
+      text: formatShortAge(latest, now),
+      color: ageColor(Math.floor(latest / 1000), Math.floor(now / 1000)),
+    };
     nextDelay.value = nextBoundaryDelay(now - latest);
     stop();
     start();

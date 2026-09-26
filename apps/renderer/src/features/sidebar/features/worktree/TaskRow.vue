@@ -43,7 +43,7 @@ task 行の空間記憶が壊れるため、layout に影響しない overlay �
 
 相対時刻は `taskBaseTime.resolveTaskBaseTime` を SSOT として算出する。表示されるのは status 不在の
 inactive state だけなので、セッションログの最終活動時刻が起点になる。session を持たない
-not-started は最終活動が無いため時刻を出さない。
+not-started は最終活動が無いため時刻を出さない。色はダッシュボードと同じ age-* の鮮度スケール。
 </doc>
 
 <script setup lang="ts">
@@ -156,8 +156,8 @@ function onMenuClick(event: MouseEvent) {
           role="img"
           :aria-label="visual.ariaLabel"
         />
-        <span v-else class="text-[10px] text-foreground-muted tabular-nums">{{
-          relativeTime
+        <span v-else class="text-[10px] tabular-nums" :class="relativeTime.color">{{
+          relativeTime.text
         }}</span>
       </span>
       <span class="line-clamp-2 flex-1 text-sm break-all" :title="title">{{ title }}</span>

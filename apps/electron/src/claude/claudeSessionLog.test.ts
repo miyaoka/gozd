@@ -322,7 +322,9 @@ describe("readSessionsLastActivity", () => {
       "enc-a",
       sidA,
       '{"cwd":"/a","gitBranch":"x","timestamp":"2026-01-01T00:00:00.000Z"}\n' +
-        '{"cwd":"/a","gitBranch":"x","timestamp":"2026-01-02T00:00:00.000Z"}\n',
+        '{"cwd":"/a","gitBranch":"x","timestamp":"2026-01-02T00:00:00.000Z"}\n' +
+        // timestamp を持たない末尾レコード (ai-title 等) は飛ばして遡る
+        '{"type":"ai-title","aiTitle":"t"}\n',
     );
     writeJsonl(
       projects,

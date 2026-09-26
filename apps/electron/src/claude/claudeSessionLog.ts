@@ -454,13 +454,38 @@ function readSessionMeta(path: string): SessionMeta {
 
 /** セッションの最終活動時刻 (Unix ミリ秒)。末尾レコードの timestamp (内容由来) を SSOT にする。
  * ISO が無い / parse 不能な病的ケースだけ mtime にフォールバックする (0 で epoch 表示に落とさない)。 */
-function lastActivityMs(path: string, meta: SessionMeta): number {
-  const tsMs = meta.timestamp !== "" ? Date.parse(meta.timestamp) : Number.NaN;
+function lastActivityMs(path: string, timestamp: string): number {
+  const tsMs = timestamp !== "" ? Date.parse(timestamp) : Number.NaN;
   return Number.isNaN(tsMs) ? fileMtimeMs(path) : tsMs;
 }
 
+/** 行群を末尾から逆順に parse し、timestamp を持つ最初の行の値を返す。無ければ空文字。 */
+function findLastTimestamp(lines: string[]): string {
+  for (const line of lines.toReversed()) {
+    if (line.trim() === "") continue;
+    const result = tryCatch(() => JSON.parse(line) as { timestamp?: unknown });
+    if (!result.ok) continue;
+    const ts = result.value.timestamp;
+    if (typeof ts === "string" && ts !== "") return ts;
+  }
+  return "";
+}
+
+/** file 末尾から最後の timestamp だけを読む。見つからなければ window を広げ、上限まで無ければ空文字。 */
+function readLastTimestamp(path: string): string {
+  const size = fileSize(path);
+  for (let window = REVIVE_SCAN_CHUNK; ; window *= 4) {
+    const start = Math.max(0, size - window);
+    const rawLines = readByteRange(path, start, size - start).split("\n");
+    // start > 0 のとき先頭は途中からの部分行なので落とす。
+    const timestamp = findLastTimestamp(start > 0 ? rawLines.slice(1) : rawLines);
+    if (timestamp !== "" || start === 0 || window >= REVIVE_SCAN_MAX) return timestamp;
+  }
+}
+
 /** sessionId ごとの最終活動時刻 (Unix ミリ秒) を返す。jsonl が見つからない sessionId は
- * キーを持たない。projects dir の走査は 1 回で済ませ、全 sessionId をまとめて解決する。
+ * キーを持たない。projectDir ごとに 1 回だけ列挙して未解決の sessionId と突き合わせるため、
+ * コストは projectDir 数と sessionId 数の積にならない。
  *
  * `projectsDir` はテスト用の injection 口。production は省略して `~/.claude/projects/` を使う */
 export function readSessionsLastActivity(
@@ -473,10 +498,12 @@ export function readSessionsLastActivity(
   for (const name of listDir(projectsDir)) {
     const projectDir = join(projectsDir, name);
     if (!isDirectory(projectDir)) continue;
-    for (const sessionId of pending) {
-      const path = join(projectDir, `${sessionId}.jsonl`);
-      if (!existsSync(path)) continue;
-      found[sessionId] = lastActivityMs(path, readSessionMeta(path));
+    for (const fileName of listDir(projectDir)) {
+      if (!fileName.endsWith(".jsonl")) continue;
+      const sessionId = basename(fileName, ".jsonl");
+      if (!pending.has(sessionId)) continue;
+      const path = join(projectDir, fileName);
+      found[sessionId] = lastActivityMs(path, readLastTimestamp(path));
       pending.delete(sessionId);
     }
     if (pending.size === 0) break;
@@ -546,7 +573,7 @@ export async function listReviveSessions(
         worktreeDir,
         branch: meta.branch,
         title: meta.title,
-        lastActivity: lastActivityMs(path, meta),
+        lastActivity: lastActivityMs(path, meta.timestamp),
         sizeBytes,
       });
     }

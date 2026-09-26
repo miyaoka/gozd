@@ -19,8 +19,8 @@ muted 単色の glyph で low attention に落とす。
 import { computed, type FunctionalComponent, type SVGAttributes } from "vue";
 import { formatRelativeAge } from "../../shared/time";
 import { RepoIcon } from "../repo-icon";
-import { CLAUDE_STATE_VISUAL, displayClaudeState } from "../terminal";
 import type { PoolSessionRow } from "../session";
+import { CLAUDE_STATE_VISUAL, displayClaudeState } from "../terminal";
 import IconLucideCircle from "~icons/lucide/circle";
 
 const props = defineProps<{

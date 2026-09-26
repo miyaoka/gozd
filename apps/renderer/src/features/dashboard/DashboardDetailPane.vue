@@ -13,6 +13,7 @@
 <script setup lang="ts">
 import { refDebounced } from "@vueuse/core";
 import { computed } from "vue";
+import type { PoolSessionRow } from "../session";
 import {
   parseSessionLog,
   SessionLogMessageBody,
@@ -21,7 +22,6 @@ import {
   useSessionLogLive,
 } from "../session-log";
 import type { Speech, TranscriptEvent } from "../session-log";
-import type { PoolSessionRow } from "../session";
 
 const props = defineProps<{
   row: PoolSessionRow | undefined;

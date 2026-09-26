@@ -212,8 +212,8 @@ importers:
         specifier: 1.2.3
         version: 1.2.3
       '@miyaoka/eslint-plugin-barrel-import':
-        specifier: 0.0.0
-        version: 0.0.0(eslint@10.11.0(jiti@2.7.0)(supports-color@10.2.2))
+        specifier: 0.1.0
+        version: 0.1.0(eslint@10.11.0(jiti@2.7.0)(supports-color@10.2.2))
       '@miyaoka/vite-plugin-doc-block':
         specifier: 0.0.3
         version: 0.0.3(vite@8.3.0(@types/node@24.13.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))(vue@3.5.43(@typescript/typescript6@6.0.2))
@@ -859,10 +859,13 @@ packages:
     resolution: {integrity: sha512-K8BeapFUfrfxbRAUQAG5oBOCwo1+bNWzaVnPxTCutkfrTBn6T/j91FIhqxWJ32SUeQ9T3iy1zcmPZ5ROZEvDrg==}
     engines: {node: '>=22.12.0'}
 
-  '@miyaoka/eslint-plugin-barrel-import@0.0.0':
-    resolution: {integrity: sha512-j8uDx/SCXcplFzCyYAy9jhy/zgXYE9CHIm4XC22FmdEpF4DctebObC9+1l000QfFaSnTr7PFPkJjxHLzZXKn4Q==}
+  '@miyaoka/eslint-plugin-barrel-import@0.1.0':
+    resolution: {integrity: sha512-OqInIxedU0PkMe+LjJxkxI6LgYC/s7sFy03PcoUBv6J4LmEN9GmZK4cKtOV18k2wxayj/cWKPu5VgDdObDe7jg==}
     peerDependencies:
       eslint: '>=9'
+    peerDependenciesMeta:
+      eslint:
+        optional: true
 
   '@miyaoka/vite-plugin-doc-block@0.0.3':
     resolution: {integrity: sha512-QR2NIMgyeUWXBnC9dDvaMbj6UgItoBnqZx/eMB+0mT09Cyc3Wj7MHz+CPrFxJ7RJ0axcNLyAM5yZHNstJ2OU1A==}
@@ -5531,8 +5534,8 @@ snapshots:
     dependencies:
       '@chevrotain/types': 11.1.2
 
-  '@miyaoka/eslint-plugin-barrel-import@0.0.0(eslint@10.11.0(jiti@2.7.0)(supports-color@10.2.2))':
-    dependencies:
+  '@miyaoka/eslint-plugin-barrel-import@0.1.0(eslint@10.11.0(jiti@2.7.0)(supports-color@10.2.2))':
+    optionalDependencies:
       eslint: 10.11.0(jiti@2.7.0)(supports-color@10.2.2)
 
   '@miyaoka/vite-plugin-doc-block@0.0.3(vite@8.3.0(@types/node@24.13.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))(vue@3.5.43(@typescript/typescript6@6.0.2))':

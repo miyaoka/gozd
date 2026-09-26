@@ -4,15 +4,17 @@ import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { useTerminalStore } from "../terminal";
+import { collectInactiveSessionIds, enteredSessionIds } from "./inactiveSessionIds";
 import { rpcClaudeSessionLastActivity } from "./rpc";
 
 /**
  * live な Claude を持たない task の最終活動時刻（セッションログ末尾の timestamp）を
  * sessionId 単位で保持する。
  *
- * ログが伸びるのは live のあいだだけで、そのあいだの基準時刻は ClaudeStatus.lastActivityAt が
- * 担う。したがって sessionId が inactive 集合に入った時点で 1 回読めば、次に live になるまで
- * 値は変わらない。
+ * このインスタンスで live な間の基準時刻は ClaudeStatus.lastActivityAt が担うため、
+ * sessionId が inactive 集合に入った時点で 1 回だけ読む。このインスタンスの外（別 channel の
+ * gozd / 素のターミナル）で同じ session が動いてログが伸びても、次に集合へ入り直すまで
+ * 読み直さない。
  */
 export const useSessionLastActivityStore = defineStore("sessionLastActivity", () => {
   const repoStore = useRepoStore();
@@ -21,22 +23,13 @@ export const useSessionLastActivityStore = defineStore("sessionLastActivity", ()
 
   const lastActivityBySessionId = ref<Record<string, number>>({});
 
-  /** repo プール全体の task のうち、session を持つが live status の無いもの */
-  const inactiveSessionIds = computed<string[]>(() => {
-    const ids = new Set<string>();
-    for (const rootDir of repoStore.poolDirs) {
-      const repo = repoStore.repos[rootDir];
-      if (repo === undefined) continue;
-      for (const wt of repo.worktrees) {
-        for (const task of wt.tasks) {
-          if (task.sessionId === "") continue;
-          if (terminalStore.getClaudeStatusBySessionId(task.sessionId) !== undefined) continue;
-          ids.add(task.sessionId);
-        }
-      }
-    }
-    return [...ids];
-  });
+  const inactiveSessionIds = computed(() =>
+    collectInactiveSessionIds(
+      repoStore.poolDirs,
+      repoStore.repos,
+      (sessionId) => terminalStore.getClaudeStatusBySessionId(sessionId) !== undefined,
+    ),
+  );
 
   async function load(sessionIds: string[]) {
     const result = await tryCatch(rpcClaudeSessionLastActivity({ sessionIds }));
@@ -51,8 +44,7 @@ export const useSessionLastActivityStore = defineStore("sessionLastActivity", ()
   watch(
     inactiveSessionIds,
     (next, prev) => {
-      const prevSet = new Set(prev);
-      const entered = next.filter((id) => !prevSet.has(id));
+      const entered = enteredSessionIds(next, prev);
       if (entered.length > 0) void load(entered);
     },
     { immediate: true },

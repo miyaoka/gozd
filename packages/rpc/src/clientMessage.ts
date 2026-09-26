@@ -9,14 +9,18 @@
 // フィールドは最大 1 つだけ設定される（すべて undefined は不正メッセージとして
 // 受信側でログの上 drop する）。
 //
-// 応答は種別ごとに決まる。hook / open は送りっぱなしで応答を返さない。newWorktree だけは
-// `ClientReply` の JSON 1 行を返してから接続を閉じる。実行者（エージェント）が worktree を
-// 作れたのかどうかを知らずに次の指示へ進めないため、この種別だけ双方向にする。
+// 応答は種別ごとに決まる。hook / open は送りっぱなしで応答を返さない。それ以外は
+// `ClientReply` の JSON 1 行を返してから接続を閉じる。実行者（エージェント）が結果を
+// 知らずに次の指示へ進めないため、操作と問い合わせの種別は双方向にする。
 
 export interface ClientMessage {
   hook?: HookMessage;
   open?: OpenMessage;
   newWorktree?: NewWorktreeMessage;
+  repoList?: RepoListMessage;
+  sessionList?: SessionListMessage;
+  sessionOpen?: SessionOpenMessage;
+  worktreeRemove?: WorktreeRemoveMessage;
 }
 
 /** Claude Code の hook イベント通知。
@@ -87,13 +91,69 @@ export interface NewWorktreeMessage {
   prompt: string;
 }
 
+/** `gozd repo list` から送られる、gozd に登録された repo の問い合わせ。 */
+export type RepoListMessage = Record<string, never>;
+
+/** `gozd session list` から送られる、登録済みの全 repo のセッションの問い合わせ。 */
+export type SessionListMessage = Record<string, never>;
+
+/** `gozd session open <id>` から送られる、セッションを開けの指示。端末が開いていれば
+ * その端末へ、開いていなければ再開して、画面をそのセッションへ切り替える。 */
+export interface SessionOpenMessage {
+  sessionId: string;
+}
+
+/** `gozd worktree remove <path>` から送られる、worktree を削除しろの指示。
+ * 窓口の端末からの要求だけを受け付け、変更中のファイル・稼働中のセッションがある worktree は
+ * 削除しない。判定はすべて main 側が行う。 */
+export interface WorktreeRemoveMessage {
+  /** 削除する worktree の絶対パス */
+  path: string;
+  /** 要求元の端末（`GOZD_PTY_ID`）。窓口の端末かの判定に使う */
+  ptyId: number;
+}
+
+/** `gozd repo list` が返す 1 repo。 */
+export interface CliRepo {
+  rootDir: string;
+  name: string;
+  isGitRepo: boolean;
+  /** git repo の worktree。main worktree を含む。非 git project は空 */
+  worktrees: CliWorktree[];
+}
+
+export interface CliWorktree {
+  path: string;
+  /** detached HEAD は空文字 */
+  branch: string;
+  isMain: boolean;
+}
+
+/** `gozd session list` が返す 1 セッション。 */
+export interface CliSession {
+  sessionId: string;
+  /** セッションを起動した作業ディレクトリ */
+  cwd: string;
+  /** 所属する repo の rootDir */
+  rootDir: string;
+  title: string;
+  /** セッションログの最終更新時刻 (ISO 8601) */
+  lastModified: string;
+  /** gozd の端末で動いているか */
+  live: boolean;
+}
+
 /** 応答を返す種別の ClientMessage に対して、socket が閉じる前に 1 行だけ返すメッセージ。 */
 export interface ClientReply {
   ok: boolean;
-  /** ok のとき、作成した worktree の絶対パス。ok=false では空文字 */
+  /** newWorktree / sessionOpen / worktreeRemove が ok のとき、対象の絶対パス。それ以外は空文字 */
   dir: string;
   /** ok=false のときの失敗理由。ok では空文字 */
   error: string;
+  /** repoList が ok のときだけ持つ */
+  repos?: CliRepo[];
+  /** sessionList が ok のときだけ持つ */
+  sessions?: CliSession[];
 }
 
 /** hook push payload。socket で受けた `HookMessage` から送信経路情報 (`source`) を

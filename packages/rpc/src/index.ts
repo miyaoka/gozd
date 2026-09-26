@@ -36,6 +36,7 @@ export type {
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
   ClaudeSessionSummary,
+  SessionOpenPayload,
   ReviveSessionInfo,
   ReviveSessionListRequest,
   ReviveSessionListResponse,
@@ -46,9 +47,16 @@ export type { ClipboardCopyFilesRequest, ClipboardCopyFilesResponse } from "./cl
 export type {
   ClientMessage,
   ClientReply,
+  CliRepo,
+  CliSession,
+  CliWorktree,
   HookMessage,
   NewWorktreeMessage,
   OpenMessage,
+  RepoListMessage,
+  SessionListMessage,
+  SessionOpenMessage,
+  WorktreeRemoveMessage,
 } from "./clientMessage";
 export type {
   FileReadResult,

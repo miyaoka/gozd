@@ -4,18 +4,40 @@
 // submit 順に処理されなければならない。node は単一スレッドだが await 境界で別メッセージが
 // 割り込めるため、promise chain の逐次キューで順序を作る。
 //
-// キューに載せるのは順序に意味がある種別だけ。worktree の作成は hook と順序関係を持たず
-// 実行が長いため、キューの外で走らせる（載せると作成中の状態通知が全 PTY で止まる）。
+// キューに載せるのは順序に意味がある種別だけ。応答を返す種別（worktree の作成・削除、
+// 問い合わせ）は hook と順序関係を持たず実行が長いため、キューの外で走らせる（載せると
+// 実行中の状態通知が全 PTY で止まる）。
 
-import type { ClientMessage, ClientReply, HookMessage, NewWorktreeMessage } from "@gozd/rpc";
+import type {
+  ClientMessage,
+  ClientReply,
+  HookMessage,
+  NewWorktreeMessage,
+  SessionOpenMessage,
+  WorktreeRemoveMessage,
+} from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { basename } from "node:path";
+import { claudeSessionCwd } from "./claude/claudeSessionList";
+import {
+  conciergeDir,
+  listRegisteredRepos,
+  listRegisteredSessions,
+  removeWorktreeForConcierge,
+} from "./concierge";
 import { resolveAndCreateWorktree, toWorktreeEntry } from "./git/worktreeCreate";
 import { buildGozdOpenPayload } from "./openTarget";
 import { asDict, lenientBoolean, lenientDict, lenientNumber, lenientString } from "./rawJson";
 import type { SocketMessageHandler } from "./socketServer";
-import { clearSessionId, setSessionId, wasExplicitlyRemoved, worktreePathFor } from "./ptySessions";
+import {
+  clearSessionId,
+  liveSessions,
+  setSessionId,
+  wasExplicitlyRemoved,
+  worktreePathFor,
+} from "./ptySessions";
 import type { PushFn } from "./rpcDispatcher";
+import { loadAppState } from "./stores";
 
 /** session-start / session-end hook を PTY ⇔ session の紐付けに反映する */
 function applyClaudeSessionHook(hook: HookMessage, worktreePath: string): void {
@@ -82,18 +104,33 @@ function parseClientMessage(line: string): ClientMessage {
       prompt: lenientString(newWorktree.prompt, "newWorktree.prompt"),
     };
   }
+  if (dict.repoList !== undefined) msg.repoList = {};
+  if (dict.sessionList !== undefined) msg.sessionList = {};
+  if (dict.sessionOpen !== undefined) {
+    const sessionOpen = lenientDict(dict.sessionOpen, "sessionOpen");
+    msg.sessionOpen = {
+      sessionId: lenientString(sessionOpen.sessionId, "sessionOpen.sessionId"),
+    };
+  }
+  if (dict.worktreeRemove !== undefined) {
+    const worktreeRemove = lenientDict(dict.worktreeRemove, "worktreeRemove");
+    msg.worktreeRemove = {
+      path: lenientString(worktreeRemove.path, "worktreeRemove.path"),
+      ptyId: lenientNumber(worktreeRemove.ptyId, "worktreeRemove.ptyId"),
+    };
+  }
   return msg;
 }
+
+const reply = (value: ClientReply): string => JSON.stringify(value);
+const failure = (error: string): string => reply({ ok: false, dir: "", error });
 
 /** `gozd worktree new` を処理して ClientReply の 1 行を返す。
  * worktree 作成までを main が完了させ、UI 反映（サイドバー掲載 / claude の autostart）は
  * push に委ねる。応答は「作成できたか」だけを表し、push が届いたかは含まない —
  * renderer が居ない状態でも worktree は正しく作られる。 */
 async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise<string> {
-  const reply = (value: ClientReply): string => JSON.stringify(value);
-  if (msg.dir === "") {
-    return reply({ ok: false, dir: "", error: "newWorktree: dir is required" });
-  }
+  if (msg.dir === "") return failure("newWorktree: dir is required");
   const created = await tryCatch(
     resolveAndCreateWorktree({ dir: msg.dir, branch: "", startPoint: "" }),
   );
@@ -101,7 +138,7 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
     console.error(
       `[handleNewWorktree] resolveAndCreateWorktree failed: ${created.error} dir=${msg.dir}`,
     );
-    return reply({ ok: false, dir: "", error: String(created.error) });
+    return failure(String(created.error));
   }
   const { rootDir, info, setupScript } = created.value;
   push("newWorktree", {
@@ -113,6 +150,66 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
     repoName: basename(rootDir),
   });
   return reply({ ok: true, dir: info.path, error: "" });
+}
+
+/** `gozd repo list`。gozd に登録された repo と worktree を返す */
+async function handleRepoList(): Promise<string> {
+  const repos = await listRegisteredRepos(loadAppState().sidebarRepos);
+  return reply({ ok: true, dir: "", error: "", repos });
+}
+
+/** `gozd session list`。登録済みの全 repo のセッションを、gozd の端末で動いているかの印付きで返す */
+async function handleSessionList(): Promise<string> {
+  const rootDirs = loadAppState().sidebarRepos.map((repo) => repo.rootDir);
+  const live = new Set(liveSessions().map((s) => s.sessionId));
+  const sessions = await listRegisteredSessions(rootDirs, live);
+  return reply({ ok: true, dir: "", error: "", sessions });
+}
+
+/** `gozd session open`。セッションの作業ディレクトリを引いて renderer に開かせる。
+ * 応答は「開く指示を出せたか」だけを表し、画面に出たことは含まない */
+async function handleSessionOpen(msg: SessionOpenMessage, push: PushFn): Promise<string> {
+  if (msg.sessionId === "") return failure("sessionOpen: sessionId is required");
+  const cwd = await tryCatch(claudeSessionCwd(msg.sessionId));
+  if (!cwd.ok) {
+    console.error(
+      `[handleSessionOpen] session lookup failed: ${cwd.error} session=${msg.sessionId}`,
+    );
+    return failure(String(cwd.error));
+  }
+  if (cwd.value === undefined) return failure(`session not found: ${msg.sessionId}`);
+  push("sessionOpen", { sessionId: msg.sessionId, dir: cwd.value });
+  return reply({ ok: true, dir: cwd.value, error: "" });
+}
+
+/** `gozd worktree remove`。削除の条件は `removeWorktreeForConcierge` が強制する。
+ * UI の反映（サイドバーからの除去と端末の終了）は worktree の変化の push に委ねる */
+async function handleWorktreeRemove(msg: WorktreeRemoveMessage): Promise<string> {
+  if (msg.path === "") return failure("worktreeRemove: path is required");
+  const removed = await tryCatch(
+    removeWorktreeForConcierge(msg.path, {
+      conciergeDir: conciergeDir(),
+      requesterDir: worktreePathFor(msg.ptyId),
+      liveWorktreePaths: liveSessions().map((s) => s.worktreePath),
+    }),
+  );
+  if (!removed.ok) {
+    console.error(
+      `[handleWorktreeRemove] refused: ${removed.error} path=${msg.path} pty=${msg.ptyId}`,
+    );
+    return failure(removed.error instanceof Error ? removed.error.message : String(removed.error));
+  }
+  return reply({ ok: true, dir: msg.path, error: "" });
+}
+
+/** 応答を返す種別の処理。該当しなければ undefined */
+function handleRequestMessage(msg: ClientMessage, push: PushFn): Promise<string> | undefined {
+  if (msg.newWorktree !== undefined) return handleNewWorktree(msg.newWorktree, push);
+  if (msg.repoList !== undefined) return handleRepoList();
+  if (msg.sessionList !== undefined) return handleSessionList();
+  if (msg.sessionOpen !== undefined) return handleSessionOpen(msg.sessionOpen, push);
+  if (msg.worktreeRemove !== undefined) return handleWorktreeRemove(msg.worktreeRemove);
+  return undefined;
 }
 
 /** 逐次キューに載せる種別の処理。応答は返さない。 */
@@ -144,8 +241,8 @@ async function handleQueuedMessage(msg: ClientMessage, push: PushFn): Promise<un
 /** socket 1 行を処理するハンドラを作る。
  *
  * 状態通知は promise chain の逐次キューに載せ、submit 順の処理を保証する。
- * **worktree の作成はこのキューに載せない** — git の実行で秒単位かかるうえ hook と順序
- * 関係を持たないため、載せると作成中は全 PTY の状態通知が止まる。 */
+ * **応答を返す種別はこのキューに載せない** — git の実行で秒単位かかるうえ hook と順序
+ * 関係を持たないため、載せると実行中は全 PTY の状態通知が止まる。 */
 export function createSocketMessageHandler(push: PushFn): SocketMessageHandler {
   let chain: Promise<undefined> = Promise.resolve(undefined);
   // メッセージ単位の失敗を終端で握らないと chain が rejected のまま残り、以降の
@@ -166,9 +263,13 @@ export function createSocketMessageHandler(push: PushFn): SocketMessageHandler {
       );
       return Promise.resolve(undefined);
     }
-    const { newWorktree } = parsed.value;
-    if (newWorktree !== undefined) {
-      return handleNewWorktree(newWorktree, push).catch(observeFailure(line));
+    const request = handleRequestMessage(parsed.value, push);
+    if (request !== undefined) {
+      // 失敗を観察ログに倒すだけでは実行者が応答を待ち続けるため、失敗の応答を返す
+      return request.catch((error: unknown) => {
+        observeFailure(line)(error);
+        return failure(String(error));
+      });
     }
     const settled = chain
       .then(() => handleQueuedMessage(parsed.value, push))

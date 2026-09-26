@@ -1,5 +1,6 @@
 export { openSession } from "./openSession";
 export { rpcClaudeSessionList } from "./rpc";
+export { useSessionOpenHandler } from "./useSessionOpenHandler";
 export {
   buildSessionRows,
   compareRecentFirst,

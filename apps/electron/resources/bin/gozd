@@ -95,11 +95,14 @@ is_app_running() {
   return 0
 }
 
-# hook / フラグ系はアプリ起動を要求しない。worktree は稼働中のウィンドウに作業スペースを
-# 足す操作なので、アプリが居ない状態では cold start させず CLI 側の接続失敗で終える
+# hook / フラグ系はアプリ起動を要求しない。worktree / repo / session は稼働中のウィンドウの
+# 状態を読む・変える操作なので、アプリが居ない状態では cold start させず CLI 側の接続失敗で
+# 終える
 should_launch_app() {
   is_app_running && return 1
-  [[ "${1:-}" == "hook" || "${1:-}" == "worktree" || "${1:-}" == -* ]] && return 1
+  case "${1:-}" in
+    hook | worktree | repo | session | -*) return 1 ;;
+  esac
   return 0
 }
 

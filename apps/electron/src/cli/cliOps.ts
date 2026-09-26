@@ -47,14 +47,19 @@ function isTeammateTask(task: unknown): boolean {
   return (task as Record<string, unknown>).type === "teammate";
 }
 
+/** gozd の端末が注入する `GOZD_PTY_ID`。gozd の端末の外（数字でない / 未設定）は 0 */
+export function parsePtyId(env: Record<string, string | undefined>): number {
+  const ptyIdText = env.GOZD_PTY_ID ?? "";
+  return /^\d+$/.test(ptyIdText) ? Number(ptyIdText) : 0;
+}
+
 /** Claude Code が stdin で渡す hook JSON から HookMessage を組み立てる */
 export function buildHookMessage(
   event: string,
   stdinJson: Record<string, unknown>,
   env: Record<string, string | undefined>,
 ): HookMessage {
-  const ptyIdText = env.GOZD_PTY_ID ?? "";
-  const ptyId = /^\d+$/.test(ptyIdText) ? Number(ptyIdText) : 0;
+  const ptyId = parsePtyId(env);
 
   const toolInput = stdinJson.tool_input;
   let toolInputText = "";

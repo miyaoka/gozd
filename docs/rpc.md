@@ -56,6 +56,7 @@ main から renderer への一方向通知。
 | `fsWatchReady`           | 監視登録成立後の dir 単位の再同期シグナル（renderer 内部で発射。ワイヤ push ではない） |
 | `gozdOpen`               | CLI / 起動要求からの open 要求                                                         |
 | `newWorktree`            | CLI が作った worktree を開けの要求                                                     |
+| `sessionOpen`            | CLI からのセッションを開けの要求                                                       |
 | `serverPortsChange`      | 実行中サーバー検出結果の snapshot                                                      |
 | `hook`                   | Claude Code の hook イベント                                                           |
 | `notify`                 | main 側のバックグラウンドエラー / 情報通知                                             |

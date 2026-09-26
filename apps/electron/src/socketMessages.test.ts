@@ -147,4 +147,30 @@ describe("socketMessages", () => {
     await handle('{"hook":{"event":"running","ptyId":1}}');
     expect(pushed.map((p) => p.event)).toEqual(["running"]);
   });
+
+  test("窓口以外の端末からの worktreeRemove は理由付きの失敗を応答し、push しない", async () => {
+    const pushed: string[] = [];
+    const handle = createSocketMessageHandler((type) => pushed.push(type));
+    const line = await handle(
+      JSON.stringify({ worktreeRemove: { path: "/nonexistent/wt", ptyId: 999999 } }),
+    );
+    expect(JSON.parse(line ?? "")).toEqual({
+      ok: false,
+      dir: "",
+      error: "worktree remove is accepted only from the concierge terminal",
+    });
+    expect(pushed).toEqual([]);
+  });
+
+  test("sessionId の無い sessionOpen は失敗を応答し、push しない", async () => {
+    const pushed: string[] = [];
+    const handle = createSocketMessageHandler((type) => pushed.push(type));
+    const line = await handle(JSON.stringify({ sessionOpen: {} }));
+    expect(JSON.parse(line ?? "")).toEqual({
+      ok: false,
+      dir: "",
+      error: "sessionOpen: sessionId is required",
+    });
+    expect(pushed).toEqual([]);
+  });
 });

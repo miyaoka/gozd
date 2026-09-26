@@ -6,7 +6,7 @@
 // 公式 SDK の関数に任せて gozd では再構成しない。
 
 import type { ClaudeSessionSummary } from "@gozd/rpc";
-import { listSessions } from "@anthropic-ai/claude-agent-sdk";
+import { getSessionInfo, listSessions } from "@anthropic-ai/claude-agent-sdk";
 
 /** repo（本体と全 git worktree）で動いた対話セッションを lastModified 降順で返す。
  * git 管理外の dir はその dir 自身のセッションを返す。 */
@@ -32,4 +32,11 @@ export async function listClaudeSessions(dir: string): Promise<ClaudeSessionSumm
     });
   }
   return summaries.toSorted((a, b) => b.lastModified - a.lastModified);
+}
+
+/** セッションを起動した作業ディレクトリ。セッションが見つからない、または作業ディレクトリを
+ * 持たないときは undefined */
+export async function claudeSessionCwd(sessionId: string): Promise<string | undefined> {
+  const info = await getSessionInfo(sessionId);
+  return info?.cwd;
 }

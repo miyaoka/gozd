@@ -27,6 +27,7 @@ AI エージェントの並列開発を管理するデスクトップアプリ�
 | [command.md](docs/command.md)             | コマンドシステム（レジストリ、context key、when 条件）                      |
 | [keybinding.md](docs/keybinding.md)       | キーバインディング（e.code ベース、設定フォーマット、解決フロー）           |
 | [session.md](docs/session.md)             | セッション（帰属、タイトル、サイドバー UI、ダッシュボード）                 |
+| [concierge.md](docs/concierge.md)         | 窓口（窓口に渡す操作、worktree の削除の安全）                               |
 | [claude-status.md](docs/claude-status.md) | Claude ステータス管理（状態遷移、hooks、interrupt 検知）                    |
 | [server.md](docs/server.md)               | サーバー検出（LISTEN port ポーリング、worktree 帰属、一覧パネル）           |
 | [release.md](docs/release.md)             | リリースと配布（canary / stable、CI、mise、wrapper 同期、channel identity） |

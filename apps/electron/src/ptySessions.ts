@@ -49,3 +49,12 @@ export function clearAssociations(ptyId: number): void {
 export function wasExplicitlyRemoved(ptyId: number): boolean {
   return explicitlyRemovedPtyIds.has(ptyId);
 }
+
+/** gozd の端末で Claude セッションが紐付いている PTY の (sessionId, worktreePath) 一覧 */
+export function liveSessions(): Array<{ sessionId: string; worktreePath: string }> {
+  const sessions: Array<{ sessionId: string; worktreePath: string }> = [];
+  for (const [ptyId, sessionId] of sessionIdById) {
+    sessions.push({ sessionId, worktreePath: worktreePathById.get(ptyId) ?? "" });
+  }
+  return sessions;
+}

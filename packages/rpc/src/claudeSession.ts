@@ -30,6 +30,14 @@ export interface ClaudeSessionListResponse {
   sessions: ClaudeSessionSummary[];
 }
 
+/** main → renderer: セッションを開けの指示（`gozd session open`）。端末が開いていれば
+ * その端末へ、開いていなければ dir で再開し、画面をそのセッションへ切り替える。 */
+export interface SessionOpenPayload {
+  sessionId: string;
+  /** セッションの作業ディレクトリ */
+  dir: string;
+}
+
 /** 指定 PTY と Claude セッションの紐付けを解除する。renderer の
  * unregisterPane（terminal.closePane / resetLayout / worktree 削除）から呼ぶ。
  * ptyId に紐づく sessionId は main 側の PTY registry が保持する。 */

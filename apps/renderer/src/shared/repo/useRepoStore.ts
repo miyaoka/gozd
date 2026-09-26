@@ -63,8 +63,8 @@ export interface RepoDirEntry {
 /**
  * repo を代表する dir 群。git repo は配下の全 worktree、非 git は rootDir 自身。
  * 「repo → その repo が所有する dir 集合」の分岐ルールはここが SSOT で、
- * fs watch 対象（`collectFsWatchTargetDirs`）とダッシュボードの母集団
- * （`collectPoolSessionRows`）が共有する。
+ * fs watch 対象（`collectFsWatchTargetDirs`）と、全 repo のセッション行の母集団
+ * （`collectPoolSessionRows`。ダッシュボードとサイドバーの状態別の表示）が共有する。
  *
  * dir だけでなく worktree entry も返すのは、消費者の片方が dir から worktree を
  * 引き直す必要があるため。dir だけを返すと同じ分岐が呼び出し側で再実装される。

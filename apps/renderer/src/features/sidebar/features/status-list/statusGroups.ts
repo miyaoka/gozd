@@ -31,7 +31,7 @@ function rankOf(row: PoolSessionRow): number {
 
 /**
  * 状態の順、同じ状態の中は状態に入った時刻の新しい順。並びが変わるきっかけを状態の変化に
- * 限り、常時表示される面で行がずれないようにする。時刻の無い行（状態をまだ持たない）は
+ * 限り、常に表示されている一覧で行がずれないようにする。時刻の無い行（状態をまだ持たない）は
  * 最終活動で比べる
  */
 function compareActive(a: PoolSessionRow, b: PoolSessionRow): number {

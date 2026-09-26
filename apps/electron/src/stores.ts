@@ -6,7 +6,9 @@
 //   （旧 proto3 JSON は default 値を省略して書いた）は default 充填する
 // - 「存在するが型違反」のフィールドはファイルの性格で扱いを分ける（rawJson.ts の契約）:
 //   - AppState（機械専有の state）: 破損として検知し、stderr ログ + 初期状態で上書き save
-//     （ベータ方針: 部分救済を書かない）
+//     （ベータ方針: 部分救済を書かない）。例外は列挙値のフィールドの未知の値で、そのフィールド
+//     だけ default に倒して stderr ログを残す（別 channel の新しいビルドが書いた値を読むため。
+//     docs/architecture.md の「信頼できない入力の正規化」）
 //   - AppConfig（ユーザー設定。手編集が正規経路）: 違反フィールドだけ default に倒して
 //     stderr ログ。ファイルは書き換えない（VS Code の消費側 validate と同型）。ただし
 //     save は全量書き出しのため、default に倒した値は次の設定変更の保存時にファイルへ

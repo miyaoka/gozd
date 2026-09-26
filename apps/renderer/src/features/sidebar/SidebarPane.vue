@@ -22,8 +22,8 @@
     列ごと専有されるため、編集中の出口はヘッダ行の Done に置く
 - **repo 一覧**: アクティブ repo list の dirOrder 全体を常に出す「どこで作業するか」の地図。
   モードで絞らないのは、絞ると切り替えのたびに repo 一覧が消えて操作の起点が失われるため。
-  横断して見る面は母集団で分かれ、セッション単位の一覧はダッシュボード（docs/session.md）、
-  端末単位の表示は上記の view mode トグル（docs/terminal.md）が担う
+  端末単位の表示は上記の view mode トグル（docs/terminal.md）が担う。全 repo のセッションを
+  横断して見るのは状態別の表示とダッシュボード（docs/session.md）
 - **各 repo** に対して `RepoSection` を縦に並べる。空リストは通常モードで操作の
   手がかりが消えるため、empty state（"This list is empty" + Edit list ボタンで編集モードへ）を出す
 - 各 RepoSection は header (folder + repo 名) + WtCard 列 (main wt 先頭固定) + `+ New worktree`

@@ -21,10 +21,10 @@ import {
   useSessionLogLive,
 } from "../session-log";
 import type { Speech, TranscriptEvent } from "../session-log";
-import type { DashboardRow } from "./collectDashboardRows";
+import type { PoolSessionRow } from "../session";
 
 const props = defineProps<{
-  row: DashboardRow | undefined;
+  row: PoolSessionRow | undefined;
 }>();
 
 const sessionId = computed(() => props.row?.sessionId);

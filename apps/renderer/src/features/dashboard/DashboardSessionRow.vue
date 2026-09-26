@@ -20,11 +20,11 @@ import { computed, type FunctionalComponent, type SVGAttributes } from "vue";
 import { formatRelativeAge } from "../../shared/time";
 import { RepoIcon } from "../repo-icon";
 import { CLAUDE_STATE_VISUAL, displayClaudeState } from "../terminal";
-import type { DashboardRow } from "./collectDashboardRows";
+import type { PoolSessionRow } from "../session";
 import IconLucideCircle from "~icons/lucide/circle";
 
 const props = defineProps<{
-  row: DashboardRow;
+  row: PoolSessionRow;
 }>();
 
 /** Claude が動いていないセッションの low-attention glyph */

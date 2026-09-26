@@ -2,7 +2,7 @@ import type { ClaudeSessionSummary } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import type { RepoState, RepoWorktree } from "../../shared/repo";
 import type { LiveSession } from "../terminal";
-import { collectDashboardRows } from "./collectDashboardRows";
+import { collectPoolSessionRows } from "./poolSessionRows";
 
 function wt(path: string, branch: string, isMain = false): RepoWorktree {
   return {
@@ -71,37 +71,37 @@ const LIVE: LiveSession[] = [
 
 const POOL_DIRS = ["/repo-a", "/repo-b", "/note"];
 
-describe("collectDashboardRows", () => {
+describe("collectPoolSessionRows", () => {
   test("端末の有無で分けず、最終活動の降順に並べる。記録の無い新しいセッションは先頭", () => {
-    const rows = collectDashboardRows(POOL_DIRS, repos, sessionsOf, LIVE);
+    const rows = collectPoolSessionRows(POOL_DIRS, repos, sessionsOf, LIVE);
     expect(rows.map((r) => r.sessionId)).toEqual(["fresh", "live", "new", "old", "note"]);
   });
 
   test("端末が開いているセッションは Claude の最終活動を採る", () => {
-    const rows = collectDashboardRows(POOL_DIRS, repos, sessionsOf, LIVE);
+    const rows = collectPoolSessionRows(POOL_DIRS, repos, sessionsOf, LIVE);
     const live = rows.find((r) => r.sessionId === "live");
     expect(live?.live).toBe(true);
     expect(live?.lastActivity).toBe(LIVE_AT);
   });
 
   test("作業ディレクトリが現存しないセッションは行にならない", () => {
-    const rows = collectDashboardRows(POOL_DIRS, repos, sessionsOf, LIVE);
+    const rows = collectPoolSessionRows(POOL_DIRS, repos, sessionsOf, LIVE);
     expect(rows.some((r) => r.sessionId === "gone")).toBe(false);
   });
 
   test("非 git project のセッションはブランチを持たない行になる", () => {
-    const rows = collectDashboardRows(POOL_DIRS, repos, sessionsOf, LIVE);
+    const rows = collectPoolSessionRows(POOL_DIRS, repos, sessionsOf, LIVE);
     const note = rows.find((r) => r.sessionId === "note");
     expect(note?.dir).toBe("/note");
     expect(note?.branch).toBe("");
   });
 
   test("poolDirs に載っているが repos から消えた rootDir は無視する", () => {
-    expect(collectDashboardRows(["/ghost"], repos, sessionsOf, LIVE)).toEqual([]);
+    expect(collectPoolSessionRows(["/ghost"], repos, sessionsOf, LIVE)).toEqual([]);
   });
 
   test("行は repo 名・owner・branch ラベル・ジャンプ先 dir を持つ", () => {
-    const rows = collectDashboardRows(POOL_DIRS, repos, sessionsOf, LIVE);
+    const rows = collectPoolSessionRows(POOL_DIRS, repos, sessionsOf, LIVE);
     const live = rows.find((r) => r.sessionId === "live");
     expect(live?.repoName).toBe("a");
     expect(live?.owner).toBe("octo");

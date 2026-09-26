@@ -1,11 +1,11 @@
 import type { ClaudeSessionSummary } from "@gozd/rpc";
 import type { RepoState } from "../../shared/repo";
 import { branchLabel, repoDirEntries } from "../../shared/repo";
-import { buildSessionRows, compareRecentFirst, type SessionRow } from "../session";
+import { buildSessionRows, compareRecentFirst, type SessionRow } from "./sessionRows";
 import type { LiveSession } from "../terminal";
 
-/** ダッシュボード 1 行 = 1 セッション。行の描画とジャンプに必要な値だけを持つ */
-export interface DashboardRow extends SessionRow {
+/** repo をまたいだ一覧の 1 行 = 1 セッション。どの repo / worktree の行かを添える */
+export interface PoolSessionRow extends SessionRow {
   /** repo list の追従 (activateRepoListContaining / expand) に使う */
   rootDir: string;
   repoName: string;
@@ -16,24 +16,22 @@ export interface DashboardRow extends SessionRow {
 }
 
 /**
- * 全 repo 横断のセッションを最終活動の新しい順に平坦化する純関数。
+ * 全 repo 横断のセッションを最終活動の新しい順に平坦化する純関数。ダッシュボードと
+ * サイドバーの状態別の一覧が使う。
  *
  * 母集団は poolDirs (repo プール全体)。アクティブ repo list で絞ると「動いているのに
- * 一覧に出ない」セッションが生まれる。
- *
- * サイドバーは worktree ごとに端末の開いているセッションを上に分けるが、ここは開くたびに
- * 使い捨てる transient な一覧なので、端末の有無で分けず「最近動いた = 注意対象」を上に置く。
+ * 一覧に出ない」セッションが生まれる。端末の有無では分けない。
  *
  * 作業ディレクトリが現存する worktree / 非 git project のセッションだけを行にする。
  * 削除済み worktree のセッションは revive picker が扱う。
  */
-export function collectDashboardRows(
+export function collectPoolSessionRows(
   poolDirs: readonly string[],
   repos: Readonly<Record<string, RepoState>>,
   sessionsOf: (rootDir: string) => readonly ClaudeSessionSummary[],
   liveSessions: readonly LiveSession[],
-): DashboardRow[] {
-  const rows: DashboardRow[] = [];
+): PoolSessionRow[] {
+  const rows: PoolSessionRow[] = [];
   for (const rootDir of poolDirs) {
     const repo = repos[rootDir];
     if (repo === undefined) continue;

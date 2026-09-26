@@ -24,10 +24,8 @@ import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { fuzzyMatch, useListNavigation } from "../palette";
-import { openSession } from "../session";
+import { collectPoolSessionRows, openSession, type PoolSessionRow } from "../session";
 import { useTerminalStore } from "../terminal";
-import type { DashboardRow } from "./collectDashboardRows";
-import { collectDashboardRows } from "./collectDashboardRows";
 import DashboardDetailPane from "./DashboardDetailPane.vue";
 import DashboardSessionRow from "./DashboardSessionRow.vue";
 import { useDashboard } from "./useDashboard";
@@ -47,9 +45,9 @@ const query = ref("");
 const isOpen = computed(() => contextKeys.get("dashboardVisible"));
 
 // 閉じている間は空にして、hooks イベントごとの全 repo 走査と詳細ペインの取得を止める
-const rows = computed((): DashboardRow[] =>
+const rows = computed((): PoolSessionRow[] =>
   isOpen.value
-    ? collectDashboardRows(
+    ? collectPoolSessionRows(
         repoStore.poolDirs,
         repoStore.repos,
         (rootDir) => repoStore.sessionsOf(rootDir),
@@ -70,7 +68,7 @@ watch(rows, (next) => {
   if (fresh.length > 0) frozenOrder.value = [...frozenOrder.value, ...fresh];
 });
 
-const orderedRows = computed((): DashboardRow[] => {
+const orderedRows = computed((): PoolSessionRow[] => {
   const byId = new Map(rows.value.map((row) => [row.sessionId, row]));
   return frozenOrder.value.flatMap((id) => {
     const row = byId.get(id);
@@ -79,7 +77,7 @@ const orderedRows = computed((): DashboardRow[] => {
 });
 
 // owner (org) は UI 表示しないが絞り込み対象には含める
-function searchText(row: DashboardRow): string {
+function searchText(row: PoolSessionRow): string {
   return `${row.title} ${row.repoName} ${row.branch} ${row.owner ?? ""}`;
 }
 
@@ -100,19 +98,19 @@ function scoreOrder(q: string): string[] {
   return scored.map((s) => s.id);
 }
 
-const filteredRows = computed((): DashboardRow[] => {
+const filteredRows = computed((): PoolSessionRow[] => {
   const q = query.value;
   if (q === "") return orderedRows.value;
 
   // 一致集合は live に判定し、順序はスナップショットが決める。後から一致に転じた行は
   // 末尾に追記する (orderedRows 順 = 凍結順)
-  const matching = new Map<string, DashboardRow>();
+  const matching = new Map<string, PoolSessionRow>();
   for (const row of orderedRows.value) {
     if (fuzzyMatch(searchText(row), q)) {
       matching.set(row.sessionId, row);
     }
   }
-  const out: DashboardRow[] = [];
+  const out: PoolSessionRow[] = [];
   for (const id of filteredOrder.value) {
     const row = matching.get(id);
     if (row !== undefined) {
@@ -130,7 +128,7 @@ const { selectedIndex, move, movePage, reset, scrollToSelected } = useListNaviga
   itemCount,
 });
 
-const selectedRow = computed((): DashboardRow | undefined =>
+const selectedRow = computed((): PoolSessionRow | undefined =>
   isOpen.value ? filteredRows.value[selectedIndex.value] : undefined,
 );
 

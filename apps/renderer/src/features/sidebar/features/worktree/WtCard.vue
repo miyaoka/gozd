@@ -102,11 +102,7 @@ const statusIcons = computed(() => {
 });
 
 const sessionRows = computed(() =>
-  buildSessionRows(
-    props.wt.path,
-    terminalStore.liveSessions,
-    repoStore.sessionsForDir(props.rootDir, props.wt.path),
-  ),
+  buildSessionRows(props.wt.path, terminalStore.liveSessions, repoStore.sessionsOf(props.rootDir)),
 );
 
 /**

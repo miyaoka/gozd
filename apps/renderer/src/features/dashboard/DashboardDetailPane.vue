@@ -66,7 +66,6 @@ const isStale = computed(() => sessionId.value !== debouncedSessionId.value);
 
 const emptyMessage = computed((): string | undefined => {
   if (props.row === undefined) return "Select a session";
-  if (sessionId.value === undefined) return "No session yet";
   if (isStale.value || loading.value) return "Loading...";
   if (errorMessage.value !== undefined) return "Failed to read session log";
   if (notFound.value) return "No session log yet";

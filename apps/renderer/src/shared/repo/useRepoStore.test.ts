@@ -130,7 +130,7 @@ describe("collectFsWatchTargetDirs", () => {
 });
 
 describe("sessions", () => {
-  test("作業ディレクトリごとにセッションを引き、sessionId で repo 横断に引ける", () => {
+  test("repo ごとにセッションを引き、sessionId で repo 横断に引ける", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();
     store.addRepo({
@@ -144,8 +144,8 @@ describe("sessions", () => {
     store.setRepoSessions("/r1", [session("s1", "/r1/wt-1"), session("s2", "/r1")]);
     store.setRepoSessions("/note", [session("s3", "/note")]);
 
-    expect(store.sessionsForDir("/r1", "/r1/wt-1").map((s) => s.sessionId)).toEqual(["s1"]);
-    expect(store.sessionsForDir("/r1", "/r1").map((s) => s.sessionId)).toEqual(["s2"]);
+    expect(store.sessionsOf("/r1").map((s) => s.sessionId)).toEqual(["s1", "s2"]);
+    expect(store.sessionsOf("/ghost")).toEqual([]);
     expect(store.findSession("s3")?.cwd).toBe("/note");
   });
 

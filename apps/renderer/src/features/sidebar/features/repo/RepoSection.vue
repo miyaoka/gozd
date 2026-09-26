@@ -153,11 +153,7 @@ const bodyVisible = computed(() => isGitRepo.value && !visiblyCollapsed.value);
 
 // 非 git project のセッション行。worktree を持たないため rootDir 自身が作業ディレクトリ
 const plainSessionRows = computed(() =>
-  buildSessionRows(
-    props.rootDir,
-    terminalStore.liveSessions,
-    repoStore.sessionsForDir(props.rootDir, props.rootDir),
-  ),
+  buildSessionRows(props.rootDir, terminalStore.liveSessions, repoStore.sessionsOf(props.rootDir)),
 );
 const plainSessionsVisible = computed(
   () =>

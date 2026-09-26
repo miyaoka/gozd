@@ -180,9 +180,10 @@ export const useRepoStore = defineStore("repo", () => {
     if (repos.value[rootDir] === undefined) return;
     sessionsByRoot.value[rootDir] = sessions;
   }
-  /** 作業ディレクトリ（worktree / 非 git project の root）で動いたセッション。lastModified 降順 */
-  function sessionsForDir(rootDir: string, dir: string): ClaudeSessionSummary[] {
-    return (sessionsByRoot.value[rootDir] ?? []).filter((s) => s.cwd === dir);
+  /** repo（本体と全 worktree）のセッション。lastModified 降順。作業ディレクトリへの帰属は
+   * 呼び出し側（`buildSessionRows`）が決める */
+  function sessionsOf(rootDir: string): ClaudeSessionSummary[] {
+    return sessionsByRoot.value[rootDir] ?? [];
   }
   /** sessionId からセッションを全 repo 横断で引く */
   function findSession(sessionId: string): ClaudeSessionSummary | undefined {
@@ -747,9 +748,8 @@ export const useRepoStore = defineStore("repo", () => {
     isSameRepoAsActive,
     addRepo,
     updateRepoData,
-    sessionsByRoot,
     setRepoSessions,
-    sessionsForDir,
+    sessionsOf,
     findSession,
     setWorktreeGitStatuses,
     setGithubIdentity,

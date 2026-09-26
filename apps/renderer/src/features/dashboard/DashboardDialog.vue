@@ -52,7 +52,7 @@ const rows = computed((): DashboardRow[] =>
     ? collectDashboardRows(
         repoStore.poolDirs,
         repoStore.repos,
-        (rootDir) => repoStore.sessionsByRoot[rootDir] ?? [],
+        (rootDir) => repoStore.sessionsOf(rootDir),
         terminalStore.liveSessions,
       )
     : [],

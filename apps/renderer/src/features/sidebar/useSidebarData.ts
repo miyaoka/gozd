@@ -43,7 +43,7 @@ export function useSidebarData() {
     repoStore.setRepoSessions(rootDir, result.value.sessions);
   }
 
-  /** 1 つの repo の worktrees とセッション一覧を取り直して repoStore を更新 */
+  /** 1 つの repo の worktrees を取り直して repoStore を更新。セッション一覧は取らない */
   async function fetchRepo(rootDir: string) {
     const repo = repoStore.repos[rootDir];
     if (repo === undefined) return;

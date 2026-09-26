@@ -16,8 +16,8 @@ import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
  *
  * 全 repo を per-rootDir で並列に管理する：
  * - `fetchRepo(rootDir)` を 1 単位として、新規追加 / push event / 明示リフレッシュで使い回す
- * - セッション一覧は Claude Code のセッションログが SSOT。セッションの開始 / 終了と端末の
- *   close で取り直す
+ * - セッション一覧は Claude Code のセッションログが SSOT。repo の追加、セッションの開始 /
+ *   終了、端末の close で取り直す。git の変化（commit 等）では取り直さない
  */
 export function useSidebarData() {
   const worktreeStore = useWorktreeStore();
@@ -47,7 +47,6 @@ export function useSidebarData() {
   async function fetchRepo(rootDir: string) {
     const repo = repoStore.repos[rootDir];
     if (repo === undefined) return;
-    void fetchSessions(rootDir);
     if (!repo.isGitRepo) return;
     const gen = (fetchGenByRoot.get(rootDir) ?? 0) + 1;
     fetchGenByRoot.set(rootDir, gen);
@@ -122,6 +121,7 @@ export function useSidebarData() {
         if (!prevSet.has(dir)) {
           void fetchGithubIdentity(dir);
           void fetchRepo(dir);
+          void fetchSessions(dir);
         }
       }
     },
@@ -140,7 +140,7 @@ export function useSidebarData() {
   );
 
   // 明示 refetch 要求: feature 層 (sidebar / picker 等) からの SSOT 取り直し signal。
-  // worktree dir 切り替えに乗らない経路 (例: worktree の作成直後、セッションの名前変更) で
+  // worktree dir 切り替えに乗らない経路 (例: worktree の作成直後) で
   // 楽観更新ではなく真値 fetch に倒すための窓口。
   watch(
     () => repoStore.refreshRequest,

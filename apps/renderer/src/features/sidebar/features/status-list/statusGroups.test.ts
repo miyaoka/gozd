@@ -79,7 +79,7 @@ describe("groupByStatus", () => {
     expect(ids(groups.active[0]?.rows ?? [])).toEqual(["newer", "older"]);
   });
 
-  test("repo は現れた順に並び、中の状態では動かない。順に無い repo は末尾", () => {
+  test("repo は現れた順に並び、中の状態では動かない。順に無い repo は先頭", () => {
     const groups = groupByStatus(
       [
         row("c-asking", {
@@ -106,9 +106,9 @@ describe("groupByStatus", () => {
       ["/a", "/b"],
     );
     expect(groups.active.map((g) => [g.rootDir, ids(g.rows)])).toEqual([
+      ["/c", ["c-asking"]],
       ["/a", ["a-done", "a-idle"]],
       ["/b", ["b-asking"]],
-      ["/c", ["c-asking"]],
     ]);
   });
 

@@ -10,7 +10,7 @@ interface ActiveRepoGroup {
 }
 
 export interface StatusGroups {
-  /** 端末が開いているもの。repo ごとにまとめ、repo が Active に現れた順に並ぶ */
+  /** 端末が開いているもの。repo ごとにまとめ、repo が Active に現れた順（新しいものが先）に並ぶ */
   active: ActiveRepoGroup[];
   /** 端末の開いていないもの。最終活動の新しい順 */
   inactive: PoolSessionRow[];
@@ -44,9 +44,9 @@ function compareActive(a: PoolSessionRow, b: PoolSessionRow): number {
 /**
  * 全 repo のセッション行を、端末が開いているものと開いていないものに分けて並べる。
  *
- * 端末が開いているものは repo ごとにまとめ、repo は `repoOrder`（Active に現れた順）に並べる。
- * 中のセッションの増減や状態の変化では repo の位置を動かさない。`repoOrder` にまだ無い repo は
- * 末尾に置く。repo の中の行は状態の順に並ぶ。
+ * 端末が開いているものは repo ごとにまとめ、repo は `repoOrder`（Active に現れた順で、新しいものが
+ * 先）に並べる。中のセッションの増減や状態の変化では repo の位置を動かさない。`repoOrder` に
+ * まだ無い repo は現れたばかりなので先頭に置く。repo の中の行は状態の順に並ぶ。
  */
 export function groupByStatus(
   rows: readonly PoolSessionRow[],
@@ -66,10 +66,9 @@ export function groupByStatus(
       rows: [row],
     });
   }
-  const positionOf = (rootDir: string) => {
-    const index = repoOrder.indexOf(rootDir);
-    return index === -1 ? repoOrder.length : index;
-  };
+  // 順に無い repo は indexOf が -1 を返し、そのまま先頭に来る。順は同じ行の集合から pre flush の
+  // watch で更新されるため、描画時に順に無いのは記録より先に評価された現れたばかりの repo だけ
+  const positionOf = (rootDir: string) => repoOrder.indexOf(rootDir);
   return {
     active: [...byRepo.values()].toSorted((a, b) => positionOf(a.rootDir) - positionOf(b.rootDir)),
     inactive: rows.filter((row) => !row.live).toSorted(compareRecentFirst),

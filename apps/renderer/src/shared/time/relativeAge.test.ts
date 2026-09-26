@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ageColor, formatRelativeAge, isoToUnixSec } from "./relativeAge";
+import { ageColor, formatRelativeAge, formatShortRelativeAge, isoToUnixSec } from "./relativeAge";
 
 // 時計を固定して帯の境界そのものを踏む（相対入力だと ms の丸めで帯をまたぎフレークになる）
 const NOW = 1_800_000_000;
@@ -77,5 +77,21 @@ describe("ageColor", () => {
     // formatRelativeAge は同じ入力を自前で早期 return するため、そちら経由では到達しない
     expect(ageColor(0, NOW)).toBe("text-foreground-muted");
     expect(ageColor(-1, NOW)).toBe("text-foreground-muted");
+  });
+});
+
+describe("formatShortRelativeAge", () => {
+  const short = (ageSec: number) => formatShortRelativeAge((NOW - ageSec) * 1000, NOW * 1000);
+
+  test("短縮表記と formatRelativeAge と同じ鮮度色を組で返す", () => {
+    for (const ageSec of [30, 5 * HOUR, 3 * DAY, 10 * DAY, 40 * DAY]) {
+      expect(short(ageSec).color).toBe(at(ageSec).color);
+    }
+    expect(short(30).text).toBe("now");
+    expect(short(5 * HOUR).text).toBe("5h");
+  });
+
+  test("4 週を超えても絶対日付に切り替えず日数で出す", () => {
+    expect(short(40 * DAY).text).toBe("40d");
   });
 });

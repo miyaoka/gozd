@@ -1,6 +1,6 @@
 import { useTimeoutFn } from "@vueuse/core";
 import { ref, watch, type Ref } from "vue";
-import { ageColor, formatShortAge } from "../../shared/time";
+import { formatShortRelativeAge, type RelativeAgeDisplay } from "../../shared/time";
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -18,15 +18,10 @@ function nextBoundaryDelay(elapsed: number): number {
   return DAY_MS - (elapsed % DAY_MS);
 }
 
-export interface RelativeTimeDisplay {
-  text: string;
-  color: string;
-}
-
 /**
  * baseTime（最後の活動時刻）からの相対時刻と鮮度色を表示するための composable。
- * 色はダッシュボード等の一覧と同じ age-* スケール（`ageColor`）で塗る。色帯の境界
- * （1 日 / 1 週 / 4 週）はいずれも日単位の表示境界と一致するため、同じ wakeup で色も追従する。
+ * テキストと色の組は `formatShortRelativeAge` が決める。wakeup は表記の変わり目にしか起きないため、
+ * 色帯（relativeAge の `AGE_BANDS`）の境界が表記の変わり目に乗っていることを前提にしている。
  *
  * 1秒間隔の polling はせず、表示が次に変わる境界まで setTimeout で 1 回だけ wakeup する
  * adaptive 方式（github/relative-time-element と同じ）。計算は常に `Date.now() - baseTime`
@@ -40,8 +35,8 @@ export interface RelativeTimeDisplay {
  * baseTime が undefined のあいだは text を空文字で返し、タイマーは VueUse が scope dispose で
  * 自動 stop する（`tryOnScopeDispose(stop)` が `useTimeoutFn` 内部に含まれている）。
  */
-export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<RelativeTimeDisplay> {
-  const display = ref<RelativeTimeDisplay>({ text: "", color: "" });
+export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<RelativeAgeDisplay> {
+  const display = ref<RelativeAgeDisplay>({ text: "", color: "" });
   const nextDelay = ref(MINUTE_MS);
 
   const { start, stop } = useTimeoutFn(
@@ -59,10 +54,7 @@ export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<Relative
       return;
     }
     const now = Date.now();
-    display.value = {
-      text: formatShortAge(latest, now),
-      color: ageColor(Math.floor(latest / 1000), Math.floor(now / 1000)),
-    };
+    display.value = formatShortRelativeAge(latest, now);
     nextDelay.value = nextBoundaryDelay(now - latest);
     stop();
     start();

@@ -198,6 +198,20 @@ describe("concierge", () => {
     expect(store.findSession("s1")?.cwd).toBe("/concierge");
   });
 
+  test("プールに無い rootDir を repo list に載せようとすると例外にする", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.setConciergeDir("/concierge");
+    expect(() => store.ensureInActiveRepoList("/concierge")).toThrow("not in the repo pool");
+  });
+
+  test("窓口の GitHub identity は空で確定している", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.setConciergeDir("/concierge");
+    expect(store.findRepoOwning("/concierge")?.githubIdentity).toEqual({ owner: "", repo: "" });
+  });
+
   test("app-state の復元で窓口は消えない", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();

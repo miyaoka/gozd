@@ -269,7 +269,14 @@ export const useRepoStore = defineStore("repo", () => {
    */
   const concierge = ref<RepoState>();
   function setConciergeDir(dir: string): void {
-    concierge.value = { rootDir: dir, repoName: CONCIERGE_NAME, isGitRepo: false, worktrees: [] };
+    concierge.value = {
+      rootDir: dir,
+      repoName: CONCIERGE_NAME,
+      isGitRepo: false,
+      worktrees: [],
+      // 非 git なので GitHub の owner / repo は無い。解決済みの空で確定させる
+      githubIdentity: { owner: "", repo: "" },
+    };
   }
   /** rootDir の project。プールの repo か窓口 */
   function repoAt(rootDir: string): RepoState | undefined {
@@ -342,6 +349,9 @@ export const useRepoStore = defineStore("repo", () => {
    * 保証する経路。プールに未登録の rootDir を渡してはいけない（union 不変条件）。
    */
   function ensureInActiveRepoList(rootDir: string) {
+    if (repos.value[rootDir] === undefined) {
+      throw new Error(`[useRepoStore] ensureInActiveRepoList: ${rootDir} is not in the repo pool`);
+    }
     const target = activeRepoList.value;
     if (target.dirOrder.includes(rootDir)) return;
     repoLists.value = repoLists.value.map((p) =>
@@ -519,7 +529,8 @@ export const useRepoStore = defineStore("repo", () => {
    */
   function setWorktreeGitStatuses(dir: string, patch: WorktreeStatusPatch) {
     const repo = findRepoOwning(dir);
-    if (repo === undefined) return;
+    // 書き戻し先はプールの repo だけ。窓口は repos に持たない
+    if (repo === undefined || repos.value[repo.rootDir] === undefined) return;
     const idx = repo.worktrees.findIndex((wt) => wt.path === dir);
     if (idx < 0) return;
     bumpGen(statusGenByDir, dir);

@@ -45,6 +45,11 @@ function onHeaderClick() {
   if (concierge.value === undefined) return;
   activateDir(concierge.value.rootDir);
 }
+
+function onOpenSessionMenu(anchorEl: HTMLElement, row: SessionRow) {
+  if (concierge.value === undefined) return;
+  emit("openSessionMenu", anchorEl, row, concierge.value.rootDir);
+}
 </script>
 
 <template>
@@ -72,9 +77,7 @@ function onHeaderClick() {
         :dir="concierge.rootDir"
         :active="active"
         @select="(row) => emit('selectSession', row)"
-        @open-menu="
-          (anchorEl, row) => emit('openSessionMenu', anchorEl, row, concierge?.rootDir ?? '')
-        "
+        @open-menu="onOpenSessionMenu"
       />
     </div>
   </section>

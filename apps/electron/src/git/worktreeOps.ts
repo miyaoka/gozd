@@ -153,7 +153,7 @@ const RM_PATH = "/bin/rm";
 const TRASH_PREFIX = ".gozd-worktree-trash-";
 
 /**
- * `git worktree remove [-f] <path>` 相当。ただし実体の unlink は待たない。
+ * `git worktree remove [-f -f] <path>` 相当。ただし実体の unlink は待たない。
  *
  * git は worktree 配下の全エントリを unlink してから戻るため、依存ツリーやビルド成果物を抱えた
  * worktree では削除がエントリ数に比例して待たされる。rename(2) はディレクトリエントリ 1 個の
@@ -187,9 +187,14 @@ export async function removeWorktree(dir: string, path: string, force: boolean):
   discardInBackground([trash]);
 }
 
+/**
+ * force は git の `-f -f` に対応させる。`-f` 1 個は未コミット変更だけを無視し、locked worktree は
+ * 2 個目で初めて外れる。gozd 外のツール（Claude Code の worktree 隔離 subagent 等）は worktree を
+ * lock して作るため、1 個では force しても消せない worktree が残る。
+ */
 async function runWorktreeRemove(dir: string, path: string, force: boolean): Promise<void> {
   const args = ["worktree", "remove"];
-  if (force) args.push("-f");
+  if (force) args.push("-f", "-f");
   args.push(path);
   await runGit(args, dir);
 }

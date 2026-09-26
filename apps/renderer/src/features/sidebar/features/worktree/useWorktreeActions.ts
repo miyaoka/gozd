@@ -82,7 +82,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
       return;
     }
     showConfirm(
-      `Failed to remove "${worktreeDisplayName(wt)}" (may have uncommitted changes). Force remove?`,
+      `Failed to remove "${worktreeDisplayName(wt)}" (may have uncommitted changes or be locked). Force remove?`,
       async () => {
         const forceResult = await tryCatch(
           rpcGitWorktreeRemove({ dir: rootDir, path: wt.path, force: true }),

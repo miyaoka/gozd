@@ -1,6 +1,6 @@
 import type { AppState, BranchChangePayload, HookPayload, WorktreeChangePayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
-import { onMounted, onUnmounted, watch } from "vue";
+import { onMounted, onUnmounted, readonly, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
@@ -312,7 +312,8 @@ export function useSidebarData() {
   // hydrate: app-state.json を読み、repoStore に反映
   // save: dirOrder / collapsedRoots / selectedDir / サイドバーの表示の変化を debounce で書き戻す
 
-  let hydrated = false;
+  /** app-state.json の読み込みが済んだか。済むまでは保存も、読み込んだ値で上書きされる操作も受けない */
+  const hydrated = ref(false);
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   const SAVE_DEBOUNCE_MS = 300;
 
@@ -333,7 +334,7 @@ export function useSidebarData() {
       sidebarView.value = result.value.state.sidebarView;
       restoreActiveDir(result.value.state.activeDir);
     }
-    hydrated = true;
+    hydrated.value = true;
   }
 
   function buildSnapshot(): AppState {
@@ -349,7 +350,7 @@ export function useSidebarData() {
   watch(
     () => JSON.stringify(buildSnapshot()),
     () => {
-      if (!hydrated) return;
+      if (!hydrated.value) return;
       if (saveTimer !== undefined) clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         saveTimer = undefined;
@@ -360,5 +361,6 @@ export function useSidebarData() {
 
   return {
     fetchRepo,
+    hydrated: readonly(hydrated),
   };
 }

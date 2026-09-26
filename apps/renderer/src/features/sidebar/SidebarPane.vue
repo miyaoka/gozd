@@ -112,8 +112,9 @@ const { sfxEnabled } = storeToRefs(arcadeStore);
 const { toggleSfx } = arcadeStore;
 
 // useSidebarData の onMounted で全 repo の fetch / FsWatch が起動する。
-// 戻り値は現状外側で使わないので呼び捨てる。
-useSidebarData();
+// hydrated は、保存値の読み込みが済むまで表示の切り替えを止めるのに使う（読み込み前に切り替えると、
+// 読み込んだ保存値で上書きされて操作が消える）
+const { hydrated } = useSidebarData();
 
 // 状態別の表示の repo の並び（Active に現れた順）は、表示を開いていない間も追う
 trackActiveRepoOrder();
@@ -378,7 +379,8 @@ watch(
           aria-label="Repositories"
           title="Repositories"
           :aria-pressed="sidebarView === 'tree'"
-          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground"
+          :disabled="!hydrated"
+          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
           :class="sidebarView === 'tree' && 'bg-element text-foreground'"
           @click="sidebarView = 'tree'"
         >
@@ -389,7 +391,8 @@ watch(
           aria-label="Sessions by status"
           title="Sessions by status"
           :aria-pressed="sidebarView === 'status'"
-          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground"
+          :disabled="!hydrated"
+          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
           :class="sidebarView === 'status' && 'bg-element text-foreground'"
           @click="sidebarView = 'status'"
         >

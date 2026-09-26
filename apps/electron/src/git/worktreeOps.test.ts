@@ -289,4 +289,12 @@ describe("removeWorktree (integration)", () => {
     expect(existsSync(join(wt, "a.txt"))).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
   });
+
+  test("locked な worktree も force なら消える", async () => {
+    const { repo, wt } = makeRepoWithWorktree();
+    runFixtureGit(["worktree", "lock", "--reason", "held by another tool", wt], repo);
+    await removeWorktree(repo, wt, true);
+    expect(existsSync(wt)).toBe(false);
+    expect(worktreeCount(repo)).toBe(1);
+  });
 });

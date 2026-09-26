@@ -6,6 +6,7 @@
 // バイナリは `WireBytes`（送出前に `toWireBytes` で専有 buffer 化）で返す。
 
 import type {
+  ConciergeInfoResponse,
   ClaudeSessionListRequest,
   ClaudeSessionListResponse,
   ClaudeSessionLogRequest,
@@ -148,13 +149,14 @@ import type {
 } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { isChildWindow } from "./childWindows";
 import { addPreviewRoot, isWithinRoot, releasePreviewRoots } from "./previewProtocol";
 import { isValidPreviewId, pathToPreviewUrl } from "./previewUrl";
 import { listClaudeSessions } from "./claude/claudeSessionList";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
+import { conciergeDir } from "./concierge";
 import {
   existsAbsolute,
   readDir,
@@ -997,6 +999,13 @@ function handleClaudeSessionRemoveByPty(body: unknown): unknown {
   return { removedSessionId } satisfies ClaudeSessionRemoveByPtyResponse;
 }
 
+/** 窓口のディレクトリ。窓口は gozd が管理するので、無ければここで作る */
+function handleConciergeInfo(): unknown {
+  const dir = conciergeDir();
+  mkdirSync(dir, { recursive: true });
+  return { dir } satisfies ConciergeInfoResponse;
+}
+
 async function handleClaudeSessionList(body: unknown): Promise<unknown> {
   const req = body as ClaudeSessionListRequest;
   return { sessions: await listClaudeSessions(req.dir) } satisfies ClaudeSessionListResponse;
@@ -1159,6 +1168,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/window/close", handleWindowClose],
   ["/window/setTitleContext", handleWindowSetTitleContext],
   ["/claudeSession/list", handleClaudeSessionList],
+  ["/concierge/info", handleConciergeInfo],
   ["/claudeSession/removeByPty", handleClaudeSessionRemoveByPty],
   ["/claudeSession/readLog", handleClaudeSessionReadLog],
   ["/claudeSession/reviveList", handleReviveSessionList],

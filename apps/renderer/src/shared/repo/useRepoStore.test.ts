@@ -168,6 +168,51 @@ describe("sessions", () => {
   });
 });
 
+describe("concierge", () => {
+  test("窓口は project として引けるが、プールと永続化には載らない", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({ rootDir: "/a", repoName: "a", isGitRepo: false, worktrees: [] });
+    store.setConciergeDir("/concierge");
+
+    expect(store.findRepoOwning("/concierge")?.repoName).toBe("Concierge");
+    expect(store.repoAt("/concierge")?.isGitRepo).toBe(false);
+    expect(store.poolDirs).toEqual(["/a"]);
+    expect(store.buildAppStateSnapshot().sidebarRepos.map((r) => r.rootDir)).toEqual(["/a"]);
+    expect([...store.fsWatchTargetDirs]).toContain("/concierge");
+  });
+
+  test("窓口を選ぶと selectedRepo が窓口になる", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.setConciergeDir("/concierge");
+    store.selectDir("/concierge");
+    expect(store.selectedRepo?.rootDir).toBe("/concierge");
+  });
+
+  test("窓口のセッションを持てる", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.setConciergeDir("/concierge");
+    store.setRepoSessions("/concierge", [session("s1", "/concierge")]);
+    expect(store.findSession("s1")?.cwd).toBe("/concierge");
+  });
+
+  test("app-state の復元で窓口は消えない", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.setConciergeDir("/concierge");
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        { rootDir: "/a", repoName: "a", isGitRepo: false, collapsed: false, worktrees: [] },
+      ],
+      repoLists: [],
+      activeRepoListId: "",
+    });
+    expect(store.findRepoOwning("/concierge")?.rootDir).toBe("/concierge");
+  });
+});
+
 describe("updateRepoData", () => {
   const observed = {
     statuses: { "b.txt": "R." },

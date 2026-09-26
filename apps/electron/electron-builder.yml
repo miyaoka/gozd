@@ -23,6 +23,7 @@
 #       bin/                             ← wrapper + gozd-cli shim（gozdEnv が Resources/app/bin を期待）
 #       zsh/                             ← zsh init チェーン（Swift 版と共有）
 #       claude-plugin/                   ← gozd の skill を運ぶ Claude Code plugin（--plugin-dir で渡す）
+#       concierge/                       ← 窓口の Claude に付ける指示（--append-system-prompt-file で渡す）
 #       views/main/                      ← renderer の Vite ビルド成果物
 appId: io.github.miyaoka.gozd.electron
 productName: Gozd
@@ -65,6 +66,8 @@ extraResources:
     to: app/zsh
   - from: resources/claude-plugin
     to: app/claude-plugin
+  - from: resources/concierge
+    to: app/concierge
   - from: ../renderer/dist
     to: app/views/main
 mac:

@@ -4,6 +4,8 @@
 
 ## レイアウト構成
 
+- **窓口**: ツールバーの直下に固定する（docs/concierge.md）。repo list の外に置くので、list の
+  切り替えや編集モードで消えない
 - **トップツールバー**: 左に view mode トグル (active worktree / claude terminals。ターミナルの
   タイル表示だけに効き、サイドバーの表示内容は変えない)、右に時計 / SFX
 - **repo list バー**: 編集トグルをツールバーではなくこのバーに置くのは、編集の対象がこの
@@ -67,6 +69,7 @@ import { openSession, type SessionRow } from "../session";
 import { SessionLogDialog } from "../session-log";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
+import { ConciergeSection } from "./features/concierge";
 import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
 import ListEditDialog from "./ListEditDialog.vue";
@@ -366,6 +369,15 @@ watch(
           <component :is="sfxEnabled ? IconLucideVolume2 : IconLucideVolumeOff" class="text-base" />
         </button>
       </div>
+    </div>
+
+    <!-- 窓口: repo list の外に固定する（docs/concierge.md） -->
+    <div class="px-1 pt-2">
+      <ConciergeSection
+        :active-dir="worktreeStore.dir"
+        @select-session="onSelectSession"
+        @open-session-menu="onOpenSessionMenu"
+      />
     </div>
 
     <!-- repo list バー: 編集トグルはツールバーではなくこのエリアに置く。ツールバーは

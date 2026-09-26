@@ -240,6 +240,8 @@ PTY 起動時、親の環境変数を継承したうえで gozd 固有の値を�
 | `GOZD_CLI_PATH`             | CLI 実行 shim の絶対パス                       |
 | `GOZD_CLAUDE_SETTINGS_PATH` | Claude hooks 設定ファイルのパス                |
 | `GOZD_CLAUDE_PLUGIN_DIR`    | gozd の skill を運ぶ Claude Code plugin のパス |
+| `GOZD_CONCIERGE_DIR`        | 窓口のディレクトリ                             |
+| `GOZD_CONCIERGE_PROMPT`     | 窓口の Claude に付ける指示のパス               |
 | `GOZD_ZDOTDIR`              | gozd の zsh 初期化ディレクトリ                 |
 | `GOZD_ORIG_ZDOTDIR`         | gozd が上書きする前のユーザーの ZDOTDIR        |
 
@@ -288,7 +290,8 @@ zsh 起動
 
 - **`claude` のラップ**: hooks 設定と gozd の skill を自動で付与する。hooks 設定はユーザーが
   明示的に設定を指定した場合そのまま通す（設定ファイルは 1 つしか指定できない）。skill は
-  追加専用の指定なので常に付ける
+  追加専用の指定なので常に付ける。窓口のディレクトリで起動したときだけ、窓口の指示も付ける
+  （[concierge.md](concierge.md)）
 - **cwd 通知**: ディレクトリ変更のたびに OSC 7 で現在の cwd を送る（[terminal.md](terminal.md)）
 - **起動意図の消費**: 環境変数で渡された「セッション再開」「自動起動」「セットアップスクリプト」の
   意図を 1 回だけ実行する

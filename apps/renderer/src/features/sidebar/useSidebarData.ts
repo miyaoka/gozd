@@ -8,6 +8,7 @@ import type { FsWatchReadyPayload } from "../../shared/rpc";
 import { rpcClaudeSessionList } from "../session";
 import { useTerminalStore } from "../terminal";
 import { rpcGitGithubIdentity, rpcGitWorktreeList, useWorktreeStore } from "../worktree";
+import { rpcConciergeInfo } from "./features/concierge";
 import { restoreActiveDir } from "./restoreActiveDir";
 import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
 
@@ -31,7 +32,7 @@ export function useSidebarData() {
 
   /** 1 つの repo のセッション一覧を取り直して repoStore を更新。git 管理外の project も対象 */
   async function fetchSessions(rootDir: string) {
-    if (repoStore.repos[rootDir] === undefined) return;
+    if (repoStore.repoAt(rootDir) === undefined) return;
     const gen = (sessionFetchGenByRoot.get(rootDir) ?? 0) + 1;
     sessionFetchGenByRoot.set(rootDir, gen);
     const result = await tryCatch(rpcClaudeSessionList({ dir: rootDir }));
@@ -45,7 +46,7 @@ export function useSidebarData() {
 
   /** 1 つの repo の worktrees を取り直して repoStore を更新。セッション一覧は取らない */
   async function fetchRepo(rootDir: string) {
-    const repo = repoStore.repos[rootDir];
+    const repo = repoStore.repoAt(rootDir);
     if (repo === undefined) return;
     if (!repo.isGitRepo) return;
     const gen = (fetchGenByRoot.get(rootDir) ?? 0) + 1;
@@ -124,6 +125,15 @@ export function useSidebarData() {
           void fetchSessions(dir);
         }
       }
+    },
+    { immediate: true },
+  );
+
+  // 窓口のディレクトリが決まったら、窓口のセッション一覧を取る
+  watch(
+    () => repoStore.concierge?.rootDir,
+    (dir) => {
+      if (dir !== undefined) void fetchSessions(dir);
     },
     { immediate: true },
   );
@@ -298,7 +308,17 @@ export function useSidebarData() {
   const SAVE_DEBOUNCE_MS = 300;
 
   async function hydrateAppState() {
-    const result = await tryCatch(rpcAppStateLoad({}));
+    const [concierge, result] = await Promise.all([
+      tryCatch(rpcConciergeInfo({})),
+      tryCatch(rpcAppStateLoad({})),
+    ]);
+    // 窓口は前回の選択の復元より先に置く。前回窓口を選んでいたとき、復元が窓口を
+    // どの project にも属さない dir と見て捨てないようにする
+    if (concierge.ok) {
+      repoStore.setConciergeDir(concierge.value.dir);
+    } else {
+      notify.error("Failed to prepare the concierge directory", concierge.error);
+    }
     if (result.ok && result.value.state !== undefined) {
       repoStore.hydrateFromAppState(result.value.state);
       restoreActiveDir(result.value.state.activeDir);

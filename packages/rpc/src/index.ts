@@ -44,6 +44,7 @@ export type {
   ReviveSessionResponse,
 } from "./claudeSession";
 export type { ClipboardCopyFilesRequest, ClipboardCopyFilesResponse } from "./clipboard";
+export type { ConciergeInfoRequest, ConciergeInfoResponse } from "./concierge";
 export type {
   ClientMessage,
   ClientReply,

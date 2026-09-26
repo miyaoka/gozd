@@ -96,6 +96,9 @@ export function collectFsWatchTargetDirs(
 
 const DEFAULT_REPO_LIST_NAME = "Default";
 
+/** 窓口の表示名 */
+const CONCIERGE_NAME = "Concierge";
+
 function createDefaultRepoList(dirOrder: string[] = []): RepoList {
   return { id: crypto.randomUUID(), name: DEFAULT_REPO_LIST_NAME, dirOrder };
 }
@@ -177,7 +180,7 @@ export const useRepoStore = defineStore("repo", () => {
    */
   const sessionsByRoot = ref<Record<string, ClaudeSessionSummary[]>>({});
   function setRepoSessions(rootDir: string, sessions: ClaudeSessionSummary[]): void {
-    if (repos.value[rootDir] === undefined) return;
+    if (repoAt(rootDir) === undefined) return;
     sessionsByRoot.value[rootDir] = sessions;
   }
   /** repo（本体と全 worktree）のセッション。lastModified 降順。作業ディレクトリへの帰属は
@@ -259,19 +262,41 @@ export const useRepoStore = defineStore("repo", () => {
     return { status: statusGenByDir.get(dir) ?? 0, head: headGenByDir.get(dir) ?? 0 };
   }
 
+  /**
+   * 窓口（docs/concierge.md）。非 git の project として扱うが、repo list にもプールにも載せず、
+   * 永続化もしない（窓口のディレクトリは main が決める）。dir がどの project に属するかの判定
+   * （`findRepoOwning` / `selectedRepo` / ファイル監視 / セッション）ではプールの repo と同じに扱う。
+   */
+  const concierge = ref<RepoState>();
+  function setConciergeDir(dir: string): void {
+    concierge.value = { rootDir: dir, repoName: CONCIERGE_NAME, isGitRepo: false, worktrees: [] };
+  }
+  /** rootDir の project。プールの repo か窓口 */
+  function repoAt(rootDir: string): RepoState | undefined {
+    if (rootDir === concierge.value?.rootDir) return concierge.value;
+    return repos.value[rootDir];
+  }
+  /** dir の属する project を探す対象。窓口とプール全体 */
+  const projectRepos = computed<RepoState[]>(() => {
+    const pool = poolDirs.value.flatMap((rootDir) => {
+      const repo = repos.value[rootDir];
+      return repo === undefined ? [] : [repo];
+    });
+    return concierge.value === undefined ? pool : [concierge.value, ...pool];
+  });
+  function ownerIn(dir: string): RepoState | undefined {
+    return projectRepos.value.find(
+      (repo) => repo.rootDir === dir || repo.worktrees.some((wt) => wt.path === dir),
+    );
+  }
+
   /** selectedDir を含む repo を逆引き。最初に dir を含む repo。
    * active dir はどの repo list の repo でも選択できるためプール全体を走査する */
   const selectedRepo = computed(() => {
     const dir = selectedDir.value;
     if (dir === undefined) return undefined;
-    for (const rootDir of poolDirs.value) {
-      const repo = repos.value[rootDir];
-      if (repo === undefined) continue;
-      if (repo.rootDir === dir) return repo;
-      if (repo.worktrees.some((wt) => wt.path === dir)) return repo;
-    }
     // worktrees にまだ含まれていない（fetch 前）場合の fallback
-    return repos.value[dir];
+    return ownerIn(dir) ?? repos.value[dir];
   });
 
   const selectedIsGitRepo = computed(() => selectedRepo.value?.isGitRepo ?? false);
@@ -279,17 +304,15 @@ export const useRepoStore = defineStore("repo", () => {
 
   /** `useFsWatchSync` が watch すべき dir 集合。`repos[*].worktrees` または非 git の rootDir。
    * repo list は表示のみの概念なので、非アクティブ repo list の repo も watch し続ける */
-  const fsWatchTargetDirs = computed(() => collectFsWatchTargetDirs(poolDirs.value, repos.value));
+  const fsWatchTargetDirs = computed(() => {
+    const dirs = collectFsWatchTargetDirs(poolDirs.value, repos.value);
+    if (concierge.value !== undefined) dirs.add(concierge.value.rootDir);
+    return dirs;
+  });
 
-  /** dir がどこかの repo の worktrees に含まれていればその repo を返す（プール全体） */
+  /** dir がどこかの repo の worktrees に含まれていればその repo を返す（窓口とプール全体） */
   function findRepoOwning(dir: string): RepoState | undefined {
-    for (const rootDir of poolDirs.value) {
-      const repo = repos.value[rootDir];
-      if (repo === undefined) continue;
-      if (repo.rootDir === dir) return repo;
-      if (repo.worktrees.some((wt) => wt.path === dir)) return repo;
-    }
-    return undefined;
+    return ownerIn(dir);
   }
 
   /** `dir` が active repo (selectedDir 所属) と同じ repo を共有しているか。
@@ -747,6 +770,9 @@ export const useRepoStore = defineStore("repo", () => {
     findRepoOwning,
     isSameRepoAsActive,
     addRepo,
+    concierge,
+    setConciergeDir,
+    repoAt,
     updateRepoData,
     setRepoSessions,
     sessionsOf,

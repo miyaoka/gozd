@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { conciergeDir } from "./concierge";
 
 // packaged 判定: Electron main の __dirname（asar 有効時は Resources/app.asar/dist）は packaged 時のみ
 // process.resourcesPath（Contents/Resources）配下に入る。`app.isPackaged` を使わないのは
@@ -77,6 +78,11 @@ export const zdotdir = isPackaged
 export const claudePluginDir = isPackaged
   ? join(bundledAppRoot, "claude-plugin")
   : join(electronRoot, "resources", "claude-plugin");
+// 窓口のディレクトリで起動した claude にだけ付ける指示。zsh init が
+// `--append-system-prompt-file` で渡す。作業中に書き換えられないよう同梱リソースに置く
+const conciergePromptPath = isPackaged
+  ? join(bundledAppRoot, "concierge", "prompt.md")
+  : join(electronRoot, "resources", "concierge", "prompt.md");
 // packaged 時に loadFile する renderer（Vite build は base "./" なので file:// で成立する）
 export const bundledRendererIndex = join(bundledAppRoot, "views", "main", "index.html");
 
@@ -122,6 +128,8 @@ export function buildPtyEnv(
   result.GOZD_CLI_PATH = cliPath;
   result.GOZD_CLAUDE_SETTINGS_PATH = claudeSettingsPath;
   result.GOZD_CLAUDE_PLUGIN_DIR = claudePluginDir;
+  result.GOZD_CONCIERGE_DIR = conciergeDir();
+  result.GOZD_CONCIERGE_PROMPT = conciergePromptPath;
 
   // ZDOTDIR チェーン: 元値（親 or renderer 指定）を退避してから gozd 側に切替
   const originalZdotdir = rendererEnv.ZDOTDIR ?? process.env.ZDOTDIR ?? userHome;

@@ -26,10 +26,15 @@ _gozd_osc7_cwd
 # - --plugin-dir: gozd の skill を運ぶ plugin。繰り返し指定できる追加専用のフラグなので、
 #   ユーザー指定の有無に関わらず常に足す。gozd の中でしか使えないコマンドを扱う skill なので、
 #   ユーザーの ~/.claude には置かずこの経路だけで供給する
+# - --append-system-prompt-file: 窓口の指示。窓口のディレクトリで起動したときだけ付ける
+#   （docs/concierge.md）。`:A` でシンボリックリンクを解決してから比べる
 claude() {
   local arg
   local -a gozd_args=()
   [[ -n "$GOZD_CLAUDE_PLUGIN_DIR" ]] && gozd_args+=(--plugin-dir "$GOZD_CLAUDE_PLUGIN_DIR")
+  if [[ -n "$GOZD_CONCIERGE_DIR" && -n "$GOZD_CONCIERGE_PROMPT" && "${PWD:A}" == "${GOZD_CONCIERGE_DIR:A}" ]]; then
+    gozd_args+=(--append-system-prompt-file "$GOZD_CONCIERGE_PROMPT")
+  fi
   for arg in "$@"; do
     # `--` 以降は option ではなくプロンプト本文。走査を打ち切らないと、本文が
     # --settings に一致したときに hooks 設定の注入が黙って外れる

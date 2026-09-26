@@ -77,7 +77,7 @@ import {
 } from "../preview";
 import { registerSearchCommand, SearchDialog } from "../search";
 import { registerAppConfigSync, registerSettingsCommand, SettingsModal } from "../settings";
-import { SidebarPane } from "../sidebar";
+import { registerConciergeCommand, SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
 import {
   centerColumnWidth,
@@ -143,6 +143,7 @@ const disposeFilePickerCommand = registerFilePickerCommand();
 const disposeSearchCommand = registerSearchCommand();
 const disposeReviveCommand = registerReviveCommand();
 const disposeDashboardCommand = registerDashboardCommand();
+const disposeConciergeCommand = registerConciergeCommand();
 const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 const disposeFilerCommands = registerFilerCommands();
 onUnmounted(disposePreviewToggle);
@@ -157,6 +158,7 @@ onUnmounted(disposeFilePickerCommand);
 onUnmounted(disposeSearchCommand);
 onUnmounted(disposeReviveCommand);
 onUnmounted(disposeDashboardCommand);
+onUnmounted(disposeConciergeCommand);
 onUnmounted(disposeMarkdownHistoryCommands);
 onUnmounted(disposeFilerCommands);
 

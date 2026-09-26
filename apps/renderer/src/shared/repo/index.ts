@@ -7,9 +7,4 @@ export {
   toRepoWorktree,
   useRepoStore,
 } from "./useRepoStore";
-export {
-  CLAUDE_PLACEHOLDER_TITLE,
-  resolveDisplayTitle,
-  taskDisplayTitle,
-  taskNumberPrefix,
-} from "./taskTitle";
+export { sessionDisplayTitle } from "./sessionTitle";

@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
 import { generateTimestamp, tryCatch } from "@gozd/shared";
 import { resolveContained } from "../fs/pathContainment";
-import { gozdWorktreesRoot, resolveMainRepoRoot, resolveProjectKey } from "../taskStore";
+import { gozdWorktreesRoot, resolveMainRepoRoot, resolveProjectKey } from "../projectKey";
 import { resolveStartPoint } from "./gitBranch";
 import { perWorktreeGitDir, worktreeList } from "./gitOps";
 import { runGit } from "./gitRunner";

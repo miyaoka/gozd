@@ -10,7 +10,6 @@ export {
 export type { PathTarget } from "./pathUtils";
 export { ensureRepoRegistered } from "./ensureRepoRegistered";
 export {
-  rpcCreateTaskWorktree,
   rpcCreateWorktree,
   rpcGitGithubIdentity,
   rpcGitPrList,

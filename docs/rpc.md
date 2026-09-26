@@ -12,8 +12,6 @@ renderer と main の通信、および CLI / Claude hooks からの受付。
 
 - **列挙は文字列リテラル union** で表し、main の内部表現と同じ文字列にする。境界での変換層を
   持たない
-  - 例外は `GhRef` の種別（`"GH_REF_KIND_PR"` / `"GH_REF_KIND_ISSUE"`）。永続化ファイルに書かれる
-    値なので文字列を固定する。組み立ては専用ヘルパー経由に限定し、リテラルを散らさない
 - **フィールド名は永続化 JSON のキーと一致させる**。永続化形式と RPC 形式で別の命名規約を
   持たない
 
@@ -58,6 +56,7 @@ main から renderer への一方向通知。
 | `fsWatchReady`           | 監視登録成立後の dir 単位の再同期シグナル（renderer 内部で発射。ワイヤ push ではない） |
 | `gozdOpen`               | CLI / 起動要求からの open 要求                                                         |
 | `newWorktree`            | CLI が作った worktree を開けの要求                                                     |
+| `sessionOpen`            | CLI からのセッションを開けの要求                                                       |
 | `serverPortsChange`      | 実行中サーバー検出結果の snapshot                                                      |
 | `hook`                   | Claude Code の hook イベント                                                           |
 | `notify`                 | main 側のバックグラウンドエラー / 情報通知                                             |

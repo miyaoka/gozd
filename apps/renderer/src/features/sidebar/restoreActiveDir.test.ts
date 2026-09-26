@@ -12,7 +12,6 @@ function wt(path: string, branch: string, isMain = false): RepoWorktree {
     isMain,
     gitStatuses: {},
     renameOldPaths: {},
-    tasks: [],
     upstream: undefined,
     latestMtime: 0,
   };

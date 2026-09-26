@@ -6,7 +6,9 @@
 //   （旧 proto3 JSON は default 値を省略して書いた）は default 充填する
 // - 「存在するが型違反」のフィールドはファイルの性格で扱いを分ける（rawJson.ts の契約）:
 //   - AppState（機械専有の state）: 破損として検知し、stderr ログ + 初期状態で上書き save
-//     （TaskStore の parse 失敗と同じ reinit 経路。ベータ方針: 部分救済を書かない）
+//     （ベータ方針: 部分救済を書かない）。例外は列挙値のフィールドの未知の値で、そのフィールド
+//     だけ default に倒して stderr ログを残す（別 channel の新しいビルドが書いた値を読むため。
+//     docs/architecture.md の「信頼できない入力の正規化」）
 //   - AppConfig（ユーザー設定。手編集が正規経路）: 違反フィールドだけ default に倒して
 //     stderr ログ。ファイルは書き換えない（VS Code の消費側 validate と同型）。ただし
 //     save は全量書き出しのため、default に倒した値は次の設定変更の保存時にファイルへ
@@ -14,7 +16,7 @@
 // - AppState の save は既存ファイルを raw dict として読み shallow merge し、
 //   未知 top-level キー（別バージョンが書いたフィールド）を保持する
 
-import type { AppConfig, AppState } from "@gozd/rpc";
+import { SIDEBAR_VIEWS, type AppConfig, type AppState, type SidebarView } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -153,10 +155,24 @@ export function normalizeAppState(raw: unknown): AppState {
     // 「未選択 = キー不在」の optional 契約。空文字は unset に正規化する
     // （undefined 値は JSON.stringify で落ちるため、save 時にキー不在へ戻る）
     activeDir: activeDir !== "" ? activeDir : undefined,
+    sidebarView: normalizeSidebarView(dict.sidebarView),
   };
 }
 
-/** テスト注入用に path を取る変種（taskStore の createTaskStore(configDir) と同じ流儀）。
+/**
+ * 文字列でなければ型違反として reinit に倒す（strict）。知らない値は tree に倒す:
+ * state ディレクトリは channel をまたいで共有され、新しいビルドが足した表示を古いビルドが
+ * 読むことがあるため、表示の選択 1 つで repo の一覧ごと初期化しない
+ */
+function normalizeSidebarView(value: unknown): SidebarView {
+  const view = strictString(value, "sidebarView", "tree");
+  const known = SIDEBAR_VIEWS.find((v) => v === view);
+  if (known !== undefined) return known;
+  console.error(`[normalizeAppState] unknown sidebarView "${view}"; falling back to "tree"`);
+  return "tree";
+}
+
+/** テスト注入用に path を取る変種。
  * production は下の loadAppConfig が固定パスを束縛する */
 export function loadAppConfigFrom(path: string): AppConfig {
   if (!existsSync(path)) return normalizeAppConfig({});
@@ -187,8 +203,8 @@ export function ensureAppConfigFile(): string {
 }
 
 /** テスト注入用に path を取る変種。parse 失敗 / 型違反（RawJsonTypeError）はどちらも破損として
- * stderr ログ + 初期状態で上書き save する（TaskStore.loadFile の reinit と同じ規律。
- * 上書きしないと壊れたファイルが起動のたびに失敗し続ける） */
+ * stderr ログ + 初期状態で上書き save する（上書きしないと壊れたファイルが起動のたびに
+ * 失敗し続ける） */
 export function loadAppStateFrom(path: string): AppState {
   if (!existsSync(path)) return normalizeAppState({});
   const parsed = tryCatch(() => normalizeAppState(JSON.parse(readFileSync(path, "utf8"))));
@@ -200,8 +216,16 @@ export function loadAppStateFrom(path: string): AppState {
   return empty;
 }
 
+/**
+ * このインスタンスが最後に読んだ、または renderer が最後に保存した AppState。`app-state.json` は channel を
+ * またいで共有され、別インスタンスが後から書き換えうるため、このインスタンスの状態を問われたとき
+ * （窓口の repo 一覧）はファイルではなくこちらを見る
+ */
+let latestAppState: AppState | undefined;
+
 export function loadAppState(): AppState {
-  return loadAppStateFrom(appStatePath);
+  latestAppState = loadAppStateFrom(appStatePath);
+  return latestAppState;
 }
 
 /** テスト注入用に path を取る変種 */
@@ -223,4 +247,10 @@ function saveAppStateTo(path: string, state: AppState): void {
 
 export function saveAppState(state: AppState): void {
   saveAppStateTo(appStatePath, state);
+  latestAppState = state;
+}
+
+/** このインスタンスの AppState。renderer がまだ読んでいなければ、これから読む内容（ファイル） */
+export function currentAppState(): AppState {
+  return latestAppState ?? loadAppState();
 }

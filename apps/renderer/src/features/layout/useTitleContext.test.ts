@@ -8,7 +8,6 @@ function wt(path: string, branch: string): WorktreeEntry {
     head: "",
     branch,
     isMain: false,
-    tasks: [],
   };
 }
 

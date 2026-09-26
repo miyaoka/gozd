@@ -2,10 +2,9 @@ import type { WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { ref } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
-import { useRepoStore } from "../../../../shared/repo";
+import { branchLabel, useRepoStore } from "../../../../shared/repo";
 import { activateDir, useTerminalStore } from "../../../terminal";
 import { rpcCreateWorktree, rpcGitWorktreeRemove } from "../../../worktree";
-import { worktreeDisplayName } from "../../utils";
 
 interface UseWorktreeActionsOptions {
   showConfirm: (message: string, action: () => Promise<void>) => void;
@@ -41,12 +40,14 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   // --- 作成・削除 ---
 
-  /** 新規 worktree を即座に作成する（Task なし）。起点 ref と名前は main 側が決める */
+  /** 新規 worktree を即座に作成する。起点 ref と名前は main 側が決める */
   async function addWorktree(rootDir: string) {
     if (creatingRootDirs.value.has(rootDir)) return;
     creatingRootDirs.value.add(rootDir);
     try {
-      const result = await tryCatch(rpcCreateWorktree({ dir: rootDir }));
+      const result = await tryCatch(
+        rpcCreateWorktree({ dir: rootDir, branch: "", startPoint: "" }),
+      );
       if (result.ok && result.value.worktree !== undefined) {
         // 掲載先は store が持つ repo のキーで指す。main が返す rootDir は realpath 解決済みの
         // main repo root で、store のキーと一致しないことがある。引けないまま activate すると
@@ -82,7 +83,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
       return;
     }
     showConfirm(
-      `Failed to remove "${worktreeDisplayName(wt)}" (may have uncommitted changes or be locked). Force remove?`,
+      `Failed to remove "${branchLabel(wt.branch)}" (may have uncommitted changes or be locked). Force remove?`,
       async () => {
         const forceResult = await tryCatch(
           rpcGitWorktreeRemove({ dir: rootDir, path: wt.path, force: true }),
@@ -90,7 +91,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
         if (forceResult.ok) {
           detachWorktree(rootDir, wt);
         } else {
-          notify.error(`Failed to force remove "${worktreeDisplayName(wt)}"`, forceResult.error);
+          notify.error(`Failed to force remove "${branchLabel(wt.branch)}"`, forceResult.error);
         }
       },
     );

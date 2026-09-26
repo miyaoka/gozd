@@ -16,7 +16,7 @@ import { tryCatch } from "@gozd/shared";
 import { existsSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { GitCommandError, runGit } from "./git/gitRunner";
-import { resolveMainRepoRoot } from "./taskStore";
+import { resolveMainRepoRoot } from "./projectKey";
 
 /** `git rev-parse --show-toplevel`。git 管理外 / ドメイン失敗は空文字列 */
 async function repoTopLevel(dir: string): Promise<string> {

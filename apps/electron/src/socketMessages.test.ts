@@ -1,14 +1,12 @@
 // socketMessages（ClientMessage 解釈 + 配送）のテスト。
-// applyClaudeSessionHook の taskStore 書き込み経路は taskStore.test.ts が意味論を固定して
-// いるため、ここでは routing（hook push の payload 形 / open の gozdOpen 変換 / decode
-// 失敗の観察 / 逐次処理）を mock push で検証する。
-// 未登録 ptyId の session-start は worktreePath 空ガードで skip される（実 store に
-// 書き込まない）ことを前提に、production の taskStore を import したまま実行できる。
+// routing（hook push の payload 形 / open の gozdOpen 変換 / decode 失敗の観察 / 逐次処理）を
+// mock push で検証する。
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { liveSessions, registerSpawn } from "./ptySessions";
 import { createSocketMessageHandler } from "./socketMessages";
 
 describe("socketMessages", () => {
@@ -92,7 +90,7 @@ describe("socketMessages", () => {
 
   test("newWorktree は dir 未指定を失敗として応答する（応答を返す唯一の種別）", async () => {
     const handle = createSocketMessageHandler(() => {});
-    const reply = await handle(JSON.stringify({ newWorktree: { title: "t", prompt: "" } }));
+    const reply = await handle(JSON.stringify({ newWorktree: { prompt: "" } }));
     expect(JSON.parse(reply ?? "")).toEqual({
       ok: false,
       dir: "",
@@ -100,25 +98,14 @@ describe("socketMessages", () => {
     });
   });
 
-  test("newWorktree は title 未指定を失敗として応答する", async () => {
-    // CLI を経由しない送信でも「見分けの付かない Task」を作らせない
-    const handle = createSocketMessageHandler(() => {});
-    const reply = await handle(JSON.stringify({ newWorktree: { dir: "/tmp", prompt: "" } }));
-    expect(JSON.parse(reply ?? "")).toEqual({
-      ok: false,
-      dir: "",
-      error: "newWorktree: title is required",
-    });
-  });
-
   test("newWorktree は作成に失敗したら push せず失敗を応答する", async () => {
-    // git 管理外の dir では起点 ref を解決できない。worktree だけ出来て task が付かない
-    // 中間状態を作らないため、この時点で止めて実行者に失敗を返す
+    // git 管理外の dir では起点 ref を解決できない。作れなかった worktree を renderer に
+    // 開かせないため、この時点で止めて実行者に失敗を返す
     const dir = mkdtempSync(join(tmpdir(), "gozd-socket-newwt-"));
     tempDirs.push(dir);
     const pushed: unknown[] = [];
     const handle = createSocketMessageHandler((type) => pushed.push(type));
-    const reply = await handle(JSON.stringify({ newWorktree: { dir, title: "t", prompt: "" } }));
+    const reply = await handle(JSON.stringify({ newWorktree: { dir, prompt: "" } }));
     const parsed = JSON.parse(reply ?? "") as { ok: boolean; dir: string; error: string };
     expect(parsed.ok).toBe(false);
     expect(parsed.error).not.toBe("");
@@ -160,5 +147,54 @@ describe("socketMessages", () => {
     void handle('{"hook":{"event":"poison","ptyId":1}}');
     await handle('{"hook":{"event":"running","ptyId":1}}');
     expect(pushed.map((p) => p.event)).toEqual(["running"]);
+  });
+
+  test("未登録の端末からの worktreeRemove は理由付きの失敗を応答し、push しない", async () => {
+    const pushed: string[] = [];
+    const handle = createSocketMessageHandler((type) => pushed.push(type));
+    const line = await handle(
+      JSON.stringify({ worktreeRemove: { path: "/nonexistent/wt", ptyId: 999999 } }),
+    );
+    expect(JSON.parse(line ?? "")).toEqual({
+      ok: false,
+      dir: "",
+      error: "worktree remove is accepted only from the concierge terminal",
+    });
+    expect(pushed).toEqual([]);
+  });
+
+  test("sessionId の無い sessionOpen は失敗を応答し、push しない", async () => {
+    const pushed: string[] = [];
+    const handle = createSocketMessageHandler((type) => pushed.push(type));
+    const line = await handle(JSON.stringify({ sessionOpen: {} }));
+    expect(JSON.parse(line ?? "")).toEqual({
+      ok: false,
+      dir: "",
+      error: "sessionOpen: sessionId is required",
+    });
+    expect(pushed).toEqual([]);
+  });
+
+  test("窓口以外で開いた端末からの worktreeRemove は拒否する", async () => {
+    const ptyId = 910001;
+    registerSpawn(ptyId, "/some/other/worktree");
+    const handle = createSocketMessageHandler(() => {});
+    const line = await handle(
+      JSON.stringify({ worktreeRemove: { path: "/nonexistent/wt", ptyId } }),
+    );
+    expect(JSON.parse(line ?? "").error).toBe(
+      "worktree remove is accepted only from the concierge terminal",
+    );
+  });
+
+  test("session-start で端末とセッションが紐付き、session-end で外れる（session list の live の元）", async () => {
+    const ptyId = 910002;
+    const sessionId = "00000000-0000-0000-0000-000000910002";
+    registerSpawn(ptyId, "/repo/wt");
+    const handle = createSocketMessageHandler(() => {});
+    await handle(JSON.stringify({ hook: { event: "session-start", ptyId, sessionId } }));
+    expect(liveSessions()).toContainEqual({ sessionId, worktreePath: "/repo/wt" });
+    await handle(JSON.stringify({ hook: { event: "session-end", ptyId, sessionId } }));
+    expect(liveSessions().some((s) => s.sessionId === sessionId)).toBe(false);
   });
 });

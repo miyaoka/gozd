@@ -7,6 +7,7 @@
 // 受信側 (onMessage) が generic のままなのは、同じバスに renderer 内部イベントが
 // 乗るため（shared/rpc/messages.ts の設計判断を参照）。
 import type { AppConfigChangePayload } from "./appConfig";
+import type { SessionOpenPayload } from "./claudeSession";
 import type { HookPayload } from "./clientMessage";
 import type { FsChangeAbsolutePayload, FsChangePayload } from "./fs";
 import type {
@@ -38,6 +39,7 @@ export interface PushPayloadMap {
   ptyText: PtyTextPayload;
   remoteRefsChange: RemoteRefsChangePayload;
   serverPortsChange: ServerPortsChangePayload;
+  sessionOpen: SessionOpenPayload;
   textSearchMatch: TextSearchMatchPayload;
   windowFullscreenChange: WindowFullscreenChangePayload;
   worktreeChange: WorktreeChangePayload;

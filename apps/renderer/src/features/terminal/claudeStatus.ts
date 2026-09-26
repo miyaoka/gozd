@@ -55,7 +55,7 @@ export interface ClaudeStateVisual {
 
 /**
  * Claude state の完全な視覚定義 (形 + 色 + glow + animate + aria-label) の SSOT。
- * サイドバー TaskRow とターミナル leaf タイトルが**同一の見た目**を共有するため、
+ * サイドバー SessionRow とターミナル leaf タイトルが**同一の見た目**を共有するため、
  * 色 / glow / aria-label までここに一元化する。形 (icon / animate) は `CLAUDE_STATE_ICON`
  * から継ぐ。asking のみ pulse を上乗せして承認待ちの緊急度を強調する。
  */
@@ -87,9 +87,10 @@ export const CLAUDE_STATE_VISUAL: Record<ClaudeState, ClaudeStateVisual> = {
 
 /**
  * Claude Code の状態エントリ。状態と付随データを一体管理する。
- * - lastActivityAt: session-start / working 遷移（OSC タイトルのスピナー）/ done /
- *   stop-failure で更新する。working は開始時刻を刻み、以降のスピナー各フレームでは
- *   更新しない。idle / asking 遷移時は直前の値を維持する。サイドバーの相対時刻の基準。
+ * - lastActivityAt: Claude の最終更新。Claude が動き出したとき（session-start / working 遷移）と
+ *   止まったとき（done / stop-failure / 承認を求める asking / 中断を含む working からの idle）に
+ *   刻む。スピナーの各フレームでは更新しない。人の操作による遷移（承認のキャンセル、既読）では
+ *   直前の値を維持する。サイドバーの並びと相対時刻の基準。
  */
 type ClaudeStatusBase = { lastActivityAt: number };
 export type ClaudeStatus =
@@ -113,7 +114,7 @@ export type ClaudeStatus =
  * 表示用の state。`done` かつ `pendingWork`（Stop 発火時に teammate 型を除く
  * background_tasks / session_crons が残る = 裏で作業継続中）または `teammatePending`
  * （稼働中の teammate が残る）は「真の done」ではないため `working` として描画する。
- * 状態機械上は必ず `done` を経由するので `clearDoneStates`（フォーカス時の既読消化）で
+ * 状態機械上は必ず `done` を経由するので `clearDoneState`（フォーカス時の既読消化）で
  * 消化でき、状態固着しない。緑バッジ・吹き出し・通知の抑止は表示層がこの関数経由で行う。
  */
 export function displayClaudeState(status: ClaudeStatus | undefined): ClaudeState | undefined {
@@ -251,7 +252,7 @@ export function screenHasClaudeBlocker(screenText: string): boolean {
 
 /**
  * OSC タイトルから Claude の状態プレフィックス（スピナー / `✳` + スペース）を除去する。
- * サイドバーの task タイトル表示が生タイトルからプレフィックスを落とすために使う。
+ * セッションのタイトル表示が生タイトルからプレフィックスを落とすために使う。
  * プレフィックスは相互排他なので、分類と同じ 2 定数を順に適用して文字集合を一本化する。
  */
 export function stripClaudeTitlePrefix(title: string): string {
@@ -306,8 +307,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   /** ptyId → PermissionRequest の debounce タイマー */
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** sessionId ↔ ptyId のマッピング。session-start hook で確立、session-end / cleanup で破棄。
-   *  WtCard / SidebarPane が `task.sessionId` 経由でこの map を引いて、task 行から live PTY や
-   *  ClaudeStatus を解決するために使う。
+   *  セッション行から live PTY や ClaudeStatus を解決するために使う。
    *
    *  ref<Record> で保持し、key の add/delete を reactivity に乗せる。これにより
    *  `getSessionIdByPtyId(ptyId)` 等を computed から呼ぶだけで session-start / session-end
@@ -380,7 +380,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         if (sessionId !== "") {
           // 同 ptyId に旧 sessionId が紐付いていた場合は先に解除する。
           // /clear や /resume で session が切り替わった時、旧 mapping が残ると
-          // 別 task のステータスを引いてしまう。
+          // 別セッションのステータスを引いてしまう。
           const previousSessionId = sessionIdByPtyId.value[ptyId];
           if (previousSessionId !== undefined && previousSessionId !== sessionId) {
             delete ptyIdBySessionId.value[previousSessionId];
@@ -452,10 +452,10 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
             // asking は session-start 後にしか発火しない。debounce 中に session-end が
             // 走った場合のみ prev が消える → その時は asking に遷移すべきでないため早期 return。
             if (prev === undefined) return;
-            // asking 遷移では lastActivityAt を維持（ユーザー操作待ちの空白時間は活動ではない）
+            // Claude が止まって承認を求めた時刻が最終更新。以降の待ち時間は活動ではないので刻まない
             claudeStatusByPtyId.value[ptyId] = {
               state: "asking",
-              lastActivityAt: prev.lastActivityAt,
+              lastActivityAt: Date.now(),
               toolName,
               toolInput,
             };
@@ -487,7 +487,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         // session_crons が残る = 裏で作業継続中）は done バリアントの flag として保持し、
         // 表示層 (displayClaudeState) で working として描画して緑バッジを抑止する。working を
         // 直接維持すると、Claude が再起動しないケース（background 完了通知の欠落）で状態が
-        // 固着し、done 経由でしか効かない clearDoneStates での消化経路を失う。
+        // 固着し、done 経由でしか効かない clearDoneState での消化経路を失う。
         // done を必ず経由させることで固着を防ぐ。
         const pendingWork = payload.pending_work === true;
         const hasTeammateTask = payload.has_teammate_task === true;
@@ -591,7 +591,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
    * - working プレフィックスは「実稼働の確証」として常に working にする（新ターン開始や中断後の再開）
    * - idle プレフィックスは **working からの離脱時のみ** idle に倒す。done / asking は hook 所有の
    *   状態なので温存し、未読 done を `✳` で消してしまわない（done→idle の消化はフォーカス時の
-   *   `clearDoneStates` が担う）
+   *   `clearDoneState` が担う）
    */
   function observeTitle(ptyId: number, title: string) {
     const current = claudeStatusByPtyId.value[ptyId];
@@ -614,8 +614,8 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     }
     // kind === "idle": working からの離脱のみ扱う（done / asking / idle は温存）
     if (current.state !== "working") return;
-    // idle 化はユーザー操作/待機で Claude の活動ではないので lastActivityAt 維持
-    claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: current.lastActivityAt };
+    // working を抜けた時刻（中断を含む）が最終更新
+    claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: Date.now() };
   }
 
   /**
@@ -675,22 +675,16 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   }
 
   /**
-   * worktree dir に属する done 状態を idle に遷移する。
-   * フォーカス時の既読消化に使う。Claude セッションは生きているため idle へ。
+   * leaf の端末の done を idle に遷移する。フォーカス時の既読消化に使う。Claude セッションは
+   * 生きているため idle へ。同じ dir の他の端末の done は消化しない（既読の単位は端末）。
    */
-  function clearDoneStates(dir: string) {
-    for (const pane of panes.iteratePanes()) {
-      if (pane.dir !== dir) continue;
-      if (pane.ptyId === undefined) continue;
-      const prev = claudeStatusByPtyId.value[pane.ptyId];
-      if (prev?.state === "done") {
-        // done → idle (既読消化) では lastActivityAt 維持
-        claudeStatusByPtyId.value[pane.ptyId] = {
-          state: "idle",
-          lastActivityAt: prev.lastActivityAt,
-        };
-      }
-    }
+  function clearDoneState(leafId: string) {
+    const ptyId = panes.getSessionPtyId(leafId);
+    if (ptyId === undefined) return;
+    const prev = claudeStatusByPtyId.value[ptyId];
+    if (prev?.state !== "done") return;
+    // done → idle (既読消化) では lastActivityAt 維持
+    claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: prev.lastActivityAt };
   }
 
   /** PTY 終了時のクリーンアップ */
@@ -706,19 +700,12 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     inFlightIdleNotificationPtyIds.delete(ptyId);
   }
 
-  /** task.id (= sessionId) から ClaudeStatus を引く。session 確立前 / pty 終了後は undefined */
-  function getStatusBySessionId(sessionId: string): ClaudeStatus | undefined {
-    const ptyId = ptyIdBySessionId.value[sessionId];
-    if (ptyId === undefined) return undefined;
-    return claudeStatusByPtyId.value[ptyId];
-  }
-
-  /** task.id (= sessionId) から live PTY の ptyId を引く。未起動 / 終了済みは undefined */
+  /** sessionId から live PTY の ptyId を引く。未起動 / 終了済みは undefined */
   function getPtyIdBySessionId(sessionId: string): number | undefined {
     return ptyIdBySessionId.value[sessionId];
   }
 
-  /** ptyId から sessionId (= task.id) を引く。OSC title sync で leaf → task 解決に使う */
+  /** ptyId から sessionId を引く。leaf → セッション解決に使う */
   function getSessionIdByPtyId(ptyId: number): string | undefined {
     return sessionIdByPtyId.value[ptyId];
   }
@@ -730,10 +717,9 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     getClaudeState,
     getClaudeActiveLeafIds,
     getClaudeStatusesByDir,
-    getStatusBySessionId,
     getPtyIdBySessionId,
     getSessionIdByPtyId,
-    clearDoneStates,
+    clearDoneState,
     cleanupPty,
   };
 }

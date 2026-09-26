@@ -5,7 +5,7 @@
 // NDJSON（JSON 1 行）で、socket を通る型にバイナリは載せない。フィールド名は
 // 旧 proto3 JSON mapping の lowerCamelCase を踏襲（永続化 JSON のキーと一致）。
 // `?` フィールドは undefined（永続化 JSON ではキー不在）で未設定を表現する。
-// 永続化ファイル（config.json / app-state.json / tasks.json 等）も同じ型で読み書きし、
+// 永続化ファイル（config.json / app-state.json 等）も同じ型で読み書きし、
 // 旧ファイルの欠落フィールドは main 側 store の load 時に default 充填する。
 
 export type {
@@ -26,15 +26,19 @@ export type {
   SaveAppStateResponse,
   RepoList,
   SidebarRepo,
+  SidebarView,
   WorktreeCacheEntry,
 } from "./appState";
+export { SIDEBAR_VIEWS } from "./appState";
 export type {
-  ClaudeSessionLastActivityRequest,
-  ClaudeSessionLastActivityResponse,
+  ClaudeSessionListRequest,
+  ClaudeSessionListResponse,
   ClaudeSessionLogRequest,
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
+  ClaudeSessionSummary,
+  SessionOpenPayload,
   ReviveSessionInfo,
   ReviveSessionListRequest,
   ReviveSessionListResponse,
@@ -42,16 +46,24 @@ export type {
   ReviveSessionResponse,
 } from "./claudeSession";
 export type { ClipboardCopyFilesRequest, ClipboardCopyFilesResponse } from "./clipboard";
+export type { ConciergeInfoRequest, ConciergeInfoResponse } from "./concierge";
 export type {
   ClientMessage,
   ClientReply,
+  CliFailure,
+  CliRepo,
+  CliSession,
+  CliWorktree,
   HookMessage,
   NewWorktreeMessage,
   OpenMessage,
+  RepoListMessage,
+  SessionListMessage,
+  SessionOpenMessage,
+  WorktreeRemoveMessage,
 } from "./clientMessage";
 export type {
   FileReadResult,
-  GhRef,
   GitCommit,
   GitFileChange,
   GitIssue,
@@ -59,7 +71,6 @@ export type {
   GitPullRequestBadge,
   GitPullRequestCheckState,
   GitPullRequestStack,
-  Task,
   UpstreamStatus,
   WireBytes,
   WorktreeEntry,
@@ -98,8 +109,6 @@ export type {
   FsChangeAbsolutePayload,
 } from "./fs";
 export type {
-  CreateTaskWorktreeRequest,
-  CreateTaskWorktreeResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   DiffExpandedLine,
@@ -181,7 +190,6 @@ export type {
 export { FS_EXISTS_ABSOLUTE_MAX_PATHS } from "./fs";
 export { GIT_PULL_REQUEST_CHECK_STATES } from "./common";
 export { GIT_MY_WORK_AXIS_KEYS, GIT_PULL_REQUEST_REVIEW_DECISIONS } from "./gitOps";
-export { ghRefForIssue, ghRefForPr, ghRefLabel } from "./helpers";
 export type {
   OpenExternalRequest,
   OpenExternalResponse,
@@ -225,21 +233,6 @@ export type {
   ServerListResponse,
   ServerPortsChangePayload,
 } from "./server";
-export type {
-  TaskAddRequest,
-  TaskAddResponse,
-  TaskList,
-  TaskListRequest,
-  TaskListResponse,
-  TaskRemoveByWorktreeRequest,
-  TaskRemoveByWorktreeResponse,
-  TaskRemoveRequest,
-  TaskRemoveResponse,
-  TaskSetTerminalTitleRequest,
-  TaskSetTerminalTitleResponse,
-  TaskSetUserTitleRequest,
-  TaskSetUserTitleResponse,
-} from "./task";
 export type {
   TextSearchCancelRequest,
   TextSearchCancelResponse,

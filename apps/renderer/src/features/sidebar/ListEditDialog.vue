@@ -7,7 +7,6 @@ rename の唯一の経路（list 行の ⋮ メニュー → Rename）。イン�
 
 - list は `useRepoStore` から listId で引き直す。open 中に他経路で削除されたら自動 close
 - 空 / whitespace-only は Save を disable する。list 名は表示の識別子なので空を許さない
-  （空許容 + フォールバック表示を持つ task の userTitle とはここが違う）
 </doc>
 
 <script setup lang="ts">

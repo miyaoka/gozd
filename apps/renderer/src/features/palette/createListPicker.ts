@@ -33,8 +33,8 @@ export interface ListPickerPage<T> {
 
 export function createListPicker<T>() {
   // 型引数を残したまま deep reactive を保つ。素の `ref<T[]>` は値の型が `UnwrapRefSimple<T>[]`
-  // になり、T が未確定のあいだ T[] を代入できない。行の書き戻し（`existingTask` の後追い更新）を
-  // 一覧へ反映させるため deep reactive 自体は要るので、shallowRef ではなく型注釈で解く。
+  // になり、T が未確定のあいだ T[] を代入できない。deep reactive を保つため shallowRef ではなく
+  // 型注釈で解く。
   const items = ref([]) as Ref<T[]>;
   const viewer = ref("");
   const status = ref<ListPickerStatus>("loading");
@@ -180,7 +180,7 @@ export function createListPicker<T>() {
    * callback の呼び出しは同じ turn に留まり、throw された値はそのまま reject の理由になる。
    * 自前で捕まえて包み直すと、非 Error の throw だけ理由が差し替わって同期 / 非同期の対称性が
    * 崩れる。同じ turn で呼ぶことにも意味がある — コマンド層は実行中判定の has → add を
-   * await を挟まずに行い（inFlightGhRefs）、テストは callback の中で resolver を捕まえる。
+   * await を挟まずに行い（inFlightItems）、テストは callback の中で resolver を捕まえる。
    *
    * 完了を待つかは呼び出し側が決める（production は待たない）。 */
   async function accept(item: T): Promise<void> {

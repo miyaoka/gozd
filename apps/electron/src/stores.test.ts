@@ -52,6 +52,13 @@ describe("normalizeAppState (strict)", () => {
     expect(normalizeAppState({ activeDir: "" }).activeDir).toBeUndefined();
     expect(normalizeAppState({ activeDir: "/wt" }).activeDir).toBe("/wt");
   });
+
+  test("sidebarView は不在なら tree、知らない値も tree に倒し、文字列でなければ破損扱い", () => {
+    expect(normalizeAppState({}).sidebarView).toBe("tree");
+    expect(normalizeAppState({ sidebarView: "status" }).sidebarView).toBe("status");
+    expect(normalizeAppState({ sidebarView: "board" }).sidebarView).toBe("tree");
+    expect(() => normalizeAppState({ sidebarView: 1 })).toThrow(RawJsonTypeError);
+  });
 });
 
 describe("loadAppStateFrom (reinit)", () => {

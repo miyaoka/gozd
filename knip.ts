@@ -14,6 +14,8 @@ const config: KnipConfig = {
         // utilityProcess で fork される別プロセスのエントリ（どの TS からも import されない）
         "src/fs/watcherProcess.ts",
         "src/pty/ptyHost.ts",
+        // build.ts が esbuild の inject で main に注入する（どの TS からも import されない）
+        "src/importMetaUrlShim.ts",
       ],
       // iconutil: macOS 標準コマンド（build:app script で iconset → icns 変換）
       ignoreBinaries: ["iconutil"],

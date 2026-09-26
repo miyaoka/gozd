@@ -1,7 +1,7 @@
 <doc lang="md">
-全 repo 横断の task を新しい順に並べる中央ダイアログ。並列セッションの
+全 repo 横断の Claude セッションを新しい順に並べる中央ダイアログ。並列セッションの
 「次にどこへ注意を向けるか」を選ぶ受信箱で、行の確定は該当 worktree を選択して
-セッションを開く / resume / focus する (openTaskSession)。
+セッションを focus / resume する (openSession)。
 
 タイトル・repo 名・ブランチ名・GitHub owner を横断して絞り込める (owner はカラムに
 表示しないが検索対象に含める)。
@@ -9,8 +9,8 @@
 ## 並び順は開いている間凍結する
 
 一覧の中身は hooks の状態変化でライブ再計算されるが、並びまで live にするとクリック
-直前に行が入れ替わり、意図しない task を確定する事故が起きる。開いたときに並び順
-(task.id 列) を確定し、行の中身だけを live 更新する。開いている間に増えた task
+直前に行が入れ替わり、意図しないセッションを確定する事故が起きる。開いたときに並び順
+(sessionId 列) を確定し、行の中身だけを live 更新する。開いている間に増えたセッション
 (起動直後は repo fetch の順次完了で行が流入する) は末尾に追記し、既存行の位置は
 動かさない。絞り込み中も同じ規律で、score 順は query 変更時にだけ確定する。
 
@@ -24,18 +24,15 @@ import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { fuzzyMatch, useListNavigation } from "../palette";
-import { openTaskSession, useSessionLastActivityStore } from "../task";
+import { collectPoolSessionRows, openSession, type PoolSessionRow } from "../session";
 import { useTerminalStore } from "../terminal";
-import type { DashboardRow } from "./collectDashboardRows";
-import { collectDashboardRows } from "./collectDashboardRows";
 import DashboardDetailPane from "./DashboardDetailPane.vue";
-import DashboardTaskRow from "./DashboardTaskRow.vue";
+import DashboardSessionRow from "./DashboardSessionRow.vue";
 import { useDashboard } from "./useDashboard";
 
 const contextKeys = useContextKeys();
 const repoStore = useRepoStore();
 const terminalStore = useTerminalStore();
-const sessionLastActivityStore = useSessionLastActivityStore();
 const dialogRef = useTemplateRef<HTMLDialogElement>("dialog");
 const inputRef = useTemplateRef<HTMLInputElement>("input");
 const listRef = useTemplateRef<HTMLDivElement>("list");
@@ -48,31 +45,31 @@ const query = ref("");
 const isOpen = computed(() => contextKeys.get("dashboardVisible"));
 
 // 閉じている間は空にして、hooks イベントごとの全 repo 走査と詳細ペインの取得を止める
-const rows = computed((): DashboardRow[] =>
+const rows = computed((): PoolSessionRow[] =>
   isOpen.value
-    ? collectDashboardRows(
+    ? collectPoolSessionRows(
         repoStore.poolDirs,
         repoStore.repos,
-        (sessionId) => terminalStore.getClaudeStatusBySessionId(sessionId),
-        (sessionId) => sessionLastActivityStore.get(sessionId),
+        (rootDir) => repoStore.sessionsOf(rootDir),
+        terminalStore.liveSessions,
       )
     : [],
 );
 
-// 開いている間の並び順の凍結 (doc ブロック参照)。task.id 列が並びの SSOT
+// 開いている間の並び順の凍結 (doc ブロック参照)。sessionId 列が並びの SSOT
 const frozenOrder = ref<string[]>([]);
 
-// open 後に流入した task (起動直後の repo fetch 順次完了など) は末尾に追記する。
+// open 後に流入したセッション (起動直後の repo fetch 順次完了など) は末尾に追記する。
 // 既存行の位置は動かさないので、凍結の目的 (クリック直前の入れ替わり防止) は保たれる
 watch(rows, (next) => {
   if (!isOpen.value) return;
   const known = new Set(frozenOrder.value);
-  const fresh = next.filter((row) => !known.has(row.task.id)).map((row) => row.task.id);
+  const fresh = next.filter((row) => !known.has(row.sessionId)).map((row) => row.sessionId);
   if (fresh.length > 0) frozenOrder.value = [...frozenOrder.value, ...fresh];
 });
 
-const orderedRows = computed((): DashboardRow[] => {
-  const byId = new Map(rows.value.map((row) => [row.task.id, row]));
+const orderedRows = computed((): PoolSessionRow[] => {
+  const byId = new Map(rows.value.map((row) => [row.sessionId, row]));
   return frozenOrder.value.flatMap((id) => {
     const row = byId.get(id);
     return row === undefined ? [] : [row];
@@ -80,7 +77,7 @@ const orderedRows = computed((): DashboardRow[] => {
 });
 
 // owner (org) は UI 表示しないが絞り込み対象には含める
-function searchText(row: DashboardRow): string {
+function searchText(row: PoolSessionRow): string {
   return `${row.title} ${row.repoName} ${row.branch} ${row.owner ?? ""}`;
 }
 
@@ -94,26 +91,26 @@ function scoreOrder(q: string): string[] {
   for (const row of orderedRows.value) {
     const result = fuzzyMatch(searchText(row), q);
     if (result) {
-      scored.push({ id: row.task.id, score: result.score });
+      scored.push({ id: row.sessionId, score: result.score });
     }
   }
   scored.sort((a, b) => b.score - a.score);
   return scored.map((s) => s.id);
 }
 
-const filteredRows = computed((): DashboardRow[] => {
+const filteredRows = computed((): PoolSessionRow[] => {
   const q = query.value;
   if (q === "") return orderedRows.value;
 
   // 一致集合は live に判定し、順序はスナップショットが決める。後から一致に転じた行は
   // 末尾に追記する (orderedRows 順 = 凍結順)
-  const matching = new Map<string, DashboardRow>();
+  const matching = new Map<string, PoolSessionRow>();
   for (const row of orderedRows.value) {
     if (fuzzyMatch(searchText(row), q)) {
-      matching.set(row.task.id, row);
+      matching.set(row.sessionId, row);
     }
   }
-  const out: DashboardRow[] = [];
+  const out: PoolSessionRow[] = [];
   for (const id of filteredOrder.value) {
     const row = matching.get(id);
     if (row !== undefined) {
@@ -131,7 +128,7 @@ const { selectedIndex, move, movePage, reset, scrollToSelected } = useListNaviga
   itemCount,
 });
 
-const selectedRow = computed((): DashboardRow | undefined =>
+const selectedRow = computed((): PoolSessionRow | undefined =>
   isOpen.value ? filteredRows.value[selectedIndex.value] : undefined,
 );
 
@@ -142,7 +139,7 @@ const selectedRow = computed((): DashboardRow | undefined =>
  */
 const statusMessage = computed(() => {
   if (filteredRows.value.length > 0) return "";
-  return rows.value.length === 0 ? "No tasks" : "No matching tasks";
+  return rows.value.length === 0 ? "No sessions" : "No matching sessions";
 });
 
 watch(query, (q) => {
@@ -150,7 +147,7 @@ watch(query, (q) => {
   reset();
 });
 
-// 行の削除 (task remove / worktree 削除) で選択が選択可能でなくなったときの引き戻しは
+// 行の消滅 (worktree 削除など) で選択が選択可能でなくなったときの引き戻しは
 // useListNavigation が持つ。全 picker と同じく先頭へ戻す
 
 watch(showSignal, () => {
@@ -158,7 +155,7 @@ watch(showSignal, () => {
   if (!dialog || dialog.open) return;
   query.value = "";
   contextKeys.set("dashboardVisible", true);
-  frozenOrder.value = rows.value.map((row) => row.task.id);
+  frozenOrder.value = rows.value.map((row) => row.sessionId);
   reset();
   dialog.showModal();
   nextTick(() => {
@@ -181,7 +178,7 @@ function acceptSelected() {
   const row = filteredRows.value[selectedIndex.value];
   if (!row) return;
   close();
-  openTaskSession(row.dir, row.task);
+  openSession(row.dir, row.sessionId);
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -221,7 +218,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
   <dialog
     ref="dialog"
     class="_dashboard-dialog"
-    aria-label="Task dashboard"
+    aria-label="Session dashboard"
     @keydown="handleKeydown"
     @close="onDialogClose"
   >
@@ -233,8 +230,8 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           ref="input"
           v-model="query"
           type="text"
-          placeholder="Filter tasks..."
-          aria-label="Filter tasks"
+          placeholder="Filter sessions..."
+          aria-label="Filter sessions"
           role="combobox"
           aria-controls="dashboard-listbox"
           :aria-expanded="filteredRows.length > 0"
@@ -277,7 +274,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             id="dashboard-listbox"
             ref="list"
             role="listbox"
-            aria-label="Tasks"
+            aria-label="Sessions"
             class="grid flex-1 content-start gap-x-2 overflow-y-auto py-1"
             style="
               grid-template-columns:
@@ -288,7 +285,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             <div
               v-for="(row, i) in filteredRows"
               :id="`dashboard-option-${i}`"
-              :key="row.task.id"
+              :key="row.sessionId"
               role="option"
               :aria-selected="i === selectedIndex"
               class="col-span-full grid cursor-pointer grid-cols-subgrid items-center py-1 text-sm"
@@ -304,7 +301,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
                 }
               "
             >
-              <DashboardTaskRow :row="row" />
+              <DashboardSessionRow :row="row" />
             </div>
           </div>
         </div>

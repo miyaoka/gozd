@@ -19,6 +19,7 @@ import {
 import { MyWorkPanel } from "./features/my-work";
 import { UndockedPreviewLayer } from "./features/preview";
 import { ServerListPanel } from "./features/server";
+import { useSessionOpenHandler } from "./features/session";
 import { UndockedLogLayer } from "./features/session-log";
 import { useGozdOpenHandler, useNewWorktreeHandler, useRepoContextKey } from "./features/sidebar";
 import { claudeStateKeyOf } from "./features/terminal";
@@ -32,6 +33,7 @@ useCommandErrorBridge();
 useRpcListenerErrorBridge();
 useGozdOpenHandler();
 useNewWorktreeHandler();
+useSessionOpenHandler();
 useRepoContextKey();
 useFsWatchSync();
 // worktree は terminal を知らない。「dir の Claude 状態が動いたら git status を取り直す」の

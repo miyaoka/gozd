@@ -102,6 +102,14 @@ jobs:
         if: matrix.name == 'test:browser'
         run: pnpm --filter @gozd/renderer run test:browser:setup
 
+      # zsh 初期化（apps/electron/resources/zsh）のテストは zsh を実行する。
+      # gozd は macOS 専用で zsh が前提だが、ubuntu のランナーには zsh が入っていない
+      - name: Install zsh
+        if: matrix.name == 'test'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zsh
+
       # ルート設定ファイルの変更を検出
       # pnpm-workspace.yaml: catalog でバージョン管理、各 package.json は catalog: 参照のため差分が出ない
       # mise.toml: Node.js/pnpm/Bun バージョン

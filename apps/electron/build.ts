@@ -12,6 +12,9 @@ await build({
   // @vscode/ripgrep の rg バイナリは search/rgPath.ts が動的 require.resolve でパスだけ
   // 解決して spawn する（リテラルでないため esbuild は bundle せず runtime 呼び出しのまま残す）。
   external: ["electron", "node-pty", "@parcel/watcher"],
+  // ESM 依存の import.meta.url を CJS 出力でも成立させる（src/importMetaUrlShim.ts）
+  define: { "import.meta.url": "importMetaUrl" },
+  inject: ["src/importMetaUrlShim.ts"],
 });
 
 await build({

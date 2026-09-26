@@ -10,18 +10,24 @@
 //   gozd-cli [path] / open [path]  … OpenMessage 送信（GOZD_COLD_START で launch request 書き出し）
 //   gozd-cli hook <event>          … stdin JSON を HookMessage に詰めて送信
 //   gozd-cli worktree new …        … NewWorktreeMessage 送信。応答を待って結果を返す
+//   gozd-cli worktree remove <path>… WorktreeRemoveMessage 送信（窓口の端末からだけ受け付ける）
+//   gozd-cli repo list             … 登録済みの repo を JSON で返す
+//   gozd-cli session list          … 登録済みの全 repo のセッションを JSON で返す
+//   gozd-cli session open <id>     … セッションを開く（画面をそのセッションへ切り替える）
 //   gozd-cli --help                … usage
 //
-// open / hook は Swift 版と同一契約。worktree は TS 版で足したもので、旧版の CLI は
-// 先頭引数 `worktree` を open のパスとみなす（未知の先頭引数 = パス扱いのため）。
+// open / hook は Swift 版と同一契約。worktree / repo / session は TS 版で足したサブコマンドで、
+// この名前のディレクトリを開くには `gozd ./repo` のようにパスとして渡す。旧版の CLI はこれらの
+// 先頭引数を open のパスとみなす（未知の先頭引数 = パス扱いのため）。
 
-import type { ClientMessage } from "@gozd/rpc";
+import type { ClientMessage, ClientReply } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   buildHookMessage,
   parseNewWorktreeArgs,
+  parsePtyId,
   parseStdinJson,
   resolveSocketPath,
   writeLaunchRequest,
@@ -35,12 +41,22 @@ Usage:
   gozd open [path]      Same as above (explicit subcommand form)
   gozd worktree new     Create a worktree, then start claude in it
                         (see \`gozd worktree --help\`)
+  gozd worktree remove <path>
+                        Remove a worktree (concierge terminal only)
+  gozd repo list        Print the repositories registered in gozd as JSON
+                        ({ repos, failures }; failures = unreadable repos)
+  gozd session list     Print the Claude sessions of all registered
+                        repositories as JSON, newest first
+                        ({ sessions, failures })
+  gozd session open <id>
+                        Open a Claude session in gozd (switches the view)
   gozd hook <event>     Send a Claude Code hook event (reads JSON from stdin)
   gozd --help           Print this help
 
 Environment:
   GOZD_SOCKET_PATH  Override Unix socket path (default: $TMPDIR/gozd-{channel}.sock)
-  GOZD_PTY_ID       Used by \`hook\` to attribute the event to a PTY
+  GOZD_PTY_ID       Used by \`hook\` and \`worktree remove\` to identify the
+                    terminal the request comes from
   GOZD_COLD_START   If set, \`open\` writes a launch request file instead of socket send
 `;
 
@@ -83,9 +99,13 @@ const WORKTREE_USAGE = `gozd worktree - manage gozd worktrees
 
 Usage:
   gozd worktree new [options]   Create a worktree, then start claude in it
+  gozd worktree remove <path>   Remove a worktree. Accepted only from the
+                                concierge terminal. Refuses the main worktree
+                                and worktrees with modified or untracked
+                                files, submodules, a lock, a detached HEAD,
+                                or a running Claude session
 
-Options:
-  --title <text>     Name shown for the worktree in gozd (required)
+Options for \`new\`:
   --prompt-stdin     Read the prompt from stdin (use a heredoc for long prompts)
   --prompt <text>    Prompt passed to claude on launch (runs immediately)
   --dir <path>       Repository to create the worktree in (default: cwd)
@@ -95,7 +115,7 @@ the request goes to the socket at $GOZD_SOCKET_PATH.
 
 Multi-line prompts go through stdin so the shell never has to quote them:
 
-  gozd worktree new --title "fix the parser" --prompt-stdin <<'EOF'
+  gozd worktree new --prompt-stdin <<'EOF'
   ...
   EOF
 `;
@@ -114,6 +134,10 @@ async function worktreeCommand(argv: string[]): Promise<void> {
   const isHelp = (token: string | undefined) => token === "--help" || token === "-h";
   if (isHelp(sub) || isHelp(rest[0])) {
     process.stdout.write(WORKTREE_USAGE);
+    return;
+  }
+  if (sub === "remove") {
+    await worktreeRemoveCommand(rest);
     return;
   }
   if (sub !== "new") {
@@ -151,17 +175,79 @@ async function worktreeCommand(argv: string[]): Promise<void> {
     }
     message.prompt = prompt;
   }
+  const replied = await requestOrExit("gozd worktree new", { newWorktree: message });
+  process.stdout.write(`${replied.dir}\n`);
+}
+
+/** 応答を返す種別を送り、失敗は理由を stderr に出して非 0 で終える。成功した応答を返す */
+async function requestOrExit(label: string, message: ClientMessage): Promise<ClientReply> {
   const socketPath = resolveSocketPath(process.env);
-  const sent = await tryCatch(requestClientReply(socketPath, { newWorktree: message }));
+  const sent = await tryCatch(requestClientReply(socketPath, message));
   if (!sent.ok) {
     process.stderr.write(`Failed to send message to gozd: ${sent.error}\n`);
     process.exit(1);
   }
   if (!sent.value.ok) {
-    process.stderr.write(`gozd worktree new: ${sent.value.error}\n`);
+    process.stderr.write(`${label}: ${sent.value.error}\n`);
     process.exit(1);
   }
-  process.stdout.write(`${sent.value.dir}\n`);
+  return sent.value;
+}
+
+/** `gozd worktree remove <path>` — 削除の可否は gozd が判定する。成功時は削除したパスを返す */
+async function worktreeRemoveCommand(argv: string[]): Promise<void> {
+  const [target, ...extra] = argv;
+  if (target === undefined || extra.length > 0) {
+    process.stderr.write("gozd worktree remove: exactly one worktree path is required\n\n");
+    process.stderr.write(WORKTREE_USAGE);
+    process.exit(1);
+  }
+  const replied = await requestOrExit("gozd worktree remove", {
+    worktreeRemove: { path: resolve(process.cwd(), target), ptyId: parsePtyId(process.env) },
+  });
+  process.stdout.write(`${replied.dir}\n`);
+}
+
+/** `gozd repo list` */
+async function repoCommand(argv: string[]): Promise<void> {
+  if (argv[0] !== "list" || argv.length > 1) {
+    process.stderr.write("usage: gozd repo list\n");
+    process.exit(1);
+  }
+  const replied = await requestOrExit("gozd repo list", { repoList: {} });
+  const { repos, failures } = replied;
+  if (repos === undefined || failures === undefined) exitWithMalformedReply("gozd repo list");
+  process.stdout.write(`${JSON.stringify({ repos, failures }, null, 2)}\n`);
+}
+
+/** 成功の応答に必要なフィールドが欠けているのは gozd との契約違反。空の一覧に読み替えず、
+ * 失敗として終える（読み替えると「0 件」と区別できない） */
+function exitWithMalformedReply(label: string): never {
+  process.stderr.write(`${label}: gozd replied without the expected fields\n`);
+  process.exit(1);
+}
+
+/** `gozd session list` / `gozd session open <id>` */
+async function sessionCommand(argv: string[]): Promise<void> {
+  const [sub, ...rest] = argv;
+  if (sub === "list" && rest.length === 0) {
+    const replied = await requestOrExit("gozd session list", { sessionList: {} });
+    const { sessions, failures } = replied;
+    if (sessions === undefined || failures === undefined) {
+      exitWithMalformedReply("gozd session list");
+    }
+    process.stdout.write(`${JSON.stringify({ sessions, failures }, null, 2)}\n`);
+    return;
+  }
+  if (sub === "open" && rest.length === 1 && rest[0] !== undefined) {
+    const replied = await requestOrExit("gozd session open", {
+      sessionOpen: { sessionId: rest[0] },
+    });
+    process.stdout.write(`${replied.dir}\n`);
+    return;
+  }
+  process.stderr.write("usage: gozd session list | gozd session open <session-id>\n");
+  process.exit(1);
 }
 
 async function hookCommand(event: string): Promise<void> {
@@ -185,6 +271,14 @@ async function main(): Promise<void> {
   }
   if (first === "worktree") {
     await worktreeCommand(process.argv.slice(3));
+    return;
+  }
+  if (first === "repo") {
+    await repoCommand(process.argv.slice(3));
+    return;
+  }
+  if (first === "session") {
+    await sessionCommand(process.argv.slice(3));
     return;
   }
   if (first === "hook") {

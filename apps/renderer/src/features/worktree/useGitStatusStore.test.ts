@@ -13,7 +13,6 @@ function wt(head: string): RepoWorktree {
     isMain: true,
     gitStatuses: {},
     renameOldPaths: {},
-    tasks: [],
     upstream: undefined,
     latestMtime: 0,
   };

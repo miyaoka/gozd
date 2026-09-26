@@ -24,7 +24,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, sep } from "node:path";
-import { gozdWorktreesRoot, resolveProjectKey } from "../taskStore";
+import { gozdWorktreesRoot, resolveProjectKey } from "../projectKey";
 
 interface ClaudeSessionLogEntry {
   kind: "main" | "subagent";
@@ -63,7 +63,7 @@ function defaultProjectsDir(): string {
   return join(homedir(), ".claude", "projects");
 }
 
-/** production の gozd worktrees root。SSOT は `taskStore.gozdWorktreesRoot`（ensureWorktreePath と共有）。 */
+/** production の gozd worktrees root。SSOT は `projectKey.gozdWorktreesRoot`（ensureWorktreePath と共有）。 */
 function defaultWorktreesRoot(): string {
   return gozdWorktreesRoot();
 }
@@ -387,58 +387,6 @@ function lastActivityMs(path: string, timestamp: string): number {
   return Number.isNaN(tsMs) ? fileMtimeMs(path) : tsMs;
 }
 
-/** 行群を末尾から逆順に parse し、timestamp を持つ最初の行の値を返す。無ければ空文字。 */
-function findLastTimestamp(lines: string[]): string {
-  for (const line of lines.toReversed()) {
-    if (line.trim() === "") continue;
-    const result = tryCatch(() => JSON.parse(line) as { timestamp?: unknown });
-    if (!result.ok) continue;
-    const ts = result.value.timestamp;
-    if (typeof ts === "string" && ts !== "") return ts;
-  }
-  return "";
-}
-
-/** file 末尾から最後の timestamp だけを読む。見つからなければ window を広げ、上限まで無ければ空文字。 */
-function readLastTimestamp(path: string): string {
-  const size = fileSize(path);
-  for (let window = TAIL_SCAN_CHUNK; ; window *= 4) {
-    const start = Math.max(0, size - window);
-    const rawLines = readByteRange(path, start, size - start).split("\n");
-    // start > 0 のとき先頭は途中からの部分行なので落とす。
-    const timestamp = findLastTimestamp(start > 0 ? rawLines.slice(1) : rawLines);
-    if (timestamp !== "" || start === 0 || window >= TAIL_SCAN_MAX) return timestamp;
-  }
-}
-
-/** sessionId ごとの最終活動時刻 (Unix ミリ秒) を返す。jsonl が見つからない sessionId は
- * キーを持たない。projectDir ごとに 1 回だけ列挙して未解決の sessionId と突き合わせるため、
- * コストは projectDir 数と sessionId 数の積にならない。
- *
- * `projectsDir` はテスト用の injection 口。production は省略して `~/.claude/projects/` を使う */
-export function readSessionsLastActivity(
-  sessionIds: readonly string[],
-  projectsDir: string = defaultProjectsDir(),
-): Record<string, number> {
-  const pending = new Set(sessionIds.filter(isSafeSessionId));
-  const found: Record<string, number> = {};
-  if (pending.size === 0 || !isDirectory(projectsDir)) return found;
-  for (const name of listDir(projectsDir)) {
-    const projectDir = join(projectsDir, name);
-    if (!isDirectory(projectDir)) continue;
-    for (const fileName of listDir(projectDir)) {
-      if (!fileName.endsWith(".jsonl")) continue;
-      const sessionId = basename(fileName, ".jsonl");
-      if (!pending.has(sessionId)) continue;
-      const path = join(projectDir, fileName);
-      found[sessionId] = lastActivityMs(path, readLastTimestamp(path));
-      pending.delete(sessionId);
-    }
-    if (pending.size === 0) break;
-  }
-  return found;
-}
-
 // --- 削除済み worktree のセッション復活 (revive) ---
 //
 // gozd 製 worktree を消すと cwd パスが失われ `claude --resume` の project key 解決が成立
@@ -447,7 +395,7 @@ export function readSessionsLastActivity(
 //
 // 必要な 3 値はいずれも末尾側に最新値がある: cwd (resume の鍵) は全レコード共通の不変値、
 // branch (リネーム後の最終値) は最後の gitBranch、title は Claude 生成の要約
-// (`type:"ai-title"` の aiTitle。gozd の terminalTitle と同一物) の最新値。
+// (`type:"ai-title"` の aiTitle) の最新値。
 
 /** title の最大長。表示上の切り詰めは renderer が CSS で行うが、ワイヤ肥大を防ぐため主側でも上限を掛ける。 */
 const REVIVE_TITLE_MAX = 200;
@@ -465,8 +413,8 @@ interface SessionMeta {
  * - cwd: どの会話レコードにも載る不変値 (last でよい)
  * - branch: リネームは行順に記録されるため「最後の gitBranch」が最終ブランチ名
  *   (未リネームなら日付、リネーム済みなら PR 名)
- * - title: Claude 生成の要約 (`type:"ai-title"` の aiTitle)。gozd の terminalTitle と同一物で、
- *   毎ターン更新されるため「最後の aiTitle」が最新タイトル。ユーザーの生発話ではない
+ * - title: Claude 生成の要約 (`type:"ai-title"` の aiTitle)。毎ターン更新されるため
+ *   「最後の aiTitle」が最新タイトル。ユーザーの生発話ではない
  * - timestamp: 各レコードの `timestamp` (ISO)。「最後の timestamp」= セッションが最後に動いた時刻。
  *   ファイル mtime と違い FS 操作 (copy / touch / 移動) の影響を受けない内容由来の真値 */
 function extractMeta(lines: string[]): SessionMeta {

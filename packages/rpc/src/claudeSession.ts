@@ -1,30 +1,57 @@
 // Claude Code セッション関連の RPC 型。
 //
-// セッションの永続化自体は task.ts の Task.sessionId が SSOT。このファイルには PTY 単位の
-// session 掃除 (RemoveByPty)、セッションログ表示 (ClaudeSessionLog)、削除済み worktree の
-// セッション復活 (ReviveSession*) の RPC 型を置く。
+// セッションの記録は Claude Code のセッションログが SSOT で、gozd は写しを持たない。
+// このファイルには、セッション一覧 (ClaudeSessionList)、PTY 単位の紐付け解除 (RemoveByPty)、
+// セッションログ表示 (ClaudeSessionLog)、削除済み worktree のセッション復活 (ReviveSession*) の
+// RPC 型を置く。
 
-import type { Task, WorktreeEntry } from "./common";
+import type { WorktreeEntry } from "./common";
 
-/** 指定 PTY に紐づく Claude セッションを永続化から削除する。renderer の
+/** セッション一覧の 1 行。Claude Code のセッションログから読んだ値だけを持つ。 */
+export interface ClaudeSessionSummary {
+  sessionId: string;
+  /** セッションを起動した作業ディレクトリ。worktree への帰属に使う */
+  cwd: string;
+  /** 表示用タイトル。ユーザーが付けた名前 → Claude が付けた名前の順で、どちらも無ければ
+   * プロンプトの本文で代える。決め方は SDK（Claude Code 側）が持つ */
+  title: string;
+  /** セッションログの最終更新時刻 (Unix ミリ秒) */
+  lastModified: number;
+}
+
+/** repo（本体と全 worktree）で動いたセッションを列挙する。dir は repo 内の任意の dir。
+ * git 管理外の dir はその dir 自身のセッションを返す。対話で使われたセッションだけを返し、
+ * SDK / `-p` で起動した非対話のセッションは含めない。 */
+export interface ClaudeSessionListRequest {
+  dir: string;
+}
+export interface ClaudeSessionListResponse {
+  /** lastModified 降順 */
+  sessions: ClaudeSessionSummary[];
+}
+
+/** main → renderer: セッションを開けの指示（`gozd session open`）。端末が開いていれば
+ * その端末へ、開いていなければ dir で再開し、画面をそのセッションへ切り替える。 */
+export interface SessionOpenPayload {
+  sessionId: string;
+  /** セッションの作業ディレクトリ */
+  dir: string;
+}
+
+/** 指定 PTY と Claude セッションの紐付けを解除する。renderer の
  * unregisterPane（terminal.closePane / resetLayout / worktree 削除）から呼ぶ。
- * session-end hook 経路ではなく PTY 単位の明示的削除なので、worktreePath も
- * 併せて受け取って projectKey 解決を確定させる。ptyId に紐づく sessionId は
- * main 側の PTY registry が保持する。 */
+ * ptyId に紐づく sessionId は main 側の PTY registry が保持する。 */
 export interface ClaudeSessionRemoveByPtyRequest {
   ptyId: number;
-  worktreePath: string;
 }
 
 export interface ClaudeSessionRemoveByPtyResponse {
-  /** 削除した sessionId。renderer が repoStore の WorktreeEntry.tasks から
-   * 該当 Task を即時削除するために使う。pty に session が紐付いていなかった
-   * 場合は空文字。 */
+  /** 紐付けを解除した sessionId。pty に session が紐付いていなかった場合は空文字。 */
   removedSessionId: string;
 }
 
 /** Claude Code が ~/.claude/projects/<cwd エンコード>/<session_id>.jsonl に書き出した
- * セッションログ (JSONL) を読む。サイドバー task メニューの「セッションログ表示」と
+ * セッションログ (JSONL) を読む。サイドバーのセッションメニューの「セッションログ表示」と
  * ターミナル右上の preview overlay (TerminalSessionPreview) の両方で使う。
  *
  * sessionId (UUID) は jsonl 名に必ず現れるため、main 側が
@@ -88,9 +115,8 @@ export interface ReviveSessionInfo {
   worktreeDir: string;
   /** ログ末尾の gitBranch (リネーム済みなら PR 用の名前、未リネームなら日付)。復活ブランチの第 1 候補。 */
   branch: string;
-  /** セッションを識別する表示用タイトル。Claude 生成の要約 (`type:"ai-title"` の aiTitle の最新値)
-   * で、gozd のターミナルタイトル (task.terminalTitle) と同一物。取れなければ空文字 (renderer が
-   * branch にフォールバック)。 */
+  /** セッションを識別する表示用タイトル。Claude 生成の要約 (`type:"ai-title"` の aiTitle の最新値)。
+   * 取れなければ空文字 (renderer が branch にフォールバック)。 */
   title: string;
   /** セッションが最後に動いた時刻 (Unix ミリ秒)。ログ末尾レコードの `timestamp` (内容由来) を
    * SSOT にする。行の「最終日付」表示 + 新しい順ソートに使う。 */
@@ -110,10 +136,10 @@ export interface ReviveSessionListResponse {
   sessions: ReviveSessionInfo[];
 }
 
-/** セッション 1 件を復活させる。cwd を worktree として作り直し、tasks.json に sessionId 付き
- * task を書く。resume の駆動は renderer 側 (requestResumeSession の明示ヒントを visit が
- * 消費して `claude --resume` を仕込む)。branch は main 側で衝突判定する (他 worktree が
- * 占有中なら日付ブランチへ fallback) ため、renderer は候補 branch を渡すだけでよい。 */
+/** セッション 1 件を復活させる。cwd を worktree として作り直す。resume の駆動は renderer 側
+ * (requestResumeSession の明示ヒントを visit が消費して `claude --resume` を仕込む)。branch は
+ * main 側で衝突判定する (他 worktree が占有中なら日付ブランチへ fallback) ため、renderer は
+ * 候補 branch を渡すだけでよい。 */
 export interface ReviveSessionRequest {
   /** repo root / 配下 dir。main 側で projectKey → worktree 配置先を解決する。 */
   dir: string;
@@ -121,16 +147,12 @@ export interface ReviveSessionRequest {
   worktreeDir: string;
   /** 復活ブランチの第 1 候補 (= ReviveSessionInfo.branch)。衝突時は main 側で日付名に倒す。 */
   branch: string;
-  /** 復活するセッションの sessionId。tasks.json の task.sessionId に載せて resume 起点にする。 */
-  sessionId: string;
 }
 export interface ReviveSessionResponse {
   /** 作り直した worktree。renderer が repoStore.appendWorktree で即時反映する。 */
   worktree: WorktreeEntry;
   /** 作成した worktree の絶対パス。renderer が worktreeStore.setOpen で開く。 */
   dir: string;
-  /** sessionId を載せた task。サイドバーに即時表示する。 */
-  task: Task;
   /** project 設定の setupScript。renderer が専用ターミナルで実行する。空なら実行しない。 */
   setupScript: string;
 }
@@ -152,15 +174,4 @@ export interface ClaudeSessionLogResponse {
    * 次の load 結果で found に転じたら main jsonl 親 dir に張り替える。fsChange の
    * cross-session ノイズは debounce で coalesce する (refresh の per-call cost は constant)。 */
   watchDir: string;
-}
-
-/** セッションログの最終活動時刻を sessionId 単位でまとめて引く。サイドバー / ダッシュボードが
- * live な Claude を持たない task の相対時刻に使う。 */
-export interface ClaudeSessionLastActivityRequest {
-  sessionIds: string[];
-}
-
-export interface ClaudeSessionLastActivityResponse {
-  /** sessionId → 最終活動時刻 (Unix ミリ秒)。jsonl が見つからない sessionId はキーを持たない。 */
-  lastActivityBySessionId: Record<string, number>;
 }

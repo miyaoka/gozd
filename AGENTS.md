@@ -26,7 +26,8 @@ AI エージェントの並列開発を管理するデスクトップアプリ�
 | [terminal.md](docs/terminal.md)           | ターミナル（分割、worktree 保持、ファイルパスリンク、PTY 管理）             |
 | [command.md](docs/command.md)             | コマンドシステム（レジストリ、context key、when 条件）                      |
 | [keybinding.md](docs/keybinding.md)       | キーバインディング（e.code ベース、設定フォーマット、解決フロー）           |
-| [task.md](docs/task.md)                   | Task 管理（作業計画、worktree 紐づけ、サイドバー UI、ダッシュボード）       |
+| [session.md](docs/session.md)             | セッション（帰属、タイトル、サイドバー UI、ダッシュボード）                 |
+| [concierge.md](docs/concierge.md)         | 窓口（ディレクトリ、指示の注入、窓口に渡す操作、worktree の削除の安全）     |
 | [claude-status.md](docs/claude-status.md) | Claude ステータス管理（状態遷移、hooks、interrupt 検知）                    |
 | [server.md](docs/server.md)               | サーバー検出（LISTEN port ポーリング、worktree 帰属、一覧パネル）           |
 | [release.md](docs/release.md)             | リリースと配布（canary / stable、CI、mise、wrapper 同期、channel identity） |
@@ -154,7 +155,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 - 別パッケージのファイルを相対パスで参照しない。必ずパッケージ名（`@gozd/themes` 等）で import する
 - feature / shared の外部からは `index.ts` のみ参照可能。内部モジュールを直接 import しない
 - 同一 feature / shared 内のファイル間は自由に参照できる
-- feature は再帰的にネスト可能。子 feature は `features/` サブディレクトリに配置する（例: `sidebar/features/worktree/`、`sidebar/features/task/`）
+- feature は再帰的にネスト可能。子 feature は `features/` サブディレクトリに配置する（例: `sidebar/features/worktree/`、`sidebar/features/repo/`）
 - feature / shared のディレクトリ名は lowercase、複合語は kebab-case（`git-graph`）
 - `.ts` ファイル名は camelCase（`filerUtils.ts`）。Vue SFC は PascalCase（`FilerPane.vue`）
 
@@ -213,6 +214,6 @@ console.error(
 );
 ```
 
-- tag は handler 関数名（`handlePtySpawn`）または store / module 名（`TaskStore`）
+- tag は handler 関数名（`handlePtySpawn`）または store / module 名（`WindowStateStore`）
 - silent drop 禁止: 握りつぶす失敗経路には必ず観察ログを残す（1 度の取りこぼしで UI 状態が永続的にずれる push 経路が典型）
 - 分類だけでなく原因も残す。「失敗した」ことだけを記録して例外や stderr を捨てると、後から何が起きたかを再構築できない

@@ -109,7 +109,7 @@ export interface ContextMap {
   issuePickerVisible: boolean;
   /** Revive ピッカーが開いている */
   revivePickerVisible: boolean;
-  /** Task ダッシュボードが開いている */
+  /** セッションダッシュボードが開いている */
   dashboardVisible: boolean;
   /** keydown を受けた document のフォーカスが input / textarea / contenteditable にある */
   inputFocused: boolean;

@@ -21,7 +21,12 @@ export interface AppState {
    * 復元してターミナルを自動で開く。未選択はキー不在（undefined）で表現する。
    * CLI の launch request（`gozd <dir>`）がある起動では復元より明示 open を優先する。 */
   activeDir?: string;
+  /** サイドバーの表示。repo > worktree の階層（tree）か、全 repo のセッションの状態別（status）か */
+  sidebarView: SidebarView;
 }
+
+export const SIDEBAR_VIEWS = ["tree", "status"] as const;
+export type SidebarView = (typeof SIDEBAR_VIEWS)[number];
 
 /** サイドバーの repo list。repo プールに対する名前付きビュー（表示 repo の部分集合 + 並び順）。
  * 1 repo は複数 repo list に所属できる。 */
@@ -40,8 +45,8 @@ export interface SidebarRepo {
   collapsed: boolean;
   /** worktree 一覧の起動時キャッシュ。SSOT は git。起動直後はこのキャッシュから
    * 実カードを描画して layout shift を消し、rpcGitWorktreeList の真値で上書きする。
-   * path/branch/isMain のみ持つ。git status / tasks は SSOT が別 (git / tasks.json)
-   * なのでキャッシュしない (二重保持回避)。 */
+   * path/branch/isMain のみ持つ。git status / セッションは SSOT が別 (git / Claude の
+   * セッションログ) なのでキャッシュしない (二重保持回避)。 */
   worktrees: WorktreeCacheEntry[];
 }
 

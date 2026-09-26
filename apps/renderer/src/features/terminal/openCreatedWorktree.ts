@@ -5,7 +5,7 @@
  * 共有する後段。作成手段が違っても「開いた後どうなるか」は同じでなければならない。
  * 違うのは選択を動かすかどうかだけで、それは呼び出し元が reveal で宣言する。
  */
-import type { CreateTaskWorktreeResponse } from "@gozd/rpc";
+import type { CreateWorktreeResponse } from "@gozd/rpc";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { activateDir } from "./activateDir";
@@ -25,7 +25,7 @@ import { useTerminalStore } from "./useTerminalStore";
 export type WorktreeReveal = "foreground" | "background";
 
 export function openCreatedWorktree(
-  created: CreateTaskWorktreeResponse,
+  created: CreateWorktreeResponse,
   autostart: AutostartHint,
   reveal: WorktreeReveal,
 ): void {
@@ -45,7 +45,7 @@ export function openCreatedWorktree(
     return;
   }
   repoStore.appendWorktree(owning.rootDir, created.worktree);
-  // taskAdd 後の真値反映は requestRefresh に委ねる（楽観更新で renderer 側を直書きしない）
+  // 一覧の真値反映は requestRefresh に委ねる（楽観更新で renderer 側を直書きしない）
   repoStore.requestRefresh(owning.rootDir);
   // ヒントは visit より先に立てる。visit が初期 leaf を作るときに 1 回だけ消費するため、
   // 後から立てても素のシェルが起動済みで claude は立たない

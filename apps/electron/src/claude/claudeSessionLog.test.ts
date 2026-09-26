@@ -6,12 +6,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveProjectKey } from "../taskStore";
-import {
-  listReviveSessions,
-  readClaudeSessionLog,
-  readSessionsLastActivity,
-} from "./claudeSessionLog";
+import { resolveProjectKey } from "../projectKey";
+import { listReviveSessions, readClaudeSessionLog } from "./claudeSessionLog";
 
 const SID = "11111111-2222-3333-4444-555555555555";
 
@@ -287,65 +283,5 @@ describe("listReviveSessions", () => {
 
     const [s] = await listReviveSessions(repo, projects, wtRoot);
     expect(s.lastActivity).toBe(statSync(file).mtimeMs);
-  });
-});
-
-describe("readSessionsLastActivity", () => {
-  const tempDirs: string[] = [];
-
-  afterEach(() => {
-    for (const dir of tempDirs.splice(0)) {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  function makeProjects(): string {
-    const dir = mkdtempSync(join(tmpdir(), "gozd-last-activity-"));
-    tempDirs.push(dir);
-    return dir;
-  }
-
-  function writeJsonl(projects: string, enc: string, sid: string, content: string): string {
-    const projectDir = join(projects, enc);
-    mkdirSync(projectDir, { recursive: true });
-    const file = join(projectDir, `${sid}.jsonl`);
-    writeFileSync(file, content);
-    return file;
-  }
-
-  test("別 projectDir に散った sessionId を末尾レコードの timestamp でまとめて返す", () => {
-    const projects = makeProjects();
-    const sidA = "aaaaaaaa-1111-2222-3333-444444444444";
-    const sidB = "bbbbbbbb-1111-2222-3333-444444444444";
-    writeJsonl(
-      projects,
-      "enc-a",
-      sidA,
-      '{"cwd":"/a","gitBranch":"x","timestamp":"2026-01-01T00:00:00.000Z"}\n' +
-        '{"cwd":"/a","gitBranch":"x","timestamp":"2026-01-02T00:00:00.000Z"}\n' +
-        // timestamp を持たない末尾レコード (ai-title 等) は飛ばして遡る
-        '{"type":"ai-title","aiTitle":"t"}\n',
-    );
-    writeJsonl(
-      projects,
-      "enc-b",
-      sidB,
-      '{"cwd":"/b","gitBranch":"y","timestamp":"2026-02-01T00:00:00.000Z"}\n',
-    );
-
-    expect(readSessionsLastActivity([sidA, sidB], projects)).toEqual({
-      [sidA]: Date.parse("2026-01-02T00:00:00.000Z"),
-      [sidB]: Date.parse("2026-02-01T00:00:00.000Z"),
-    });
-  });
-
-  test("jsonl が無い sessionId と不正な sessionId はキーを持たない", () => {
-    const projects = makeProjects();
-    writeJsonl(projects, "enc-a", SID, '{"cwd":"/a","gitBranch":"x"}\n');
-    const result = readSessionsLastActivity(
-      ["99999999-8888-7777-6666-555555555555", "../etc"],
-      projects,
-    );
-    expect(result).toEqual({});
   });
 });

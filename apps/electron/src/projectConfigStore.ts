@@ -1,7 +1,7 @@
 // プロジェクト固有設定の永続化（`~/.config/gozd/projects/<projectKey>/config.json`）。
 // Swift 版 `Store/ProjectConfigStore.swift` の対応物。
 //
-// - projectKey 解決は taskStore.ts の resolveMainRepoRoot / resolveProjectKey と共有する
+// - projectKey 解決は projectKey.ts の resolveProjectKey を使う
 //   （main / worktree / subdir のどこから開いても同じ config.json を参照する）
 // - load はファイル不在ならデフォルト値。既存ファイルの欠落フィールドは default 充填する
 //   （`rawJson.ts` の契約参照）
@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { asDict, lenientString, lenientStringArray } from "./rawJson";
-import { resolveProjectKey } from "./taskStore";
+import { resolveProjectKey } from "./projectKey";
 
 const configDir = join(homedir(), ".config", "gozd");
 

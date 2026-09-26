@@ -19,7 +19,6 @@ export interface WorktreeEntry {
   head: string;
   branch: string;
   isMain: boolean;
-  tasks: Task[];
 }
 
 /** upstream（追跡リモートブランチ）との差分。`git status --porcelain=v2 --branch` の
@@ -30,48 +29,6 @@ export interface UpstreamStatus {
   /** upstream に対して遅れているリモートコミット数（未 pull）。 */
   behind: number;
 }
-
-export interface Task {
-  /** UUID。Claude session とは独立した task 固有の identity。 */
-  id: string;
-  worktreeDir: string;
-  /** GitHub PR / issue 参照。GitHub の PR / issue は同一の番号空間を共有するため、
-   * 種別 + 番号の組で 1 件を表す。task 1 件あたり最大 1 つ。 */
-  ghRef?: GhRef;
-  /** ISO 8601 */
-  createdAt: string;
-  /** 最後に attach された Claude session の ID。空文字は session 未起動 / 終了済み。
-   * SessionEnd では消さず保持し、サイドバークリック時の `claude --resume` 起点に使う。 */
-  sessionId: string;
-  /** ユーザーが明示的にターミナルを close した task かどうか。
-   * SessionEnd / terminal close (detachSession) で true に倒し、resume クリック /
-   * PR picker 再選択 / 同 sid SessionStart hook (attachSession) で false に戻す。
-   * app close (renderer 強制終了) では detachSession 経路を通らないため据え置き。
-   * サイドバー UI の "closed" / "resumable" 状態区別に使う。 */
-  closedByUser: boolean;
-  /** ユーザーが UI で明示的に編集 / rename した確定値。最優先で表示に使う。
-   * 空文字は「ユーザー指定なし」(= ghTitle / terminalTitle へフォールバック) を意味する。 */
-  userTitle: string;
-  /** OSC ターミナルタイトル経由で観測した live 値。userTitle / ghTitle が空のときの
-   * 最終フォールバック。Claude が transcript 起動直後に送る placeholder ("Claude Code")
-   * は表示側で除外する。 */
-  terminalTitle: string;
-  /** PR/issue picker 取得時の snapshot タイトル。userTitle が空のときの第 2 優先表示で、
-   * OSC タイトル更新では触らない (gh ↔ terminal の独立性が SSOT)。 */
-  ghTitle: string;
-}
-
-/** GitHub PR / issue 参照。 */
-export interface GhRef {
-  kind: GhRefKind;
-  number: number;
-}
-
-/** tasks.json に永続化される値。旧 proto3 JSON の enum 名をそのまま維持する
- * （merge までは main branch の Swift 版 gozd と同じ tasks.json を共有するため、
- * 文字列を変えると Swift 側の parse が失敗し実運用の task データが reinit で消える）。
- * kind の組み立ては helpers.ts の ghRefForPr / ghRefForIssue 経由に限定する。 */
-export type GhRefKind = "GH_REF_KIND_PR" | "GH_REF_KIND_ISSUE";
 
 /**
  * ワイヤ（structured clone）で運ぶバイト列。専有 ArrayBuffer 背景の Uint8Array に限定する。

@@ -9,14 +9,21 @@
 // フィールドは最大 1 つだけ設定される（すべて undefined は不正メッセージとして
 // 受信側でログの上 drop する）。
 //
-// 応答は種別ごとに決まる。hook / open は送りっぱなしで応答を返さない。newWorktree だけは
-// `ClientReply` の JSON 1 行を返してから接続を閉じる。実行者（エージェント）が worktree を
-// 作れたのかどうかを知らずに次の指示へ進めないため、この種別だけ双方向にする。
+// 応答は種別ごとに決まる。hook / open は送りっぱなしで応答を返さない。それ以外は
+// `ClientReply` の JSON 1 行を返してから接続を閉じる。実行者（エージェント）が結果を
+// 知らずに次の指示へ進めないため、操作と問い合わせの種別は双方向にする。
+
+import type { ClaudeSessionSummary } from "./claudeSession";
+import type { WorktreeEntry } from "./common";
 
 export interface ClientMessage {
   hook?: HookMessage;
   open?: OpenMessage;
   newWorktree?: NewWorktreeMessage;
+  repoList?: RepoListMessage;
+  sessionList?: SessionListMessage;
+  sessionOpen?: SessionOpenMessage;
+  worktreeRemove?: WorktreeRemoveMessage;
 }
 
 /** Claude Code の hook イベント通知。
@@ -74,28 +81,82 @@ export interface OpenMessage {
 
 /** `gozd worktree new` から送られる「作業スペースを 1 つ増やしてエージェントを立てろ」の指示。
  * エージェントが自分で次の作業単位を切り出すための入口で、UI の PR / issue picker と
- * 同じ合成操作（worktree 作成 + task 紐づけ + claude 自動起動）を駆動する。
+ * 同じ合成操作（worktree 作成 + claude 自動起動）を駆動する。
  *
  * 起動した claude へのプロンプトは、picker が URL を入力欄へ挿入して人の送信を待つのに対し、
  * こちらは引数で渡してそのまま走らせる。作業を切り出す側は相手が動き出すことまでを含めて
- * 指示している。この経路は GitHub 参照を表現しない。 */
+ * 指示している。セッションの名前は Claude が初期プロンプトから付ける。 */
 export interface NewWorktreeMessage {
   /** 実行時の cwd。main 側で main repo root に解決する */
   dir: string;
-  /** 作成する task のタイトル。サイドバー行の表示に使う */
-  title: string;
   /** 起動した claude に引数で渡すプロンプト（送信され、そのまま実行が始まる）。
    * 空なら素の claude を起動する */
   prompt: string;
 }
 
+/** `gozd repo list` から送られる、gozd に登録された repo の問い合わせ。 */
+export type RepoListMessage = Record<string, never>;
+
+/** `gozd session list` から送られる、登録済みの全 repo のセッションの問い合わせ。 */
+export type SessionListMessage = Record<string, never>;
+
+/** `gozd session open <id>` から送られる、セッションを開けの指示。端末が開いていれば
+ * その端末へ、開いていなければ再開して、画面をそのセッションへ切り替える。 */
+export interface SessionOpenMessage {
+  sessionId: string;
+}
+
+/** `gozd worktree remove <path>` から送られる、worktree を削除しろの指示。
+ * 窓口の端末からの要求だけを受け付け、変更中のファイル・稼働中のセッションがある worktree は
+ * 削除しない。判定はすべて main 側が行う。 */
+export interface WorktreeRemoveMessage {
+  /** 削除する worktree の絶対パス */
+  path: string;
+  /** 要求元の端末（`GOZD_PTY_ID`）。窓口の端末かの判定に使う */
+  ptyId: number;
+}
+
+/** `gozd repo list` が返す 1 repo。 */
+export interface CliRepo {
+  rootDir: string;
+  name: string;
+  isGitRepo: boolean;
+  /** git repo の worktree。main worktree を含む。非 git project は空 */
+  worktrees: CliWorktree[];
+}
+
+/** branch は detached HEAD のとき空文字 */
+export type CliWorktree = Pick<WorktreeEntry, "path" | "branch" | "isMain">;
+
+/** `gozd session list` が返す 1 セッション。 */
+export type CliSession = Omit<ClaudeSessionSummary, "lastModified"> & {
+  /** 所属する repo の rootDir */
+  rootDir: string;
+  /** セッションログの最終更新時刻 (ISO 8601) */
+  lastModified: string;
+  /** gozd の端末で動いているか */
+  live: boolean;
+};
+
+/** 一覧を作るときに読めなかった repo。一覧全体は失わせず、欠けたことを伝える */
+export interface CliFailure {
+  rootDir: string;
+  error: string;
+}
+
 /** 応答を返す種別の ClientMessage に対して、socket が閉じる前に 1 行だけ返すメッセージ。 */
 export interface ClientReply {
   ok: boolean;
-  /** ok のとき、作成した worktree の絶対パス。ok=false では空文字 */
+  /** newWorktree / sessionOpen / worktreeRemove が ok のとき、対象の絶対パス。それ以外は空文字 */
   dir: string;
   /** ok=false のときの失敗理由。ok では空文字 */
   error: string;
+  /** repoList が ok のときだけ持つ */
+  repos?: CliRepo[];
+  /** sessionList が ok のときだけ持つ */
+  sessions?: CliSession[];
+  /** repoList / sessionList が ok のときだけ持つ。読めなかった repo */
+  failures?: CliFailure[];
 }
 
 /** hook push payload。socket で受けた `HookMessage` から送信経路情報 (`source`) を

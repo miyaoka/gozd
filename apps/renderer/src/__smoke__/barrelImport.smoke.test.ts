@@ -74,7 +74,7 @@ tester.run("barrel-import (gozd scopes smoke)", rule, {
     // 子 feature → 別の子 feature の内部モジュール直接 import
     {
       code: "import { foo } from '../worktree/utils';",
-      filename: `${BASE}/features/sidebar/features/task/TaskRow.vue`,
+      filename: `${BASE}/features/sidebar/features/repo/RepoSection.vue`,
       options: [{ scopes: SCOPES }],
       errors: [{ messageId: "noDirectImport" }],
     },

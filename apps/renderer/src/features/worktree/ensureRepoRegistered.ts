@@ -5,6 +5,9 @@
  * 前段。未登録なら worktree 一覧を取得して登録し、登録済みならアクティブ repo list に
  * 載っていることだけ保証する（プールには居るがリストに無い repo を開いたとき、リストに
  * 現れないと「開いたのに何も起きない」ため）。
+ *
+ * 窓口（docs/concierge.md）は repo list の外に固定で出る project なので、開いても list に
+ * 載せない。
  */
 import { tryCatch } from "@gozd/shared";
 import { useNotificationStore } from "../../shared/notification";
@@ -27,7 +30,9 @@ export async function ensureRepoRegistered(params: {
 
   const owning = repoStore.findRepoOwning(openDir);
   if (owning !== undefined) {
-    repoStore.ensureInActiveRepoList(owning.rootDir);
+    if (owning.rootDir !== repoStore.concierge?.rootDir) {
+      repoStore.ensureInActiveRepoList(owning.rootDir);
+    }
     return;
   }
   let worktrees: RepoWorktree[] = [];

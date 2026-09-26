@@ -1,5 +1,5 @@
 <doc lang="md">
-task ⋮ メニューの「Show session log」から開くセッションログ表示 dialog。
+セッション行の ⋮ メニューの「Show session log」から開くセッションログ表示 dialog。
 `useSessionLogViewer` の context (`sessionId` + `title`) が定義されたら開く。
 
 ## レイアウト

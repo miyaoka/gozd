@@ -18,13 +18,13 @@ function describeValue(value: unknown): string {
   return typeof value;
 }
 
-// --- strict 版（state 系永続ファイル用: app-state.json / tasks.json） ---
+// --- strict 版（state 系永続ファイル用: app-state.json） ---
 //
 // 「フィールド不在 = default」契約は維持しつつ、「存在するが型違反」は契約外の破損として
 // RawJsonTypeError を投げる。gozd 自身は型付きで書くため、型違反の現実的な混入経路は
 // 手編集 / 異バージョンの書き込みのみで、schema 外データの期待挙動は新規初期化
-// （ベータ版のデータポリシー）。呼び出し側の load が catch し、TaskStore の
-// parse 失敗と同じ「stderr ログ + 初期状態で上書き save (reinit)」経路に倒す。
+// （ベータ版のデータポリシー）。呼び出し側の load が catch し、
+// 「stderr ログ + 初期状態で上書き save (reinit)」経路に倒す。
 // 部分救済（違反フィールドだけ default に直す）は書かない。
 
 export class RawJsonTypeError extends Error {
@@ -37,12 +37,6 @@ export class RawJsonTypeError extends Error {
 export function strictString(value: unknown, label: string, fallback = ""): string {
   if (value === undefined) return fallback;
   if (typeof value !== "string") throw new RawJsonTypeError(label, "string", value);
-  return value;
-}
-
-export function strictNumber(value: unknown, label: string, fallback = 0): number {
-  if (value === undefined) return fallback;
-  if (typeof value !== "number") throw new RawJsonTypeError(label, "number", value);
   return value;
 }
 

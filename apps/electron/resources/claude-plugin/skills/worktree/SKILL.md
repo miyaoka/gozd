@@ -9,7 +9,7 @@ description: 新しい worktree を作り、そこで独立した Claude を起�
 セッションで、こちらの会話は引き継がれない。
 
 ```bash
-"$GOZD_CLI_PATH" worktree new --title "<作業の名前>" --prompt-stdin <<'EOF'
+"$GOZD_CLI_PATH" worktree new --prompt-stdin <<'EOF'
 <渡す指示文>
 EOF
 ```

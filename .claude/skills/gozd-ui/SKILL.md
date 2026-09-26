@@ -266,7 +266,7 @@ SSOT。
 
 | intent         | 意味                                   | 例                                                                                   |
 | -------------- | -------------------------------------- | ------------------------------------------------------------------------------------ |
-| primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / active task row                                 |
+| primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / active session row                              |
 | info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge / tag ref / 識別子        |
 | success        | 完了 / 成功 / 既存 ref                 | added file / untracked file / branch ref (local/synced/remote) / user message bubble |
 | destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                                           |

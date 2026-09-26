@@ -11,7 +11,7 @@ import { rpc } from "../../../../shared/rpc";
 export const rpcReviveSessionList = (req: ReviveSessionListRequest) =>
   rpc<ReviveSessionListResponse>("/claudeSession/reviveList", req);
 
-// セッション 1 件を worktree + sessionId 付き task として作り直す。resume は呼び出し側が
+// セッション 1 件の worktree を作り直す。resume は呼び出し側が
 // requestResumeSession の明示ヒントで駆動する（visit は自動 resume しない）。
 export const rpcReviveSession = (req: ReviveSessionRequest) =>
   rpc<ReviveSessionResponse>("/claudeSession/revive", req);

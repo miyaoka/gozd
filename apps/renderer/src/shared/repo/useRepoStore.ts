@@ -1,7 +1,7 @@
 import {
   type AppState,
+  type ClaudeSessionSummary,
   type RepoList,
-  type Task,
   type UpstreamStatus,
   WorktreeEntry,
 } from "@gozd/rpc";
@@ -63,8 +63,8 @@ export interface RepoDirEntry {
 /**
  * repo を代表する dir 群。git repo は配下の全 worktree、非 git は rootDir 自身。
  * 「repo → その repo が所有する dir 集合」の分岐ルールはここが SSOT で、
- * fs watch 対象（`collectFsWatchTargetDirs`）とダッシュボードの母集団
- * （`collectDashboardRows`）が共有する。
+ * fs watch 対象（`collectFsWatchTargetDirs`）と、全 repo のセッション行の母集団
+ * （`collectPoolSessionRows`。ダッシュボードとサイドバーの状態別の表示）が共有する。
  *
  * dir だけでなく worktree entry も返すのは、消費者の片方が dir から worktree を
  * 引き直す必要があるため。dir だけを返すと同じ分岐が呼び出し側で再実装される。
@@ -95,6 +95,9 @@ export function collectFsWatchTargetDirs(
 }
 
 const DEFAULT_REPO_LIST_NAME = "Default";
+
+/** 窓口の表示名 */
+const CONCIERGE_NAME = "Concierge";
 
 function createDefaultRepoList(dirOrder: string[] = []): RepoList {
   return { id: crypto.randomUUID(), name: DEFAULT_REPO_LIST_NAME, dirOrder };
@@ -162,14 +165,36 @@ export const useRepoStore = defineStore("repo", () => {
   /**
    * 明示 refetch 要求。feature 層 (sidebar / picker 等) が `requestRefresh(rootDir)`
    * を呼ぶと nonce が進み、`useSidebarData` の watch 経由で `fetchRepo(rootDir)` が
-   * 走る。`gitStatusChange` 等の push に依らない経路 (例: PR picker での既存 worktree
-   * hit から closed_by_user な task を蘇生したいケース、task ⋮ メニューでの明示削除)
+   * 走る。`gitStatusChange` 等の push に依らない経路 (例: worktree の新規作成・復活の直後)
    * で SSOT を取り直すための単一信号。楽観更新 (renderer 側で `repos[...]` を直書きして
    * race を許す経路) を避ける。store には reactivity が必要なので ref で持つ。
    */
   const refreshRequest = ref<{ rootDir: string; nonce: number }>();
   function requestRefresh(rootDir: string): void {
     refreshRequest.value = { rootDir, nonce: (refreshRequest.value?.nonce ?? 0) + 1 };
+  }
+  /**
+   * repo（rootDir）ごとの Claude セッション一覧。SSOT は Claude Code のセッションログで、
+   * ここは `rpcClaudeSessionList` の最新結果を保持するだけ（取得は feature 層が行う）。
+   * 1 repo の全 worktree 分をまとめて持ち、worktree への帰属はセッションの cwd で決める。
+   */
+  const sessionsByRoot = ref<Record<string, ClaudeSessionSummary[]>>({});
+  function setRepoSessions(rootDir: string, sessions: ClaudeSessionSummary[]): void {
+    if (repoAt(rootDir) === undefined) return;
+    sessionsByRoot.value[rootDir] = sessions;
+  }
+  /** repo（本体と全 worktree）のセッション。lastModified 降順。作業ディレクトリへの帰属は
+   * 呼び出し側（`buildSessionRows`）が決める */
+  function sessionsOf(rootDir: string): ClaudeSessionSummary[] {
+    return sessionsByRoot.value[rootDir] ?? [];
+  }
+  /** sessionId からセッションを全 repo 横断で引く */
+  function findSession(sessionId: string): ClaudeSessionSummary | undefined {
+    for (const sessions of Object.values(sessionsByRoot.value)) {
+      const found = sessions.find((s) => s.sessionId === sessionId);
+      if (found !== undefined) return found;
+    }
+    return undefined;
   }
   /**
    * shared 層内で `selectedDir.value =` を直書きする正当な経路は以下に限定する。
@@ -238,27 +263,47 @@ export const useRepoStore = defineStore("repo", () => {
   }
 
   /**
-   * `updateRepoData`（= `rpcGitWorktreeList` の git 真値の唯一の書き込み口）が一度でも
-   * 走った rootDir の集合。`applyRepoTasks`（git 非依存の prefetch 適用）が、git 真値
-   * 到達後に古い tasks.json スナップショットで上書きするのを防ぐガードに使う。
-   * git 真値は tasks.json を JOIN した最新 task を含むため、真値到達後は prefetch の
-   * 出番が無いという不変条件を表す。reactivity 不要なため素の Set で持つ。
+   * 窓口（docs/concierge.md）。非 git の project として扱うが、repo list にもプールにも載せず、
+   * 永続化もしない（窓口のディレクトリは main が決める）。dir がどの project に属するかの判定
+   * （`findRepoOwning` / `selectedRepo` / ファイル監視 / セッション）ではプールの repo と同じに扱う。
    */
-  const gitTruthAppliedRoots = new Set<string>();
+  const concierge = ref<RepoState>();
+  function setConciergeDir(dir: string): void {
+    concierge.value = {
+      rootDir: dir,
+      repoName: CONCIERGE_NAME,
+      isGitRepo: false,
+      worktrees: [],
+      // 非 git なので GitHub の owner / repo は無い。解決済みの空で確定させる
+      githubIdentity: { owner: "", repo: "" },
+    };
+  }
+  /** rootDir の project。プールの repo か窓口 */
+  function repoAt(rootDir: string): RepoState | undefined {
+    if (rootDir === concierge.value?.rootDir) return concierge.value;
+    return repos.value[rootDir];
+  }
+  /** dir の属する project を探す対象。窓口とプール全体 */
+  const projectRepos = computed<RepoState[]>(() => {
+    const pool = poolDirs.value.flatMap((rootDir) => {
+      const repo = repos.value[rootDir];
+      return repo === undefined ? [] : [repo];
+    });
+    return concierge.value === undefined ? pool : [concierge.value, ...pool];
+  });
+  function ownerIn(dir: string): RepoState | undefined {
+    return projectRepos.value.find(
+      (repo) => repo.rootDir === dir || repo.worktrees.some((wt) => wt.path === dir),
+    );
+  }
 
   /** selectedDir を含む repo を逆引き。最初に dir を含む repo。
    * active dir はどの repo list の repo でも選択できるためプール全体を走査する */
   const selectedRepo = computed(() => {
     const dir = selectedDir.value;
     if (dir === undefined) return undefined;
-    for (const rootDir of poolDirs.value) {
-      const repo = repos.value[rootDir];
-      if (repo === undefined) continue;
-      if (repo.rootDir === dir) return repo;
-      if (repo.worktrees.some((wt) => wt.path === dir)) return repo;
-    }
     // worktrees にまだ含まれていない（fetch 前）場合の fallback
-    return repos.value[dir];
+    return ownerIn(dir) ?? repos.value[dir];
   });
 
   const selectedIsGitRepo = computed(() => selectedRepo.value?.isGitRepo ?? false);
@@ -266,35 +311,15 @@ export const useRepoStore = defineStore("repo", () => {
 
   /** `useFsWatchSync` が watch すべき dir 集合。`repos[*].worktrees` または非 git の rootDir。
    * repo list は表示のみの概念なので、非アクティブ repo list の repo も watch し続ける */
-  const fsWatchTargetDirs = computed(() => collectFsWatchTargetDirs(poolDirs.value, repos.value));
+  const fsWatchTargetDirs = computed(() => {
+    const dirs = collectFsWatchTargetDirs(poolDirs.value, repos.value);
+    if (concierge.value !== undefined) dirs.add(concierge.value.rootDir);
+    return dirs;
+  });
 
-  /**
-   * Claude session_id を持つ Task を全 repo / 全 worktree から逆引きする。
-   * terminal の leaf → ptyId → sessionId 経由でタイトル表示するときに使う。
-   * SSOT は tasks.json を JOIN した `WorktreeEntry.tasks`。空文字 sessionId は
-   * 「未起動 / 切り離し済み」を意味するので呼び出し側で除外してから渡す前提。
-   */
-  function findTaskBySessionId(sessionId: string): Task | undefined {
-    for (const rootDir of poolDirs.value) {
-      const repo = repos.value[rootDir];
-      if (repo === undefined) continue;
-      for (const wt of repo.worktrees) {
-        const task = wt.tasks.find((t) => t.sessionId === sessionId);
-        if (task !== undefined) return task;
-      }
-    }
-    return undefined;
-  }
-
-  /** dir がどこかの repo の worktrees に含まれていればその repo を返す（プール全体） */
+  /** dir がどこかの repo の worktrees に含まれていればその repo を返す（窓口とプール全体） */
   function findRepoOwning(dir: string): RepoState | undefined {
-    for (const rootDir of poolDirs.value) {
-      const repo = repos.value[rootDir];
-      if (repo === undefined) continue;
-      if (repo.rootDir === dir) return repo;
-      if (repo.worktrees.some((wt) => wt.path === dir)) return repo;
-    }
-    return undefined;
+    return ownerIn(dir);
   }
 
   /** `dir` が active repo (selectedDir 所属) と同じ repo を共有しているか。
@@ -324,6 +349,9 @@ export const useRepoStore = defineStore("repo", () => {
    * 保証する経路。プールに未登録の rootDir を渡してはいけない（union 不変条件）。
    */
   function ensureInActiveRepoList(rootDir: string) {
+    if (repos.value[rootDir] === undefined) {
+      throw new Error(`[useRepoStore] ensureInActiveRepoList: ${rootDir} is not in the repo pool`);
+    }
     const target = activeRepoList.value;
     if (target.dirOrder.includes(rootDir)) return;
     repoLists.value = repoLists.value.map((p) =>
@@ -460,9 +488,6 @@ export const useRepoStore = defineStore("repo", () => {
       current.worktrees.some((w) => w.path === selectedDir.value) &&
       !merged.some((w) => w.path === selectedDir.value);
     repos.value[rootDir] = { ...current, worktrees: merged };
-    // git 真値が書かれた印。以降 applyRepoTasks（prefetch）は古い task スナップショットで
-    // 上書きしない（真値は tasks.json を JOIN した最新 task を含むため出番が無い）。
-    gitTruthAppliedRoots.add(rootDir);
     if (orphanedActiveDir) {
       // 外部 git worktree remove 経由だとユーザー操作なしに active dir が切り替わる。
       // feature 層が DI した notifier 経由でユーザーに通知する。未注入なら console.info。
@@ -504,7 +529,8 @@ export const useRepoStore = defineStore("repo", () => {
    */
   function setWorktreeGitStatuses(dir: string, patch: WorktreeStatusPatch) {
     const repo = findRepoOwning(dir);
-    if (repo === undefined) return;
+    // 書き戻し先はプールの repo だけ。窓口は repos に持たない
+    if (repo === undefined || repos.value[repo.rootDir] === undefined) return;
     const idx = repo.worktrees.findIndex((wt) => wt.path === dir);
     if (idx < 0) return;
     bumpGen(statusGenByDir, dir);
@@ -567,10 +593,7 @@ export const useRepoStore = defineStore("repo", () => {
         headGenByDir.delete(dir);
       }
     }
-    // git 真値到達フラグも掃除する。残すと同 rootDir を再追加したとき applyRepoTasks が
-    // 永久 no-op になり、起動時 task 高速ロード（prefetch）の便益が失われて layout shift が
-    // 一段戻る。世代と同じ per-root 補助状態として同じライフサイクルで掃除する。
-    gitTruthAppliedRoots.delete(rootDir);
+    delete sessionsByRoot.value[rootDir];
     if (selectedDir.value !== undefined) {
       const stillOwned = findRepoOwning(selectedDir.value);
       if (stillOwned === undefined) {
@@ -612,11 +635,11 @@ export const useRepoStore = defineStore("repo", () => {
   // --- 永続化サポート（I/O は feature 側で実施） ---
 
   /**
-   * AppState の sidebar 関連フィールドを現在の store の状態で組み立てて返す。
+   * AppState のうち repo の store が持つフィールドを現在の状態で組み立てて返す。
    * shared スコープの制約により RPC 呼び出しは feature 側で行うので、
-   * snapshot 構築だけここで提供する。
+   * snapshot 構築だけここで提供する。サイドバーの表示（sidebarView）は feature 側が足す。
    */
-  function buildAppStateSnapshot(): AppState {
+  function buildAppStateSnapshot(): Omit<AppState, "sidebarView"> {
     return {
       sidebarRepos: poolDirs.value.map((rootDir) => {
         const r = repos.value[rootDir];
@@ -626,7 +649,7 @@ export const useRepoStore = defineStore("repo", () => {
           isGitRepo: r?.isGitRepo ?? false,
           collapsed: collapsedRoots.value.has(rootDir),
           // worktree キャッシュ: 起動直後の楽観カード描画に必要な最小サブセットだけ
-          // 射影する。git status / tasks / upstream を含めないことで、gitStatusChange
+          // 射影する。git status / upstream を含めないことで、gitStatusChange
           // push のたびに snapshot が変化して save watch が回るのを防ぐ
           // （既存 debounce 相乗り + 射影限定）。SSOT は git。
           worktrees: (r?.worktrees ?? []).map((wt) => ({
@@ -661,11 +684,11 @@ export const useRepoStore = defineStore("repo", () => {
    * - activeRepoListId が迷子 → 先頭 repo list
    *
    * worktrees はキャッシュ（path/branch/isMain のみ）から実カードとして復元し、
-   * 起動直後の layout shift を消す。git status / tasks / upstream は欠けた状態で
-   * 描画され、tasks は `fetchRepo` → `updateRepoData`、status は監視の push が届いたら
-   * 同一 path のカードが key 維持で in-place 更新される（楽観描画）。SSOT は git。
+   * 起動直後の layout shift を消す。git status / upstream は欠けた状態で描画され、
+   * 監視の push が届いたら同一 path のカードが key 維持で in-place 更新される（楽観描画）。
+   * SSOT は git。
    */
-  function hydrateFromAppState(state: AppState) {
+  function hydrateFromAppState(state: Omit<AppState, "sidebarView">) {
     const nextRepos: Record<string, RepoState> = {};
     const poolOrder: string[] = [];
     const nextCollapsed = new Set<string>();
@@ -686,7 +709,6 @@ export const useRepoStore = defineStore("repo", () => {
               branch: wt.branch,
               isMain: wt.isMain,
               head: "",
-              tasks: [],
             }),
         ),
         // githubIdentity は persist しない派生値（origin remote から都度解決）。
@@ -733,29 +755,6 @@ export const useRepoStore = defineStore("repo", () => {
     collapsedRoots.value = nextCollapsed;
   }
 
-  /**
-   * git 非依存で読んだ task 一覧（`rpcTaskList`）を、既存 worktrees に worktreeDir で
-   * 割り当てる。起動直後、worktree キャッシュから描画したカードに task 行を即埋める高速
-   * 経路。各 wt は spread で gitStatuses / upstream 等を保持し、tasks のみ差し替える。
-   * `updateRepoData` で git 真値が既に書かれた repo は no-op にする。prefetch と fetchRepo
-   * は並走起動され完了順序は保証されない。fetchRepo が先に完了したケースで、prefetch の
-   * 古い tasks.json スナップショット（往復中に session hook 等で task が増えた場合、真値
-   * より古い）が後着して真値の task を消す race を構造的に塞ぐ。git 真値到達後は prefetch
-   * の出番が無い（真値が tasks.json を JOIN した最新 task を含む）。task の SSOT は tasks.json。
-   */
-  function applyRepoTasks(rootDir: string, tasks: Task[]) {
-    if (gitTruthAppliedRoots.has(rootDir)) return;
-    const current = repos.value[rootDir];
-    if (current === undefined) return;
-    repos.value[rootDir] = {
-      ...current,
-      worktrees: current.worktrees.map((wt) => ({
-        ...wt,
-        tasks: tasks.filter((t) => t.worktreeDir === wt.path),
-      })),
-    };
-  }
-
   return {
     repos,
     dirOrder,
@@ -780,11 +779,15 @@ export const useRepoStore = defineStore("repo", () => {
     onScreenRoots,
     setRepoOnScreen,
     findRepoOwning,
-    findTaskBySessionId,
     isSameRepoAsActive,
     addRepo,
+    concierge,
+    setConciergeDir,
+    repoAt,
     updateRepoData,
-    applyRepoTasks,
+    setRepoSessions,
+    sessionsOf,
+    findSession,
     setWorktreeGitStatuses,
     setGithubIdentity,
     getObservationGen,

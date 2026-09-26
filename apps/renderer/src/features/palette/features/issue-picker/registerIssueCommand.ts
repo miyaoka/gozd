@@ -11,7 +11,7 @@ import { useRepoStore } from "../../../../shared/repo";
 import { ghErrorMessage } from "../../../github-item";
 import { openCreatedWorktree } from "../../../terminal";
 import { rpcCreateWorktree, useWorktreeStore } from "../../../worktree";
-import { inFlightKey, useInFlightGhRefs } from "../../inFlightGhRefs";
+import { inFlightKey, useInFlightGhRefs } from "../../inFlightItems";
 import { fetchViewer } from "../pr-picker";
 import { rpcGitIssueList } from "./rpc";
 import { useIssuePicker } from "./useIssuePicker";

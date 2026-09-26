@@ -23,7 +23,7 @@ import { useEventListener, useInfiniteScroll } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
 import { fuzzyMatch } from "../../fuzzyMatch";
-import { useInFlightGhRefs } from "../../inFlightGhRefs";
+import { useInFlightGhRefs } from "../../inFlightItems";
 import { useListNavigation } from "../../useListNavigation";
 import { prPickerCountsLabel, prPickerEmptyMessage } from "./prPickerListDisplay";
 import PrPickerRow from "./PrPickerRow.vue";

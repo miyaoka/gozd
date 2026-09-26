@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { inFlightKey } from "./inFlightGhRefs";
+import { inFlightKey } from "./inFlightItems";
 
 describe("inFlightKey", () => {
   test("同一入力は同一キーになる (picker 開き直し後の item も同じキーで排他される)", () => {

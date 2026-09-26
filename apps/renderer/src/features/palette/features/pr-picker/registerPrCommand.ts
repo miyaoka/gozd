@@ -18,7 +18,7 @@ import {
   useWorktreeStore,
 } from "../../../worktree";
 import type { ListPickerPage } from "../../createListPicker";
-import { inFlightKey, useInFlightGhRefs } from "../../inFlightGhRefs";
+import { inFlightKey, useInFlightGhRefs } from "../../inFlightItems";
 import { usePrPicker } from "./usePrPicker";
 import type { PrPickerItem } from "./usePrPicker";
 import { fetchViewer } from "./useViewer";

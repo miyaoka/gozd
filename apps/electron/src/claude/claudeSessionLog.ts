@@ -452,6 +452,38 @@ function readSessionMeta(path: string): SessionMeta {
   }
 }
 
+/** セッションの最終活動時刻 (Unix ミリ秒)。末尾レコードの timestamp (内容由来) を SSOT にする。
+ * ISO が無い / parse 不能な病的ケースだけ mtime にフォールバックする (0 で epoch 表示に落とさない)。 */
+function lastActivityMs(path: string, meta: SessionMeta): number {
+  const tsMs = meta.timestamp !== "" ? Date.parse(meta.timestamp) : Number.NaN;
+  return Number.isNaN(tsMs) ? fileMtimeMs(path) : tsMs;
+}
+
+/** sessionId ごとの最終活動時刻 (Unix ミリ秒) を返す。jsonl が見つからない sessionId は
+ * キーを持たない。projects dir の走査は 1 回で済ませ、全 sessionId をまとめて解決する。
+ *
+ * `projectsDir` はテスト用の injection 口。production は省略して `~/.claude/projects/` を使う */
+export function readSessionsLastActivity(
+  sessionIds: readonly string[],
+  projectsDir: string = defaultProjectsDir(),
+): Record<string, number> {
+  const pending = new Set(sessionIds.filter(isSafeSessionId));
+  const found: Record<string, number> = {};
+  if (pending.size === 0 || !isDirectory(projectsDir)) return found;
+  for (const name of listDir(projectsDir)) {
+    const projectDir = join(projectsDir, name);
+    if (!isDirectory(projectDir)) continue;
+    for (const sessionId of pending) {
+      const path = join(projectDir, `${sessionId}.jsonl`);
+      if (!existsSync(path)) continue;
+      found[sessionId] = lastActivityMs(path, readSessionMeta(path));
+      pending.delete(sessionId);
+    }
+    if (pending.size === 0) break;
+  }
+  return found;
+}
+
 /** 指定 repo (dir) 配下の削除済み worktree に紐づく復活可能セッションを列挙する。
  *
  * gozd 製 worktree に限定する: cwd が `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` 配下で、
@@ -508,16 +540,13 @@ export async function listReviveSessions(
       // 非 0 バイトでも自セッションの cwd を読めない破損 jsonl は blank 行になるため出さない
       // (正常な Claude jsonl は全レコードに cwd が載るため、cwd 空 = 実体無し)。
       if (meta.cwd === "") continue;
-      // 最終アクティビティは末尾レコードの timestamp (内容由来) を SSOT にする。ISO が無い /
-      // parse 不能な病的ケースだけ mtime にフォールバックする (0 で epoch 表示に落とさない)。
-      const tsMs = meta.timestamp !== "" ? Date.parse(meta.timestamp) : Number.NaN;
       sessions.push({
         sessionId,
         cwd,
         worktreeDir,
         branch: meta.branch,
         title: meta.title,
-        lastActivity: Number.isNaN(tsMs) ? fileMtimeMs(path) : tsMs,
+        lastActivity: lastActivityMs(path, meta),
         sizeBytes,
       });
     }

@@ -24,7 +24,7 @@ import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { fuzzyMatch, useListNavigation } from "../palette";
-import { openTaskSession } from "../task";
+import { openTaskSession, useSessionLastActivityStore } from "../task";
 import { useTerminalStore } from "../terminal";
 import type { DashboardRow } from "./collectDashboardRows";
 import { collectDashboardRows } from "./collectDashboardRows";
@@ -35,6 +35,7 @@ import { useDashboard } from "./useDashboard";
 const contextKeys = useContextKeys();
 const repoStore = useRepoStore();
 const terminalStore = useTerminalStore();
+const sessionLastActivityStore = useSessionLastActivityStore();
 const dialogRef = useTemplateRef<HTMLDialogElement>("dialog");
 const inputRef = useTemplateRef<HTMLInputElement>("input");
 const listRef = useTemplateRef<HTMLDivElement>("list");
@@ -49,8 +50,11 @@ const isOpen = computed(() => contextKeys.get("dashboardVisible"));
 // 閉じている間は空にして、hooks イベントごとの全 repo 走査と詳細ペインの取得を止める
 const rows = computed((): DashboardRow[] =>
   isOpen.value
-    ? collectDashboardRows(repoStore.poolDirs, repoStore.repos, (sessionId) =>
-        terminalStore.getClaudeStatusBySessionId(sessionId),
+    ? collectDashboardRows(
+        repoStore.poolDirs,
+        repoStore.repos,
+        (sessionId) => terminalStore.getClaudeStatusBySessionId(sessionId),
+        (sessionId) => sessionLastActivityStore.get(sessionId),
       )
     : [],
 );

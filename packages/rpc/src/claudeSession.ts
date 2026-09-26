@@ -153,3 +153,14 @@ export interface ClaudeSessionLogResponse {
    * cross-session ノイズは debounce で coalesce する (refresh の per-call cost は constant)。 */
   watchDir: string;
 }
+
+/** セッションログの最終活動時刻を sessionId 単位でまとめて引く。サイドバー / ダッシュボードが
+ * live な Claude を持たない task の相対時刻に使う。 */
+export interface ClaudeSessionLastActivityRequest {
+  sessionIds: string[];
+}
+
+export interface ClaudeSessionLastActivityResponse {
+  /** sessionId → 最終活動時刻 (Unix ミリ秒)。jsonl が見つからない sessionId はキーを持たない。 */
+  lastActivityBySessionId: Record<string, number>;
+}

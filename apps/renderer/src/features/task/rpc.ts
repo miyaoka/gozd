@@ -1,5 +1,7 @@
 // task が使う RPC wrapper。
 import {
+  ClaudeSessionLastActivityRequest,
+  ClaudeSessionLastActivityResponse,
   TaskAddRequest,
   TaskAddResponse,
   TaskListRequest,
@@ -41,3 +43,7 @@ export const rpcTaskRemove = (req: TaskRemoveRequest) =>
 // worktree を残したまま発火する（remove 不可の main worktree の滞留 task 一掃用）。
 export const rpcTaskRemoveByWorktree = (req: TaskRemoveByWorktreeRequest) =>
   rpc<TaskRemoveByWorktreeResponse>("/task/removeByWorktree", req);
+
+// live な Claude を持たない task の相対時刻に使う、セッションログの最終活動時刻。
+export const rpcClaudeSessionLastActivity = (req: ClaudeSessionLastActivityRequest) =>
+  rpc<ClaudeSessionLastActivityResponse>("/claudeSession/lastActivity", req);

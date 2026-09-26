@@ -8,3 +8,4 @@ export {
   rpcTaskSetUserTitle,
 } from "./rpc";
 export { resolveTaskBaseTime, validateTasksCreatedAt } from "./taskBaseTime";
+export { useSessionLastActivityStore } from "./useSessionLastActivityStore";

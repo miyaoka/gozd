@@ -7,6 +7,6 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node", "bun"]
+    "types": ["node"]
   }
 }

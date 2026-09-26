@@ -1,7 +1,7 @@
 // session-log feature の公開 API。
 //
 // Claude セッションログ (`~/.claude/projects/<encoded>/*.jsonl`) を扱う関心が複数
-// feature にまたがる (sidebar の task ⋮ メニュー dialog / terminal 右上の preview /
+// feature にまたがる (sidebar のセッション ⋮ メニュー dialog / terminal 右上の preview /
 // undock されたメッセージのフローティングウィンドウ) ため、独立 feature として切り出している。
 // 共有データ取得は `useSessionLogLive` 1 つで賄い、発言の判定と見た目は `sessionLogView` の
 // 発言の定義を全ての consumer が共有する。

@@ -172,7 +172,7 @@ box が伸び続ける挙動を構造的に排除する。
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { usePopover } from "../../shared/popover";
-import { taskDisplayTitle, useRepoStore } from "../../shared/repo";
+import { sessionDisplayTitle, useRepoStore } from "../../shared/repo";
 import type { UndockDragHandoff } from "../floating-window";
 import {
   isSameSpeech,
@@ -183,6 +183,7 @@ import {
   useUndockedLog,
   useSessionLogLive,
 } from "../session-log";
+import { stripClaudeTitlePrefix } from "./claudeStatus";
 import { keepInPlace } from "./keepInPlace";
 import {
   collectRuns,
@@ -458,15 +459,15 @@ function undockPreview(handoff?: UndockDragHandoff) {
   const rect = box.getBoundingClientRect();
   const bodyRect = body.getBoundingClientRect();
   // ヘッダは TerminalLeafTitle と同じ SSOT から組み立てる: repo は dir → findRepoOwning
-  // (name + RepoIcon 用 owner)、session タイトルは sessionId → findTaskBySessionId →
-  // taskDisplayTitle。sub 由来はどの subagent かも識別できるよう subLabel を足す (main は
-  // 自明なので略)。repo 未登録 / Task 未到達 (起動直後等) は解決できた部分だけで出す。
+  // (name + RepoIcon 用 owner)、session タイトルは端末タイトル → セッション一覧のタイトルの
+  // 順で sessionDisplayTitle が解決する。sub 由来はどの subagent かも識別できるよう subLabel を
+  // 足す (main は自明なので略)。repo 未登録 (起動直後等) は解決できた部分だけで出す。
   const dir = terminalStore.getPaneDir(props.leafId);
   const repo = dir === undefined ? undefined : repoStore.findRepoOwning(dir);
   const sid = sessionId.value;
-  // 空文字は未起動 / 切り離し済みで findTaskBySessionId が誤一致しうるため除外 (TerminalLeafTitle と同じ規律)
-  const task = sid === undefined || sid === "" ? undefined : repoStore.findTaskBySessionId(sid);
-  const sessionTitle = task === undefined ? undefined : taskDisplayTitle(task);
+  const listTitle = sid === undefined ? undefined : repoStore.findSession(sid)?.title;
+  const terminalTitle = stripClaudeTitlePrefix(terminalStore.titleByLeafId[props.leafId] ?? "");
+  const sessionTitle = sessionDisplayTitle(listTitle, terminalTitle);
   const parts = [sessionTitle];
   if (ctx.origin === "sub") parts.push(subLabel.value);
   const title = parts.filter((p) => p !== undefined && p !== "").join(" · ");

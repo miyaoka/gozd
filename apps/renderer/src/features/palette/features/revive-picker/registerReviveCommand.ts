@@ -1,5 +1,5 @@
 /**
- * セッション復活コマンド。削除済み worktree に紐づく Claude セッションを、worktree + task ごと
+ * セッション復活コマンド。削除済み worktree に紐づく Claude セッションを、worktree を
  * 作り直して resume する。
  *
  * ターゲット repo の解決は VSCode の SCM コマンド (`CommandCenter.createCommand` の
@@ -42,14 +42,13 @@ export function registerReviveCommand(): () => void {
     return repoStore.findRepoOwning(activeDir)?.rootDir;
   }
 
-  /** 選択されたセッションを worktree + task ごと作り直し、visit で resume を駆動する。 */
+  /** 選択されたセッションの worktree を作り直し、visit で resume を駆動する。 */
   async function reviveSession(rootDir: string, session: ReviveSessionInfo) {
     const result = await tryCatch(
       rpcReviveSession({
         dir: rootDir,
         worktreeDir: session.worktreeDir,
         branch: session.branch,
-        sessionId: session.sessionId,
       }),
     );
     if (!result.ok) {

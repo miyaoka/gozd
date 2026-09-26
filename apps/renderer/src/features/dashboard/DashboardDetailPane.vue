@@ -1,5 +1,5 @@
 <doc lang="md">
-選択中の task のセッション概要を出す右ペイン。「依頼（最初の user メッセージ）」と
+選択中のセッションの概要を出す右ペイン。「依頼（最初の user メッセージ）」と
 「現況（最後の assistant メッセージ）」の 2 点だけを出し、切り替えずに文脈を思い出せる
 ようにする。全文が要るときは行を確定してセッション本体へ跳ぶ。
 
@@ -27,10 +27,7 @@ const props = defineProps<{
   row: DashboardRow | undefined;
 }>();
 
-const sessionId = computed(() => {
-  const id = props.row?.task.sessionId;
-  return id === "" ? undefined : id;
-});
+const sessionId = computed(() => props.row?.sessionId);
 const debouncedSessionId = refDebounced(sessionId, 150);
 
 const { sessions, loading, notFound, errorMessage } = useSessionLogLive(debouncedSessionId);
@@ -68,7 +65,7 @@ const lastAssistant = computed((): Speech | undefined => {
 const isStale = computed(() => sessionId.value !== debouncedSessionId.value);
 
 const emptyMessage = computed((): string | undefined => {
-  if (props.row === undefined) return "Select a task";
+  if (props.row === undefined) return "Select a session";
   if (sessionId.value === undefined) return "No session yet";
   if (isStale.value || loading.value) return "Loading...";
   if (errorMessage.value !== undefined) return "Failed to read session log";

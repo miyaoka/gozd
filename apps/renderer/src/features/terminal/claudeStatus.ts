@@ -55,7 +55,7 @@ export interface ClaudeStateVisual {
 
 /**
  * Claude state の完全な視覚定義 (形 + 色 + glow + animate + aria-label) の SSOT。
- * サイドバー TaskRow とターミナル leaf タイトルが**同一の見た目**を共有するため、
+ * サイドバー SessionRow とターミナル leaf タイトルが**同一の見た目**を共有するため、
  * 色 / glow / aria-label までここに一元化する。形 (icon / animate) は `CLAUDE_STATE_ICON`
  * から継ぐ。asking のみ pulse を上乗せして承認待ちの緊急度を強調する。
  */
@@ -251,7 +251,7 @@ export function screenHasClaudeBlocker(screenText: string): boolean {
 
 /**
  * OSC タイトルから Claude の状態プレフィックス（スピナー / `✳` + スペース）を除去する。
- * サイドバーの task タイトル表示が生タイトルからプレフィックスを落とすために使う。
+ * セッションのタイトル表示が生タイトルからプレフィックスを落とすために使う。
  * プレフィックスは相互排他なので、分類と同じ 2 定数を順に適用して文字集合を一本化する。
  */
 export function stripClaudeTitlePrefix(title: string): string {
@@ -306,8 +306,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   /** ptyId → PermissionRequest の debounce タイマー */
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** sessionId ↔ ptyId のマッピング。session-start hook で確立、session-end / cleanup で破棄。
-   *  WtCard / SidebarPane が `task.sessionId` 経由でこの map を引いて、task 行から live PTY や
-   *  ClaudeStatus を解決するために使う。
+   *  セッション行から live PTY や ClaudeStatus を解決するために使う。
    *
    *  ref<Record> で保持し、key の add/delete を reactivity に乗せる。これにより
    *  `getSessionIdByPtyId(ptyId)` 等を computed から呼ぶだけで session-start / session-end
@@ -380,7 +379,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         if (sessionId !== "") {
           // 同 ptyId に旧 sessionId が紐付いていた場合は先に解除する。
           // /clear や /resume で session が切り替わった時、旧 mapping が残ると
-          // 別 task のステータスを引いてしまう。
+          // 別セッションのステータスを引いてしまう。
           const previousSessionId = sessionIdByPtyId.value[ptyId];
           if (previousSessionId !== undefined && previousSessionId !== sessionId) {
             delete ptyIdBySessionId.value[previousSessionId];
@@ -706,19 +705,12 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     inFlightIdleNotificationPtyIds.delete(ptyId);
   }
 
-  /** task.id (= sessionId) から ClaudeStatus を引く。session 確立前 / pty 終了後は undefined */
-  function getStatusBySessionId(sessionId: string): ClaudeStatus | undefined {
-    const ptyId = ptyIdBySessionId.value[sessionId];
-    if (ptyId === undefined) return undefined;
-    return claudeStatusByPtyId.value[ptyId];
-  }
-
-  /** task.id (= sessionId) から live PTY の ptyId を引く。未起動 / 終了済みは undefined */
+  /** sessionId から live PTY の ptyId を引く。未起動 / 終了済みは undefined */
   function getPtyIdBySessionId(sessionId: string): number | undefined {
     return ptyIdBySessionId.value[sessionId];
   }
 
-  /** ptyId から sessionId (= task.id) を引く。OSC title sync で leaf → task 解決に使う */
+  /** ptyId から sessionId を引く。leaf → セッション解決に使う */
   function getSessionIdByPtyId(ptyId: number): string | undefined {
     return sessionIdByPtyId.value[ptyId];
   }
@@ -730,7 +722,6 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     getClaudeState,
     getClaudeActiveLeafIds,
     getClaudeStatusesByDir,
-    getStatusBySessionId,
     getPtyIdBySessionId,
     getSessionIdByPtyId,
     clearDoneStates,

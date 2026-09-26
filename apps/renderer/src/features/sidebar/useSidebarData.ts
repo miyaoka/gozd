@@ -1,17 +1,12 @@
-import type {
-  BranchChangePayload,
-  HookPayload,
-  NotifyPayload,
-  WorktreeChangePayload,
-} from "@gozd/rpc";
+import type { BranchChangePayload, HookPayload, WorktreeChangePayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { CLAUDE_PLACEHOLDER_TITLE, useRepoStore } from "../../shared/repo";
+import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import type { FsWatchReadyPayload } from "../../shared/rpc";
-import { rpcTaskList, rpcTaskSetTerminalTitle, validateTasksCreatedAt } from "../task";
-import { stripClaudeTitlePrefix, useTerminalStore } from "../terminal";
+import { rpcClaudeSessionList } from "../session";
+import { useTerminalStore } from "../terminal";
 import { rpcGitGithubIdentity, rpcGitWorktreeList, useWorktreeStore } from "../worktree";
 import { restoreActiveDir } from "./restoreActiveDir";
 import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
@@ -21,7 +16,8 @@ import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
  *
  * 全 repo を per-rootDir で並列に管理する：
  * - `fetchRepo(rootDir)` を 1 単位として、新規追加 / push event / 明示リフレッシュで使い回す
- * - active dir に紐づく terminal title を、その dir 所属 repo の Task 名に同期する
+ * - セッション一覧は Claude Code のセッションログが SSOT。セッションの開始 / 終了と端末の
+ *   close で取り直す
  */
 export function useSidebarData() {
   const worktreeStore = useWorktreeStore();
@@ -31,11 +27,28 @@ export function useSidebarData() {
 
   /** repo ごとの fetch 世代カウンタ。並行 fetch で stale なレスポンスを破棄するため */
   const fetchGenByRoot = new Map<string, number>();
+  const sessionFetchGenByRoot = new Map<string, number>();
 
-  /** 1 つの repo の worktrees を取り直して repoStore を更新 */
+  /** 1 つの repo のセッション一覧を取り直して repoStore を更新。git 管理外の project も対象 */
+  async function fetchSessions(rootDir: string) {
+    if (repoStore.repos[rootDir] === undefined) return;
+    const gen = (sessionFetchGenByRoot.get(rootDir) ?? 0) + 1;
+    sessionFetchGenByRoot.set(rootDir, gen);
+    const result = await tryCatch(rpcClaudeSessionList({ dir: rootDir }));
+    if (!result.ok) {
+      notify.error(`Failed to list Claude sessions: ${rootDir}`, result.error);
+      return;
+    }
+    if (sessionFetchGenByRoot.get(rootDir) !== gen) return;
+    repoStore.setRepoSessions(rootDir, result.value.sessions);
+  }
+
+  /** 1 つの repo の worktrees とセッション一覧を取り直して repoStore を更新 */
   async function fetchRepo(rootDir: string) {
     const repo = repoStore.repos[rootDir];
-    if (repo === undefined || !repo.isGitRepo) return;
+    if (repo === undefined) return;
+    void fetchSessions(rootDir);
+    if (!repo.isGitRepo) return;
     const gen = (fetchGenByRoot.get(rootDir) ?? 0) + 1;
     fetchGenByRoot.set(rootDir, gen);
 
@@ -54,12 +67,6 @@ export function useSidebarData() {
     if (fetchGenByRoot.get(rootDir) !== gen) return;
     const wtList = result.value.worktrees;
 
-    // ワイヤ契約違反 (main 側の taskStore で生成された createdAt が ISO8601 でない)
-    // を ingress で観察可能化する。downstream は NaN を扱える形を維持する
-    for (const wt of wtList) {
-      validateTasksCreatedAt(wt.tasks);
-    }
-
     // 外部で削除された worktree のターミナルを cleanup（この repo の旧 worktrees に限定）
     const newPaths = new Set(wtList.map((wt) => wt.path));
     const stalePaths = repo.worktrees.map((w) => w.path).filter((p) => !newPaths.has(p));
@@ -67,21 +74,6 @@ export function useSidebarData() {
     repoStore.updateRepoData(rootDir, wtList, headGenSnapshot);
 
     for (const dir of stalePaths) terminalStore.remove(dir);
-  }
-
-  /**
-   * git 非依存で tasks.json を読み、起動直後に worktree キャッシュから描画したカードへ
-   * task 行を即埋める高速経路。`fetchRepo`（git worktree list を経る真値取得）と並走させ、
-   * task の SSOT (tasks.json) を git の往復を待たずに反映する。
-   * 失敗時は fetchRepo の真値が task を届けるため silent に諦める（補助経路。fetchRepo 側が
-   * 失敗を notify する）。
-   */
-  async function prefetchTasks(rootDir: string) {
-    const repo = repoStore.repos[rootDir];
-    if (repo === undefined || !repo.isGitRepo) return;
-    const result = await tryCatch(rpcTaskList({ dir: rootDir }));
-    if (!result.ok) return;
-    repoStore.applyRepoTasks(rootDir, result.value.tasks);
   }
 
   /**
@@ -118,8 +110,7 @@ export function useSidebarData() {
     });
   }
 
-  // 新規 repo が追加されたら即 fetch。git の往復が重いので、task だけ git 非依存の
-  // prefetch を並走させて起動直後のカード内 layout shift（task 行の遅延挿入）を抑える。
+  // 新規 repo が追加されたら即 fetch。
   // repo list は表示のみの概念なので、非アクティブ repo list の repo も含むプール全体
   // (poolDirs) を watch する（アクティブ repo list だけだと hydrate 直後に非表示 repo の
   // worktrees / identity が未取得のまま残り、findRepoOwning / PTY 帰属が壊れる）。
@@ -129,7 +120,6 @@ export function useSidebarData() {
       const prevSet = new Set(prev);
       for (const dir of next) {
         if (!prevSet.has(dir)) {
-          void prefetchTasks(dir);
           void fetchGithubIdentity(dir);
           void fetchRepo(dir);
         }
@@ -150,8 +140,8 @@ export function useSidebarData() {
   );
 
   // 明示 refetch 要求: feature 層 (sidebar / picker 等) からの SSOT 取り直し signal。
-  // worktree dir 切り替えに乗らない経路 (例: 同 dir 再選択 + closed_by_user task の蘇生、
-  // task ⋮ メニューの明示削除) で楽観更新ではなく真値 fetch に倒すための窓口。
+  // worktree dir 切り替えに乗らない経路 (例: worktree の作成直後、セッションの名前変更) で
+  // 楽観更新ではなく真値 fetch に倒すための窓口。
   watch(
     () => repoStore.refreshRequest,
     (req) => {
@@ -178,19 +168,6 @@ export function useSidebarData() {
     { immediate: true },
   );
 
-  // --- ターミナルタイトル → 同 leaf に紐付く Task タイトル同期 ---
-  //
-  // 1 wt = 複数 session の前提で、leafId → ptyId → sessionId →
-  // 同 sessionId を attach 中の task の経路で対象 Task を厳密に特定する。RPC 処理中に
-  // 来た更新は pendingSync に退避し、完了後に再実行する。
-  //
-  // session 確立直後の race: session-start hook 受信後 fetchRepo で server attachSession
-  // の結果を取り直すまでに OSC title が到達した場合、syncTaskTitle 内の 1 回 fetchRepo
-  // で再評価する。
-
-  let titleSyncing = false;
-  let pendingSync: { leafId: string; title: string } | undefined;
-
   /**
    * leafId → 直近で「session-start hook を受けた sessionId」のローカル mapping。
    * session-end 時の title クリア判定で「ending session が leaf の最新 session か」を
@@ -199,85 +176,6 @@ export function useSidebarData() {
    * いるかどうか) に頼らず、`useSidebarData` 内部だけで late session-end を判別できる。
    */
   const latestSessionByLeaf = new Map<string, string>();
-
-  async function syncTaskTitle(leafId: string, title: string) {
-    const targetDir = terminalStore.getPaneDir(leafId);
-    if (targetDir === undefined) return;
-    const ptyId = terminalStore.getPtyId(leafId);
-    if (ptyId === undefined) return;
-    const sessionId = terminalStore.getSessionIdByPtyId(ptyId);
-    if (sessionId === undefined) return;
-
-    const owning = repoStore.findRepoOwning(targetDir);
-    if (owning === undefined) return;
-    const projectDir = owning.rootDir;
-    let wt = owning.worktrees.find((w) => w.path === targetDir);
-    if (wt === undefined) return;
-
-    // task ≠ session 設計: task は UUID 識別、session は task.sessionId に attach される。
-    // 当該 sessionId を attach 中の task を探す。
-    if (!wt.tasks.some((t) => t.sessionId === sessionId)) {
-      // session-start hook 由来の attach が renderer state に反映されていない race。
-      // 1 度だけ refetch して再評価する。それでも無ければ次の OSC title でリカバリされる。
-      await fetchRepo(projectDir);
-      const refreshed = repoStore.repos[projectDir];
-      wt = refreshed?.worktrees.find((w) => w.path === targetDir);
-      if (wt === undefined) return;
-      if (!wt.tasks.some((t) => t.sessionId === sessionId)) return;
-    }
-
-    // dedupe: 既に同じ terminal_title が反映済みなら RPC を打たない。
-    // terminalTitle は将来的に複数行になりうるため、1 行目を trim した値で比較する
-    // (resolveDisplayTitle / extractTerminalTitle と同じ正規化)。
-    const existing = wt.tasks.find((t) => t.sessionId === sessionId);
-    if (existing === undefined) return;
-    const [firstLine = ""] = existing.terminalTitle.split("\n");
-    if (firstLine.trim() === title) return;
-
-    const result = await tryCatch(
-      rpcTaskSetTerminalTitle({ dir: projectDir, id: existing.id, terminalTitle: title }),
-    );
-    if (result.ok && result.value.task !== undefined) {
-      const updatedTask = result.value.task;
-      const freshRepo = repoStore.repos[projectDir];
-      const freshWt = freshRepo?.worktrees.find((w) => w.path === targetDir);
-      if (freshWt) {
-        // 該当 id のみ差し替える。tasks 全体を上書きすると別 session の task を消す。
-        freshWt.tasks = freshWt.tasks.map((t) => (t.id === updatedTask.id ? updatedTask : t));
-      }
-    }
-  }
-
-  async function drainTitleSync(leafId: string, title: string) {
-    if (titleSyncing) {
-      pendingSync = { leafId, title };
-      return;
-    }
-    titleSyncing = true;
-    try {
-      await syncTaskTitle(leafId, title);
-      while (pendingSync !== undefined) {
-        const next = pendingSync;
-        pendingSync = undefined;
-        await syncTaskTitle(next.leafId, next.title);
-      }
-    } finally {
-      titleSyncing = false;
-    }
-  }
-
-  watch(
-    () => terminalStore.lastTitleUpdate,
-    (update) => {
-      if (!update?.title) return;
-      // strip 後の値で同期する。スピナー文字を残すとコマが変わるたびに別タイトル扱いになり、
-      // syncTaskTitle の完全一致 dedupe を毎回すり抜けて RPC と tasks.json 書き込みが走り続ける
-      const title = stripClaudeTitlePrefix(update.title);
-      if (!title) return;
-      if (title === CLAUDE_PLACEHOLDER_TITLE) return;
-      void drainTitleSync(update.leafId, title);
-    },
-  );
 
   // leaf 自体が破棄されたら latestSessionByLeaf を掃除する。session-end の発火を
   // 伴わない leaf 破棄 (PTY 強制 kill 等) で entry が永続滞留して Map が肥大化する
@@ -291,15 +189,16 @@ export function useSidebarData() {
     },
   );
 
-  // ターミナル close で Claude session が消えた時、所属 repo を refetch して
-  // WorktreeEntry.tasks から消えた Task を反映する。terminalStore からは
-  // 通知 ref のみ受け取り、repo 依存はこちら側に閉じる (循環依存防止)。
+  // ターミナル close で端末との紐付けが解けたセッションを、端末の開いていないセッションとして
+  // 並べ直すため、所属 repo のセッション一覧を取り直す（端末を閉じた時点がログの最終更新に
+  // 最も近いため、下の先頭に来る）。terminalStore からは通知 ref のみ受け取り、repo 依存は
+  // こちら側に閉じる (循環依存防止)。
   watch(
     () => terminalStore.lastRemovedSessionInfo,
     (info) => {
       if (info === undefined) return;
       const owning = repoStore.findRepoOwning(info.dir);
-      if (owning) void fetchRepo(owning.rootDir);
+      if (owning) void fetchSessions(owning.rootDir);
     },
   );
 
@@ -332,30 +231,10 @@ export function useSidebarData() {
     // `useFsWatchSync` の watch 起動完了通知。往復中の取りこぼし救済として 1 回だけ
     // worktree list を取り直す。
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", ({ dir }) => fetchOwnerOf(dir)));
-    // 永続化ストア (TaskStore) の失敗 notify を該当 repo の
-    // 真値再取得トリガとして使う。session hook (session-start / session-end /
-    // removeByWorktree / removeByPty 等) の main 側 I/O が失敗したとき refetch で
-    // 能動的に整合を取る。永続化と renderer state が乖離する可能性がある以上、
-    // 再 fetch でしか真値に戻せない。
-    // session hook 経路の I/O 失敗はディスクフル / 権限欠落 / 競合書き込みで連発
-    // しうるため、N repo × hook 頻度で fetchRepo が爆発しないよう、notify payload
-    // の dir から発生源 repo を特定して該当 1 repo だけ refetch する。
-    const ROLLBACK_SOURCES = new Set(["task-store", "claude-sessions"]);
-    cleanups.push(
-      onMessage<NotifyPayload>("notify", (payload) => {
-        if (payload.type !== "error" || !ROLLBACK_SOURCES.has(payload.source)) return;
-        if (payload.dir === "") return;
-        const owning = repoStore.findRepoOwning(payload.dir);
-        if (owning === undefined) return;
-        void fetchRepo(owning.rootDir);
-      }),
-    );
 
-    // Claude session の生成 / 終了で repo を再 fetch して真値を反映する。
-    // attach 先 task の選択 (sessionId 空の最新候補 or 新規作成) と detach 時の
-    // task 削除条件は server 側 TaskStore.attachSession / detachSession を SSOT
-    // とする。renderer 側で抽選ロジックを再現すると、tie-break や条件を将来変えた
-    // 時に片方だけ更新する事故が起きるため楽観更新は行わない。
+    // Claude session の開始 / 終了で所属 repo のセッション一覧を取り直す。
+    // 開始は `/clear` や `--resume` で入れ替わった旧セッションを端末の開いていない側へ、
+    // 終了（claude を抜けて端末はシェルとして残る）はそのセッションを端末の開いていない側へ移す。
     cleanups.push(
       onMessage<HookPayload>("hook", (payload) => {
         if (payload.event !== "session-start" && payload.event !== "session-end") return;
@@ -377,23 +256,7 @@ export function useSidebarData() {
         if (payload.event === "session-start") {
           // leaf の最新 session を自前 mapping に記録。session-end 側の late 判定で使う。
           latestSessionByLeaf.set(leafId, payload.sessionId);
-          // server attachSession の結果を真値として取り直す。完了後、保留タイトルが
-          // あれば再 sync を回す。fetch 失敗は ROLLBACK_SOURCES notify 経路が refetch
-          // するため、ここでは握りつぶさず後段に委ねる。
-          void (async () => {
-            await fetchRepo(owning.rootDir);
-            // race recovery: title イベントが session-start より先に到達した leaf は
-            // syncTaskTitle が「task 未登録」で 1 回 fetchRepo して諦めて終わっている。
-            // fetch 完了で wt.tasks に sessionId が乗ったのを機に、保持している最新
-            // タイトルがあれば再同期を回す。これで `New session` 残留を解消する。
-            const pendingTitle = terminalStore.titleByLeafId[leafId];
-            if (pendingTitle !== undefined && pendingTitle !== "") {
-              const cleaned = stripClaudeTitlePrefix(pendingTitle);
-              if (cleaned && cleaned !== CLAUDE_PLACEHOLDER_TITLE) {
-                void drainTitleSync(leafId, cleaned);
-              }
-            }
-          })();
+          void fetchSessions(owning.rootDir);
         } else {
           // late 防御: leaf の最新 session-start で記録した sessionId と
           // payload.sessionId を比較。terminalStore.getSessionIdByPtyId を使うと
@@ -407,8 +270,7 @@ export function useSidebarData() {
             terminalStore.setTitle(leafId, "");
             latestSessionByLeaf.delete(leafId);
           }
-          // server detachSession 後の真値を取り直す。
-          void fetchRepo(owning.rootDir);
+          void fetchSessions(owning.rootDir);
         }
       }),
     );
@@ -446,8 +308,7 @@ export function useSidebarData() {
   // スロット自体を差し替えるため、`repos.value[rootDir]` を読む getter は必ず
   // invalidate される。source は再実行されるが、シリアライズ結果が前と同じなら
   // Vue の値比較で callback は呼ばれず save も走らない。これにより worktrees /
-  // gitStatuses / task の変化（git status push, fetchRepo, Task title sync）では
-  // `app-state.json` が save されなくなる。
+  // gitStatuses の変化（git status push, fetchRepo）では `app-state.json` が save されなくなる。
   watch(
     () => JSON.stringify(repoStore.buildAppStateSnapshot()),
     () => {

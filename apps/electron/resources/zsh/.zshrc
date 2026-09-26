@@ -42,7 +42,7 @@ claude() {
   command claude "${gozd_args[@]}" --settings "$GOZD_CLAUDE_SETTINGS_PATH" "$@"
 }
 
-# アプリ再起動を跨いで Claude セッションを復元する。
+# 指定した Claude セッションを再開する。
 # native 側が PTY spawn 時に GOZD_RESUME_CLAUDE_SESSION=<sessionId> を env に注入する。
 # ユーザーが Claude を抜けると素のシェルプロンプトに戻るよう exec はしない。
 #
@@ -55,19 +55,14 @@ _gozd_resume_claude() {
   unset GOZD_RESUME_CLAUDE_SESSION
   # `claude --resume <sid>` は transcript 不在 (= 一度も会話が確定していない session
   # に対する resume) で「No conversation found ...」を出して非 0 で抜ける。pane を
-  # 閉じてもらわなくても済むよう素の `claude` を続けて起動し、新 SessionStart 経由で
-  # task を再 attach する (native 側 RpcDispatcher.applyClaudeSessionHook が
-  # 「expected と異なる sid の SessionStart」を resume 失敗 + fallback と判定し
-  # dead sid を `tasks.json` から掃除する)。
+  # 閉じてもらわなくても済むよう素の `claude` を続けて起動する。新しいセッションは
+  # SessionStart hook で端末に紐付き、サイドバーには新しいセッションとして現れる。
   claude --resume "$_id"
   local _exit=$?
   # fallback の発火範囲は exit code の denylist で決める。
   # 除外: 0 (正常終了 /exit) / 130 (SIGINT = Ctrl-C 抜け) / 143 (SIGTERM)。これらは
   # ユーザー操作で claude を終わらせたケースなので、fallback すると resume 成功した
-  # セッションを抜けた直後に勝手に新 session が立ち上がる (transcript が Claude 側の
-  # ファイルに残っているのに gozd 側からは旧 sid が dead 扱いされる + 副次的に
-  # 2 度目 SessionStart の previous != hook.sessionID 経路で旧 sid の task が
-  # detach される) という UX 破壊を生む。
+  # セッションを抜けた直後に勝手に新 session が立ち上がる。
   # 発火: それ以外の全ての非 0。transcript 不在 (resume 起動失敗) の他、claude 自身
   # の runtime error (auth / network / API rate limit 等で会話中に非 0 終了したケース)
   # も含む。後者では新規 session が立ち上がるが、「resume できる前提が壊れたら新
@@ -81,9 +76,7 @@ _gozd_resume_claude() {
 }
 [[ -n "$GOZD_RESUME_CLAUDE_SESSION" ]] && _gozd_resume_claude
 
-# session 未紐付け task をサイドバーでクリックした場合、resume せず素の claude を起動する。
-# SessionStart hook が走った後、native 側 attachSession が「sessionId 空の最新 task」に
-# 新 sessionId を結びつけることで task と session の紐付けが成立する。
+# worktree 作成直後などに、resume せず素の claude を起動する。
 #
 # 起動時のテキストは renderer が spawn env に入れる。渡し方が 2 つあり、送信されるかが違う:
 #

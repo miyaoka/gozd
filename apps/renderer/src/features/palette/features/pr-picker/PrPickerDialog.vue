@@ -10,8 +10,8 @@ open な PR を選んで作業先の worktree を開くダイアログ。番号�
 ままだとその間のキー入力とクリックが、ユーザーにとっては用の済んだダイアログに届き続ける。
 
 **修飾キーを併用した受理だけは閉じずに走らせる**。複数の PR から続けて worktree を作る操作を
-1 回の起動で済ませるためで、ダイアログはユーザーが閉じるまで残る。作成が終わった行は「この
-repo に task がある」表示へ変わり、次に選ぶと既存 task への切り替えになる。
+1 回の起動で済ませるためで、ダイアログはユーザーが閉じるまで残る。作成が終わった PR を
+次に選ぶと、作成済みの worktree への切り替えになる。
 
 受理が走っている間、その行は**受理できない**（選択とハイライトは止めない）。進行中であることを
 行の上に出し、この表示は picker を閉じて開き直しても残る。
@@ -330,8 +330,6 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           class="grid cursor-pointer gap-x-2 px-3 py-1.5 text-sm"
           style="grid-template-columns: 70px 1fr 220px 120px 90px"
           :class="[
-            // 既存 task 行の tint (bg-primary-subtle) は持たない。カーソル行の bg-selection と
-            // 同一色相の隣接 step になり判別できないため、has-task の表示はチェックアイコンに譲る
             i === selectedIndex
               ? 'bg-selection text-foreground'
               : 'text-foreground hover:bg-element-hover',
@@ -344,11 +342,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             }
           "
         >
-          <PrPickerRow
-            :pr="item.pr"
-            :has-task="item.existingTask !== undefined"
-            :creating="inFlightGhRefs.has(item.refKey)"
-          />
+          <PrPickerRow :pr="item.pr" :creating="inFlightGhRefs.has(item.refKey)" />
         </div>
         <!--
           一覧の末尾に「この先どうなっているか」を置く。何も無いと、末尾が母集合の終端なのか

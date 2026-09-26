@@ -7,9 +7,8 @@ revive picker と同じ分業)。
 
 空白のセルは「状態なし」ではなく情報の欠落に見える (Carbon status indicator パターン /
 VS Code agent view はどの状態にも glyph を割り当てる)。live な Claude 状態は
-CLAUDE_STATE_VISUAL (色つき = high/medium attention)、live でない task 状態は
-muted 単色 + 形の違いで low attention に落とす。状態の判定分類 (sessionId 空 /
-closedByUser) はサイドバー TaskRow と同じ。
+CLAUDE_STATE_VISUAL (色つき = high/medium attention)、Claude が動いていないセッションは
+muted 単色の glyph で low attention に落とす。
 
 ## 相対時刻
 
@@ -23,36 +22,13 @@ import { RepoIcon } from "../repo-icon";
 import { CLAUDE_STATE_VISUAL, displayClaudeState } from "../terminal";
 import type { DashboardRow } from "./collectDashboardRows";
 import IconLucideCircle from "~icons/lucide/circle";
-import IconLucideCircleDashed from "~icons/lucide/circle-dashed";
 
 const props = defineProps<{
   row: DashboardRow;
 }>();
 
-type TaskStateKind = "not-started" | "stopped";
-
-/**
- * live でない task 状態の low-attention glyph。色は muted 固定で、circle ファミリーの
- * 内部の描き分けだけで状態を区別する (GitHub octicons: draft = 破線サークル、
- * Linear: todo = outline サークル、と同一表現)。square 系は選択コントロール
- * (チェックボックス) の予約語彙なので状態表示に使わない。
- *
- * resumable / closed (closedByUser) はクリック挙動が同一 (resume) でサイドバーも表示区別
- * しないため、UI 上は stopped 1 種に畳む。区別するのは挙動が違う not-started
- * (クリックで新規起動) だけ。
- */
-const TASK_STATE_VISUAL: Record<
-  TaskStateKind,
-  { icon: FunctionalComponent<SVGAttributes>; ariaLabel: string }
-> = {
-  "not-started": { icon: IconLucideCircleDashed, ariaLabel: "Not started" },
-  stopped: { icon: IconLucideCircle, ariaLabel: "Stopped" },
-};
-
-function taskStateKind(row: DashboardRow): TaskStateKind {
-  if (row.task.sessionId === "") return "not-started";
-  return "stopped";
-}
+/** Claude が動いていないセッションの low-attention glyph */
+const IDLE_VISUAL = { icon: IconLucideCircle, ariaLabel: "Idle" };
 
 interface StateGlyph {
   icon: FunctionalComponent<SVGAttributes>;
@@ -72,13 +48,18 @@ const visual = computed((): StateGlyph => {
   }
   // muted (gray-9) は選択行の bg-selection 上で contrast 約 3.0:1 まで落ちるため、
   // 選択行にも載るセルは foreground-low (約 5.3:1) を下限にする
-  const idle = TASK_STATE_VISUAL[taskStateKind(props.row)];
-  return { icon: idle.icon, class: ["text-foreground-low"], ariaLabel: idle.ariaLabel };
+  return {
+    icon: IDLE_VISUAL.icon,
+    class: ["text-foreground-low"],
+    ariaLabel: IDLE_VISUAL.ariaLabel,
+  };
 });
 
 const age = computed(() => {
-  const baseTime = props.row.baseTime;
-  return baseTime === undefined ? undefined : formatRelativeAge(Math.floor(baseTime / 1000));
+  const lastActivity = props.row.lastActivity;
+  return lastActivity === undefined
+    ? undefined
+    : formatRelativeAge(Math.floor(lastActivity / 1000));
 });
 </script>
 

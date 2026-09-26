@@ -7,7 +7,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { dispatchMessage, onMessage } from "../../shared/rpc";
 import { consumeAutostartHint, type AutostartHint } from "./autostartHint";
 import type { ClaudeStatus } from "./claudeStatus";
-import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
+import { isHookEvent, createClaudeStatusManager, stripClaudeTitlePrefix } from "./claudeStatus";
 import { notifyLostPrompt } from "./lostPrompt";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
@@ -26,6 +26,16 @@ function getDefaultSpawnEnv(): Record<string, string> {
 }
 const DEFAULT_SHELL = "/bin/zsh";
 const DEFAULT_SHELL_ARGS = ["/bin/zsh", "-i"];
+
+/** 端末で動いている Claude セッション 1 件 */
+export interface LiveSession {
+  sessionId: string;
+  /** セッションが動いている端末の作業ディレクトリ（worktree / 非 git project の root） */
+  dir: string;
+  status: ClaudeStatus | undefined;
+  /** 端末タイトルから状態プレフィックスを落とした値。未受信なら空文字 */
+  terminalTitle: string;
+}
 
 /**
  * ターミナル分割レイアウトと PTY の状態を管理する。
@@ -47,10 +57,9 @@ export const useTerminalStore = defineStore("terminal", () => {
   const layoutsByDir = ref<Record<string, TerminalLayoutState>>({});
 
   /**
-   * 直近のターミナル close で削除された Claude session の通知。
-   * sessionId が空文字なら session を持たない pane の close。
-   * useSidebarData がこれを watch して所属 repo を refetch し、
-   * WorktreeEntry.tasks から消えた Task を反映する。
+   * 直近のターミナル close で端末との紐付けを解除した Claude session の通知。
+   * useSidebarData がこれを watch して所属 repo のセッション一覧を取り直し、
+   * 端末の開いていないセッションとして並べ直す。
    */
   const lastRemovedSessionInfo = shallowRef<{ dir: string; sessionId: string }>();
 
@@ -101,16 +110,16 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /**
    * 未訪問 worktree に対する「visit で最初の leaf に乗せたい sessionId」のヒント。
-   * サイドバーで resumable な Task 行をクリックしたとき（revive 経路も同経路）、
+   * サイドバーで端末の開いていないセッション行をクリックしたとき（revive 経路も同経路）、
    * setOpen 起点の自動 visit がこのヒントを 1 回だけ消費して初期 leaf に resume を仕込む。
    */
   const preferredResumeByDir = ref<Record<string, string>>({});
 
   /**
    * leafId → 次回 spawn 時に GOZD_AUTOSTART_CLAUDE フラグを立てる印。
-   * session 未紐付け task (PR/issue 経由で worktree のみ作成された等) をクリック
-   * した時に、resume ではなく素の `claude` を起動するために使う。spawnPty が env
-   * を組み立てるタイミングで一度だけ消費する。
+   * 作成直後の worktree (PR/issue picker / `gozd worktree new`) で、resume ではなく
+   * 新しい `claude` を起動するために使う。spawnPty が env を組み立てるタイミングで
+   * 一度だけ消費する。
    */
   const pendingAutostartByLeafId = ref<Record<string, AutostartHint>>({});
 
@@ -253,20 +262,16 @@ export const useTerminalStore = defineStore("terminal", () => {
         paneRegistry.value[leafId] = { dir };
       },
       unregisterPane: (leafId) => {
-        // resume 永続化はユーザーの明示的な pane 削除（terminal.closePane /
-        // resetLayout / worktree 削除を経由する全ケース。後者には sidebar 経由の
-        // 削除 / fetchRepo が stale 検知で発火する終端も含む）でのみ消す。
-        // アプリ終了時は renderer ごと死ぬためこの経路を通らず、task.sessionId は
-        // そのまま残り次回 resume できる。
+        // ユーザーの明示的な pane 削除（terminal.closePane / resetLayout / worktree 削除を
+        // 経由する全ケース）で、端末と Claude session の紐付けを解除する。
         // ptyId は paneRegistry が保持しているので hook 到達順に依存せず確実に渡せる。
         const entry = paneRegistry.value[leafId];
         const ptyId = entry?.session?.ptyId;
         const dir = entry?.dir;
         if (ptyId !== undefined && dir !== undefined) {
-          // 削除 RPC を先行させ、await してから killPty を呼ぶ。
-          // killPty を先に投げると native の consumers task が `remove(id:)` で
-          // sessionIdById を消した後に削除 RPC が到達して sessionId nil ですり抜け、
-          // task の sessionId が detach されず残る race の窓が空く。
+          // 解除 RPC を先行させ、await してから killPty を呼ぶ。
+          // killPty を先に投げると main の PTY 終了処理が sessionId の紐付けを先に消し、
+          // 解除 RPC が空の sessionId を返してセッション一覧の取り直しが走らない。
           // killPty / state 削除も IIFE 内に置く: ptySession.killPty(leafId) は
           // 内部で paneRegistry[leafId].session を引くため、await 前に paneRegistry
           // を消してしまうと no-op になり PTY に SIGHUP が飛ばなくなる。
@@ -280,14 +285,12 @@ export const useTerminalStore = defineStore("terminal", () => {
           // 新規呼び出し元を増やすときは、この一時併存に注意する。
           // 素 PTY pane（else 経路）はこの併存は起きない。
           void (async () => {
-            const res = await tryCatch(rpcClaudeSessionRemoveByPty({ ptyId, worktreePath: dir }));
+            const res = await tryCatch(rpcClaudeSessionRemoveByPty({ ptyId }));
             if (!res.ok) {
-              notify.error("Failed to remove saved Claude session", res.error);
+              notify.error("Failed to release Claude session from terminal", res.error);
             } else if (res.value.removedSessionId !== "") {
-              // main 側で taskStore.detachSession が走り、ghRef 有無に関わらず task は
-              // 残る (closed_by_user=true + sessionID 保持で `closed` 状態に倒れる)。
-              // useSidebarData がこの ref を watch して所属 repo を refetch することで、
-              // WorktreeEntry.tasks 側の closed_by_user 反映を取り込む。
+              // 端末が閉じたセッションは、端末の開いていないセッションとして一覧の先頭に移る。
+              // useSidebarData がこの ref を watch して所属 repo のセッション一覧を取り直す。
               // terminalStore は repoStore に依存させない (Pinia setup での循環を避ける)。
               lastRemovedSessionInfo.value = {
                 dir,
@@ -295,7 +298,7 @@ export const useTerminalStore = defineStore("terminal", () => {
               };
             }
             // removedSessionId が空 = claude を一度も起動せず close した pane。
-            // 永続化に変化が無いので refetch を skip し、サイドバーの無駄な発火を防ぐ。
+            // セッション一覧に変化が無いので refetch を skip し、サイドバーの無駄な発火を防ぐ。
             // 削除 RPC の完了後に kill。失敗時も pane の UI は閉じる契約なので
             // kill は実行する。paneRegistry にまだ entry があるので killPty は有効。
             ptySession.killPty(leafId);
@@ -410,8 +413,8 @@ export const useTerminalStore = defineStore("terminal", () => {
    * 起こす経路 (エージェントによる worktree 切り出し) は直接呼ぶ。leaf の DOM は
    * 選択中でなくても mount されるため、非選択 dir でも PTY は起動する。
    * 保存済みセッションの自動 resume はしない — セッションが開くのはサイドバーの
-   * task 行を明示クリックした経路 (requestResumeSession / requestNewClaudeSession)
-   * だけで、worktree ヘッダのクリックは素のターミナルを開くに留める。
+   * セッション行を明示クリックした経路 (requestResumeSession) と作成直後の自動起動
+   * (requestNewClaudeSession) だけで、worktree ヘッダのクリックは素のターミナルを開くに留める。
    * 2 回目以降の visit は何もしない（既存レイアウトを維持）。
    */
   function visit(dir: string): void {
@@ -425,17 +428,16 @@ export const useTerminalStore = defineStore("terminal", () => {
     const initialLayout = layout.ensureLayout(dir);
     const initialLeafId = initialLayout.focusedLeafId;
 
-    // preferred はサイドバーで resumable / closed Task をクリックして visit を
-    // 誘発したケースの sessionId (= task.sessionId)。resume 可否の検証はせず
-    // 明示クリックを尊重して初期 leaf に resume を仕込む。resume が真に不能なら
-    // native 側の dead session 清掃が hook 経路で処理する。
+    // preferred はサイドバーで端末の開いていないセッション行をクリックして visit を
+    // 誘発したケースの sessionId。resume 可否の検証はせず明示クリックを尊重して初期 leaf に
+    // resume を仕込む。resume が失敗すると zsh が素の claude に倒し、新しいセッションになる。
     const preferred = preferredResumeByDir.value[dir];
     if (preferred !== undefined) {
       delete preferredResumeByDir.value[dir];
       pendingResumeByLeafId.value[initialLeafId] = preferred;
     }
 
-    // session 未紐付け task クリックで visit を誘発したケース。resume ヒントとは
+    // 作成直後の自動起動で visit を誘発したケース。resume ヒントとは
     // 排他ではなく共存させる (訪問済み経路の requestNewClaudeSession と同じ流儀):
     // - resume ヒント無し → 初期 leaf を直接 autostart に
     // - resume ヒントあり → 追加 leaf を split して autostart + focus
@@ -470,17 +472,17 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   /**
-   * サイドバーから resumable Task をクリックしたときに呼ぶ。
+   * サイドバーから端末の開いていないセッション行をクリックしたときに呼ぶ。
    * - 未訪問: 次回の visit で当該 sessionId を先頭 leaf に乗せるヒントを残す。
    *   呼び出し元が直後に setOpen → TerminalPane の watch が visit を駆動する。
    * - 訪問済み: レイアウト先頭に新 leaf を追加して sessionId を紐付け、フォーカスを移す。
    * 当該 sessionId が既に live PTY を持っているなら何もしない (上位で focus 済み)。
    */
   function requestResumeSession(dir: string, sessionId: string) {
-    // click → onSelectTask 内で `getPtyIdBySessionId === undefined` を確認済み。
+    // click → openSession 内で `getPtyIdBySessionId === undefined` を確認済み。
     // ここに来てなお live になっているのは「click と本関数呼び出しの間に session-start
-    // hook が走った」ごく狭い race。caller (SidebarPane.onSelectTask) は live PTY check の
-    // 後で requestResumeSession に入る経路では focus を呼ばないため、ここで focus に倒す。
+    // hook が走った」ごく狭い race。caller (openSession) は live PTY check の後で
+    // requestResumeSession に入る経路では focus を呼ばないため、ここで focus に倒す。
     const livePtyId = claude.getPtyIdBySessionId(sessionId);
     if (livePtyId !== undefined) {
       focusPaneByPtyId(livePtyId, dir);
@@ -531,13 +533,9 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   /**
-   * サイドバーから session 未紐付け task (PR/issue 由来等) をクリックしたときに呼ぶ。
+   * 作成直後の worktree で新しい claude を起動する (PR/issue picker / `gozd worktree new`)。
    * - 未訪問: 次回の visit で初期 leaf を素の claude 起動として生成するヒントを残す。
    * - 訪問済み: レイアウト先頭に新 leaf を追加して autostart フラグを仕込み、フォーカスを移す。
-   *
-   * SessionStart hook が走ると server 側 attachSession が「sessionId 空の最新 task」
-   * に新 sessionId を結びつける。クリックした task と attach 先が一致するのは
-   * 「wt に sessionId 空の task が 1 つだけ」のケース。複数ある場合は最新が選ばれる。
    *
    * hint で起動時のテキストを渡す (AutostartHint の定義を参照。prefill は挿入のみ、
    * prompt は起動と同時に送信される)。
@@ -607,6 +605,29 @@ export const useTerminalStore = defineStore("terminal", () => {
       if (ptyId !== undefined) map.set(ptyId, leafId);
     }
     return map;
+  });
+
+  /**
+   * 端末で動いている Claude セッション（session-start hook で紐付けが確立したもの）。
+   * サイドバー / ダッシュボードの「端末が開いているセッション」の母集団。
+   * terminalTitle は端末タイトルから状態プレフィックスを落とした値で、表示タイトルの
+   * 第一候補になる（`sessionDisplayTitle`）。
+   */
+  const liveSessions = computed<LiveSession[]>(() => {
+    const sessions: LiveSession[] = [];
+    for (const [leafId, pane] of Object.entries(paneRegistry.value)) {
+      const ptyId = pane?.session?.ptyId;
+      if (pane === undefined || ptyId === undefined) continue;
+      const sessionId = claude.getSessionIdByPtyId(ptyId);
+      if (sessionId === undefined) continue;
+      sessions.push({
+        sessionId,
+        dir: pane.dir,
+        status: claudeStatusByPtyId.value[ptyId],
+        terminalTitle: stripClaudeTitlePrefix(titleByLeafId.value[leafId] ?? ""),
+      });
+    }
+    return sessions;
   });
 
   /** ptyId に対応する leafId を返す。`leafIdByPtyId` 経由で O(1) */
@@ -702,6 +723,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     lastRemovedLeafId,
     // computed
     claudeActiveLeafIds,
+    liveSessions,
     // layout
     visit,
     requestResumeSession,
@@ -721,7 +743,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     // claude
     getClaudeState: claude.getClaudeState,
     getClaudeStatusesByDir: claude.getClaudeStatusesByDir,
-    getClaudeStatusBySessionId: claude.getStatusBySessionId,
     getPtyIdBySessionId: claude.getPtyIdBySessionId,
     getSessionIdByPtyId: claude.getSessionIdByPtyId,
     clearDoneStates: claude.clearDoneStates,

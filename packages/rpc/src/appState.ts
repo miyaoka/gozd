@@ -40,8 +40,8 @@ export interface SidebarRepo {
   collapsed: boolean;
   /** worktree 一覧の起動時キャッシュ。SSOT は git。起動直後はこのキャッシュから
    * 実カードを描画して layout shift を消し、rpcGitWorktreeList の真値で上書きする。
-   * path/branch/isMain のみ持つ。git status / tasks は SSOT が別 (git / tasks.json)
-   * なのでキャッシュしない (二重保持回避)。 */
+   * path/branch/isMain のみ持つ。git status / セッションは SSOT が別 (git / Claude の
+   * セッションログ) なのでキャッシュしない (二重保持回避)。 */
   worktrees: WorktreeCacheEntry[];
 }
 

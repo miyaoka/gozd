@@ -1,68 +1,56 @@
-import type { Task } from "@gozd/rpc";
+import type { ClaudeSessionSummary } from "@gozd/rpc";
 import type { RepoState } from "../../shared/repo";
-import { repoDirEntries, taskDisplayTitle, branchLabel } from "../../shared/repo";
-import { resolveTaskBaseTime } from "../task";
-import type { ClaudeStatus } from "../terminal";
+import { branchLabel, repoDirEntries } from "../../shared/repo";
+import { buildSessionRows, compareRecentFirst, type SessionRow } from "../session";
+import type { LiveSession } from "../terminal";
 
-/** ダッシュボード 1 行 = 1 task。行の描画とジャンプに必要な値だけを持つ */
-export interface DashboardRow {
+/** ダッシュボード 1 行 = 1 セッション。行の描画とジャンプに必要な値だけを持つ */
+export interface DashboardRow extends SessionRow {
   /** repo list の追従 (activateRepoListContaining / expand) に使う */
   rootDir: string;
-  /** ジャンプ先の dir (worktree path) */
-  dir: string;
-  task: Task;
-  status: ClaudeStatus | undefined;
   repoName: string;
   /** GitHub owner。undefined は解決中、空文字は owner なし (RepoIcon の 3 値契約) */
   owner: string | undefined;
+  /** worktree のブランチ表示。非 git project は空文字 */
   branch: string;
-  title: string;
-  /** 並び順と相対時刻の基準 (最終活動)。session 未起動 / ログ未解決は undefined。ms epoch */
-  baseTime: number | undefined;
 }
 
 /**
- * 全 repo 横断の task を最終活動の新しい順に平坦化する純関数。
+ * 全 repo 横断のセッションを最終活動の新しい順に平坦化する純関数。
  *
  * 母集団は poolDirs (repo プール全体)。アクティブ repo list で絞ると「動いているのに
- * 一覧に出ない」task が生まれる。
+ * 一覧に出ない」セッションが生まれる。
  *
- * 並びはサイドバーの compareTaskOrder (createdAt 固定順) とあえて違う動的順にする。
- * サイドバーは常設面で空間記憶に最適化するが、ここは開くたびに使い捨てる transient な
- * 一覧なので空間記憶が成立せず、「最近動いた = 注意対象」を上に置くほうが目的に合う。
+ * サイドバーは worktree ごとに端末の開いているセッションを上に分けるが、ここは開くたびに
+ * 使い捨てる transient な一覧なので、端末の有無で分けず「最近動いた = 注意対象」を上に置く。
  *
- * task は worktree にのみ紐づくため、非 git project (worktree を持たない) は対象外。
+ * 作業ディレクトリが現存する worktree / 非 git project のセッションだけを行にする。
+ * 削除済み worktree のセッションは revive picker が扱う。
  */
 export function collectDashboardRows(
   poolDirs: readonly string[],
   repos: Readonly<Record<string, RepoState>>,
-  statusOf: (sessionId: string) => ClaudeStatus | undefined,
-  sessionLastActivityOf: (sessionId: string) => number | undefined,
+  sessionsOf: (rootDir: string) => readonly ClaudeSessionSummary[],
+  liveSessions: readonly LiveSession[],
 ): DashboardRow[] {
   const rows: DashboardRow[] = [];
   for (const rootDir of poolDirs) {
     const repo = repos[rootDir];
     if (repo === undefined) continue;
+    const listed = sessionsOf(rootDir);
 
     for (const { dir, worktree } of repoDirEntries(repo)) {
-      if (worktree === undefined) continue;
-      for (const task of worktree.tasks) {
-        const status = task.sessionId === "" ? undefined : statusOf(task.sessionId);
+      const { live, inactive } = buildSessionRows(dir, liveSessions, listed);
+      for (const row of [...live, ...inactive]) {
         rows.push({
+          ...row,
           rootDir,
-          dir,
-          task,
-          status,
           repoName: repo.repoName,
           owner: repo.githubIdentity?.owner,
-          branch: branchLabel(worktree.branch),
-          title: taskDisplayTitle(task),
-          baseTime: resolveTaskBaseTime(status, sessionLastActivityOf(task.sessionId)),
+          branch: worktree === undefined ? "" : branchLabel(worktree.branch),
         });
       }
     }
   }
-  // baseTime 不明 (session 未起動 / ログ未解決) は 0 扱いで末尾に沈める
-  rows.sort((a, b) => (b.baseTime ?? 0) - (a.baseTime ?? 0));
-  return rows;
+  return rows.toSorted(compareRecentFirst);
 }

@@ -1,9 +1,7 @@
 <doc lang="md">
 Issue picker の1行分。Issue 番号・タイトル・author・更新日時を色分け表示する。
 更新日時は `formatRelativeAge` の age-\* スケールで鮮度を塗る。
-`hasTask` (repo 内に同 issue の task が既に存在する) の行は番号横にチェックアイコンを出し、
-その issue には既に作業があることを示す。選択の挙動は変わらない。
-`creating` (accept 実行中) はチェックマークと同じ位置にスピナーを出す。実行中判定は
+`creating` (accept 実行中) は番号横にスピナーを出す。実行中判定は
 コマンド層所有の共有集合由来のため、picker を開き直しても実行中の間は表示が維持される。
 </doc>
 
@@ -11,13 +9,11 @@ Issue picker の1行分。Issue 番号・タイトル・author・更新日時を
 import type { GitIssue } from "@gozd/rpc";
 import { computed } from "vue";
 import { formatRelativeAge, isoToUnixSec } from "../../../../shared/time";
-import IconLucideCheck from "~icons/lucide/check";
 import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 import IconLucideUser from "~icons/lucide/user";
 
 const props = defineProps<{
   issue: GitIssue;
-  hasTask: boolean;
   creating: boolean;
 }>();
 
@@ -32,11 +28,7 @@ const dateDisplay = computed(() => formatRelativeAge(isoToUnixSec(props.issue.up
         aria-hidden="true"
         class="size-3.5 shrink-0 animate-spin text-primary-text"
       />
-      <span class="sr-only">creating task</span>
-    </template>
-    <template v-else-if="hasTask">
-      <IconLucideCheck aria-hidden="true" class="size-3.5 shrink-0 text-primary-text" />
-      <span class="sr-only">task exists</span>
+      <span class="sr-only">creating worktree</span>
     </template>
   </span>
   <span class="truncate">{{ issue.title }}</span>

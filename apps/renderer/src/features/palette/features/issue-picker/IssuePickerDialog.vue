@@ -10,9 +10,8 @@ open な issue を選んで作業先の worktree を開くダイアログ。番�
 ままだとその間のキー入力とクリックが、ユーザーにとっては用の済んだダイアログに届き続ける。
 
 **修飾キーを併用した受理だけは閉じずに走らせる**。複数の issue から続けて worktree を作る操作
-を 1 回の起動で済ませるためで、ダイアログはユーザーが閉じるまで残る。作成が終わった行は「この
-repo に task がある」表示へ変わる。表示が変わっても選択の挙動は変わらず、次に選べば
-もう 1 本 worktree を作る。
+を 1 回の起動で済ませるためで、ダイアログはユーザーが閉じるまで残る。作成が終わった issue を
+次に選べば、もう 1 本 worktree を作る。
 
 **ダイアログは実行中の判定を持たない**。受理はそのまま通し、実行中かどうかの判断と通知は
 コマンド層が行う。ここで先回りすると、通知ごと握りつぶして操作が無反応で消える。
@@ -234,8 +233,6 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           class="grid cursor-pointer gap-x-2 px-3 py-1.5 text-sm"
           style="grid-template-columns: 70px 1fr 120px 90px"
           :class="[
-            // 既存 task 行の tint (bg-primary-subtle) は持たない。カーソル行の bg-selection と
-            // 同一色相の隣接 step になり判別できないため、has-task の表示はチェックアイコンに譲る
             i === selectedIndex
               ? 'bg-selection text-foreground'
               : 'text-foreground hover:bg-element-hover',
@@ -247,11 +244,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             }
           "
         >
-          <IssuePickerRow
-            :issue="item.issue"
-            :has-task="item.existingTask !== undefined"
-            :creating="inFlightGhRefs.has(item.refKey)"
-          />
+          <IssuePickerRow :issue="item.issue" :creating="inFlightGhRefs.has(item.refKey)" />
         </div>
       </div>
     </div>

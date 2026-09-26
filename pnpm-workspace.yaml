@@ -42,15 +42,11 @@ catalog:
   typescript: npm:@typescript/typescript6@6.0.2
   vite: 8.3.0
 
-minimumReleaseAge: 4320
-
-# TS7 の dual alias（catalog 参照）で vue-tsc が動くのは、`typescript` が
-# @typescript/typescript6 へ alias された場合に実体の tsc を辿り直す対応が入った 3.3.8 から。
-# 公開直後で minimumReleaseAge を満たさないため、この version に限って除外する
-# （version 指定なので renovate が上げた次の version には効かず、除外は自然に切れる）
-minimumReleaseAgeExclude:
-  - vue-tsc@3.3.8
-  - '@vue/language-core@3.3.8'
+# Claude Agent SDK は Claude Code 本体のバイナリを platform 別の optionalDependencies で持つ。
+# gozd が使うのはセッションログを読み書きする関数だけで、esbuild が main に bundle するため
+# バイナリは不要
+ignoredOptionalDependencies:
+  - '@anthropic-ai/claude-agent-sdk-*'
 
 shellEmulator: true
 

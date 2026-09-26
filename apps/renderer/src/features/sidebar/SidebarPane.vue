@@ -17,8 +17,8 @@
     列ごと専有されるため、編集中の出口はヘッダ行の Done に置く
 - **repo 一覧**: アクティブ repo list の dirOrder 全体を常に出す「どこで作業するか」の地図。
   モードで絞らないのは、絞ると切り替えのたびに repo 一覧が消えて操作の起点が失われるため。
-  横断して見る面は母集団で分かれ、Task 単位の一覧はダッシュボード（docs/task.md）、端末単位の
-  表示は上記の view mode トグル（docs/terminal.md）が担う
+  横断して見る面は母集団で分かれ、セッション単位の一覧はダッシュボード（docs/session.md）、
+  端末単位の表示は上記の view mode トグル（docs/terminal.md）が担う
 - **各 repo** に対して `RepoSection` を縦に並べる。空リストは通常モードで操作の
   手がかりが消えるため、empty state（"This list is empty" + Edit list ボタンで編集モードへ）を出す
 - 各 RepoSection は header (folder + repo 名) + WtCard 列 (main wt 先頭固定) + `+ New worktree`
@@ -37,24 +37,25 @@ repo が他 repo list にも属していれば「アクティブ repo list か�
 ## クリック挙動
 
 - WtCard ヘッダクリック: `worktreeStore.dir` をその wt に切り替え。focus は wt の `focusedLeafId` 維持
-- TaskRow クリック: wt を active にしたうえで、task に対応する PTY の leaf を `focusPane`
+- SessionRow クリック: dir を active にしたうえで、端末が開いていればその leaf を focus、
+  開いていなければ `claude --resume` で起動する（分岐はダッシュボードと共有の `openSession`）
 - focus 解決: `layoutsByDir[dir].focusedLeafId` (生きていれば) → 無効なら `findFirstLeaf(root)` (ensureLayout が担保)
-- ⋮ メニュー: worktree 行は WorktreeMenu、task 行は TaskMenu に委譲
+- ⋮ メニュー: worktree 行は WorktreeMenu、セッション行は SessionMenu に委譲
 
 ## 責務分離
 
-- `useSidebarData` — fetch (per-repo) と terminal title → task body 同期
+- `useSidebarData` — worktree 一覧とセッション一覧の fetch (per-repo)
 - `useWorktreeActions` — worktree CRUD (rootDir 引数で対象 repo を特定)
 - `useDialogs` — 確認ダイアログ
 - `RepoSection` — 1 repo の UI
-- `WtCard` / `TaskRow` — 1 wt と内側の task 行
+- `WtCard` / `SessionList` — 1 wt と内側のセッション行
 </doc>
 
 <script setup lang="ts">
 import type { DragEndEvent } from "@dnd-kit/abstract";
 import { move } from "@dnd-kit/helpers";
 import { DragDropProvider } from "@dnd-kit/vue";
-import type { Task, WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
@@ -62,8 +63,8 @@ import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { useArcadeStore } from "../arcade";
 import { RepoIcon } from "../repo-icon";
+import { openSession, type SessionRow } from "../session";
 import { SessionLogDialog } from "../session-log";
-import { openTaskSession, rpcTaskRemove, rpcTaskRemoveByWorktree } from "../task";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
@@ -73,17 +74,15 @@ import ListMenu from "./ListMenu.vue";
 import ListRow from "./ListRow.vue";
 import RepoMenu from "./RepoMenu.vue";
 import { rpcPickAndOpen } from "./rpc";
+import SessionMenu from "./SessionMenu.vue";
 import SidebarClock from "./SidebarClock.vue";
-import TaskEditDialog from "./TaskEditDialog.vue";
-import TaskMenu from "./TaskMenu.vue";
 import { useDialogs } from "./useDialogs";
 import { useListEditing } from "./useListEditing";
 import { useListMenu } from "./useListMenu";
 import { useRepoMenu } from "./useRepoMenu";
+import { useSessionMenu } from "./useSessionMenu";
 import { useSidebarData } from "./useSidebarData";
-import { useTaskMenu } from "./useTaskMenu";
 import { useWorktreeMenu } from "./useWorktreeMenu";
-import { worktreeDisplayName } from "./utils";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 import WorktreeMenu from "./WorktreeMenu.vue";
 import IconLucideBot from "~icons/lucide/bot";
@@ -102,7 +101,7 @@ const arcadeStore = useArcadeStore();
 const { sfxEnabled } = storeToRefs(arcadeStore);
 const { toggleSfx } = arcadeStore;
 
-// useSidebarData の onMounted で全 repo の fetch / FsWatch / title sync が起動する。
+// useSidebarData の onMounted で全 repo の fetch / FsWatch が起動する。
 // 戻り値は現状外側で使わないので呼び捨てる。
 useSidebarData();
 
@@ -115,12 +114,12 @@ const { isCreatingFor, activateDir, handleWorktreeSelect, addWorktree, handleWor
 
 // --- メニュー ---
 //
-// worktree / task の ⋮ メニューはそれぞれ独立した popover singleton。
+// worktree / セッションの ⋮ メニューはそれぞれ独立した popover singleton。
 // SidebarPane は open() を呼ぶだけで、light-dismiss / アクション click の close 経路は
 // composable が内部で扱う。
 
 const { open: openWorktreeMenu } = useWorktreeMenu();
-const { open: openTaskMenu } = useTaskMenu();
+const { open: openSessionMenu } = useSessionMenu();
 const { open: openRepoMenu } = useRepoMenu();
 const { open: openListMenu } = useListMenu();
 
@@ -128,8 +127,8 @@ function onOpenWorktreeMenu(anchorEl: HTMLElement, worktree: WorktreeEntry, root
   openWorktreeMenu(anchorEl, { worktree, rootDir });
 }
 
-function onOpenTaskMenu(anchorEl: HTMLElement, task: Task, rootDir: string) {
-  openTaskMenu(anchorEl, { task, rootDir });
+function onOpenSessionMenu(anchorEl: HTMLElement, row: SessionRow, rootDir: string) {
+  openSessionMenu(anchorEl, { row, rootDir });
 }
 
 function onOpenRepoMenu(anchorEl: HTMLElement, rootDir: string) {
@@ -147,42 +146,8 @@ function onSelectRoot(rootDir: string) {
   activateDir(rootDir);
 }
 
-function onSelectTask(wt: WorktreeEntry, task: Task) {
-  // wt を active にしたうえで、task に対応する leaf へフォーカスする。
-  // 起動 / resume / focus の分岐はダッシュボードと共有の openTaskSession が SSOT
-  openTaskSession(wt.path, task);
-}
-
-async function handleTaskRemove(rootDir: string, task: Task) {
-  // ⋮ メニューからの明示削除。main 側 taskStore.remove で永続化を消した後、
-  // `requestRefresh` で server から真値を取り直す。他の task 系操作
-  // (reviveTaskForGhRef / registerPrCommand / registerIssueCommand) と SSOT 取得規約を
-  // 揃え、`repos[...]` の直書き楽観更新 (race の源) を避ける。
-  const result = await tryCatch(rpcTaskRemove({ dir: task.worktreeDir, id: task.id }));
-  if (!result.ok) {
-    notify.error("Failed to remove task", result.error);
-    return;
-  }
-  repoStore.requestRefresh(rootDir);
-}
-
-function handleWorktreeTasksRemove(rootDir: string, wt: WorktreeEntry) {
-  // worktree ⋮ メニューからの一括削除。worktree 削除と違い wt 自体は残る（remove 不可の
-  // main worktree で滞留 task 行を一掃する主用途）。複数 task を不可逆に消すため確認を挟む。
-  // 削除後は handleTaskRemove と同じく requestRefresh で server の真値を取り直す
-  showConfirm(
-    `Remove all tasks (${wt.tasks.length}) in "${worktreeDisplayName(wt)}"?`,
-    async () => {
-      const result = await tryCatch(
-        rpcTaskRemoveByWorktree({ dir: rootDir, worktreeDir: wt.path }),
-      );
-      if (!result.ok) {
-        notify.error("Failed to remove tasks", result.error);
-        return;
-      }
-      repoStore.requestRefresh(rootDir);
-    },
-  );
+function onSelectSession(row: SessionRow) {
+  openSession(row.dir, row.sessionId);
 }
 
 function onRemoveRepo(rootDir: string) {
@@ -511,10 +476,10 @@ watch(
           @remove-repo="onRemoveRepo"
           @select-root="onSelectRoot"
           @select-wt="onSelectWt"
-          @select-task="onSelectTask"
+          @select-session="onSelectSession"
           @add-worktree="addWorktree"
           @open-worktree-menu="onOpenWorktreeMenu"
-          @open-task-menu="onOpenTaskMenu"
+          @open-session-menu="onOpenSessionMenu"
           @open-repo-menu="onOpenRepoMenu"
         />
       </DragDropProvider>
@@ -566,20 +531,14 @@ watch(
       </template>
     </div>
 
-    <!-- ⋮ メニュー（worktree / task / repo） -->
-    <WorktreeMenu
-      @remove="(wt, rd) => handleWorktreeRemove(rd, wt)"
-      @remove-all-tasks="(wt, rd) => handleWorktreeTasksRemove(rd, wt)"
-    />
-    <TaskMenu @remove="(task, rd) => handleTaskRemove(rd, task)" />
+    <!-- ⋮ メニュー（worktree / セッション / repo） -->
+    <WorktreeMenu @remove="(wt, rd) => handleWorktreeRemove(rd, wt)" />
+    <SessionMenu />
     <RepoMenu />
     <ListMenu @rename="(id) => listEditing.open(id)" @remove="onRemoveRepoList" />
 
     <!-- list 名編集 dialog -->
     <ListEditDialog />
-
-    <!-- task title 編集 dialog -->
-    <TaskEditDialog />
 
     <!-- セッションログ表示 dialog -->
     <SessionLogDialog />

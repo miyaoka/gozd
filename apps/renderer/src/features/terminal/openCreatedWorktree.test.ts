@@ -1,4 +1,4 @@
-import type { CreateTaskWorktreeResponse } from "@gozd/rpc";
+import type { CreateWorktreeResponse } from "@gozd/rpc";
 import { describe, expect, spyOn, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
 import { useNotificationStore } from "../../shared/notification";
@@ -16,7 +16,6 @@ function wt(path: string, branch: string, isMain = false): RepoWorktree {
     isMain,
     gitStatuses: {},
     renameOldPaths: {},
-    tasks: [],
     upstream: undefined,
     latestMtime: 0,
   };
@@ -24,21 +23,11 @@ function wt(path: string, branch: string, isMain = false): RepoWorktree {
 
 const CREATED_DIR = "/r1/wt-new";
 
-function created(rootDir = "/r1"): CreateTaskWorktreeResponse {
+function created(rootDir = "/r1"): CreateWorktreeResponse {
   return {
     rootDir,
     worktree: wt(CREATED_DIR, "feat/new"),
     dir: CREATED_DIR,
-    task: {
-      id: "t1",
-      worktreeDir: CREATED_DIR,
-      createdAt: "2026-08-27T00:00:00.000Z",
-      sessionId: "",
-      closedByUser: false,
-      userTitle: "new task",
-      terminalTitle: "",
-      ghTitle: "",
-    },
     setupScript: "",
   };
 }

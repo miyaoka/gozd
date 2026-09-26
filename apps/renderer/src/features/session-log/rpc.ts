@@ -8,7 +8,7 @@ import { ClaudeSessionLogRequest, ClaudeSessionLogResponse } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
-// task ⋮ メニューの「Show session log」と terminal preview の両方が起点になる。
+// セッション行の ⋮ メニューの「Show session log」と terminal preview の両方が起点になる。
 // session_id (UUID) を渡すと native が ~/.claude/projects/*/<session_id>.jsonl を
 // glob 解決して、 main + subagent の生 JSONL 一式を返す。
 export const rpcClaudeSessionLog = (req: ClaudeSessionLogRequest) =>

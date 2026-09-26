@@ -2,7 +2,7 @@
 // main は renderer のトースト / イベントログ ring buffer に直接触れないため、
 // push で通知を運び renderer 側の購読 bridge が表示へ流す。
 
-/** notify push payload。購読する全 feature (トースト表示 / TaskStore 失敗時 rollback 等) が同型を使う。 */
+/** notify push payload。購読する全 feature (トースト表示 / 失敗時の再取得等) が同型を使う。 */
 export interface NotifyPayload {
   type: "error" | "info";
   source: string;

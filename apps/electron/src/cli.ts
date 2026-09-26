@@ -85,7 +85,6 @@ Usage:
   gozd worktree new [options]   Create a worktree, then start claude in it
 
 Options:
-  --title <text>     Name shown for the worktree in gozd (required)
   --prompt-stdin     Read the prompt from stdin (use a heredoc for long prompts)
   --prompt <text>    Prompt passed to claude on launch (runs immediately)
   --dir <path>       Repository to create the worktree in (default: cwd)
@@ -95,7 +94,7 @@ the request goes to the socket at $GOZD_SOCKET_PATH.
 
 Multi-line prompts go through stdin so the shell never has to quote them:
 
-  gozd worktree new --title "fix the parser" --prompt-stdin <<'EOF'
+  gozd worktree new --prompt-stdin <<'EOF'
   ...
   EOF
 `;

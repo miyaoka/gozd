@@ -1,5 +1,6 @@
 <doc lang="md">
 1 つの repo を表すサイドバーセクション。repo の識別を示すヘッダと、配下の worktree カード列を持つ。
+非 git project は worktree カードを持たず、ヘッダの下にその dir のセッション行を直接並べる。
 
 ## 背景 fetch の可視スコープ報告
 
@@ -16,8 +17,8 @@ state による並び替えは行わない。Claude 起動 / 状態遷移でカ�
 「どこに何があるか」を覚えていられないため、位置は静的に保ち、状態は state
 アイコンで識別する。
 
-Claude セッションの有無で wt カードを絞ることはしない。稼働を横断して見る面は Task 単位の
-ダッシュボード（docs/task.md）と端末単位の view mode（docs/terminal.md）が受け持ち、この
+Claude セッションの有無で wt カードを絞ることはしない。稼働を横断して見る面はセッション単位の
+ダッシュボード（docs/session.md）と端末単位の view mode（docs/terminal.md）が受け持ち、この
 section は「どこで作業するか」の地図として常に全 worktree を出す。
 
 ## 操作
@@ -67,12 +68,14 @@ active wt カードの外周ブルーム（`_fx-quest-active` の box-shadow）�
 
 <script setup lang="ts">
 import { useSortable } from "@dnd-kit/vue/sortable";
-import type { Task, WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { useElementVisibility } from "@vueuse/core";
 import { computed, onUnmounted, useTemplateRef, watch } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
 import { RepoIcon } from "../../../repo-icon";
-import { WtCard } from "../worktree";
+import { buildSessionRows, type SessionRow } from "../../../session";
+import { useTerminalStore } from "../../../terminal";
+import { SessionList, WtCard } from "../worktree";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
 import IconLucideGripVertical from "~icons/lucide/grip-vertical";
@@ -95,14 +98,15 @@ const emit = defineEmits<{
   removeRepo: [rootDir: string];
   selectRoot: [rootDir: string];
   selectWt: [wt: WorktreeEntry];
-  selectTask: [wt: WorktreeEntry, task: Task];
+  selectSession: [row: SessionRow];
   addWorktree: [rootDir: string];
   openWorktreeMenu: [anchorEl: HTMLElement, wt: WorktreeEntry, rootDir: string];
-  openTaskMenu: [anchorEl: HTMLElement, task: Task, rootDir: string];
+  openSessionMenu: [anchorEl: HTMLElement, row: SessionRow, rootDir: string];
   openRepoMenu: [anchorEl: HTMLElement, rootDir: string];
 }>();
 
 const repoStore = useRepoStore();
+const terminalStore = useTerminalStore();
 
 const repo = computed(() => repoStore.repos[props.rootDir]);
 const repoName = computed(() => repo.value?.repoName ?? props.rootDir);
@@ -146,6 +150,21 @@ const visiblyCollapsed = computed(() => {
 
 // wt カード列が実際に展開表示されているか（非 git はカード列を持たないので常に false）
 const bodyVisible = computed(() => isGitRepo.value && !visiblyCollapsed.value);
+
+// 非 git project のセッション行。worktree を持たないため rootDir 自身が作業ディレクトリ
+const plainSessionRows = computed(() =>
+  buildSessionRows(
+    props.rootDir,
+    terminalStore.liveSessions,
+    repoStore.sessionsForDir(props.rootDir, props.rootDir),
+  ),
+);
+const plainSessionsVisible = computed(
+  () =>
+    !isGitRepo.value &&
+    !props.editMode &&
+    (plainSessionRows.value.live.length > 0 || plainSessionRows.value.inactive.length > 0),
+);
 
 // 背景 fetch の可視スコープ報告: 「展開表示 + viewport 内」の間だけ on-screen として
 // repoStore に登録し、useRemoteFetchSync が fetch 対象に含める。畳んだ / スクロール外の
@@ -304,6 +323,16 @@ function onHeaderClick() {
       </template>
     </header>
 
+    <div v-if="plainSessionsVisible" class="px-2 pb-2">
+      <SessionList
+        :rows="plainSessionRows"
+        :dir="rootDir"
+        :active="activeDir === rootDir"
+        @select="(row) => emit('selectSession', row)"
+        @open-menu="(anchorEl, row) => emit('openSessionMenu', anchorEl, row, rootDir)"
+      />
+    </div>
+
     <Transition
       enter-from-class="h-0"
       enter-active-class="overflow-hidden transition-[height] duration-200 ease-out motion-reduce:duration-0"
@@ -319,9 +348,9 @@ function onHeaderClick() {
             :root-dir="rootDir"
             :active="activeDir === wt.path"
             @select-wt="emit('selectWt', $event)"
-            @select-task="(w, t) => emit('selectTask', w, t)"
+            @select-session="(row) => emit('selectSession', row)"
             @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"
-            @open-task-menu="(anchorEl, t) => emit('openTaskMenu', anchorEl, t, rootDir)"
+            @open-session-menu="(anchorEl, row) => emit('openSessionMenu', anchorEl, row, rootDir)"
           />
           <button
             type="button"

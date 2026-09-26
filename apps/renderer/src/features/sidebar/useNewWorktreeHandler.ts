@@ -1,12 +1,12 @@
 /**
  * main の `newWorktree` push を購読し、`gozd worktree new` で作られた worktree を開く。
  *
- * worktree と task の作成は main 側で完了している。ここは UI 反映だけを担い、PR / issue
+ * worktree の作成は main 側で完了している。ここは UI 反映だけを担い、PR / issue
  * picker と同じ後段（サイドバーに載せる → autostart / setup ヒント → ターミナル起動）を通す。
  *
- * 選択中の worktree は動かさない（docs/task.md の「エージェントから worktree を作る」）。
+ * 選択中の worktree は動かさない（docs/session.md の「エージェントから worktree を作る」）。
  *
- * この push の指示文は pull で取り直せない。worktree と Task はサイドバーの再取得で現れるが、
+ * この push の指示文は pull で取り直せない。worktree はサイドバーの再取得で現れるが、
  * 指示文は push payload にしか存在しないため、UI 反映が失敗するとそこで失われる。失われた
  * ことを実行者もユーザーも知らないまま終わらせないよう、失敗はトーストに倒して指示文を
  * 添える（手で渡し直せる形で残す）。

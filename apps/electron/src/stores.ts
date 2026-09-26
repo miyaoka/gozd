@@ -6,7 +6,7 @@
 //   （旧 proto3 JSON は default 値を省略して書いた）は default 充填する
 // - 「存在するが型違反」のフィールドはファイルの性格で扱いを分ける（rawJson.ts の契約）:
 //   - AppState（機械専有の state）: 破損として検知し、stderr ログ + 初期状態で上書き save
-//     （TaskStore の parse 失敗と同じ reinit 経路。ベータ方針: 部分救済を書かない）
+//     （ベータ方針: 部分救済を書かない）
 //   - AppConfig（ユーザー設定。手編集が正規経路）: 違反フィールドだけ default に倒して
 //     stderr ログ。ファイルは書き換えない（VS Code の消費側 validate と同型）。ただし
 //     save は全量書き出しのため、default に倒した値は次の設定変更の保存時にファイルへ
@@ -156,7 +156,7 @@ export function normalizeAppState(raw: unknown): AppState {
   };
 }
 
-/** テスト注入用に path を取る変種（taskStore の createTaskStore(configDir) と同じ流儀）。
+/** テスト注入用に path を取る変種。
  * production は下の loadAppConfig が固定パスを束縛する */
 export function loadAppConfigFrom(path: string): AppConfig {
   if (!existsSync(path)) return normalizeAppConfig({});
@@ -187,8 +187,8 @@ export function ensureAppConfigFile(): string {
 }
 
 /** テスト注入用に path を取る変種。parse 失敗 / 型違反（RawJsonTypeError）はどちらも破損として
- * stderr ログ + 初期状態で上書き save する（TaskStore.loadFile の reinit と同じ規律。
- * 上書きしないと壊れたファイルが起動のたびに失敗し続ける） */
+ * stderr ログ + 初期状態で上書き save する（上書きしないと壊れたファイルが起動のたびに
+ * 失敗し続ける） */
 export function loadAppStateFrom(path: string): AppState {
   if (!existsSync(path)) return normalizeAppState({});
   const parsed = tryCatch(() => normalizeAppState(JSON.parse(readFileSync(path, "utf8"))));

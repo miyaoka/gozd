@@ -33,8 +33,8 @@ export interface ListPickerPage<T> {
 
 export function createListPicker<T>() {
   // 型引数を残したまま deep reactive を保つ。素の `ref<T[]>` は値の型が `UnwrapRefSimple<T>[]`
-  // になり、T が未確定のあいだ T[] を代入できない。行の書き戻し（`existingTask` の後追い更新）を
-  // 一覧へ反映させるため deep reactive 自体は要るので、shallowRef ではなく型注釈で解く。
+  // になり、T が未確定のあいだ T[] を代入できない。deep reactive を保つため shallowRef ではなく
+  // 型注釈で解く。
   const items = ref([]) as Ref<T[]>;
   const viewer = ref("");
   const status = ref<ListPickerStatus>("loading");

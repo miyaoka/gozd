@@ -1,9 +1,6 @@
 // socketMessages（ClientMessage 解釈 + 配送）のテスト。
-// applyClaudeSessionHook の taskStore 書き込み経路は taskStore.test.ts が意味論を固定して
-// いるため、ここでは routing（hook push の payload 形 / open の gozdOpen 変換 / decode
-// 失敗の観察 / 逐次処理）を mock push で検証する。
-// 未登録 ptyId の session-start は worktreePath 空ガードで skip される（実 store に
-// 書き込まない）ことを前提に、production の taskStore を import したまま実行できる。
+// routing（hook push の payload 形 / open の gozdOpen 変換 / decode 失敗の観察 / 逐次処理）を
+// mock push で検証する。
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -92,7 +89,7 @@ describe("socketMessages", () => {
 
   test("newWorktree は dir 未指定を失敗として応答する（応答を返す唯一の種別）", async () => {
     const handle = createSocketMessageHandler(() => {});
-    const reply = await handle(JSON.stringify({ newWorktree: { title: "t", prompt: "" } }));
+    const reply = await handle(JSON.stringify({ newWorktree: { prompt: "" } }));
     expect(JSON.parse(reply ?? "")).toEqual({
       ok: false,
       dir: "",
@@ -100,25 +97,14 @@ describe("socketMessages", () => {
     });
   });
 
-  test("newWorktree は title 未指定を失敗として応答する", async () => {
-    // CLI を経由しない送信でも「見分けの付かない Task」を作らせない
-    const handle = createSocketMessageHandler(() => {});
-    const reply = await handle(JSON.stringify({ newWorktree: { dir: "/tmp", prompt: "" } }));
-    expect(JSON.parse(reply ?? "")).toEqual({
-      ok: false,
-      dir: "",
-      error: "newWorktree: title is required",
-    });
-  });
-
   test("newWorktree は作成に失敗したら push せず失敗を応答する", async () => {
-    // git 管理外の dir では起点 ref を解決できない。worktree だけ出来て task が付かない
-    // 中間状態を作らないため、この時点で止めて実行者に失敗を返す
+    // git 管理外の dir では起点 ref を解決できない。作れなかった worktree を renderer に
+    // 開かせないため、この時点で止めて実行者に失敗を返す
     const dir = mkdtempSync(join(tmpdir(), "gozd-socket-newwt-"));
     tempDirs.push(dir);
     const pushed: unknown[] = [];
     const handle = createSocketMessageHandler((type) => pushed.push(type));
-    const reply = await handle(JSON.stringify({ newWorktree: { dir, title: "t", prompt: "" } }));
+    const reply = await handle(JSON.stringify({ newWorktree: { dir, prompt: "" } }));
     const parsed = JSON.parse(reply ?? "") as { ok: boolean; dir: string; error: string };
     expect(parsed.ok).toBe(false);
     expect(parsed.error).not.toBe("");

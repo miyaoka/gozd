@@ -1,4 +1,4 @@
-import { Task } from "@gozd/rpc";
+import type { ClaudeSessionSummary } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
 import {
@@ -17,23 +17,13 @@ function wt(path: string, branch: string, isMain = false): RepoWorktree {
     isMain,
     gitStatuses: {},
     renameOldPaths: {},
-    tasks: [],
     upstream: undefined,
     latestMtime: 0,
   };
 }
 
-function task(id: string, worktreeDir: string): Task {
-  return {
-    id,
-    worktreeDir,
-    createdAt: "",
-    sessionId: "",
-    closedByUser: false,
-    userTitle: "",
-    terminalTitle: "",
-    ghTitle: "",
-  };
+function session(sessionId: string, cwd: string): ClaudeSessionSummary {
+  return { sessionId, cwd, title: sessionId, lastModified: 0 };
 }
 
 describe("repoDirEntries", () => {
@@ -139,73 +129,42 @@ describe("collectFsWatchTargetDirs", () => {
   });
 });
 
-describe("applyRepoTasks", () => {
-  test("worktreeDir で task を各 wt に割り当て、gitStatuses 等は保持する", () => {
+describe("sessions", () => {
+  test("作業ディレクトリごとにセッションを引き、sessionId で repo 横断に引ける", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();
     store.addRepo({
       rootDir: "/r1",
       repoName: "r1",
       isGitRepo: true,
-      worktrees: [
-        { ...wt("/r1", "main", true), gitStatuses: { "a.txt": ".M" } },
-        wt("/r1/wt-1", "feat"),
-      ],
+      worktrees: [wt("/r1", "main", true), wt("/r1/wt-1", "feat")],
     });
+    store.addRepo({ rootDir: "/note", repoName: "note", isGitRepo: false, worktrees: [] });
 
-    store.applyRepoTasks("/r1", [task("t2", "/r1"), task("t1", "/r1/wt-1")]);
+    store.setRepoSessions("/r1", [session("s1", "/r1/wt-1"), session("s2", "/r1")]);
+    store.setRepoSessions("/note", [session("s3", "/note")]);
 
-    const repo = store.repos["/r1"];
-    expect(repo?.worktrees[0]?.tasks.map((t) => t.id)).toEqual(["t2"]);
-    expect(repo?.worktrees[1]?.tasks.map((t) => t.id)).toEqual(["t1"]);
-    // tasks のみ差し替え。git status 等の他フィールドは保持する。
-    expect(repo?.worktrees[0]?.gitStatuses).toEqual({ "a.txt": ".M" });
+    expect(store.sessionsForDir("/r1", "/r1/wt-1").map((s) => s.sessionId)).toEqual(["s1"]);
+    expect(store.sessionsForDir("/r1", "/r1").map((s) => s.sessionId)).toEqual(["s2"]);
+    expect(store.findSession("s3")?.cwd).toBe("/note");
   });
 
-  test("git 真値（updateRepoData）到達後の applyRepoTasks は no-op（prefetch race ガード）", () => {
+  test("未登録の repo へのセッションは書かない", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();
-    store.addRepo({
-      rootDir: "/r1",
-      repoName: "r1",
-      isGitRepo: true,
-      worktrees: [wt("/r1/wt-1", "feat")],
-    });
-
-    // git 真値が先に到達（往復中に増えた t-new を含む最新 task）
-    store.updateRepoData("/r1", [
-      { ...wt("/r1/wt-1", "feat"), tasks: [task("t-new", "/r1/wt-1")] },
-    ]);
-    // 古い prefetch スナップショット（t-new を含まない）が後着しても真値を消さない
-    store.applyRepoTasks("/r1", []);
-
-    expect(store.repos["/r1"]?.worktrees[0]?.tasks.map((t) => t.id)).toEqual(["t-new"]);
+    store.setRepoSessions("/ghost", [session("s1", "/ghost")]);
+    expect(store.findSession("s1")).toBeUndefined();
   });
 
-  test("removeRepo → 同 rootDir 再追加で applyRepoTasks が再び効く（git 真値フラグの掃除）", () => {
+  test("removeRepo でその repo のセッションも消える", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();
-    store.addRepo({
-      rootDir: "/r1",
-      repoName: "r1",
-      isGitRepo: true,
-      worktrees: [wt("/r1/wt-1", "feat")],
-    });
-    // 1 回目: git 真値到達でフラグが立つ
-    store.updateRepoData("/r1", [wt("/r1/wt-1", "feat")]);
+    store.addRepo({ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] });
+    store.setRepoSessions("/r1", [session("s1", "/r1")]);
 
     store.removeRepo("/r1");
-    // 再追加（キャッシュから楽観カードを復元した状態）
-    store.addRepo({
-      rootDir: "/r1",
-      repoName: "r1",
-      isGitRepo: true,
-      worktrees: [wt("/r1/wt-1", "feat")],
-    });
 
-    // フラグが残っていれば no-op になり task が出ない。掃除済みなら prefetch が再び効く。
-    store.applyRepoTasks("/r1", [task("t1", "/r1/wt-1")]);
-    expect(store.repos["/r1"]?.worktrees[0]?.tasks.map((t) => t.id)).toEqual(["t1"]);
+    expect(store.findSession("s1")).toBeUndefined();
   });
 });
 
@@ -228,9 +187,7 @@ describe("updateRepoData", () => {
     });
     store.setWorktreeGitStatuses("/r1/wt-1", { ...observed, head: "h" });
 
-    store.updateRepoData("/r1", [
-      { path: "/r1/wt-1", head: "h", branch: "feat", isMain: false, tasks: [] },
-    ]);
+    store.updateRepoData("/r1", [{ path: "/r1/wt-1", head: "h", branch: "feat", isMain: false }]);
 
     const target = store.repos["/r1"]?.worktrees[0];
     expect(target?.gitStatuses).toEqual({ "b.txt": "R." });
@@ -244,9 +201,7 @@ describe("updateRepoData", () => {
     const store = useRepoStore();
     store.addRepo({ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] });
 
-    store.updateRepoData("/r1", [
-      { path: "/r1/new", head: "h", branch: "new", isMain: false, tasks: [] },
-    ]);
+    store.updateRepoData("/r1", [{ path: "/r1/new", head: "h", branch: "new", isMain: false }]);
 
     const target = store.repos["/r1"]?.worktrees[0];
     expect(target?.gitStatuses).toEqual({});

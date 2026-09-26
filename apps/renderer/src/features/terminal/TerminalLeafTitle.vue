@@ -3,16 +3,16 @@ leaf 上部のタイトル行。Claude セッションが attach された leaf 
 （素の PTY では何も出さない）。2 段構成:
 
 - 上段: repo アイコン + repo 名（サイドバー RepoSection のヘッダと同一の見た目）
-- 下段: status アイコン + task タイトル（サイドバー TaskRow と同一の行）
+- 下段: status アイコン + セッションタイトル（サイドバー SessionRow と同一の行）
 
 status アイコン (形 / 色 / glow / animate / aria-label) は `CLAUDE_STATE_VISUAL`、
-タイトル文字列は `taskDisplayTitle`、repo アイコンは `RepoIcon` を SSOT として共有する。
+タイトル文字列は `sessionDisplayTitle`、repo アイコンは `RepoIcon` を SSOT として共有する。
 線上に重ねず、ターミナル本体の上に通常フローの行として並べる。
 
-## task タイトルの解決
+## セッションタイトルの解決
 
-leaf → ptyId → sessionId → Task の経路で引く。session 確立直後など Task がまだ
-`WorktreeEntry.tasks` に現れていない窓では title を省き、status アイコンのみ出す。
+leaf の端末タイトルを使い、取れない間は leaf → ptyId → sessionId で引いたセッション一覧の
+タイトルで代える。優先順位の理由は `sessionDisplayTitle`。
 
 ## repo の解決
 
@@ -22,9 +22,9 @@ repo 未登録（起動直後など）は 1 段目を省く。
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { taskDisplayTitle, useRepoStore } from "../../shared/repo";
+import { sessionDisplayTitle, useRepoStore } from "../../shared/repo";
 import { RepoIcon } from "../repo-icon";
-import { CLAUDE_STATE_VISUAL } from "./claudeStatus";
+import { CLAUDE_STATE_VISUAL, stripClaudeTitlePrefix } from "./claudeStatus";
 import { useTerminalStore } from "./useTerminalStore";
 
 const props = defineProps<{ dir: string; leafId: string }>();
@@ -34,7 +34,7 @@ const repoStore = useRepoStore();
 /** Claude セッションが attach されているか。undefined = 素の PTY（何も出さない） */
 const claudeState = computed(() => terminalStore.getClaudeState(props.leafId));
 
-/** サイドバー TaskRow と同一の status 視覚定義 */
+/** サイドバー SessionRow と同一の status 視覚定義 */
 const visual = computed(() =>
   claudeState.value === undefined ? undefined : CLAUDE_STATE_VISUAL[claudeState.value],
 );
@@ -45,15 +45,13 @@ const repoName = computed(() => repo.value?.repoName ?? "");
 /** GitHub owner。undefined は解決中（RepoIcon が空プレースホルダーを出す） */
 const repoOwner = computed(() => repo.value?.githubIdentity?.owner);
 
-/** leaf → ptyId → sessionId → Task → 表示タイトル。Task 未到達時は undefined */
-const title = computed<string | undefined>(() => {
+/** 端末タイトル → セッション一覧のタイトル の順で解決した表示タイトル */
+const title = computed<string>(() => {
+  const terminalTitle = stripClaudeTitlePrefix(terminalStore.titleByLeafId[props.leafId] ?? "");
   const ptyId = terminalStore.getPtyId(props.leafId);
-  if (ptyId === undefined) return undefined;
-  const sessionId = terminalStore.getSessionIdByPtyId(ptyId);
-  // 空文字は未起動 / 切り離し済みを意味し、findTaskBySessionId が誤一致しうるため除外する
-  if (sessionId === undefined || sessionId === "") return undefined;
-  const task = repoStore.findTaskBySessionId(sessionId);
-  return task === undefined ? undefined : taskDisplayTitle(task);
+  const sessionId = ptyId === undefined ? undefined : terminalStore.getSessionIdByPtyId(ptyId);
+  const listTitle = sessionId === undefined ? undefined : repoStore.findSession(sessionId)?.title;
+  return sessionDisplayTitle(listTitle, terminalTitle);
 });
 </script>
 
@@ -69,7 +67,7 @@ const title = computed<string | undefined>(() => {
         {{ repoName }}
       </span>
     </div>
-    <!-- 下段: status アイコン + task タイトル -->
+    <!-- 下段: status アイコン + セッションタイトル -->
     <div class="flex items-center gap-2">
       <span class="flex w-5 shrink-0 flex-col items-center gap-0.5">
         <component

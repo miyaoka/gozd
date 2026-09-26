@@ -143,7 +143,7 @@ const MINUTE_MS = 60 * SECOND_MS;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-/** ms 経過時間を短縮表記で返す。task サイドバーのような限られた幅の UI で使う。
+/** ms 経過時間を短縮表記で返す。サイドバーのような限られた幅の UI で使う。
  *
  * `formatRelativeTime` との違い:
  *   - 入力: ms × 2 引数 (from, now) — `Date.now()` 直接依存を避けてテスト可能性を高める

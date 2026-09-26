@@ -102,7 +102,7 @@ export function parseStdinJson(text: string): Record<string, unknown> {
 }
 
 /** `gozd worktree new` が受け付ける、値を取るオプション。値は次の引数か `=` の右辺で渡す。 */
-const NEW_WORKTREE_FLAGS = ["--title", "--prompt", "--dir"] as const;
+const NEW_WORKTREE_FLAGS = ["--prompt", "--dir"] as const;
 type NewWorktreeFlag = (typeof NEW_WORKTREE_FLAGS)[number];
 
 /** 値を取らないオプション。 */
@@ -124,12 +124,7 @@ export interface ParsedNewWorktree {
   promptFromStdin: boolean;
 }
 
-/**
- * `gozd worktree new` の引数を NewWorktreeMessage に組み立てる。
- *
- * `--title` は必須。タイトルの無い task はサイドバーで見分けが付かず、複数の worktree を
- * 並べて回す用途そのものが成立しないため、既定値で埋めずに失敗させる。
- */
+/** `gozd worktree new` の引数を NewWorktreeMessage に組み立てる。 */
 export function parseNewWorktreeArgs(
   argv: string[],
   cwd: string,
@@ -144,7 +139,7 @@ export function parseNewWorktreeArgs(
     const eq = token.indexOf("=");
     const name = eq === -1 ? token : token.slice(0, eq);
     if (isNewWorktreeSwitch(name)) {
-      // 値を取らないオプションに値が付いたら黙って捨てず弾く（`--title` の
+      // 値を取らないオプションに値が付いたら黙って捨てず弾く（`--prompt` の
       // 「値が要る」と対称に、「値を取らない」も誤りとして返す）
       if (eq !== -1) return { ok: false, error: `${name} takes no value` };
       promptFromStdin = true;
@@ -161,9 +156,6 @@ export function parseNewWorktreeArgs(
     i += 1;
   }
 
-  const title = flags["--title"] ?? "";
-  if (title === "") return { ok: false, error: "--title is required" };
-
   if (promptFromStdin && flags["--prompt"] !== undefined) {
     return { ok: false, error: "--prompt and --prompt-stdin are mutually exclusive" };
   }
@@ -173,7 +165,6 @@ export function parseNewWorktreeArgs(
     value: {
       message: {
         dir: resolve(cwd, flags["--dir"] ?? "."),
-        title,
         prompt: flags["--prompt"] ?? "",
       },
       promptFromStdin,

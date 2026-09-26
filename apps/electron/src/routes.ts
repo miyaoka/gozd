@@ -6,8 +6,8 @@
 // バイナリは `WireBytes`（送出前に `toWireBytes` で専有 buffer 化）で返す。
 
 import type {
-  ClaudeSessionLastActivityRequest,
-  ClaudeSessionLastActivityResponse,
+  ClaudeSessionListRequest,
+  ClaudeSessionListResponse,
   ClaudeSessionLogRequest,
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,
@@ -18,8 +18,6 @@ import type {
   ReviveSessionResponse,
   ClipboardCopyFilesRequest,
   ClipboardCopyFilesResponse,
-  CreateTaskWorktreeRequest,
-  CreateTaskWorktreeResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   EchoRequest,
@@ -133,18 +131,6 @@ import type {
   SaveAppStateRequest,
   SaveAppStateResponse,
   ServerListResponse,
-  TaskAddRequest,
-  TaskAddResponse,
-  TaskListRequest,
-  TaskListResponse,
-  TaskRemoveByWorktreeRequest,
-  TaskRemoveByWorktreeResponse,
-  TaskRemoveRequest,
-  TaskRemoveResponse,
-  TaskSetTerminalTitleRequest,
-  TaskSetTerminalTitleResponse,
-  TaskSetUserTitleRequest,
-  TaskSetUserTitleResponse,
   VoicevoxCheckEngineResponse,
   VoicevoxLaunchResponse,
   VoicevoxListSpeakersResponse,
@@ -166,11 +152,8 @@ import { existsSync } from "node:fs";
 import { isChildWindow } from "./childWindows";
 import { addPreviewRoot, isWithinRoot, releasePreviewRoots } from "./previewProtocol";
 import { isValidPreviewId, pathToPreviewUrl } from "./previewUrl";
-import {
-  listReviveSessions,
-  readClaudeSessionLog,
-  readSessionsLastActivity,
-} from "./claude/claudeSessionLog";
+import { listClaudeSessions } from "./claude/claudeSessionList";
+import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import {
   existsAbsolute,
@@ -199,11 +182,7 @@ import {
   type FileChangeInfo,
 } from "./git/gitTree";
 import { validateRev } from "./git/gitValidate";
-import {
-  resolveAndCreateWorktree,
-  createTaskWorktree,
-  toWorktreeEntry,
-} from "./git/worktreeCreate";
+import { resolveAndCreateWorktree, toWorktreeEntry } from "./git/worktreeCreate";
 import {
   createWorktree,
   pruneWorktrees,
@@ -233,7 +212,6 @@ import {
 import { createPortScanner, listProcParents, type PtyOwner } from "./portScanner";
 import {
   clearAssociations,
-  consumeExpectedResumeSid,
   registerSpawn,
   sessionIdFor,
   unregisterExit,
@@ -248,7 +226,6 @@ import {
   saveAppConfig,
   saveAppState,
 } from "./stores";
-import { taskStore } from "./taskStore";
 import { checkEngine, launch as voicevoxLaunch, listSpeakers, speak } from "./voicevox";
 
 // node-pty を隔離した utilityProcess（ptyHost）の IPty を指す ptyId → shell pid のマップ。
@@ -338,10 +315,7 @@ async function handlePtySpawn(body: unknown, ctx: RpcContext): Promise<unknown> 
   // onData/onExit/診断ログの push 先をこの window の sender に束縛する（後付け束縛）
   ptyPush = ctx.push;
 
-  // GOZD_RESUME_CLAUDE_SESSION（renderer が resume 起動時に載せる）を expected sid として
-  // 記録する。SessionStart hook 着弾時に consume され、removeByPty 時点で残っていれば
-  // resume 失敗（SessionStart 不達）と判定する
-  registerSpawn(id, req.worktreePath, req.env.GOZD_RESUME_CLAUDE_SESSION ?? "");
+  registerSpawn(id, req.worktreePath);
 
   // ワイヤ契約 (Swift PTYManager の execve 流儀): req.args は argv **全体** で、
   // args[0] = argv[0] (プログラム名)。node-pty は spawn(file, args) の args に
@@ -428,7 +402,6 @@ function handleServerList(): unknown {
 async function handleGitWorktreeList(body: unknown): Promise<unknown> {
   const req = body as GitWorktreeListRequest;
   const worktrees = await worktreeList(req.dir);
-  const allTasks = await taskStore.list(req.dir);
   // 各 wt の git status は載せない。status は fs 監視が worktree ごとに取り、push で届ける
   // （一覧の取り直しに worktree 数ぶんの作業ツリー走査を連動させない）
   const entries: WorktreeEntry[] = worktrees.map((wt) => ({
@@ -436,53 +409,8 @@ async function handleGitWorktreeList(body: unknown): Promise<unknown> {
     head: wt.head,
     branch: wt.branch ?? "",
     isMain: wt.isMain,
-    // 1 wt = 複数 Claude session の前提で session 単位の Task が複数並ぶ
-    tasks: allTasks.filter((task) => task.worktreeDir === wt.path),
   }));
   return { worktrees: entries } satisfies GitWorktreeListResponse;
-}
-
-async function handleTaskList(body: unknown): Promise<unknown> {
-  const req = body as TaskListRequest;
-  return { tasks: await taskStore.list(req.dir) } satisfies TaskListResponse;
-}
-
-async function handleTaskAdd(body: unknown): Promise<unknown> {
-  const req = body as TaskAddRequest;
-  const task = await taskStore.add({
-    dir: req.dir,
-    ghTitle: req.ghTitle,
-    worktreeDir: req.worktreeDir,
-    ghRef: req.ghRef,
-  });
-  return { task } satisfies TaskAddResponse;
-}
-
-async function handleTaskSetTerminalTitle(body: unknown): Promise<unknown> {
-  const req = body as TaskSetTerminalTitleRequest;
-  const task = await taskStore.setTerminalTitle(req.dir, req.id, req.terminalTitle);
-  return { task } satisfies TaskSetTerminalTitleResponse;
-}
-
-async function handleTaskSetUserTitle(body: unknown): Promise<unknown> {
-  const req = body as TaskSetUserTitleRequest;
-  const task = await taskStore.setUserTitle(req.dir, req.id, req.userTitle);
-  return { task } satisfies TaskSetUserTitleResponse;
-}
-
-async function handleTaskRemove(body: unknown): Promise<unknown> {
-  const req = body as TaskRemoveRequest;
-  await taskStore.remove(req.dir, req.id);
-  return {} satisfies TaskRemoveResponse;
-}
-
-async function handleTaskRemoveByWorktree(body: unknown): Promise<unknown> {
-  const req = body as TaskRemoveByWorktreeRequest;
-  // worktree 削除 cascade（handleWorktreeRemove）と同じ removeByWorktree を、worktree を
-  // 残したまま単独発火する経路。main worktree は git worktree remove 不可のため、
-  // 滞留 task の一掃にはこの経路が唯一の手段になる（Claude セッションの JSONL は消さない）
-  await taskStore.removeByWorktree(req.dir, req.worktreeDir);
-  return {} satisfies TaskRemoveByWorktreeResponse;
 }
 
 async function handleGitGithubIdentity(body: unknown): Promise<unknown> {
@@ -933,44 +861,18 @@ async function handleGitViewer(body: unknown): Promise<unknown> {
 
 async function handleCreateWorktree(body: unknown): Promise<unknown> {
   const req = body as CreateWorktreeRequest;
-  // Task を伴わない経路は branch / startPoint も main が決める（呼び出し側に選ぶ余地が無い）
-  const { rootDir, info, setupScript } = await resolveAndCreateWorktree({
-    dir: req.dir,
-    branch: "",
-    startPoint: "",
-  });
+  const { rootDir, info, setupScript } = await resolveAndCreateWorktree(req);
   return {
     rootDir,
-    worktree: toWorktreeEntry(info, []),
+    worktree: toWorktreeEntry(info),
     dir: info.path,
     setupScript,
   } satisfies CreateWorktreeResponse;
 }
 
-async function handleCreateTaskWorktree(body: unknown): Promise<unknown> {
-  return (await createTaskWorktree(
-    body as CreateTaskWorktreeRequest,
-  )) satisfies CreateTaskWorktreeResponse;
-}
-
-async function handleWorktreeRemove(body: unknown, ctx: RpcContext): Promise<unknown> {
+async function handleWorktreeRemove(body: unknown): Promise<unknown> {
   const req = body as GitWorktreeRemoveRequest;
   await removeWorktree(req.dir, req.path, req.force);
-  // worktree 物理削除に Task の片付けも連動させる。放置すると tasks.json に孤児 Task が残り
-  // サイドバーにゾンビ行が出る。projectKey 解決は req.dir（main repo dir、削除されない側）から
-  // 行う（req.path は物理削除済みなので anchor にすると projectKey が変わる）。失敗は notify で
-  // ユーザーに伝える
-  const cleanup = await tryCatch(taskStore.removeByWorktree(req.dir, req.path));
-  if (!cleanup.ok) {
-    console.error(`[TaskStore] removeTasksByWorktree failed: ${cleanup.error}`);
-    ctx.push("notify", {
-      type: "error",
-      source: "task-store",
-      message: "Failed to clean up tasks after worktree removal",
-      detail: String(cleanup.error),
-      dir: req.dir,
-    });
-  }
   return {} satisfies GitWorktreeRemoveResponse;
 }
 
@@ -1086,68 +988,18 @@ function handleWindowSetTitleContext(body: unknown): unknown {
   return {} satisfies WindowSetTitleContextResponse;
 }
 
-async function handleClaudeSessionRemoveByPty(body: unknown, ctx: RpcContext): Promise<unknown> {
+function handleClaudeSessionRemoveByPty(body: unknown): unknown {
   const req = body as ClaudeSessionRemoveByPtyRequest;
-  // Swift handleClaudeSessionRemoveByPty と同一意味論。sessionId / worktreePath 紐付けは
-  // 最後に必ずクリアする（tasks 側の cleanup が失敗しても late session-start hook を
-  // 弾く必要があるため、各 taskStore 呼び出しは個別 tryCatch で notify に倒す）
-  let removedSessionId = "";
-
-  const liveSid = sessionIdFor(req.ptyId);
-  const expectedSid = consumeExpectedResumeSid(req.ptyId);
-
-  // SessionStart 着弾時点で expected は必ず消費されるため、removeByPty 時点で
-  // 「expected と live が同居」は構造的に発生し得ない。到達したら consume 不変条件が
-  // 壊れている兆候なので観察ログを残す（Swift は precondition で fatal にするが、
-  // Electron main の fatal はダイアログ停止でハングに見えるため error ログに留める）
-  if (expectedSid !== "" && liveSid !== "") {
-    console.error(
-      `[removeByPty] expectedSid (${expectedSid}) and liveSid (${liveSid}) both non-empty; SessionStart consume invariant broken`,
-    );
-  }
-
-  if (expectedSid !== "") {
-    // SessionStart hook が一度も着弾しないまま pane が閉じられた = `claude --resume` が
-    // error 終了し zsh fallback も SessionStart 不達のまま終わったケース。sessionId を
-    // 空に書き換え、次のクリックで素の claude 起動に流す。pane close の事実を
-    // シグナル化するため markClosedByUser=true
-    const cleared = await tryCatch(taskStore.clearDeadSession(req.worktreePath, expectedSid, true));
-    if (!cleared.ok) {
-      console.error(`[TaskStore] clearDeadSession failed: ${cleared.error}`);
-      ctx.push("notify", {
-        type: "error",
-        source: "task-store",
-        message: "Failed to clear dead session from task after resume failure",
-        detail: String(cleared.error),
-        dir: req.worktreePath,
-      });
-    }
-  }
-
-  if (liveSid !== "") {
-    removedSessionId = liveSid;
-    // ターミナル close は session-end hook を発火させないため、ここで明示的に
-    // detachSession を呼び closed_by_user=true を立てる。task 本体と sessionID は保持
-    const result = await tryCatch(taskStore.detachSession(req.worktreePath, liveSid));
-    if (!result.ok) {
-      console.error(`[TaskStore] detachSession (removeByPty) failed: ${result.error}`);
-      ctx.push("notify", {
-        type: "error",
-        source: "task-store",
-        message: "Failed to detach session on terminal close",
-        detail: String(result.error),
-        dir: req.worktreePath,
-      });
-    }
-  } else if (expectedSid !== "") {
-    // live なし + expected あり（純粋な resume 失敗）。removedSessionId に expected を
-    // 載せて renderer に「何かは消した」と伝え、所属 repo の refetch を促す
-    removedSessionId = expectedSid;
-  }
-  // else: live も expected もない素 PTY pane の close。正常経路でログ価値が薄い
-
+  // ターミナル close は session-end hook を発火させないため、紐付けはここで解除する。
+  // 解除後に届く late session-start hook は clearAssociations が記録する明示削除で弾かれる
+  const removedSessionId = sessionIdFor(req.ptyId);
   clearAssociations(req.ptyId);
   return { removedSessionId } satisfies ClaudeSessionRemoveByPtyResponse;
+}
+
+async function handleClaudeSessionList(body: unknown): Promise<unknown> {
+  const req = body as ClaudeSessionListRequest;
+  return { sessions: await listClaudeSessions(req.dir) } satisfies ClaudeSessionListResponse;
 }
 
 function handleClaudeSessionReadLog(body: unknown): unknown {
@@ -1158,13 +1010,6 @@ function handleClaudeSessionReadLog(body: unknown): unknown {
     watchDir: result.watchDir,
     entries: result.entries,
   } satisfies ClaudeSessionLogResponse;
-}
-
-function handleClaudeSessionLastActivity(body: unknown): unknown {
-  const req = body as ClaudeSessionLastActivityRequest;
-  return {
-    lastActivityBySessionId: readSessionsLastActivity(req.sessionIds),
-  } satisfies ClaudeSessionLastActivityResponse;
 }
 
 async function handleReviveSessionList(body: unknown): Promise<unknown> {
@@ -1188,20 +1033,11 @@ async function handleReviveSession(body: unknown): Promise<unknown> {
     startPoint,
     symlinks: projectConfig.worktreeSymlinks,
   });
-  // 復活直後の worktree には task が無いので、attachSession の path(3) が sessionId 付き task を
-  // 新規作成する。resume の駆動は renderer 側（registerReviveCommand が requestResumeSession の
-  // 明示ヒントを立て、visit が消費して `claude --resume` を仕込む）。
-  await taskStore.attachSession(req.dir, req.sessionId, info.path);
-  const task = (await taskStore.list(req.dir)).find(
-    (t) => t.sessionId === req.sessionId && t.worktreeDir === info.path,
-  );
-  if (task === undefined) {
-    throw new Error(`revive: task not created for session ${req.sessionId} at ${info.path}`);
-  }
+  // resume の駆動は renderer 側（registerReviveCommand が requestResumeSession の明示ヒントを
+  // 立て、visit が消費して `claude --resume` を仕込む）。
   return {
-    worktree: toWorktreeEntry(info, [task]),
+    worktree: toWorktreeEntry(info),
     dir: info.path,
-    task,
     setupScript: projectConfig.setupScript,
   } satisfies ReviveSessionResponse;
 }
@@ -1296,7 +1132,6 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/revReachable", handleGitRevReachable],
   ["/git/resetMixed", handleGitResetMixed],
   ["/git/createWorktree", handleCreateWorktree],
-  ["/git/createTaskWorktree", handleCreateTaskWorktree],
   ["/git/worktreeRemove", handleWorktreeRemove],
   ["/git/prList", handleGitPrList],
   ["/git/prsForBranches", handleGitPrsForBranches],
@@ -1313,12 +1148,6 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/search/text", handleTextSearch],
   ["/search/cancel", handleTextSearchCancel],
   ["/server/list", handleServerList],
-  ["/task/list", handleTaskList],
-  ["/task/add", handleTaskAdd],
-  ["/task/setTerminalTitle", handleTaskSetTerminalTitle],
-  ["/task/setUserTitle", handleTaskSetUserTitle],
-  ["/task/remove", handleTaskRemove],
-  ["/task/removeByWorktree", handleTaskRemoveByWorktree],
   ["/projectConfig/load", handleProjectConfigLoad],
   ["/projectConfig/save", handleProjectConfigSave],
   ["/projectConfig/ensureFile", handleProjectConfigEnsureFile],
@@ -1329,9 +1158,9 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/open/pickAndOpen", handlePickAndOpen],
   ["/window/close", handleWindowClose],
   ["/window/setTitleContext", handleWindowSetTitleContext],
+  ["/claudeSession/list", handleClaudeSessionList],
   ["/claudeSession/removeByPty", handleClaudeSessionRemoveByPty],
   ["/claudeSession/readLog", handleClaudeSessionReadLog],
-  ["/claudeSession/lastActivity", handleClaudeSessionLastActivity],
   ["/claudeSession/reviveList", handleReviveSessionList],
   ["/claudeSession/revive", handleReviveSession],
   ["/clipboard/copyFiles", handleClipboardCopyFiles],

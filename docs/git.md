@@ -40,7 +40,7 @@ git / GitHub 連携の更新契約。何がいつ更新されるか、どこま�
 
 ### worktree 一覧は構造だけを運ぶ
 
-worktree 一覧（path / branch / HEAD / task）の取得に **各 worktree の git status を同梱しない**。
+worktree 一覧（path / branch / HEAD）の取得に **各 worktree の git status を同梱しない**。
 status の持ち主はファイル監視で、worktree ごとに監視の登録（購読者の追加を含む）の成立時に 1 回、
 以後は変化のたびに取り直して `gitStatusChange` で届ける。同梱すると、一覧を取り直すたびに
 worktree の数だけ作業ツリーの走査が連動して走る。

@@ -12,7 +12,7 @@ import { computed } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
 import { buildSessionRows, type SessionRow } from "../../../session";
 import { activateDir, useTerminalStore } from "../../../terminal";
-import { SessionList } from "../worktree";
+import { SessionList } from "../session-row";
 import IconLucideConciergeBell from "~icons/lucide/concierge-bell";
 
 const props = defineProps<{

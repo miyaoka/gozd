@@ -40,7 +40,7 @@ import { RepoIcon } from "../../../repo-icon";
 import { collectPoolSessionRows, type PoolSessionRow } from "../../../session";
 import { useTerminalStore } from "../../../terminal";
 import { useWorktreeStore } from "../../../worktree";
-import { SessionRow } from "../worktree";
+import { SessionRow } from "../session-row";
 import { groupByStatus } from "./statusGroups";
 
 /** 端末の開いていないセッションを最初に出す件数 */

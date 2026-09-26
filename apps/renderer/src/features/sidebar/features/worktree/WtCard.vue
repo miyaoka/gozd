@@ -48,7 +48,7 @@ import type { ClaudeState } from "../../../terminal";
 import { displayClaudeState, useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
 import { hasChanges } from "../../utils";
-import SessionList from "./SessionList.vue";
+import { SessionList } from "../session-row";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideArrowUp from "~icons/lucide/arrow-up";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";

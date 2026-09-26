@@ -1,8 +1,8 @@
 import type { ClaudeSessionSummary } from "@gozd/rpc";
 import type { RepoState } from "../../shared/repo";
 import { branchLabel, repoDirEntries } from "../../shared/repo";
-import { buildSessionRows, compareRecentFirst, type SessionRow } from "./sessionRows";
 import type { LiveSession } from "../terminal";
+import { buildSessionRows, compareRecentFirst, type SessionRow } from "./sessionRows";
 
 /** repo をまたいだ一覧の 1 行 = 1 セッション。どの repo / worktree の行かを添える */
 export interface PoolSessionRow extends SessionRow {
@@ -32,23 +32,48 @@ export function collectPoolSessionRows(
   liveSessions: readonly LiveSession[],
 ): PoolSessionRow[] {
   const rows: PoolSessionRow[] = [];
-  for (const rootDir of poolDirs) {
-    const repo = repos[rootDir];
-    if (repo === undefined) continue;
-    const listed = sessionsOf(rootDir);
-
-    for (const { dir, worktree } of repoDirEntries(repo)) {
-      const { live, inactive } = buildSessionRows(dir, liveSessions, listed);
-      for (const row of [...live, ...inactive]) {
-        rows.push({
-          ...row,
-          rootDir,
-          repoName: repo.repoName,
-          owner: repo.githubIdentity?.owner,
-          branch: worktree === undefined ? "" : branchLabel(worktree.branch),
-        });
-      }
+  for (const { rootDir, repo, dir, worktree } of poolDirEntries(poolDirs, repos)) {
+    const { live, inactive } = buildSessionRows(dir, liveSessions, sessionsOf(rootDir));
+    for (const row of [...live, ...inactive]) {
+      rows.push({
+        ...row,
+        rootDir,
+        repoName: repo.repoName,
+        owner: repo.githubIdentity?.owner,
+        branch: worktree === undefined ? "" : branchLabel(worktree.branch),
+      });
     }
   }
   return rows.toSorted(compareRecentFirst);
+}
+
+/**
+ * 端末が開いているセッションを持つプールの repo の rootDir（重複あり）。
+ * `collectPoolSessionRows` の live 行と同じ範囲・同じ一致規則で求めるが、ログ由来の一覧は
+ * 読まない。hook イベントや端末タイトルの更新のたびに評価される経路で、プール全体の行を
+ * 組み立てずに済ませるため。
+ */
+export function collectLivePoolRootDirs(
+  poolDirs: readonly string[],
+  repos: Readonly<Record<string, RepoState>>,
+  liveSessions: readonly LiveSession[],
+): string[] {
+  const liveDirs = new Set(liveSessions.map((session) => session.dir));
+  const rootDirs: string[] = [];
+  for (const { rootDir, dir } of poolDirEntries(poolDirs, repos)) {
+    if (liveDirs.has(dir)) rootDirs.push(rootDir);
+  }
+  return rootDirs;
+}
+
+/** プールの repo の作業ディレクトリを列挙する。セッション行を作る範囲の SSOT */
+function* poolDirEntries(
+  poolDirs: readonly string[],
+  repos: Readonly<Record<string, RepoState>>,
+): Generator<{ rootDir: string; repo: RepoState } & ReturnType<typeof repoDirEntries>[number]> {
+  for (const rootDir of poolDirs) {
+    const repo = repos[rootDir];
+    if (repo === undefined) continue;
+    for (const entry of repoDirEntries(repo)) yield { rootDir, repo, ...entry };
+  }
 }

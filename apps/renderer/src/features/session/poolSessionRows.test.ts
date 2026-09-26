@@ -2,7 +2,7 @@ import type { ClaudeSessionSummary } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import type { RepoState, RepoWorktree } from "../../shared/repo";
 import type { LiveSession } from "../terminal";
-import { collectPoolSessionRows } from "./poolSessionRows";
+import { collectLivePoolRootDirs, collectPoolSessionRows } from "./poolSessionRows";
 
 function wt(path: string, branch: string, isMain = false): RepoWorktree {
   return {
@@ -111,5 +111,30 @@ describe("collectPoolSessionRows", () => {
     const detached = rows.find((r) => r.sessionId === "new");
     expect(detached?.branch).toBe("(detached)");
     expect(detached?.owner).toBeUndefined();
+  });
+});
+
+describe("collectLivePoolRootDirs", () => {
+  test("collectPoolSessionRows の live 行と同じ repo を返す", () => {
+    const fromRows = collectPoolSessionRows(POOL_DIRS, repos, sessionsOf, LIVE)
+      .filter((r) => r.live)
+      .map((r) => r.rootDir);
+    const rootDirs = collectLivePoolRootDirs(POOL_DIRS, repos, LIVE);
+    expect(rootDirs.toSorted()).toEqual(fromRows.toSorted());
+    expect(rootDirs.toSorted()).toEqual(["/note", "/repo-a"]);
+  });
+
+  test("プールに無い repo と、repo の作業ディレクトリに無い端末は含めない", () => {
+    const outside: LiveSession[] = [
+      ...LIVE,
+      {
+        sessionId: "gone",
+        dir: "/repo-a/removed",
+        status: undefined,
+        stateSince: undefined,
+        terminalTitle: "",
+      },
+    ];
+    expect(collectLivePoolRootDirs(["/repo-a"], repos, outside)).toEqual(["/repo-a"]);
   });
 });

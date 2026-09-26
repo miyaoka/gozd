@@ -1,6 +1,6 @@
 import { computed, ref, watch } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
-import { collectPoolSessionRows } from "../../../session";
+import { collectLivePoolRootDirs } from "../../../session";
 import { useTerminalStore } from "../../../terminal";
 
 /**
@@ -35,21 +35,14 @@ export function useActiveRepoOrder() {
 
 /**
  * 端末が開いているセッションを持つプールの repo を監視し、現れた順を更新する。
- * repo の集合は状態別の表示と同じ `collectPoolSessionRows` から取る。別の規則で求めると、
- * 表示に出る repo と並びの元がずれる
+ * repo の集合は状態別の表示と同じ範囲・同じ規則（`collectLivePoolRootDirs`）で求める。別の規則で
+ * 求めると、表示に出る repo と並びの元がずれる
  */
 export function trackActiveRepoOrder(): void {
   const repoStore = useRepoStore();
   const terminalStore = useTerminalStore();
   const activeRootDirs = computed(() =>
-    collectPoolSessionRows(
-      repoStore.poolDirs,
-      repoStore.repos,
-      (rootDir) => repoStore.sessionsOf(rootDir),
-      terminalStore.liveSessions,
-    )
-      .filter((row) => row.live)
-      .map((row) => row.rootDir),
+    collectLivePoolRootDirs(repoStore.poolDirs, repoStore.repos, terminalStore.liveSessions),
   );
   watch(
     activeRootDirs,

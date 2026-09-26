@@ -1,5 +1,9 @@
 export { openSession } from "./openSession";
-export { collectPoolSessionRows, type PoolSessionRow } from "./poolSessionRows";
+export {
+  collectLivePoolRootDirs,
+  collectPoolSessionRows,
+  type PoolSessionRow,
+} from "./poolSessionRows";
 export { rpcClaudeSessionList } from "./rpc";
 export { useSessionOpenHandler } from "./useSessionOpenHandler";
 export {

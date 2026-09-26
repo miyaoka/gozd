@@ -16,8 +16,8 @@ import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
  *
  * 全 repo を per-rootDir で並列に管理する：
  * - `fetchRepo(rootDir)` を 1 単位として、新規追加 / push event / 明示リフレッシュで使い回す
- * - セッション一覧は Claude Code のセッションログが SSOT。repo の追加、セッションの開始 /
- *   終了、端末の close で取り直す。git の変化（commit 等）では取り直さない
+ * - セッション一覧は Claude Code のセッションログが SSOT。repo の追加、選択中の dir の切り替え、
+ *   セッションの開始 / 終了、端末の close で取り直す。git の変化（commit 等）では取り直さない
  */
 export function useSidebarData() {
   const worktreeStore = useWorktreeStore();
@@ -128,13 +128,16 @@ export function useSidebarData() {
     { immediate: true },
   );
 
-  // active dir 切り替え時: 所属 repo を最新化
+  // active dir 切り替え時: 所属 repo を最新化。gozd の外で起動・終了したセッションは hook が
+  // 届かないため、ユーザーが repo に戻ったこの契機で一覧に反映する
   watch(
     () => worktreeStore.dir,
     (dir) => {
       if (dir === undefined) return;
       const owning = repoStore.findRepoOwning(dir);
-      if (owning) void fetchRepo(owning.rootDir);
+      if (owning === undefined) return;
+      void fetchRepo(owning.rootDir);
+      void fetchSessions(owning.rootDir);
     },
     { immediate: true },
   );

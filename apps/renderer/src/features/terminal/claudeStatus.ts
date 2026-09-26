@@ -87,9 +87,10 @@ export const CLAUDE_STATE_VISUAL: Record<ClaudeState, ClaudeStateVisual> = {
 
 /**
  * Claude Code の状態エントリ。状態と付随データを一体管理する。
- * - lastActivityAt: session-start / working 遷移（OSC タイトルのスピナー）/ done /
- *   stop-failure で更新する。working は開始時刻を刻み、以降のスピナー各フレームでは
- *   更新しない。idle / asking 遷移時は直前の値を維持する。サイドバーの相対時刻の基準。
+ * - lastActivityAt: Claude の最終更新。Claude が動き出したとき（session-start / working 遷移）と
+ *   止まったとき（done / stop-failure / 承認を求める asking / 中断を含む working からの idle）に
+ *   刻む。スピナーの各フレームでは更新しない。人の操作による遷移（承認のキャンセル、既読）では
+ *   直前の値を維持する。サイドバーの並びと相対時刻の基準。
  */
 type ClaudeStatusBase = { lastActivityAt: number };
 export type ClaudeStatus =
@@ -451,10 +452,10 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
             // asking は session-start 後にしか発火しない。debounce 中に session-end が
             // 走った場合のみ prev が消える → その時は asking に遷移すべきでないため早期 return。
             if (prev === undefined) return;
-            // asking 遷移では lastActivityAt を維持（ユーザー操作待ちの空白時間は活動ではない）
+            // Claude が止まって承認を求めた時刻が最終更新。以降の待ち時間は活動ではないので刻まない
             claudeStatusByPtyId.value[ptyId] = {
               state: "asking",
-              lastActivityAt: prev.lastActivityAt,
+              lastActivityAt: Date.now(),
               toolName,
               toolInput,
             };
@@ -613,8 +614,8 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     }
     // kind === "idle": working からの離脱のみ扱う（done / asking / idle は温存）
     if (current.state !== "working") return;
-    // idle 化はユーザー操作/待機で Claude の活動ではないので lastActivityAt 維持
-    claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: current.lastActivityAt };
+    // working を抜けた時刻（中断を含む）が最終更新
+    claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: Date.now() };
   }
 
   /**

@@ -8,8 +8,8 @@ hover で表示される ⋮ メニューボタンを表示する。
 セッションは最終更新からの相対時刻を出す。
 
 端末が開いているセッションの相対時刻は、利用側が求めたときだけアイコンの下に出す
-（状態別の一覧）。実行中は常に「今」なので出さない。基準は状態で変わり、要対応は承認を
-待ち始めた時刻、完了と待機は Claude の最終活動。
+（状態別の一覧）。基準は開いていないセッションと同じく最終更新。実行中は常に「今」なので
+出さない。
 
 アイコンは WCAG 1.4.1 準拠で色 + 形 + aria-label の 3 軸で状態を表現する。アニメーションは
 spin / pulse のみ（bounce は notification spam に見えるため不採用）。相対時刻の色は
@@ -58,23 +58,21 @@ const visual = computed(() => {
   return state === undefined ? undefined : CLAUDE_STATE_VISUAL[state];
 });
 
-/**
- * 端末が開いている行の経過時間の基準。要対応は承認を待ち始めた時刻、完了と待機は Claude の
- * 最終活動（`lastActivityAt`）。実行中は常に「今」なので出さない
- */
-const LIVE_AGE_BASE: Record<ClaudeState, ((row: SessionRow) => number | undefined) | undefined> = {
-  asking: (row) => row.stateSince,
-  done: (row) => row.lastActivity,
-  idle: (row) => row.lastActivity,
-  working: undefined,
+/** 端末が開いている行で経過時間を出す状態。実行中は常に「今」なので出さない */
+const LIVE_AGE_SHOWN: Record<ClaudeState, boolean> = {
+  asking: true,
+  done: true,
+  idle: true,
+  working: false,
 };
 
+/** 経過時間の基準は、端末の有無によらず最終更新（`lastActivity`） */
 const ageBase = computed(() => {
   const row = props.row;
   if (!row.live) return row.lastActivity;
   if (props.showLiveAge !== true) return undefined;
   const state = displayClaudeState(row.status);
-  return state === undefined ? undefined : LIVE_AGE_BASE[state]?.(row);
+  return state !== undefined && LIVE_AGE_SHOWN[state] ? row.lastActivity : undefined;
 });
 
 const relativeTime = useRelativeTime(ageBase);

@@ -396,7 +396,7 @@ describe("screenHasClaudeBlocker（承認 UI の可視判定）", () => {
 });
 
 describe("observeTitle（OSC タイトル駆動の状態）", () => {
-  test("session 確立後: スピナー → working、✳ → idle。idle は lastActivityAt 維持", () => {
+  test("session 確立後: スピナー → working、✳ → idle。working を抜けた時刻を最終更新として刻む", async () => {
     const { claudeStatusByPtyId, manager } = setup();
     manager.handleHookEvent(1, "session-start", { session_id: "s1" });
 
@@ -404,11 +404,12 @@ describe("observeTitle（OSC タイトル駆動の状態）", () => {
     const working = claudeStatusByPtyId.value[1];
     expect(working?.state).toBe("working");
 
+    // 中断を含め、working を抜けた時点が Claude の最終更新になる
+    await new Promise((r) => setTimeout(r, 5));
     manager.observeTitle(1, IDLE_TITLE);
     const idle = claudeStatusByPtyId.value[1];
     expect(idle?.state).toBe("idle");
-    // idle 化は Claude の活動ではないため working の lastActivityAt を持ち越す
-    expect(idle?.lastActivityAt).toBe(working?.lastActivityAt);
+    expect(idle?.lastActivityAt).toBeGreaterThan(working?.lastActivityAt ?? Infinity);
   });
 
   test("session 未確立（session-start 前）はタイトルから状態を作らない", () => {
@@ -469,17 +470,23 @@ describe("observeTitle（OSC タイトル駆動の状態）", () => {
     expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
   });
 
-  test("asking 離脱では lastActivityAt を維持する", async () => {
+  test("asking に入った時刻を最終更新として刻み、承認のキャンセルでは維持する", async () => {
     const { claudeStatusByPtyId, manager } = setup();
     manager.handleHookEvent(1, "session-start", { session_id: "s1" });
     manager.observeTitle(1, WORKING_TITLE);
-    const workingAt = claudeStatusByPtyId.value[1]?.lastActivityAt;
+    const workingAt = claudeStatusByPtyId.value[1]?.lastActivityAt ?? Infinity;
     manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
     await new Promise((r) => setTimeout(r, 200));
 
+    // Claude が止まって承認を求めた時刻が最終更新
+    const askingAt = claudeStatusByPtyId.value[1]?.lastActivityAt;
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+    expect(askingAt).toBeGreaterThan(workingAt);
+
+    // キャンセルは人の操作で Claude の活動ではないので、asking の時刻を持ち越す
     manager.observeScreen(1, () => "❯ ");
     expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
-    expect(claudeStatusByPtyId.value[1]?.lastActivityAt).toBe(workingAt);
+    expect(claudeStatusByPtyId.value[1]?.lastActivityAt).toBe(askingAt);
   });
 
   test("asking 以外では画面本文を読まない（遅延取得を呼ばない）", () => {

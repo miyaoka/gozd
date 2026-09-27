@@ -225,8 +225,6 @@ function lookupViaLoginShell(
 interface CommandResolverOptions {
   /** テスト用の shell オーバーライド。未指定なら本番経路（userLoginShell()） */
   shellOverride?: string;
-  /** テスト用の timeout オーバーライド */
-  timeoutMs?: number;
 }
 
 export interface CommandResolver {
@@ -243,7 +241,6 @@ export interface CommandResolver {
 
 export function createCommandResolver({
   shellOverride,
-  timeoutMs = RESOLVE_TIMEOUT_MS,
 }: CommandResolverOptions = {}): CommandResolver {
   const cache = new Map<string, string>();
   const negativeCache = new Set<string>();
@@ -262,7 +259,7 @@ export function createCommandResolver({
     if (existing !== undefined) return existing;
 
     const shell = shellOverride ?? userLoginShell();
-    const task = lookupViaLoginShell(name, shell, timeoutMs);
+    const task = lookupViaLoginShell(name, shell, RESOLVE_TIMEOUT_MS);
     inflight.set(name, task);
     const result = await tryCatch(task);
     inflight.delete(name);

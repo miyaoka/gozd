@@ -1,340 +1,240 @@
-// FSWatchRegistry の統合テスト。実 git repo + 実 @parcel/watcher で event → classify →
-// digest gating → dispatch の経路を検証する。Swift 版 `FSWatchRegistryTests.swift` の
-// 統合テスト部（dispatchesFsChangeOnWorkTreeFile / classifiesBranchChange 等）の対応物。
+// FSWatchRegistry のうち、壊れても利用者が気づけない性質を検証する。
 //
-// macOS の TMPDIR は `/var/folders/...`（実体 `/private/var/...`）の symlink 配下なので、
-// このテストは realpath 解決（watch キーと event path の整合）も自然に踏む。
+// transport と statusFetcher を差し替え、テストが時間を待たずに進行を握る。
+// - transport: subscribe に渡された callback を捕まえ、event path をテストから直接流す。
+//   fsChange の配送は callback の呼び出しと同期に起きる
+// - statusFetcher: 呼び出しを捕まえ、結果を返す時点をテストが決める。取得は dir ごとに直列なので、
+//   N+1 回目の取得が始まった時点で N 回目の取得と push の判定は終わっている
+//
+// event path の分類（入れ子 worktree の内部で外側の status を取り直さない等）は classify.test.ts の
+// 「入れ子 worktree の内部は fsChange のみ（gitStatusChange は立てない）」ほかが担保する。
 
-import { subscribe as parcelSubscribe } from "@parcel/watcher";
-import { afterEach, describe, expect, test } from "bun:test";
-import { runFixtureGit } from "../testGitFixture";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentGitTier } from "../git/gitAdmission";
-import { gitStatusFull } from "../git/gitOps";
 import type { StatusFull } from "../git/porcelain";
-import { createFsWatchRegistry, type WatchTransport } from "./fsWatchRegistry";
+import { runFixtureGit } from "../testGitFixture";
+import {
+  createFsWatchRegistry,
+  type FsWatchHandlers,
+  type WatchTransport,
+} from "./fsWatchRegistry";
 
-// production は utilityProcess 隔離した watcherClient を注入するが、統合テストでは
-// 実 @parcel/watcher を in-process で直接包む transport を注入し、classify 経路を検証する
-const realParcelTransport: WatchTransport = {
-  async subscribe(root, ignore, onEvents, onError) {
-    const sub = await parcelSubscribe(
-      root,
-      (err, events) => {
-        if (err !== null) {
-          onError(String(err));
-          return;
-        }
-        onEvents(events.map((event) => event.path));
-      },
-      ignore.length > 0 ? { ignore } : undefined,
-    );
-    return { unsubscribe: () => sub.unsubscribe() };
-  },
-};
-
-const WAIT_TIMEOUT_MS = 5000;
-const WAIT_INTERVAL_MS = 25;
-/** テストでは debounce 窓を縮めて全体を速くする（production は 150ms） */
-const TEST_STATUS_DEBOUNCE_MS = 50;
-
-async function waitUntil(predicate: () => boolean, label: string): Promise<void> {
-  const deadline = Date.now() + WAIT_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, WAIT_INTERVAL_MS));
-  }
-  throw new Error(`waitUntil timeout: ${label}`);
+interface FakeSubscription {
+  root: string;
+  onEvents: (paths: string[]) => void;
+  unsubscribed: boolean;
 }
 
-function initGitRepo(dir: string): void {
-  runFixtureGit(["init", "-b", "main"], dir);
+function createFakeTransport() {
+  const subscriptions: FakeSubscription[] = [];
+  const transport: WatchTransport = {
+    async subscribe(root, _ignore, onEvents) {
+      const subscription: FakeSubscription = { root, onEvents, unsubscribed: false };
+      subscriptions.push(subscription);
+      return {
+        async unsubscribe() {
+          subscription.unsubscribed = true;
+        },
+      };
+    },
+  };
+  return { transport, subscriptions };
+}
+
+/** 条件が成り立つまで、通知のたびに確かめ直す。通知は handler / statusFetcher の呼び出しで起きる */
+function createSignal() {
+  const waiters: (() => void)[] = [];
+  return {
+    notify() {
+      for (const waiter of waiters.splice(0)) waiter();
+    },
+    async until(predicate: () => boolean) {
+      while (!predicate()) await new Promise<void>((resolve) => waiters.push(resolve));
+    },
+  };
+}
+
+/** 呼び出しを捕まえ、結果を返す時点をテストが握る statusFetcher */
+function createControlledFetcher() {
+  const calls: { dir: string; resolve: (status: StatusFull) => void }[] = [];
+  const signal = createSignal();
+  const fetcher = (dir: string) =>
+    new Promise<StatusFull>((resolve) => {
+      calls.push({ dir, resolve });
+      signal.notify();
+    });
+  async function nthCall(n: number) {
+    await signal.until(() => calls.length >= n);
+    return calls[n - 1];
+  }
+  return { fetcher, nthCall };
+}
+
+function cleanStatus(): StatusFull {
+  return {
+    statuses: {},
+    renameOldPaths: {},
+    head: "head",
+    branchHead: "main",
+    hasUpstream: false,
+    ahead: 0,
+    behind: 0,
+    latestMtime: 0,
+  };
+}
+
+function noopHandlers(): FsWatchHandlers {
+  return {
+    onFsChange: () => {},
+    onGitStatusChange: () => {},
+    onBranchChange: () => {},
+    onRemoteRefsChange: () => {},
+    onWorktreeChange: () => {},
+  };
+}
+
+/** working tree のファイル変更を 1 件流し、status の取得を予約させる */
+function touchWorkingTree(subscription: FakeSubscription): void {
+  subscription.onEvents([join(subscription.root, "touched.txt")]);
+}
+
+const tempDirs: string[] = [];
+// watch は git dir の解決で git を起動し、プロセスで最初の起動なら commandResolver が
+// 解決結果を stderr に残す。それ以外の stderr 出力は想定外として判定に入れる
+let consoleError: ReturnType<typeof spyOn<Console, "error">>;
+
+beforeEach(() => {
+  consoleError = spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  const unexpected = consoleError.mock.calls.filter(
+    ([message]) => !String(message).startsWith("[commandResolver] resolved git "),
+  );
+  consoleError.mockRestore();
+  expect(unexpected).toEqual([]);
+});
+
+function makeTempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "gozd-fswatch-test-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function makeTempRepo(): string {
+  const dir = makeTempDir();
+  runFixtureGit(["init", "-q", "-b", "main"], dir);
   runFixtureGit(["config", "user.email", "test@example.com"], dir);
   runFixtureGit(["config", "user.name", "test"], dir);
   writeFileSync(join(dir, "init.txt"), "init\n");
   runFixtureGit(["add", "."], dir);
-  runFixtureGit(["commit", "-m", "init"], dir);
+  runFixtureGit(["commit", "-q", "-m", "init"], dir);
+  return dir;
 }
 
-interface Recorded {
-  fsChanges: { dir: string; relDir: string }[];
-  statusDirs: string[];
-  branchDirs: string[];
-  remoteDirs: string[];
-  worktreeDirs: string[];
-}
-
-function createRecordingRegistry(statusFetcher?: (dir: string) => Promise<StatusFull>) {
-  const recorded: Recorded = {
-    fsChanges: [],
-    statusDirs: [],
-    branchDirs: [],
-    remoteDirs: [],
-    worktreeDirs: [],
-  };
+// renderer を作り直すと、新しい renderer は既存の entry に watch を重ねるだけで status を持たない。
+// 直近と同じ内容を送らないと、変化の無い worktree のバッジが黙って欠ける
+test("再 watch 後は、直近の push と同じ内容の status も届け直す", async () => {
+  const dir = makeTempRepo();
+  const { transport, subscriptions } = createFakeTransport();
+  const { fetcher, nthCall } = createControlledFetcher();
+  const pushed = createSignal();
+  let pushes = 0;
   const registry = createFsWatchRegistry(
     {
-      onFsChange: (dir, relDir) => recorded.fsChanges.push({ dir, relDir }),
-      onGitStatusChange: (dir) => recorded.statusDirs.push(dir),
-      onBranchChange: (dir) => recorded.branchDirs.push(dir),
-      onRemoteRefsChange: (dir) => recorded.remoteDirs.push(dir),
-      onWorktreeChange: (dir) => recorded.worktreeDirs.push(dir),
+      ...noopHandlers(),
+      onGitStatusChange: () => {
+        pushes++;
+        pushed.notify();
+      },
     },
-    { statusDebounceMs: TEST_STATUS_DEBOUNCE_MS, transport: realParcelTransport, statusFetcher },
+    // 判定は取得の呼び出しを同期点にしており debounce の長さに依存しない。0 は実時間の待ちを消すだけ
+    { transport, statusFetcher: fetcher, statusDebounceMs: 0 },
   );
-  return { registry, recorded };
-}
+  await registry.watch(dir);
+  const [subscription] = subscriptions;
 
-/** 監視の登録で届く初回の status を待ってから記録を空にする。以降に届く status は
- * テスト内で起こした変更によるものだけになる */
-async function settleInitialStatus(recorded: Recorded, dirs: string[]): Promise<void> {
-  await waitUntil(
-    () => dirs.every((dir) => recorded.statusDirs.includes(dir)),
-    "initial gitStatusChange",
+  touchWorkingTree(subscription);
+  (await nthCall(1)).resolve(cleanStatus());
+  await pushed.until(() => pushes === 1);
+
+  await registry.watch(dir);
+  touchWorkingTree(subscription);
+  (await nthCall(2)).resolve(cleanStatus());
+  touchWorkingTree(subscription);
+  await nthCall(3);
+  registry.unwatchAll();
+
+  expect(pushes).toBe(2);
+});
+
+// packed-refs の変化は local と remote のどちらの ref か分からず、両方の候補が立つ。remotes が
+// 動いていないのに remoteRefsChange を撃つと、renderer の PR 取得が GitHub の rate limit を黙って食う
+test("remotes が動いていない packed-refs の変化では remoteRefsChange を撃たない", async () => {
+  const dir = makeTempRepo();
+  const { transport, subscriptions } = createFakeTransport();
+  const branchChanged = createSignal();
+  let branchChanges = 0;
+  let remoteRefsChanges = 0;
+  const registry = createFsWatchRegistry(
+    {
+      ...noopHandlers(),
+      onBranchChange: () => {
+        branchChanges++;
+        branchChanged.notify();
+      },
+      onRemoteRefsChange: () => remoteRefsChanges++,
+    },
+    { transport, statusFetcher: async () => cleanStatus() },
   );
-  recorded.statusDirs.length = 0;
-}
+  await registry.watch(dir);
+  const [subscription] = subscriptions;
+  const packedRefs = join(realpathSync.native(dir), ".git", "packed-refs");
 
-describe("FSWatchRegistry (integration)", () => {
-  const tempDirs: string[] = [];
-  const cleanups: (() => void)[] = [];
+  // 初回は比較の基準が無いので両方撃つ
+  subscription.onEvents([packedRefs]);
+  await branchChanged.until(() => branchChanges === 1);
+  expect(remoteRefsChanges).toBe(1);
 
-  function makeTempRepo(): string {
-    const dir = mkdtempSync(join(tmpdir(), "gozd-fswatch-test-"));
-    tempDirs.push(dir);
-    initGitRepo(dir);
-    return dir;
+  writeFileSync(join(dir, "second.txt"), "second\n");
+  runFixtureGit(["add", "."], dir);
+  runFixtureGit(["commit", "-q", "-m", "second"], dir);
+  // branchChange と remoteRefsChange は同じ digest の比較から同期に撃たれる
+  subscription.onEvents([packedRefs]);
+  await branchChanged.until(() => branchChanges === 2);
+  registry.unwatchAll();
+
+  expect(remoteRefsChanges).toBe(1);
+});
+
+// renderer の unmount で呼ばれる。解放が漏れると native 監視が黙って残り、再構築のたびに積み上がる
+test("unwatchAll は全 entry の購読を解放して件数を返し、以降のイベントを配送しない", async () => {
+  // git 管理外の dir は status 取得を予約しないので、解放後に取得が残らない
+  const dirs = [makeTempDir(), makeTempDir()];
+  const { transport, subscriptions } = createFakeTransport();
+  const fsChangeDirs: string[] = [];
+  const registry = createFsWatchRegistry(
+    { ...noopHandlers(), onFsChange: (dir) => fsChangeDirs.push(dir) },
+    { transport },
+  );
+
+  for (const dir of dirs) await registry.watch(dir);
+  // 解放前は同じ経路でイベントが配送される。以下の「配送しない」が空振りでないことの対照
+  for (const subscription of subscriptions) {
+    subscription.onEvents([join(subscription.root, "before.txt")]);
   }
+  expect(fsChangeDirs).toEqual(dirs);
+  fsChangeDirs.length = 0;
 
-  afterEach(() => {
-    for (const cleanup of cleanups.splice(0)) cleanup();
-    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  });
+  expect(registry.unwatchAll()).toBe(dirs.length);
 
-  test("watch した dir 配下のファイル作成で fsChange + gitStatusChange が届く", async () => {
-    const dir = makeTempRepo();
-    const { registry, recorded } = createRecordingRegistry();
-    cleanups.push(() => registry.unwatchAll());
-
-    await registry.watch(dir);
-    await settleInitialStatus(recorded, [dir]);
-    writeFileSync(join(dir, "note.txt"), "hello\n");
-
-    await waitUntil(() => recorded.fsChanges.length > 0, "fsChange");
-    // push payload は watch 時の原文 dir を返す契約（realpath 解決値ではない）
-    expect(recorded.fsChanges[0].dir).toBe(dir);
-    expect(recorded.fsChanges[0].relDir).toBe("");
-    await waitUntil(() => recorded.statusDirs.length > 0, "gitStatusChange");
-    expect(recorded.statusDirs[0]).toBe(dir);
-  });
-
-  test("監視の登録が成立すると、変更が無くても初回の gitStatusChange が届く", async () => {
-    const dir = makeTempRepo();
-    const { registry, recorded } = createRecordingRegistry();
-    cleanups.push(() => registry.unwatchAll());
-
-    await registry.watch(dir);
-
-    await waitUntil(() => recorded.statusDirs.includes(dir), "initial gitStatusChange");
-  });
-
-  test("同じ dir の再 watch で、内容が変わっていなくても status を届け直す", async () => {
-    const dir = makeTempRepo();
-    const { registry, recorded } = createRecordingRegistry();
-    cleanups.push(() => registry.unwatchAll());
-
-    await registry.watch(dir);
-    await settleInitialStatus(recorded, [dir]);
-    // renderer を作り直したときと同じく、既存 entry に watch が重なる
-    await registry.watch(dir);
-
-    await waitUntil(() => recorded.statusDirs.includes(dir), "gitStatusChange after re-watch");
-  });
-
-  test("注視中の dir の status は interactive、それ以外は background で取る", async () => {
-    const focused = makeTempRepo();
-    const other = makeTempRepo();
-    const tierByDir = new Map<string, string>();
-    const { registry } = createRecordingRegistry(async (target) => {
-      tierByDir.set(target, currentGitTier());
-      return gitStatusFull(target);
-    });
-    cleanups.push(() => registry.unwatchAll());
-
-    registry.setFocusDir(focused);
-    await registry.watch(focused);
-    await registry.watch(other);
-
-    await waitUntil(() => tierByDir.size === 2, "initial status of both dirs");
-    // registry のキーは realpath（macOS の TMPDIR は symlink 配下）
-    expect(tierByDir.get(realpathSync.native(focused))).toBe("interactive");
-    expect(tierByDir.get(realpathSync.native(other))).toBe("background");
-  });
-
-  test("取得中に届いた status 要求は、完了後の 1 回の取り直しにまとまる", async () => {
-    const dir = makeTempRepo();
-    let calls = 0;
-    const pending: (() => void)[] = [];
-    // 取得の完了を外から制御する。取得中に要求を重ねて、起動回数を数える
-    const { registry, recorded } = createRecordingRegistry(async (target) => {
-      calls++;
-      await new Promise<void>((resolve) => pending.push(resolve));
-      return gitStatusFull(target);
-    });
-    cleanups.push(() => registry.unwatchAll());
-
-    await registry.watch(dir);
-    await waitUntil(() => calls === 1, "initial status started");
-    for (const name of ["a.txt", "b.txt", "c.txt"]) {
-      writeFileSync(join(dir, name), "x\n");
-      // debounce 窓を抜けさせ、要求を 1 件ずつ取得中の dir に届ける
-      await new Promise((resolve) => setTimeout(resolve, TEST_STATUS_DEBOUNCE_MS * 3));
-    }
-    expect(calls).toBe(1);
-
-    pending.shift()?.();
-    // 取得中に要求が重なっても、その取得の結果は捨てずに push する（取り直しの完了を待たない）
-    await waitUntil(() => recorded.statusDirs.length === 1, "push of the first result");
-    await waitUntil(() => calls === 2, "single rerun");
-    pending.shift()?.();
-    // 負の証明は時間で切る: 取り直しは 1 回だけで、以後は起動しない
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(calls).toBe(2);
-  });
-
-  test("status の push が例外を投げても、その dir の status は以後も取られる", async () => {
-    const dir = makeTempRepo();
-    let fetches = 0;
-    let pushes = 0;
-    const registry = createFsWatchRegistry(
-      {
-        onFsChange: () => {},
-        onGitStatusChange: () => {
-          pushes++;
-          if (pushes === 1) throw new Error("push failed");
-        },
-        onBranchChange: () => {},
-        onRemoteRefsChange: () => {},
-        onWorktreeChange: () => {},
-      },
-      {
-        statusDebounceMs: TEST_STATUS_DEBOUNCE_MS,
-        transport: realParcelTransport,
-        statusFetcher: (target) => {
-          fetches++;
-          return gitStatusFull(target);
-        },
-      },
-    );
-    cleanups.push(() => registry.unwatchAll());
-
-    await registry.watch(dir);
-    await waitUntil(() => pushes === 1, "first push throws");
-    writeFileSync(join(dir, "after-failure.txt"), "x\n");
-
-    await waitUntil(() => fetches >= 2 && pushes === 2, "status after the failed push");
-  });
-
-  test("commit は branchChange を撃つが remoteRefsChange は撃たない（digest gating）", async () => {
-    const dir = makeTempRepo();
-    const { registry, recorded } = createRecordingRegistry();
-    cleanups.push(() => registry.unwatchAll());
-
-    await registry.watch(dir);
-    writeFileSync(join(dir, "a.txt"), "a\n");
-    runFixtureGit(["add", "."], dir);
-    runFixtureGit(["commit", "-m", "second"], dir);
-
-    // commit は refs/heads を動かす → branchChange 候補 → heads digest 変化で発火
-    await waitUntil(() => recorded.branchDirs.length > 0, "branchChange");
-    expect(recorded.branchDirs[0]).toBe(dir);
-    // remotes digest は不変なので remoteRefsChange は発火しない（初回 baseline は
-    // prev 不在の無条件発火だが、commit の classify は remote 候補自体を立てない）
-    expect(recorded.remoteDirs).toEqual([]);
-  });
-
-  test("既存 branch への切替は head digest 経由で worktreeChange を撃つ", async () => {
-    const dir = makeTempRepo();
-    const { registry, recorded } = createRecordingRegistry();
-    cleanups.push(() => registry.unwatchAll());
-
-    runFixtureGit(["branch", "other"], dir);
-    await registry.watch(dir);
-    runFixtureGit(["switch", "other"], dir);
-
-    // `.git/HEAD` の symbolic-ref 先変化 → head 候補 → digest の head 変化 → worktreeChange
-    await waitUntil(() => recorded.worktreeDirs.length > 0, "worktreeChange");
-    expect(recorded.worktreeDirs[0]).toBe(dir);
-  });
-
-  test("repo 内に置いた worktree の変更は外側の git status を取り直さない", async () => {
-    const dir = makeTempRepo();
-    const nested = join(dir, ".claude", "worktrees", "agent");
-    runFixtureGit(["worktree", "add", "-b", "agent", nested], dir);
-    const { registry, recorded } = createRecordingRegistry();
-    cleanups.push(() => registry.unwatchAll());
-
-    await registry.watch(dir);
-    await registry.watch(nested);
-    await settleInitialStatus(recorded, [dir, nested]);
-    writeFileSync(join(nested, "agent.txt"), "x\n");
-
-    // 入れ子側は自分の status を取り直す
-    await waitUntil(() => recorded.statusDirs.includes(nested), "nested gitStatusChange");
-    // 外側にも fsChange は届く（filer がその dir を表示しうるため）
-    expect(recorded.fsChanges).toContainEqual({ dir, relDir: ".claude/worktrees/agent" });
-    // 負の証明は時間で切る: 外側の debounce + git status 往復を待っても外側の status は来ない
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(recorded.statusDirs).not.toContain(dir);
-  });
-
-  test("別 entry として watch した submodule の変更は外側の git status を取り直す", async () => {
-    const dir = makeTempRepo();
-    const upstream = makeTempRepo();
-    runFixtureGit(["-c", "protocol.file.allow=always", "submodule", "add", upstream, "sub"], dir);
-    runFixtureGit(["commit", "-m", "add submodule"], dir);
-    const sub = join(dir, "sub");
-    const { registry, recorded } = createRecordingRegistry();
-    cleanups.push(() => registry.unwatchAll());
-
-    await registry.watch(dir);
-    await registry.watch(sub);
-    await settleInitialStatus(recorded, [dir, sub]);
-    // tracked file の変更は外側の status に gitlink の変更（`.M`）として現れる
-    writeFileSync(join(sub, "init.txt"), "changed\n");
-
-    await waitUntil(() => recorded.statusDirs.includes(dir), "outer gitStatusChange");
-  });
-
-  test("unwatchAll は全 entry を破棄して件数を返し、以降イベントが届かない", async () => {
-    const dir = makeTempRepo();
-    const { registry, recorded } = createRecordingRegistry();
-
-    await registry.watch(dir);
-    expect(registry.unwatchAll()).toBe(1);
-    writeFileSync(join(dir, "after.txt"), "x\n");
-
-    // 負の証明は時間で切る: debounce + 配送猶予を待って何も来ないことを確認する
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(recorded.fsChanges).toEqual([]);
-    expect(recorded.statusDirs).toEqual([]);
-  });
-
-  test("同一 dir の再 watch は refCount を増やすだけで、片方の unwatch では監視が生き続ける", async () => {
-    const dir = makeTempRepo();
-    const { registry, recorded } = createRecordingRegistry();
-    cleanups.push(() => registry.unwatchAll());
-
-    await registry.watch(dir);
-    await registry.watch(dir);
-    registry.unwatch(dir);
-    writeFileSync(join(dir, "still-watched.txt"), "x\n");
-
-    await waitUntil(() => recorded.fsChanges.length > 0, "fsChange after partial unwatch");
-    // 最後の購読者の unwatch で実解放される
-    registry.unwatch(dir);
-    expect(registry.unwatchAll()).toBe(0);
-  });
+  expect(subscriptions.map((subscription) => subscription.unsubscribed)).toEqual([true, true]);
+  // native 側の解放は非同期なので、解放前に積まれていたイベントも捨てられる必要がある
+  for (const subscription of subscriptions) {
+    subscription.onEvents([join(subscription.root, "after.txt")]);
+  }
+  expect(fsChangeDirs).toEqual([]);
 });

@@ -13,9 +13,9 @@ export type WorktreeColumnItem<T> =
  * 全 worktree を 1 つの親の直下に保つため、グループの入れ物で包まない。包むとカードか 1 行かが
  * 変わるたびに worktree が別の親へ移り、Vue が作り直してフォーカスを失う。
  */
-export function buildWorktreeColumn<T extends { path: string; sessionRows: DirSessionRows }>(
-  entries: T[],
-): WorktreeColumnItem<T>[] {
+export function buildWorktreeColumn<
+  T extends { wt: { path: string }; sessionRows: DirSessionRows },
+>(entries: T[]): WorktreeColumnItem<T>[] {
   const items: WorktreeColumnItem<T>[] = [];
   let prev: T | undefined;
   for (const entry of entries) {
@@ -23,9 +23,9 @@ export function buildWorktreeColumn<T extends { path: string; sessionRows: DirSe
       prev !== undefined &&
       (hasSessionRows(prev.sessionRows) || hasSessionRows(entry.sessionRows))
     ) {
-      items.push({ kind: "separator", key: `separator:${entry.path}` });
+      items.push({ kind: "separator", key: `separator:${entry.wt.path}` });
     }
-    items.push({ kind: "worktree", key: entry.path, entry });
+    items.push({ kind: "worktree", key: entry.wt.path, entry });
     prev = entry;
   }
   return items;

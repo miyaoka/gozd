@@ -138,7 +138,6 @@ const orderedWorktrees = computed(() => {
 const worktreeEntries = computed(() =>
   orderedWorktrees.value.map((wt) => ({
     wt,
-    path: wt.path,
     sessionRows: visibleSessionRows(
       buildSessionRows(wt.path, terminalStore.liveSessions, repoStore.sessionsOf(props.rootDir)),
       props.activeDir === wt.path,
@@ -365,7 +364,7 @@ function onHeaderClick() {
                 v-else
                 :wt="item.entry.wt"
                 :session-rows="item.entry.sessionRows"
-                :active="activeDir === item.entry.path"
+                :active="activeDir === item.entry.wt.path"
                 @select-wt="emit('selectWt', $event)"
                 @select-session="(row) => emit('selectSession', row)"
                 @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"

@@ -12,13 +12,13 @@ const liveRow: SessionRow = {
   lastActivity: undefined,
 };
 
-function entry(path: string, card: boolean): { path: string; sessionRows: DirSessionRows } {
-  return { path, sessionRows: { live: card ? [liveRow] : [], inactive: [] } };
+function entry(path: string, card: boolean): { wt: { path: string }; sessionRows: DirSessionRows } {
+  return { wt: { path }, sessionRows: { live: card ? [liveRow] : [], inactive: [] } };
 }
 
 /** worktree は path、区切りは "|" で表す */
-function layout(items: WorktreeColumnItem<{ path: string }>[]): string[] {
-  return items.map((item) => (item.kind === "worktree" ? item.entry.path : "|"));
+function layout(items: WorktreeColumnItem<{ wt: { path: string } }>[]): string[] {
+  return items.map((item) => (item.kind === "worktree" ? item.entry.wt.path : "|"));
 }
 
 describe("buildWorktreeColumn", () => {

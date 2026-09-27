@@ -542,8 +542,9 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     // 内容が直近 push と同一なら push しない（gitignore 対象の書き込み連射を止める）
     const last = lastPushedStatusByDir.get(dir);
     if (last !== undefined && statusEquals(last, status)) return;
-    lastPushedStatusByDir.set(dir, status);
+    // push が例外で落ちた内容を送れたものとして記録すると、同じ内容の status が二度と届かない
     onGitStatusChange(originalDir, status);
+    lastPushedStatusByDir.set(dir, status);
   }
 
   /** 注視中の dir を差し替える。undefined は注視先なし。取得を始める時点の値で優先度が決まる */

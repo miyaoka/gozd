@@ -10,7 +10,7 @@
 // （nestedWorktreeDirsOf）はテストを持たない。選別を壊すと status の取得が起きないか余分に起きる
 // だけで、待つべき呼び出しが訪れず、時間切れでしか落とせない。
 
-import { afterEach, beforeAll, expect, test } from "bun:test";
+import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -201,6 +201,44 @@ test("remotes が動いていない packed-refs の変化では remoteRefsChange
   registry.unwatchAll();
 
   expect(remoteRefsChanges).toBe(1);
+});
+
+// 送れなかった内容を送れたものとして記録すると、その dir の status が変わるまで renderer に届かない
+test("push が例外で落ちた status は、次の取得で同じ内容でも届け直す", async () => {
+  const dir = makeTempRepo();
+  const { transport, subscriptions } = createFakeTransport();
+  const { fetcher, nthCall } = createControlledFetcher();
+  let pushes = 0;
+  const registry = createFsWatchRegistry(
+    {
+      ...noopHandlers(),
+      onGitStatusChange: () => {
+        pushes++;
+        if (pushes === 1) throw new Error("push failed");
+      },
+    },
+    // 判定は取得の呼び出しを同期点にしており debounce の長さに依存しない。0 は実時間の待ちを消すだけ
+    { transport, statusFetcher: fetcher, statusDebounceMs: 0 },
+  );
+  await registry.watch(dir);
+  const [subscription] = subscriptions;
+  const consoleError = spyOn(console, "error").mockImplementation(() => {});
+
+  touchWorkingTree(subscription);
+  (await nthCall(1)).resolve(cleanStatus());
+  touchWorkingTree(subscription);
+  (await nthCall(2)).resolve(cleanStatus());
+  touchWorkingTree(subscription);
+  await nthCall(3);
+  registry.unwatchAll();
+  const logged = consoleError.mock.calls.map(([message]) => String(message));
+  consoleError.mockRestore();
+
+  expect(pushes).toBe(2);
+  // 1 回目の push の失敗は観察ログに残る
+  expect(logged).toEqual([
+    `[FSWatchRegistry] status refresh failed for ${realpathSync.native(dir)}: Error: push failed`,
+  ]);
 });
 
 // 片方の unwatch で解放すると、残った購読者のファイラーと git status が黙って止まる

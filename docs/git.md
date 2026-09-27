@@ -81,7 +81,8 @@ main worktree の branch 切替を捕捉できる唯一の経路**になるた�
 
 ### 内容が変わらない push を落とす
 
-dir ごとに直近 push した status を保持し、**新たに算出した値が完全一致するなら push しない**。
+dir ごとに直近 push に成功した status を保持し、**新たに算出した値が完全一致するなら push しない**。
+push に失敗した値は保持しない。保持すると、その dir の status が変わるまで購読側に届かない。
 
 git ディレクトリ外の変更は untracked や差分の可能性があるため一律 `gitStatusChange` に分類するが、
 ビルド成果物のように ignore 対象なら `git status` の出力は変わらない。typecheck やビルド中は

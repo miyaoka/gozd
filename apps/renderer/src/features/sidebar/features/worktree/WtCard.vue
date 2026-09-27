@@ -1,7 +1,7 @@
 <doc lang="md">
 1 worktree の表示。ヘッダ (branch 名 / server port バッジ / git status /
 upstream ahead-behind / ⋮) と、Claude セッション行 (SessionList) を縦に並べる。
-出す行は `visibleSessionRows` が決める。
+出す行は利用側が決めて渡す。
 
 ## グルーピング
 
@@ -23,7 +23,7 @@ server port バッジは、その worktree の端末で LISTEN 中の dev server
 
 ## ハイライト
 
-選択表現を 2 レベルで階層分離する。fill (青 capsule) は常にカード内 1 行だけ。
+選択表現を 2 レベルで階層分離する。fill (青 capsule) は常に wt ごとに 1 行だけ。
 
 - **カード = アウトライン**: カードで描く active worktree は border-primary + 外周グロー
   (`_fx-quest-active`) で示す。内部は塗らない。
@@ -37,18 +37,14 @@ server port バッジは、その worktree の端末で LISTEN 中の dev server
 <script setup lang="ts">
 import type { WorktreeEntry } from "@gozd/rpc";
 import { computed } from "vue";
-import {
-  type RepoWorktree,
-  branchLabel as resolveBranchLabel,
-  useRepoStore,
-} from "../../../../shared/repo";
+import { type RepoWorktree, branchLabel as resolveBranchLabel } from "../../../../shared/repo";
 import { useServerStore } from "../../../server";
-import { buildSessionRows, type SessionRow } from "../../../session";
+import type { DirSessionRows, SessionRow } from "../../../session";
 import type { ClaudeState } from "../../../terminal";
 import { displayClaudeState, useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
 import { hasChanges } from "../../utils";
-import { SessionList, visibleSessionRows } from "../session-row";
+import { hasSessionRows, SessionList } from "../session-row";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideArrowUp from "~icons/lucide/arrow-up";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
@@ -56,7 +52,7 @@ import IconLucideServer from "~icons/lucide/server";
 
 const props = defineProps<{
   wt: RepoWorktree;
-  rootDir: string;
+  sessionRows: DirSessionRows;
   active: boolean;
 }>();
 
@@ -69,7 +65,6 @@ const emit = defineEmits<{
 
 const terminalStore = useTerminalStore();
 const serverStore = useServerStore();
-const repoStore = useRepoStore();
 
 /** この worktree の端末で LISTEN 中のサーバー port (issue #768)。Claude status と同粒度のバッジ。 */
 const livePorts = computed(() => serverStore.livePortsByWorktree(props.wt.path));
@@ -101,17 +96,6 @@ const statusIcons = computed(() => {
   return computeStatusIcons(props.wt.gitStatuses);
 });
 
-const sessionRows = computed(() =>
-  visibleSessionRows(
-    buildSessionRows(
-      props.wt.path,
-      terminalStore.liveSessions,
-      repoStore.sessionsOf(props.rootDir),
-    ),
-    props.active,
-  ),
-);
-
 /**
  * header の capsule (青 fill) は「wt が active かつセッションに focus が無い」ときだけ。
  * セッションに focus があるときは該当行を fill するので、header まで fill すると
@@ -122,7 +106,7 @@ const sessionRows = computed(() =>
 const headerActive = computed(
   () =>
     props.active &&
-    !sessionRows.value.live.some((row) =>
+    !props.sessionRows.live.some((row) =>
       terminalStore.isSessionFocused(props.wt.path, row.sessionId),
     ),
 );
@@ -131,9 +115,7 @@ const headerActive = computed(
  * （WorktreeMenu 側の出し分けと対）。 */
 const canOpenMenu = computed(() => !props.wt.isMain);
 
-const hasSessions = computed(
-  () => sessionRows.value.live.length > 0 || sessionRows.value.inactive.length > 0,
-);
+const hasSessions = computed(() => hasSessionRows(props.sessionRows));
 
 /** カードとして描くときの枠。セッション行が無いときは付けず、ヘッダ 1 行だけにする */
 const cardClass = computed(() => [
@@ -154,77 +136,73 @@ function onHeaderClick() {
 </script>
 
 <template>
-  <!-- 一覧の gap は行どうしの間隔。カードの py-0.75 がカードの前後だけを広げ、
-       カードどうしの間隔を gap と合わせて 8px にする -->
-  <div :class="hasSessions && 'py-0.75'">
-    <!-- 行のときの px-0.75 はカードの border + p-0.5 と同じ幅で、branch 名の位置をカードと揃える -->
-    <article
-      :data-active="active"
-      :data-wt-path="wt.path"
-      class="flex flex-col gap-0.5 rounded-lg transition-colors"
-      :class="hasSessions ? cardClass : 'px-0.75'"
-    >
-      <div class="group/wt relative">
-        <button
-          type="button"
-          :data-active="headerActive"
-          class="_fx-shine flex w-full items-center gap-2 rounded-md px-2 py-0.5 text-left text-foreground-low transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary-subtle data-[active=true]:hover:bg-primary-subtle-hover"
-          @click="onHeaderClick"
+  <!-- 行のときの px-0.75 はカードの border + p-0.5 と同じ幅で、branch 名の位置をカードと揃える -->
+  <article
+    :data-active="active"
+    :data-wt-path="wt.path"
+    class="flex flex-col gap-0.5 rounded-lg transition-colors"
+    :class="hasSessions ? cardClass : 'px-0.75'"
+  >
+    <div class="group/wt relative">
+      <button
+        type="button"
+        :data-active="headerActive"
+        class="_fx-shine flex w-full items-center gap-2 rounded-md px-2 py-0.5 text-left text-foreground-low transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary-subtle data-[active=true]:hover:bg-primary-subtle-hover"
+        @click="onHeaderClick"
+      >
+        <span class="flex-1 truncate text-left text-xs font-medium">{{ branchLabel }}</span>
+        <span
+          v-if="livePorts.length > 0"
+          class="flex items-center gap-0.5 text-[10px] text-success-text tabular-nums"
+          :title="`Listening ports: ${livePorts.join(', ')}`"
         >
-          <span class="flex-1 truncate text-left text-xs font-medium">{{ branchLabel }}</span>
-          <span
-            v-if="livePorts.length > 0"
-            class="flex items-center gap-0.5 text-[10px] text-success-text tabular-nums"
-            :title="`Listening ports: ${livePorts.join(', ')}`"
-          >
-            <IconLucideServer class="size-3" />
-            <span>{{ livePorts.join(" ") }}</span>
-          </span>
-          <span
-            v-if="wt.gitStatuses && hasChanges(wt.gitStatuses)"
-            class="flex items-center justify-end gap-1 text-xs"
-          >
-            <StatusIcons :entries="statusIcons" />
-          </span>
-          <span
-            v-if="wt.upstream && (wt.upstream.ahead > 0 || wt.upstream.behind > 0)"
-            class="flex items-center gap-1 text-[10px] tabular-nums"
-            :title="`ahead ${wt.upstream.ahead} / behind ${wt.upstream.behind} vs upstream`"
-          >
-            <!-- ahead = local 進行 (緑) / behind = remote 進行 (赤)。filer の git status 色規約に揃える -->
-            <span v-if="wt.upstream.ahead > 0" class="flex items-center gap-0.5 text-success-text">
-              <IconLucideArrowUp class="size-3" />
-              <span>{{ wt.upstream.ahead }}</span>
-            </span>
-            <span
-              v-if="wt.upstream.behind > 0"
-              class="flex items-center gap-0.5 text-destructive-text"
-            >
-              <IconLucideArrowDown class="size-3" />
-              <span>{{ wt.upstream.behind }}</span>
-            </span>
-          </span>
-        </button>
-        <button
-          v-if="canOpenMenu"
-          type="button"
-          aria-label="Open menu"
-          class="absolute inset-y-0 right-1 my-auto grid size-5 place-items-center rounded-sm bg-panel text-foreground opacity-0 shadow-md ring-1 ring-border transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-element hover:text-foreground"
-          @click="onMenuClick"
+          <IconLucideServer class="size-3" />
+          <span>{{ livePorts.join(" ") }}</span>
+        </span>
+        <span
+          v-if="wt.gitStatuses && hasChanges(wt.gitStatuses)"
+          class="flex items-center justify-end gap-1 text-xs"
         >
-          <IconLucideEllipsisVertical class="text-xs" />
-        </button>
-      </div>
+          <StatusIcons :entries="statusIcons" />
+        </span>
+        <span
+          v-if="wt.upstream && (wt.upstream.ahead > 0 || wt.upstream.behind > 0)"
+          class="flex items-center gap-1 text-[10px] tabular-nums"
+          :title="`ahead ${wt.upstream.ahead} / behind ${wt.upstream.behind} vs upstream`"
+        >
+          <!-- ahead = local 進行 (緑) / behind = remote 進行 (赤)。filer の git status 色規約に揃える -->
+          <span v-if="wt.upstream.ahead > 0" class="flex items-center gap-0.5 text-success-text">
+            <IconLucideArrowUp class="size-3" />
+            <span>{{ wt.upstream.ahead }}</span>
+          </span>
+          <span
+            v-if="wt.upstream.behind > 0"
+            class="flex items-center gap-0.5 text-destructive-text"
+          >
+            <IconLucideArrowDown class="size-3" />
+            <span>{{ wt.upstream.behind }}</span>
+          </span>
+        </span>
+      </button>
+      <button
+        v-if="canOpenMenu"
+        type="button"
+        aria-label="Open menu"
+        class="absolute inset-y-0 right-1 my-auto grid size-5 place-items-center rounded-sm bg-panel text-foreground opacity-0 shadow-md ring-1 ring-border transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-element hover:text-foreground"
+        @click="onMenuClick"
+      >
+        <IconLucideEllipsisVertical class="text-xs" />
+      </button>
+    </div>
 
-      <div v-if="hasSessions" class="border-t border-border-subtle py-0.5">
-        <SessionList
-          :rows="sessionRows"
-          :dir="wt.path"
-          :active="active"
-          @select="(row) => emit('selectSession', row)"
-          @open-menu="(anchorEl, row) => emit('openSessionMenu', anchorEl, row)"
-        />
-      </div>
-    </article>
-  </div>
+    <div v-if="hasSessions" class="border-t border-border-subtle py-0.5">
+      <SessionList
+        :rows="sessionRows"
+        :dir="wt.path"
+        :active="active"
+        @select="(row) => emit('selectSession', row)"
+        @open-menu="(anchorEl, row) => emit('openSessionMenu', anchorEl, row)"
+      />
+    </div>
+  </article>
 </template>

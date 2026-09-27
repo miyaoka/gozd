@@ -17,7 +17,7 @@ state による並び替えは行わない。Claude 起動 / 状態遷移で wt 
 「どこに何があるか」を覚えていられないため、位置は静的に保ち、状態は state
 アイコンで識別する。
 
-Claude セッションの有無で wt を絞らず、常に全 worktree を出す。稼働を横断して見る面はセッション単位の
+Claude セッションの有無で wt を絞らない。稼働を横断して見る面はセッション単位の
 ダッシュボード（docs/session.md）と端末単位の view mode（docs/terminal.md）が受け持ち、この
 section は「どこで作業するか」の地図として常に全 worktree を出す。
 
@@ -77,6 +77,7 @@ import { buildSessionRows, type SessionRow } from "../../../session";
 import { useTerminalStore } from "../../../terminal";
 import { SessionList, visibleSessionRows } from "../session-row";
 import { WtCard } from "../worktree";
+import { groupWorktreeEntries } from "./worktreeGroups";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
 import IconLucideGripVertical from "~icons/lucide/grip-vertical";
@@ -132,6 +133,18 @@ const orderedWorktrees = computed(() => {
   const others = all.filter((wt) => !wt.isMain);
   return main !== undefined ? [main, ...others] : others;
 });
+
+/** worktree ごとに出すセッション行。行の有無でカードか 1 行かが決まり、間隔のグループ分けにも使う */
+const worktreeEntries = computed(() =>
+  orderedWorktrees.value.map((wt) => ({
+    wt,
+    sessionRows: visibleSessionRows(
+      buildSessionRows(wt.path, terminalStore.liveSessions, repoStore.sessionsOf(props.rootDir)),
+      props.activeDir === wt.path,
+    ),
+  })),
+);
+const worktreeGroups = computed(() => groupWorktreeEntries(worktreeEntries.value));
 
 const sectionEl = useTemplateRef<HTMLElement>("section");
 const dragHandleEl = useTemplateRef<HTMLElement>("dragHandle");
@@ -345,14 +358,19 @@ function onHeaderClick() {
     >
       <div v-if="bodyVisible" class="[interpolate-size:allow-keywords]">
         <div class="flex flex-col gap-2 px-2 pt-1 pb-2">
-          <!-- wt 列の gap は行どうしの間隔。カードの前後の間隔は WtCard 側が持つ -->
-          <div class="flex flex-col gap-0.5">
+          <!-- 間隔は列の容器が gap で持つ。ヘッダ 1 行の worktree が続く間は 1 グループで詰め、
+               カードの前後はグループの境目として外側の gap で空ける（groupWorktreeEntries） -->
+          <div
+            v-for="group in worktreeGroups"
+            :key="group[0]?.wt.path"
+            class="flex flex-col gap-0.5"
+          >
             <WtCard
-              v-for="wt in orderedWorktrees"
-              :key="wt.path"
-              :wt="wt"
-              :root-dir="rootDir"
-              :active="activeDir === wt.path"
+              v-for="entry in group"
+              :key="entry.wt.path"
+              :wt="entry.wt"
+              :session-rows="entry.sessionRows"
+              :active="activeDir === entry.wt.path"
               @select-wt="emit('selectWt', $event)"
               @select-session="(row) => emit('selectSession', row)"
               @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"

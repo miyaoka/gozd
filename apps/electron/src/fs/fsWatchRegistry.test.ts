@@ -6,15 +6,16 @@
 // - statusFetcher: 呼び出しを捕まえ、結果を返す時点をテストが決める。取得は dir ごとに直列なので、
 //   N+1 回目の取得が始まった時点で N 回目の取得と push の判定は終わっている
 //
-// event path の分類（入れ子 worktree の内部で外側の status を取り直さない等）は classify.test.ts の
-// 「入れ子 worktree の内部は fsChange のみ（gitStatusChange は立てない）」ほかが担保する。
+// event path の分類は classify.test.ts が担保する。入れ子 worktree として扱う entry の選別
+// （nestedWorktreeDirsOf）はテストを持たない。選別を壊すと status の取得が起きないか余分に起きる
+// だけで、待つべき呼び出しが訪れず、時間切れでしか落とせない。
 
-import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StatusFull } from "../git/porcelain";
-import { runFixtureGit } from "../testGitFixture";
+import { resolveGitBeforeTests, runFixtureGit } from "../testGitFixture";
 import {
   createFsWatchRegistry,
   type FsWatchHandlers,
@@ -101,21 +102,12 @@ function touchWorkingTree(subscription: FakeSubscription): void {
 }
 
 const tempDirs: string[] = [];
-// watch は git dir の解決で git を起動し、プロセスで最初の起動なら commandResolver が
-// 解決結果を stderr に残す。それ以外の stderr 出力は想定外として判定に入れる
-let consoleError: ReturnType<typeof spyOn<Console, "error">>;
 
-beforeEach(() => {
-  consoleError = spyOn(console, "error").mockImplementation(() => {});
-});
+// watch は git dir の解決で git を起動する
+beforeAll(resolveGitBeforeTests);
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  const unexpected = consoleError.mock.calls.filter(
-    ([message]) => !String(message).startsWith("[commandResolver] resolved git "),
-  );
-  consoleError.mockRestore();
-  expect(unexpected).toEqual([]);
 });
 
 function makeTempDir(): string {
@@ -126,12 +118,12 @@ function makeTempDir(): string {
 
 function makeTempRepo(): string {
   const dir = makeTempDir();
-  runFixtureGit(["init", "-q", "-b", "main"], dir);
+  runFixtureGit(["init", "-b", "main"], dir);
   runFixtureGit(["config", "user.email", "test@example.com"], dir);
   runFixtureGit(["config", "user.name", "test"], dir);
   writeFileSync(join(dir, "init.txt"), "init\n");
   runFixtureGit(["add", "."], dir);
-  runFixtureGit(["commit", "-q", "-m", "init"], dir);
+  runFixtureGit(["commit", "-m", "init"], dir);
   return dir;
 }
 
@@ -201,13 +193,31 @@ test("remotes が動いていない packed-refs の変化では remoteRefsChange
 
   writeFileSync(join(dir, "second.txt"), "second\n");
   runFixtureGit(["add", "."], dir);
-  runFixtureGit(["commit", "-q", "-m", "second"], dir);
+  runFixtureGit(["commit", "-m", "second"], dir);
   // branchChange と remoteRefsChange は同じ digest の比較から同期に撃たれる
   subscription.onEvents([packedRefs]);
   await branchChanged.until(() => branchChanges === 2);
   registry.unwatchAll();
 
   expect(remoteRefsChanges).toBe(1);
+});
+
+// 片方の unwatch で解放すると、残った購読者のファイラーと git status が黙って止まる
+test("同じ dir の watch は購読を共有し、最後の unwatch でだけ解放する", async () => {
+  // git 管理外の dir は status 取得を予約しないので、解放後に取得が残らない
+  const dir = makeTempDir();
+  const { transport, subscriptions } = createFakeTransport();
+  const registry = createFsWatchRegistry(noopHandlers(), { transport });
+
+  await registry.watch(dir);
+  await registry.watch(dir);
+  expect(subscriptions).toHaveLength(1);
+
+  registry.unwatch(dir);
+  expect(subscriptions[0].unsubscribed).toBe(false);
+
+  registry.unwatch(dir);
+  expect(subscriptions[0].unsubscribed).toBe(true);
 });
 
 // renderer の unmount で呼ばれる。解放が漏れると native 監視が黙って残り、再構築のたびに積み上がる

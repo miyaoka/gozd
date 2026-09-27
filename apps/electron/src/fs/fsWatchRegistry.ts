@@ -46,7 +46,7 @@ export interface WatchHandle {
 }
 
 /** native watcher への subscribe 経路を抽象化する。production は utilityProcess 隔離した
- * watcherClient を注入し、テストは実 @parcel/watcher を直接包む transport を注入する。
+ * watcherClient を注入し、テストは callback を捕まえる偽物を注入する。
  * これにより fsWatchRegistry は @parcel/watcher / electron に直接依存しない（classify 層を
  * native crash から切り離す境界）。onEvents は event path の配列、onError は文字列メッセージ */
 export interface WatchTransport {
@@ -83,7 +83,7 @@ export interface FsWatchOptions {
    * production は AppConfig の watcherExclude を渡す。省略時は除外なし（テスト用 default） */
   getWatcherExclude?: () => string[];
   /** native watcher への subscribe 経路（必須）。production は utilityProcess 隔離した
-   * watcherClient、テストは実 @parcel/watcher を包む adapter を渡す */
+   * watcherClient、テストは callback を捕まえる偽物を渡す */
   transport: WatchTransport;
   /** watcher 実行時エラー等の診断を event-log へ流す。routes 側で `debugLog` push に変換する。
    * console.error は packaged で見えないため使わない。省略時は no-op（テスト用） */

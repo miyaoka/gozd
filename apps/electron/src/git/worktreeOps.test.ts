@@ -6,8 +6,7 @@
 
 import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { tryCatch } from "@gozd/shared";
-import { commandResolver } from "../commandResolver";
-import { runFixtureGit } from "../testGitFixture";
+import { resolveGitBeforeTests, runFixtureGit } from "../testGitFixture";
 import {
   existsSync,
   lstatSync,
@@ -21,14 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktreeSymlinks, removeWorktree, resolveReviveBranch } from "./worktreeOps";
 
-// 実装の git 実行は初回に git の絶対パスを解決し、その観察ログを stderr に出す。この file の
-// 検証対象ではないため先に解決を済ませ、以降のテストで出る console 出力を漏れとして見えるようにする
-beforeAll(async () => {
-  const spy = spyOn(console, "error").mockImplementation(() => {});
-  const resolved = await tryCatch(commandResolver.resolve("git"));
-  spy.mockRestore();
-  if (!resolved.ok) throw resolved.error;
-});
+beforeAll(resolveGitBeforeTests);
 
 /** 初期 commit 1 個の repo（default branch = main）を dir に作る */
 function initRepo(dir: string): void {
@@ -59,6 +51,28 @@ describe("createWorktreeSymlinks", () => {
     const dest = join(wt, ".config", "app.json");
     expect(lstatSync(dest).isSymbolicLink()).toBe(true);
     expect(readlinkSync(dest)).toBe(join(main, ".config", "app.json"));
+  });
+
+  // containment が崩れると、`..` を含む設定から worktree の外に symlink が黙って作られる
+  test("`..` traversal target は worktree の外に symlink を張らない", () => {
+    // main と wt を別々の親 dir 配下に置き、`..` の脱出先を各親に用意する。containment が
+    // 無効なら source=mainParent/escape を dest=wtParent/escape に張るため、脱出先が
+    // 作られないことで、source 不在による skip と区別して拒否を示せる
+    const mainParent = mkdtempSync(join(tmpdir(), "gozd-symlink-mainp-"));
+    const wtParent = mkdtempSync(join(tmpdir(), "gozd-symlink-wtp-"));
+    tempDirs.push(mainParent, wtParent);
+    const main = join(mainParent, "repo");
+    const wt = join(wtParent, "repo");
+    mkdirSync(main);
+    mkdirSync(wt);
+    writeFileSync(join(mainParent, "escape"), "secret");
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    createWorktreeSymlinks(main, wt, ["../escape"]);
+    const logged = consoleError.mock.calls.map(([message]) => String(message));
+    consoleError.mockRestore();
+    expect(existsSync(join(wtParent, "escape"))).toBe(false);
+    // 拒否は観察ログにしか現れない
+    expect(logged).toEqual(["[createWorktreeSymlinks] rejected traversal target=../escape"]);
   });
 });
 
@@ -100,7 +114,7 @@ describe("removeWorktree (integration)", () => {
     mkdirSync(repo);
     initRepo(repo);
     const wt = join(root, "wt");
-    runFixtureGit(["worktree", "add", "--quiet", "-b", "feature", wt], repo);
+    runFixtureGit(["worktree", "add", "-b", "feature", wt], repo);
     return { repo, wt, root };
   }
 
@@ -145,7 +159,7 @@ describe("removeWorktree (integration)", () => {
     const sub = join(wt, "sub");
     mkdirSync(sub);
     initRepo(sub);
-    runFixtureGit(["submodule", "--quiet", "add", sub, "sub"], wt);
+    runFixtureGit(["submodule", "add", sub, "sub"], wt);
     runFixtureGit(["commit", "-m", "add submodule"], wt);
     const gitDir = runFixtureGit(["rev-parse", "--absolute-git-dir"], wt);
     expect(existsSync(join(gitDir, "modules"))).toBe(false);
@@ -163,12 +177,9 @@ describe("removeWorktree (integration)", () => {
     mkdirSync(sub);
     initRepo(sub);
     // local path からの submodule 追加は protocol.file の明示許可が要る
-    runFixtureGit(
-      ["-c", "protocol.file.allow=always", "submodule", "--quiet", "add", sub, "sub"],
-      wt,
-    );
+    runFixtureGit(["-c", "protocol.file.allow=always", "submodule", "add", sub, "sub"], wt);
     runFixtureGit(["commit", "-m", "add submodule"], wt);
-    runFixtureGit(["submodule", "--quiet", "deinit", "-f", "sub"], wt);
+    runFixtureGit(["submodule", "deinit", "-f", "sub"], wt);
     expect(runFixtureGit(["status", "--porcelain", "--ignore-submodules=none"], wt)).toBe("");
     const error = await rejection(removeWorktree(repo, wt, false));
     expect(error.message).toMatch(/contains submodules/);

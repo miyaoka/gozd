@@ -13,7 +13,7 @@
 // - 強制しない削除が変更中のファイル・submodule・lock を拒否することは git/worktreeOps.test.ts の
 //   removeWorktree (integration)（「変更のあるファイルを持つ worktree は force なしで拒否する」ほか）
 
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { tryCatch } from "@gozd/shared";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,7 +23,7 @@ import {
   removeWorktreeForConcierge,
   resolveSessionOpenDir,
 } from "./concierge";
-import { runFixtureGit } from "./testGitFixture";
+import { resolveGitBeforeTests, runFixtureGit } from "./testGitFixture";
 
 const tempDirs: string[] = [];
 
@@ -42,14 +42,14 @@ function makeFixture(): { repo: string; wt: string; concierge: string } {
   const root = makeTempRoot();
   const repo = join(root, "repo");
   mkdirSync(repo);
-  runFixtureGit(["init", "-q", "-b", "main"], repo);
+  runFixtureGit(["init", "-b", "main"], repo);
   runFixtureGit(["config", "user.email", "t@example.com"], repo);
   runFixtureGit(["config", "user.name", "t"], repo);
   writeFileSync(join(repo, "a.txt"), "a\n");
   runFixtureGit(["add", "."], repo);
-  runFixtureGit(["commit", "-q", "-m", "first"], repo);
+  runFixtureGit(["commit", "-m", "first"], repo);
   const wt = join(root, "wt");
-  runFixtureGit(["worktree", "add", "-q", "-b", "feature", wt], repo);
+  runFixtureGit(["worktree", "add", "-b", "feature", wt], repo);
   const concierge = join(root, "concierge");
   mkdirSync(concierge);
   return { repo, wt, concierge };
@@ -66,19 +66,15 @@ async function rejection(promise: Promise<unknown>): Promise<Error> {
 }
 
 describe("removeWorktreeForConcierge", () => {
-  // git の実行経路が commandResolver の観察ログを出す。この describe の契約ではないので吸う
-  let consoleError: ReturnType<typeof spyOn>;
-  beforeEach(() => {
-    consoleError = spyOn(console, "error").mockImplementation(() => {});
-  });
-  afterEach(() => {
-    consoleError.mockRestore();
-  });
+  beforeAll(resolveGitBeforeTests);
 
+  // concierge が強制しない削除を渡していることの担保。前段の判定が誤って拒否しても通らないよう、
+  // 拒否の理由まで見る
   test("untracked のファイルがある worktree は拒否し、残る", async () => {
     const { wt, concierge } = makeFixture();
     writeFileSync(join(wt, "new.txt"), "new\n");
-    await rejection(removeWorktreeForConcierge(wt, guards(concierge)));
+    const error = await rejection(removeWorktreeForConcierge(wt, guards(concierge)));
+    expect(error.message).toContain("modified or untracked");
     expect(existsSync(join(wt, "new.txt"))).toBe(true);
   });
 
@@ -100,7 +96,7 @@ describe("removeWorktreeForConcierge", () => {
 
   test("detached HEAD の worktree は拒否し、残る", async () => {
     const { wt, concierge } = makeFixture();
-    runFixtureGit(["checkout", "-q", "--detach"], wt);
+    runFixtureGit(["checkout", "--detach"], wt);
     const error = await rejection(removeWorktreeForConcierge(wt, guards(concierge)));
     expect(error.message).toContain("detached HEAD");
     expect(existsSync(wt)).toBe(true);

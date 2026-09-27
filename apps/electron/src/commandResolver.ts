@@ -55,6 +55,15 @@ class CommandNotFoundError extends Error {
   }
 }
 
+/** 起動の cwd が無い（stat できない）。spawn の ENOENT は実行ファイルが無いように読めるため、
+ * cwd を名指しする。元の失敗は cause に残す */
+class InvalidCwdError extends Error {
+  constructor(cwd: string, statError: unknown, spawnError: Error) {
+    super(`The cwd is invalid: ${cwd}\n${String(statError)}`, { cause: spawnError });
+    this.name = "InvalidCwdError";
+  }
+}
+
 // shell 注入境界: name を shell script 文字列内に補間するため ASCII 英数とハイフン /
 // アンダースコアに限定する。コード内リテラル経路では問題ないが、API 表面の境界をここで固める
 const VALID_COMMAND_NAME = /^[A-Za-z0-9_-]+$/;
@@ -300,19 +309,28 @@ function isEnoent(error: Error): boolean {
 }
 
 /**
- * name を絶対パスに解決して run を実行する共通経路。
+ * name を絶対パスに解決し、cwd で起動する run を実行する共通経路。
  *
  * - 未インストール（resolve が undefined）→ CommandNotFoundError を throw（retry 不要、即上位へ）
- * - run が ENOENT で失敗 → キャッシュが stale（mise / asdf upgrade で versioned path が消えた等）
- *   の可能性があるため、1 回だけ invalidate + 再解決して retry する
+ * - run が ENOENT で失敗 → spawn の ENOENT は、実行ファイルと cwd のどちらが無くても起きる
+ *   - cwd が無ければ、cwd を名指しするエラーにする（execa の fixCwdError と同じ）。元の文言は
+ *     実行ファイルが無いように読める
+ *   - 解決済みの実行ファイルが無ければ、キャッシュが stale（mise / asdf upgrade で versioned
+ *     path が消えた等）なので、1 回だけ invalidate + 再解決して retry する
+ *   - どちらも在れば、元の ENOENT をそのまま投げる
  */
 export async function withResolvedCommand<T>(
   name: string,
+  cwd: string,
   run: (commandPath: string) => Promise<T>,
 ): Promise<T> {
-  const first = await tryCatch(run(await resolveRequired(name)));
+  const commandPath = await resolveRequired(name);
+  const first = await tryCatch(run(commandPath));
   if (first.ok) return first.value;
   if (!isEnoent(first.error)) throw first.error;
+  const cwdStat = tryCatch(() => statSync(cwd));
+  if (!cwdStat.ok) throw new InvalidCwdError(cwd, cwdStat.error, first.error);
+  if (tryCatch(() => statSync(commandPath)).ok) throw first.error;
   console.error(
     `[commandResolver] cached path for '${name}' hit ENOENT, invalidating and re-resolving`,
   );

@@ -26,8 +26,14 @@ const execFileAsync = promisify(execFile);
 const admission = createGitAdmission(DEFAULT_GIT_ADMISSION_LIMITS);
 
 /** git を解決して実行する唯一の入口。起動前に、サブコマンドで決まる予算の枠を取る（`gitAdmission.ts`） */
-function runResolvedGit<T>(args: string[], fn: (gitPath: string) => Promise<T>): Promise<T> {
-  return admission.run(gitBudgetOf(args), currentGitTier(), () => withResolvedCommand("git", fn));
+function runResolvedGit<T>(
+  args: string[],
+  cwd: string,
+  fn: (gitPath: string) => Promise<T>,
+): Promise<T> {
+  return admission.run(gitBudgetOf(args), currentGitTier(), () =>
+    withResolvedCommand("git", cwd, fn),
+  );
 }
 
 /** git status の出力は repo サイズ依存で大きくなり得るため、node デフォルト (1MB) を広げる */
@@ -85,7 +91,7 @@ function buildNonInteractiveEnv(base: Record<string, string>): Record<string, st
 }
 
 async function execGit(args: string[], cwd: string): Promise<string> {
-  return runResolvedGit(args, async (gitPath) => {
+  return runResolvedGit(args, cwd, async (gitPath) => {
     const result = await tryCatch(
       execFileAsync(gitPath, args, { cwd, env: gozdGitEnv(gitPath), maxBuffer: GIT_MAX_BUFFER }),
     );
@@ -95,7 +101,7 @@ async function execGit(args: string[], cwd: string): Promise<string> {
       throw new GitCommandError(error.code, stderrText(error));
     }
     // spawn 失敗（ENOENT 等）は commandFailed と区別してそのまま伝播する
-    // （ENOENT は withResolvedCommand が stale cache として 1 回だけ再解決 + retry する）
+    // （ENOENT は withResolvedCommand が cwd と実行ファイルのどちらが無いかで扱い分ける）
     throw result.error;
   });
 }
@@ -106,7 +112,7 @@ async function execGit(args: string[], cwd: string): Promise<string> {
  * 壊すため、binary 判定が要る経路はこちらを使う
  */
 export async function runGitBuffer(args: string[], cwd: string): Promise<Buffer> {
-  return runResolvedGit(args, async (gitPath) => {
+  return runResolvedGit(args, cwd, async (gitPath) => {
     const result = await tryCatch(
       execFileAsync(gitPath, args, {
         cwd,
@@ -129,7 +135,7 @@ export async function runGitBuffer(args: string[], cwd: string): Promise<Buffer>
  * exit > 1 は通常エラー扱い（Swift runGitDiffNoIndex と同契約）
  */
 export async function runGitAllowExit1(args: string[], cwd: string): Promise<string> {
-  return runResolvedGit(args, async (gitPath) => {
+  return runResolvedGit(args, cwd, async (gitPath) => {
     const result = await tryCatch(
       execFileAsync(gitPath, args, { cwd, env: gozdGitEnv(gitPath), maxBuffer: GIT_MAX_BUFFER }),
     );
@@ -161,7 +167,7 @@ export function runGitWithStdin(
   stdin: string,
   { treatNonZeroExitAsSuccess = false } = {},
 ): Promise<string> {
-  return runResolvedGit(args, (gitPath) =>
+  return runResolvedGit(args, cwd, (gitPath) =>
     runGitWithStdinOnce(gitPath, args, cwd, stdin, { treatNonZeroExitAsSuccess }),
   );
 }
@@ -209,7 +215,7 @@ function runGitWithStdinOnce(
  *   （renderer の失敗トースト）を trace 行で押し流すため
  */
 export async function runGitNonInteractive(args: string[], cwd: string): Promise<string> {
-  return runResolvedGit(args, async (gitPath) => {
+  return runResolvedGit(args, cwd, async (gitPath) => {
     const env = buildNonInteractiveEnv(gozdGitEnv(gitPath));
     const traceEnabled = process.env.GOZD_GIT_TRACE === "1";
     if (traceEnabled) env.GIT_TRACE = "1";

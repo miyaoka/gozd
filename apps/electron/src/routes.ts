@@ -189,6 +189,7 @@ import {
   createWorktree,
   pruneWorktrees,
   removeWorktree,
+  WorktreeRemoveRefusedError,
   resolveReviveBranch,
 } from "./git/worktreeOps";
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
@@ -875,8 +876,13 @@ async function handleCreateWorktree(body: unknown): Promise<unknown> {
 
 async function handleWorktreeRemove(body: unknown): Promise<unknown> {
   const req = body as GitWorktreeRemoveRequest;
-  await removeWorktree(req.dir, req.path, req.force);
-  return {} satisfies GitWorktreeRemoveResponse;
+  const removed = await tryCatch(removeWorktree(req.dir, req.path, req.force));
+  if (removed.ok) return {} satisfies GitWorktreeRemoveResponse;
+  // 拒否は失敗ではなく、強制削除を選ばせるための応答として理由を返す
+  if (removed.error instanceof WorktreeRemoveRefusedError) {
+    return { refused: removed.error.reasons } satisfies GitWorktreeRemoveResponse;
+  }
+  throw removed.error;
 }
 
 async function handleProjectConfigLoad(body: unknown): Promise<unknown> {

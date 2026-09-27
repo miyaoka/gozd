@@ -140,6 +140,7 @@ describe("removeWorktree (integration)", () => {
     writeFileSync(join(wt, "a.txt"), "modified\n");
     const error = await rejection(removeWorktree(repo, wt, false));
     expect(error.message).toMatch(/modified or untracked/);
+    expect(error).toMatchObject({ reasons: ["changes"] });
     expect(existsSync(wt)).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
   });
@@ -149,6 +150,7 @@ describe("removeWorktree (integration)", () => {
     writeFileSync(join(wt, "scratch.txt"), "scratch\n");
     const error = await rejection(removeWorktree(repo, wt, false));
     expect(error.message).toMatch(/modified or untracked/);
+    expect(error).toMatchObject({ reasons: ["changes"] });
     expect(existsSync(join(wt, "scratch.txt"))).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
   });
@@ -167,6 +169,7 @@ describe("removeWorktree (integration)", () => {
     expect(existsSync(join(gitDir, "modules"))).toBe(false);
     const error = await rejection(removeWorktree(repo, wt, false));
     expect(error.message).toMatch(/contains submodules/);
+    expect(error).toMatchObject({ reasons: ["submodules"] });
     expect(existsSync(join(sub, "a.txt"))).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
   });
@@ -185,6 +188,7 @@ describe("removeWorktree (integration)", () => {
     expect(runFixtureGit(["status", "--porcelain", "--ignore-submodules=none"], wt)).toBe("");
     const error = await rejection(removeWorktree(repo, wt, false));
     expect(error.message).toMatch(/contains submodules/);
+    expect(error).toMatchObject({ reasons: ["submodules"] });
     expect(existsSync(wt)).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
   });
@@ -201,7 +205,36 @@ describe("removeWorktree (integration)", () => {
     runFixtureGit(["commit", "-m", "add sub"], repo);
     const error = await rejection(removeWorktree(repo, sub, false));
     expect(error.message).toMatch(/is not a working tree/);
+    // git の拒否は、強制削除で失われるものを示す拒否の理由を持たない
+    expect(error).not.toHaveProperty("reasons");
     expect(existsSync(join(sub, "s.txt"))).toBe(true);
+  });
+
+  // lock の拒否を落とすと、使用中の作業場所を拒否以外の失敗として強制削除に進ませる
+  test("lock 済みの worktree は、変更の判定が失敗しても lock の理由で拒否する", async () => {
+    const { repo, wt } = makeRepoWithWorktree();
+    runFixtureGit(["worktree", "lock", wt], repo);
+    const gitDir = runFixtureGit(["rev-parse", "--absolute-git-dir"], wt);
+    writeFileSync(join(gitDir, "index"), "corrupt\n");
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    const error = await rejection(removeWorktree(repo, wt, false));
+    const logged = consoleError.mock.calls.map(([line]) => String(line));
+    consoleError.mockRestore();
+    expect(error).toMatchObject({ reasons: ["locked"] });
+    expect(error.message).toMatch(/is locked; could not check submodules or changes$/);
+    expect(logged).toEqual([
+      expect.stringMatching(/^\[assertRemovable\] contents check failed on locked worktree /),
+    ]);
+  });
+
+  // 強制削除はすべての条件を無視して消すので、1 つだけ示すと残りの失われるものが隠れる
+  test("拒否の条件が重なるときは、当てはまる理由をすべて返す", async () => {
+    const { repo, wt } = makeRepoWithWorktree();
+    runFixtureGit(["worktree", "lock", wt], repo);
+    writeFileSync(join(wt, "a.txt"), "modified\n");
+    const error = await rejection(removeWorktree(repo, wt, false));
+    expect(error).toMatchObject({ reasons: ["locked", "changes"] });
+    expect(error.message).toMatch(/is locked; contains modified or untracked files$/);
   });
 
   // lock の持ち主は worktree を使用中で、拒否までの間でも作業場所が消えると持ち主の作業が壊れる。
@@ -223,6 +256,7 @@ describe("removeWorktree (integration)", () => {
       const renamed = rename.mock.calls.length;
       rename.mockRestore();
       expect(error.message).toMatch(message);
+      expect(error).toMatchObject({ reasons: ["locked"] });
       expect(renamed).toBe(0);
       expect(existsSync(join(wt, "a.txt"))).toBe(true);
       expect(worktreeCount(repo)).toBe(2);

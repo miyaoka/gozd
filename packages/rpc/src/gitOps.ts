@@ -508,7 +508,16 @@ export interface GitWorktreeRemoveRequest {
   /** `docs/workspace.md` の「削除」が挙げる拒否条件をすべて無視して消す */
   force: boolean;
 }
-export type GitWorktreeRemoveResponse = EmptyMessage;
+/** 強制しない削除を拒否した理由。`docs/workspace.md` の「削除」が挙げる拒否条件に対応する。
+ * - "changes": 変更のあるファイルか追跡外のファイルがある
+ * - "submodules": submodule がある
+ * - "locked": 他のツールが lock している */
+export type WorktreeRemoveRefusal = "changes" | "submodules" | "locked";
+export interface GitWorktreeRemoveResponse {
+  /** 強制しない削除を拒否したときの、当てはまった理由のすべて（1 つ以上）。削除できたときと、
+   * force のときは undefined */
+  refused?: WorktreeRemoveRefusal[];
+}
 
 // gitBlameLine: 1 行の blame 結果を返す。
 // `git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` 相当。

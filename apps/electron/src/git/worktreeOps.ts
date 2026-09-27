@@ -13,6 +13,7 @@ import { gozdWorktreesRoot, resolveMainRepoRoot, resolveProjectKey } from "../pr
 import { resolveStartPoint } from "./gitBranch";
 import { perWorktreeGitDir, worktreeList } from "./gitOps";
 import { runGit } from "./gitRunner";
+import type { WorktreeRemoveRefusal } from "@gozd/rpc";
 import type { WorktreeInfo } from "./porcelain";
 
 /**
@@ -152,6 +153,18 @@ const RM_PATH = "/bin/rm";
 /** 退避先の名前の接頭辞。worktree の隣に置くので、走査で gozd の退避物だと判る形にする */
 const TRASH_PREFIX = ".gozd-worktree-trash-";
 
+/** 強制しない削除の拒否。reasons は当てはまった条件のすべてで、呼び出し側が強制削除を
+ * 選ばせるときに、強制削除で失われるものを示すために使う */
+export class WorktreeRemoveRefusedError extends Error {
+  readonly reasons: WorktreeRemoveRefusal[];
+
+  constructor(reasons: WorktreeRemoveRefusal[], message: string) {
+    super(message);
+    this.name = "WorktreeRemoveRefusedError";
+    this.reasons = reasons;
+  }
+}
+
 /**
  * `git worktree remove [-f -f] <path>` 相当。ただし実体の unlink は待たない。
  *
@@ -224,6 +237,20 @@ function lockReasonOf(gitDir: string): string | undefined {
   throw read.error;
 }
 
+/** worktree が submodule を持つかと、`git status --porcelain` の出力 */
+async function checkContents(
+  path: string,
+  gitDir: string,
+): Promise<{ hasSubmodules: boolean; status: string }> {
+  const modules = tryCatch(() => statSync(join(gitDir, "modules")).isDirectory());
+  const hasModules = modules.ok && modules.value;
+  const submodules = hasModules ? "" : await runGit(["submodule", "status"], path);
+  const hasSubmodules =
+    hasModules || submodules.split("\n").some((line) => line !== "" && !line.startsWith("-"));
+  const status = await runGit(["status", "--porcelain", "--ignore-submodules=none"], path);
+  return { hasSubmodules, status };
+}
+
 /**
  * 強制しない削除で拒否すべき worktree で throw する。実体を退避する前に判定する。
  *
@@ -240,20 +267,37 @@ function lockReasonOf(gitDir: string): string | undefined {
 async function assertRemovable(path: string): Promise<void> {
   const gitDir = await perWorktreeGitDir(path);
   const lockReason = lockReasonOf(gitDir);
-  if (lockReason !== undefined) {
-    const reason = lockReason === "" ? "" : `, lock reason: ${lockReason}`;
-    throw new Error(`'${path}' is locked${reason}`);
+  const lockDetail =
+    lockReason === undefined
+      ? undefined
+      : `is locked${lockReason === "" ? "" : `, lock reason: ${lockReason}`}`;
+  const checked = await tryCatch(checkContents(path, gitDir));
+  if (!checked.ok) {
+    if (lockDetail === undefined) throw checked.error;
+    // 判定の git が失敗しても、lock の拒否は確定している。落とすと、使用中の作業場所を
+    // 拒否以外の失敗として強制削除に進ませる
+    console.error(
+      `[assertRemovable] contents check failed on locked worktree path=${path}: ${String(checked.error)}`,
+    );
+    throw new WorktreeRemoveRefusedError(
+      ["locked"],
+      `'${path}' ${lockDetail}; could not check submodules or changes`,
+    );
   }
-  const modules = tryCatch(() => statSync(join(gitDir, "modules")).isDirectory());
-  const hasModules = modules.ok && modules.value;
-  const submodules = hasModules ? "" : await runGit(["submodule", "status"], path);
-  if (hasModules || submodules.split("\n").some((line) => line !== "" && !line.startsWith("-"))) {
-    throw new Error(`'${path}' contains submodules`);
-  }
-  const status = await runGit(["status", "--porcelain", "--ignore-submodules=none"], path);
-  if (status.trim() !== "") {
-    throw new Error(`'${path}' contains modified or untracked files`);
-  }
+  const { hasSubmodules, status } = checked.value;
+  // 強制削除はすべての条件を無視して消すので、当てはまる条件をすべて挙げる
+  const refusals: { reason: WorktreeRemoveRefusal; detail: string }[] = [
+    ...(lockDetail === undefined ? [] : [{ reason: "locked" as const, detail: lockDetail }]),
+    ...(hasSubmodules ? [{ reason: "submodules" as const, detail: "contains submodules" }] : []),
+    ...(status.trim() === ""
+      ? []
+      : [{ reason: "changes" as const, detail: "contains modified or untracked files" }]),
+  ];
+  if (refusals.length === 0) return;
+  throw new WorktreeRemoveRefusedError(
+    refusals.map(({ reason }) => reason),
+    `'${path}' ${refusals.map(({ detail }) => detail).join("; ")}`,
+  );
 }
 
 /**

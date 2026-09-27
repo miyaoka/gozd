@@ -5,13 +5,10 @@ upstream ahead-behind / ⋮) と、Claude セッション行 (SessionList) を�
 
 ## グルーピング
 
-出すセッション行がある wt だけをカードにする。「worktree とそこで動いたセッション群」を
-1 つの単位として明示するため、カードは境界 (border + 内パディング) を持ち、ヘッダとボディを
-divider で区切る。ヘッダ = worktree identity ゾーン、ボディ = その worktree のセッション群
-ゾーンとして構造で分離する。
-
-出す行が無い wt は束ねる中身が無いため、境界を持たないヘッダ 1 行にする。選択中であることは
-ヘッダの fill が示す。
+カードにするかは docs/workspace.md の「各 worktree」に従う。カードは境界 (border + 内パディング)
+を持ち、ヘッダとボディを divider で区切る。ヘッダ = worktree identity ゾーン、ボディ = その
+worktree のセッション群ゾーンとして構造で分離する。ヘッダ 1 行のときは境界を持たず、選択中で
+あることはヘッダの fill が示す。
 
 ヘッダには icon を置かず branch 名のみで identity を示す。gutter に出る icon をセッション行の
 claude state icon だけに限定することで、worktree identity (branch 名) とセッションの状態 (icon)

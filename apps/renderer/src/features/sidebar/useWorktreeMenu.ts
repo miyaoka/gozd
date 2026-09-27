@@ -1,5 +1,5 @@
 /**
- * worktree カードの ⋮ menu の module singleton。
+ * worktree の ⋮ menu の module singleton。
  *
  * 親 (SidebarPane) から `open(anchorEl, { worktree, rootDir })` を呼び、
  * WorktreeMenu.vue が context を購読して描画する。

@@ -1,6 +1,6 @@
 <doc lang="md">
 1 つの repo を表すサイドバーセクション。repo の識別を示すヘッダと、配下の worktree 列 (WtCard) を持つ。
-非 git project は worktree カードを持たず、ヘッダの下にその dir のセッション行を直接並べる。
+非 git project は worktree 列を持たず、ヘッダの下にその dir のセッション行を直接並べる。
 
 ## 背景 fetch の可視スコープ報告
 
@@ -13,18 +13,18 @@ section の viewport 可視 (`useElementVisibility`) と「展開表示中」(`b
 
 main worktree を先頭に固定し、以降は git が返した順のまま並べ、末尾に新規作成の導線を置く。
 
-state による並び替えは行わない。Claude 起動 / 状態遷移でカード位置が動くと
+state による並び替えは行わない。Claude 起動 / 状態遷移で wt の位置が動くと
 「どこに何があるか」を覚えていられないため、位置は静的に保ち、状態は state
 アイコンで識別する。
 
-Claude セッションの有無で wt カードを絞ることはしない。稼働を横断して見る面はセッション単位の
+Claude セッションの有無で wt を絞らず、常に全 worktree を出す。稼働を横断して見る面はセッション単位の
 ダッシュボード（docs/session.md）と端末単位の view mode（docs/terminal.md）が受け持ち、この
 section は「どこで作業するか」の地図として常に全 worktree を出す。
 
 ## 操作
 
 - header 全体クリック: git repo は折りたたみトグル (永続)、非 git project は rootDir を
-  active dir に選択 (ファイラー表示の唯一の経路)。非 git は worktree カードを持たず畳む対象が
+  active dir に選択 (ファイラー表示の唯一の経路)。非 git は worktree 列を持たず畳む対象が
   無いため chevron も出さない。編集モード中はどちらも無効
 - 編集モードのヘッダは通常モードと完全に別描画: grip（drag handle）+ 非インタラクティブな
   名前表示 + ✕ のみで、_fx-shine の hover 演出もクリックも持たない。grip を分離するのは
@@ -57,7 +57,7 @@ border-primary + 外周グロー、ヘッダ 1 行ならヘッダの fill で示
 
 ## 開閉アニメーション
 
-wt カード列の開閉は `<Transition>` で height 0 ↔ auto を CSS transition する
+wt 列の開閉は `<Transition>` で height 0 ↔ auto を CSS transition する
 （`interpolate-size: allow-keywords` で auto が補間可能になる。Chromium 129+）。
 transition root は padding を持たず height だけを補間し、padding は内側の div が持つ
 （root が padding を持つと border-box でも h-0 時に padding 分の高さが残る）。
@@ -149,7 +149,7 @@ const visiblyCollapsed = computed(() => {
   return collapsed.value;
 });
 
-// wt カード列が実際に展開表示されているか（非 git はカード列を持たないので常に false）
+// wt 列が実際に展開表示されているか（非 git は wt 列を持たないので常に false）
 const bodyVisible = computed(() => isGitRepo.value && !visiblyCollapsed.value);
 
 // 非 git project のセッション行。worktree を持たないため rootDir 自身が作業ディレクトリ
@@ -212,7 +212,7 @@ function onOpenMenu(event: MouseEvent) {
 
 // 通常モードのヘッダ button 専用（編集モードのヘッダは非インタラクティブな div）。
 function onHeaderClick() {
-  // 非 git project は worktree カードを持たず畳む対象が無いため、ヘッダクリックを
+  // 非 git project は worktree 列を持たず畳む対象が無いため、ヘッダクリックを
   // 「rootDir を active dir に選択」に振り分ける。これが非 git project のファイラーを
   // 表示する唯一の経路（git repo は WtCard クリックが担う）。
   if (!isGitRepo.value) {

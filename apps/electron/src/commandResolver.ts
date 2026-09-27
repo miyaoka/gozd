@@ -40,7 +40,7 @@ const RESOLVE_TIMEOUT_MS = 10_000;
 const STDERR_TAIL_BYTES = 4096;
 
 /** shell spawn 失敗 / hang / timeout / marker 抽出失敗。Swift 版 `GitError.launchFailed` 相当 */
-export class CommandResolveError extends Error {
+class CommandResolveError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "CommandResolveError";

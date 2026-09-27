@@ -156,7 +156,7 @@ export interface ConciergeRemoveGuards {
  *   worktree はそこにしか無いコミットを指すことがあり、消すと到達不能になる
  * - 稼働中のセッションが無いこと（gozd の端末で Claude が紐付いている）
  * - 変更中のファイル（untracked を含む）と submodule が無く、lock されていないこと。強制しない
- *   削除として `removeWorktree`（git）が判定する
+ *   削除として `removeWorktree` が判定する
  *
  * Claude の動いていない端末は削除を妨げない。削除後に renderer が worktree の消滅を検知して
  * その端末を閉じる。

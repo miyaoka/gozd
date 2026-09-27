@@ -17,6 +17,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktreeSymlinks, removeWorktree, resolveReviveBranch } from "./worktreeOps";
@@ -188,14 +189,43 @@ describe("removeWorktree (integration)", () => {
     expect(worktreeCount(repo)).toBe(2);
   });
 
-  // 戻さないと実体は退避先の隠しディレクトリに残り、登録だけが元のパスを指し続ける
+  // 戻さないと実体は退避先の隠しディレクトリに残り、元のパスから消える
   test("git が拒否したら退避した実体を元の位置へ戻す", async () => {
-    const { repo, wt } = makeRepoWithWorktree();
-    // locked worktree は実体の有無に依らず git が拒否する（clean 判定は通過して rename まで進む）
-    runFixtureGit(["worktree", "lock", wt], repo);
-    const error = await rejection(removeWorktree(repo, wt, false));
-    expect(error.message).toMatch(/locked/);
-    expect(existsSync(join(wt, "a.txt"))).toBe(true);
-    expect(worktreeCount(repo)).toBe(2);
+    const { repo } = makeRepoWithWorktree();
+    // main worktree の中の追跡済みディレクトリは、clean 判定を通って退避まで進み、worktree として
+    // 登録されていないので git が拒否する
+    const sub = join(repo, "sub");
+    mkdirSync(sub);
+    writeFileSync(join(sub, "s.txt"), "s\n");
+    runFixtureGit(["add", "."], repo);
+    runFixtureGit(["commit", "-m", "add sub"], repo);
+    const error = await rejection(removeWorktree(repo, sub, false));
+    expect(error.message).toMatch(/is not a working tree/);
+    expect(existsSync(join(sub, "s.txt"))).toBe(true);
   });
+
+  // lock の持ち主は worktree を使用中で、拒否までの間でも作業場所が消えると持ち主の作業が壊れる。
+  // 理由なしの lock は `locked` が空で、理由の有無で lock の判定が分かれてはならない
+  test.each([
+    {
+      label: "with reason",
+      lockArgs: ["--reason", "agent running"],
+      message: /is locked, lock reason: agent running$/,
+    },
+    { label: "without reason", lockArgs: [], message: /is locked$/ },
+  ])(
+    "lock された worktree は、実体を動かさずに force なしで拒否する: $label",
+    async ({ lockArgs, message }) => {
+      const { repo, wt } = makeRepoWithWorktree();
+      runFixtureGit(["worktree", "lock", ...lockArgs, wt], repo);
+      const rename = spyOn(fs, "renameSync");
+      const error = await rejection(removeWorktree(repo, wt, false));
+      const renamed = rename.mock.calls.length;
+      rename.mockRestore();
+      expect(error.message).toMatch(message);
+      expect(renamed).toBe(0);
+      expect(existsSync(join(wt, "a.txt"))).toBe(true);
+      expect(worktreeCount(repo)).toBe(2);
+    },
+  );
 });

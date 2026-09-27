@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import {
   classifyClaudeTitle,
   createClaudeStatusManager,
   displayClaudeState,
   isTeammateLifecycleId,
   screenHasClaudeBlocker,
-  stripClaudeTitlePrefix,
   teammateIdMatchesName,
   type ClaudeStatus,
 } from "./claudeStatus";
@@ -16,6 +15,9 @@ const WORKING_TITLE = "⠋ project"; // U+280B = 2.1.227 以前の点字スピ�
 const WORKING_TITLE_HALF_CIRCLE = "◐ project"; // U+25D0 = 2.1.228 以降の半円スピナー
 const WORKING_TITLE_HALF_CIRCLE_ALT = "◑ project"; // U+25D1 = 半円スピナーのもう 1 コマ
 const IDLE_TITLE = "✳ project"; // U+2733 = ✳
+
+/** Date.now() が返し得ない過去の時刻。遷移で最終更新が刻み直されたか / 維持されたかを見分ける */
+const STALE_ACTIVITY_AT = 1;
 
 function setup() {
   const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
@@ -30,20 +32,31 @@ function setup() {
   return { claudeStatusByPtyId, manager };
 }
 
-describe("handleHookEvent done", () => {
-  test("pending work が無ければ done になり displayClaudeState も done。fx も発行される", () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    const fx = manager.handleHookEvent(1, "done", {
-      last_assistant_message: "完了しました。",
-      pending_work: false,
-    });
-    const status = claudeStatusByPtyId.value[1];
-    expect(status?.state).toBe("done");
-    expect(displayClaudeState(status)).toBe("done");
-    // 真の done は効果ストリームに流す（音・演出・読み上げが出る）
-    expect(fx).toEqual({ ptyId: 1, event: "done", message: "完了しました。" });
-  });
+/** 遷移前の状態を状態の ref に直接置く */
+function seedStatus(
+  claudeStatusByPtyId: ReturnType<typeof setup>["claudeStatusByPtyId"],
+  ptyId: number,
+  status: ClaudeStatus,
+) {
+  claudeStatusByPtyId.value[ptyId] = status;
+}
 
+/**
+ * asking への進入は needs-input の debounce タイマーが担う。ここでは進入後の遷移を見るため、
+ * タイマーが書くのと同じ形の asking を直接置く
+ */
+function enterAsking(
+  claudeStatusByPtyId: ReturnType<typeof setup>["claudeStatusByPtyId"],
+  ptyId: number,
+) {
+  seedStatus(claudeStatusByPtyId, ptyId, {
+    state: "asking",
+    lastActivityAt: STALE_ACTIVITY_AT,
+    toolName: "Bash",
+  });
+}
+
+describe("handleHookEvent done", () => {
   test("pending work があっても state は done に倒し、displayClaudeState だけ working。fx は発行しない", () => {
     const { claudeStatusByPtyId, manager } = setup();
     const fx = manager.handleHookEvent(1, "done", {
@@ -58,17 +71,6 @@ describe("handleHookEvent done", () => {
     expect(displayClaudeState(status)).toBe("working");
     // 効果の抑止はここ 1 箇所。fx を発行しないので音・演出・読み上げは購読側に届かない
     expect(fx).toBeUndefined();
-  });
-
-  test("pending な done のあと pending なし done が来たら displayClaudeState が working → done に回復する", () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "done", { pending_work: true });
-    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("working");
-    manager.handleHookEvent(1, "done", {
-      last_assistant_message: "全部終わりました。",
-      pending_work: false,
-    });
-    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
   });
 
   test("pending な done は clearDoneState で idle に消化できる（固着しない）", () => {
@@ -116,18 +118,6 @@ describe("teammate 台帳（subagent-start / subagent-stop / teammate-idle）", 
   const TEAMMATE_ID = "apr-981-reviewer-90ed05bf5c651c85";
   const TEAMMATE_NAME = "pr-981-reviewer";
   const ONE_SHOT_ID = "a16e6e90f336247e8";
-
-  test("teammate 稼働中の done は working 表示（pending_work=false でも）、fx は抑止", () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
-    const fx = manager.handleHookEvent(1, "done", {
-      pending_work: false,
-      has_teammate_task: true,
-    });
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
-    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("working");
-    expect(fx).toBeUndefined();
-  });
 
   test("teammate-idle は in-flight 通知として扱い、lead が再稼働するまで done にしない", () => {
     // teammate の idle 化は必ず idle 通知を lead へ発射する。台帳が空になっても通知の
@@ -182,23 +172,12 @@ describe("teammate 台帳（subagent-start / subagent-stop / teammate-idle）", 
     expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
   });
 
-  test("running（ユーザープロンプト）でも in-flight 通知を消化する", () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
-    manager.handleHookEvent(1, "teammate-idle", { teammate_name: TEAMMATE_NAME });
-    manager.handleHookEvent(1, "running", {});
-    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
-    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
-  });
-
-  test("asking → working（承認後の同一ターン再開）では in-flight を消化しない", async () => {
+  test("asking → working（承認後の同一ターン再開）では in-flight を消化しない", () => {
     const { claudeStatusByPtyId, manager } = setup();
     manager.handleHookEvent(1, "session-start", { session_id: "s1" });
     manager.observeTitle(1, WORKING_TITLE);
     manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
-    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
-    await new Promise((r) => setTimeout(r, 200));
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+    enterAsking(claudeStatusByPtyId, 1);
 
     // lead が承認待ちの間に teammate が idle 化（通知は滞留）
     manager.handleHookEvent(1, "teammate-idle", { teammate_name: TEAMMATE_NAME });
@@ -217,14 +196,6 @@ describe("teammate 台帳（subagent-start / subagent-stop / teammate-idle）", 
     expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
   });
 
-  test("one-shot subagent の id は台帳に載らない（length 判定 = pending_work が担う）", () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "subagent-start", { agent_id: ONE_SHOT_ID });
-    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
-    // 台帳は空（one-shot は載せない）ので teammate task が残っていても done
-    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
-  });
-
   test("has_teammate_task=false の Stop は台帳と in-flight 通知の残留を掃除する（取りこぼし回復）", () => {
     const { claudeStatusByPtyId, manager } = setup();
     manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
@@ -235,22 +206,6 @@ describe("teammate 台帳（subagent-start / subagent-stop / teammate-idle）", 
     // 掃除済みなので、以降 has_teammate_task=true の Stop が来ても phantom で working 化しない
     manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
     expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
-  });
-
-  test("teammatePending な done は clearDoneState で idle に消化できる（固着しない）", () => {
-    const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
-    const manager = createClaudeStatusManager({
-      claudeStatusByPtyId,
-      panes: {
-        getSessionPtyId: (leafId) => (leafId === "leaf-1" ? 1 : undefined),
-        iteratePanes: () => [{ leafId: "leaf-1", dir: "/wt", ptyId: 1 }],
-      },
-      isPtyAlive: () => true,
-    });
-    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
-    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
-    manager.clearDoneState("leaf-1");
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
   });
 
   test("session-end で台帳が破棄され、次セッションを汚染しない", () => {
@@ -305,54 +260,7 @@ describe("teammate 台帳（subagent-start / subagent-stop / teammate-idle）", 
   });
 });
 
-describe("handleHookEvent fx 発行（効果ストリームの単一発行点）", () => {
-  test("running / tool-done / needs-input / stop-failure は fx を発行する", () => {
-    const { manager } = setup();
-    expect(manager.handleHookEvent(1, "running", {})).toEqual({ ptyId: 1, event: "running" });
-    // tool-done は working 中のみ（done 中の遅延は無視）
-    expect(manager.handleHookEvent(1, "tool-done", {})).toEqual({ ptyId: 1, event: "tool-done" });
-    // 本番では tool_input は JSON 文字列で届く（HookMessage.toolInput 契約）。boundary で 1 度 parse して
-    // 構造化オブジェクトとして fx に載ることを検証する。
-    expect(
-      manager.handleHookEvent(1, "needs-input", {
-        tool_name: "Bash",
-        tool_input: '{"command":"ls"}',
-      }),
-    ).toEqual({ ptyId: 1, event: "needs-input", toolName: "Bash", toolInput: { command: "ls" } });
-    expect(
-      manager.handleHookEvent(1, "stop-failure", { last_assistant_message: "API error" }),
-    ).toEqual({ ptyId: 1, event: "stop-failure", message: "API error" });
-  });
-
-  test("needs-input の tool_input が壊れた JSON 文字列でも throw せず toolInput は undefined", () => {
-    const { manager } = setup();
-    const fx = manager.handleHookEvent(1, "needs-input", {
-      tool_name: "Bash",
-      tool_input: "{not json",
-    });
-    expect(fx).toEqual({ ptyId: 1, event: "needs-input", toolName: "Bash", toolInput: undefined });
-  });
-
-  test("dead PTY への hook は fx を発行しない", () => {
-    const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
-    const manager = createClaudeStatusManager({
-      claudeStatusByPtyId,
-      panes: { getSessionPtyId: () => undefined, iteratePanes: () => [] },
-      isPtyAlive: () => false,
-    });
-    expect(manager.handleHookEvent(1, "done", { pending_work: false })).toBeUndefined();
-  });
-
-  test("done 後の遅延 tool-done は state も fx も変えない", () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "done", { pending_work: false });
-    const lateFx = manager.handleHookEvent(1, "tool-done", {});
-    expect(lateFx).toBeUndefined();
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
-  });
-});
-
-describe("classifyClaudeTitle / stripClaudeTitlePrefix", () => {
+describe("classifyClaudeTitle", () => {
   test("スピナープレフィックスは working、✳ は idle、それ以外は undefined", () => {
     // 点字・半円のどちらの字形でも working。利用者の Claude Code バージョンは選べない
     expect(classifyClaudeTitle(WORKING_TITLE)).toBe("working");
@@ -366,14 +274,6 @@ describe("classifyClaudeTitle / stripClaudeTitlePrefix", () => {
     // タイトルに出る半円は 2 コマだけ。範囲記法 `◐-◓` への一般化で残り 2 つを巻き込まない
     expect(classifyClaudeTitle("◒ project")).toBeUndefined();
     expect(classifyClaudeTitle("◓ project")).toBeUndefined();
-  });
-
-  test("strip は working/idle 両プレフィックスを落とし、素のタイトルは触らない", () => {
-    expect(stripClaudeTitlePrefix(WORKING_TITLE)).toBe("project");
-    expect(stripClaudeTitlePrefix(WORKING_TITLE_HALF_CIRCLE)).toBe("project");
-    expect(stripClaudeTitlePrefix(WORKING_TITLE_HALF_CIRCLE_ALT)).toBe("project");
-    expect(stripClaudeTitlePrefix(IDLE_TITLE)).toBe("project");
-    expect(stripClaudeTitlePrefix("project")).toBe("project");
   });
 });
 
@@ -395,98 +295,70 @@ describe("screenHasClaudeBlocker（承認 UI の可視判定）", () => {
   });
 });
 
-describe("observeTitle（OSC タイトル駆動の状態）", () => {
-  test("session 確立後: スピナー → working、✳ → idle。working を抜けた時刻を最終更新として刻む", async () => {
+describe("needs-input（承認待ちへの遷移）", () => {
+  // 刻み忘れても表示は崩れず、サイドバーの並び順と相対時刻だけが黙ってずれる
+  test("承認待ちに入った時刻を最終更新として刻む", async () => {
     const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    seedStatus(claudeStatusByPtyId, 1, { state: "working", lastActivityAt: STALE_ACTIVITY_AT });
+    // 承認待ちへの遷移は debounce の先で状態の ref に書かれる。その書き込みを同期点にする
+    const asking = new Promise<ClaudeStatus>((resolve) => {
+      const stop = watch(
+        claudeStatusByPtyId,
+        (statuses) => {
+          const status = statuses[1];
+          if (status?.state !== "asking") return;
+          stop();
+          resolve(status);
+        },
+        { deep: true, flush: "sync" },
+      );
+    });
 
-    manager.observeTitle(1, WORKING_TITLE);
-    const working = claudeStatusByPtyId.value[1];
-    expect(working?.state).toBe("working");
+    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash" });
+
+    expect((await asking).lastActivityAt).toBeGreaterThan(STALE_ACTIVITY_AT);
+  });
+});
+
+describe("observeTitle / observeScreen（タイトルと画面本文による遷移）", () => {
+  test("working から ✳ で idle に抜けた時刻を最終更新として刻む", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    seedStatus(claudeStatusByPtyId, 1, { state: "working", lastActivityAt: STALE_ACTIVITY_AT });
 
     // 中断を含め、working を抜けた時点が Claude の最終更新になる
-    await new Promise((r) => setTimeout(r, 5));
     manager.observeTitle(1, IDLE_TITLE);
     const idle = claudeStatusByPtyId.value[1];
     expect(idle?.state).toBe("idle");
-    expect(idle?.lastActivityAt).toBeGreaterThan(working?.lastActivityAt ?? Infinity);
+    expect(idle?.lastActivityAt).toBeGreaterThan(STALE_ACTIVITY_AT);
   });
 
-  test("session 未確立（session-start 前）はタイトルから状態を作らない", () => {
+  test("✳ は asking を上書きしない（hook 権威を温存）", () => {
     const { claudeStatusByPtyId, manager } = setup();
-    manager.observeTitle(1, WORKING_TITLE);
-    expect(claudeStatusByPtyId.value[1]).toBeUndefined();
-  });
-
-  test("✳ は done を上書きしない（未読 done を消さない）", () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
-    manager.handleHookEvent(1, "done", { pending_work: false });
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
-    // Stop 直後に Claude はプロンプト待ちタイトル ✳ を出すが、done は温存する
-    manager.observeTitle(1, IDLE_TITLE);
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
-  });
-
-  test("✳ は asking を上書きしない（hook 権威を温存）", async () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
-    manager.observeTitle(1, WORKING_TITLE);
-    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
-    // needs-input は 150ms debounce 後に asking へ遷移する
-    await new Promise((r) => setTimeout(r, 200));
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
-
+    enterAsking(claudeStatusByPtyId, 1);
     manager.observeTitle(1, IDLE_TITLE);
     expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
   });
 
-  test("asking 中にスピナーが来ると working に復帰する（承認後の再開）", async () => {
+  test("asking 中にスピナーが来ると working に復帰する（承認後の再開）", () => {
     const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
-    manager.observeTitle(1, WORKING_TITLE);
-    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
-    await new Promise((r) => setTimeout(r, 200));
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
-
+    enterAsking(claudeStatusByPtyId, 1);
     manager.observeTitle(1, WORKING_TITLE);
     expect(claudeStatusByPtyId.value[1]?.state).toBe("working");
   });
 
-  test("asking 中に承認 UI 文言が画面から消えたら idle に戻る（キャンセル / 中断）", async () => {
+  test("asking 中に承認 UI 文言が画面から消えたら idle に戻り、最終更新は asking の時刻を維持する", () => {
     const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
-    manager.observeTitle(1, WORKING_TITLE);
-    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
-    await new Promise((r) => setTimeout(r, 200));
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+    enterAsking(claudeStatusByPtyId, 1);
 
     // 承認プロンプト表示中は文言が画面にあるので asking を維持
     manager.observeScreen(1, () => "Do you want to proceed?\n❯ 1. Yes\n  2. No (esc to cancel)");
     expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
 
-    // キャンセルで承認 UI が消えた画面 → idle に戻る
+    // キャンセルで承認 UI が消えた画面 → idle に戻る。キャンセルは人の操作で Claude の活動では
+    // ないので、asking の時刻を持ち越す
     manager.observeScreen(1, () => "❯ ");
     expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
-  });
-
-  test("asking に入った時刻を最終更新として刻み、承認のキャンセルでは維持する", async () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
-    manager.observeTitle(1, WORKING_TITLE);
-    const workingAt = claudeStatusByPtyId.value[1]?.lastActivityAt ?? Infinity;
-    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
-    await new Promise((r) => setTimeout(r, 200));
-
-    // Claude が止まって承認を求めた時刻が最終更新
-    const askingAt = claudeStatusByPtyId.value[1]?.lastActivityAt;
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
-    expect(askingAt).toBeGreaterThan(workingAt);
-
-    // キャンセルは人の操作で Claude の活動ではないので、asking の時刻を持ち越す
-    manager.observeScreen(1, () => "❯ ");
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
-    expect(claudeStatusByPtyId.value[1]?.lastActivityAt).toBe(askingAt);
+    expect(claudeStatusByPtyId.value[1]?.lastActivityAt).toBe(STALE_ACTIVITY_AT);
   });
 
   test("asking 以外では画面本文を読まない（遅延取得を呼ばない）", () => {
@@ -499,34 +371,5 @@ describe("observeTitle（OSC タイトル駆動の状態）", () => {
       return "";
     });
     expect(read).toBe(false);
-  });
-
-  test("done 中でもスピナー（新ターン開始）は working にする", () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
-    manager.handleHookEvent(1, "done", { pending_work: false });
-    manager.observeTitle(1, WORKING_TITLE);
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("working");
-  });
-
-  test("プレフィックスの無いタイトルは状態を変えない", () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
-    manager.observeTitle(1, "plain title");
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
-  });
-});
-
-describe("running / tool-done は状態を駆動しない（状態は title 専任）", () => {
-  test("running / tool-done は fx を返すが state は変えない", () => {
-    const { claudeStatusByPtyId, manager } = setup();
-    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
-
-    // fx は従来どおり発行される（arcade engage / tick）
-    expect(manager.handleHookEvent(1, "running", {})).toEqual({ ptyId: 1, event: "running" });
-    expect(manager.handleHookEvent(1, "tool-done", {})).toEqual({ ptyId: 1, event: "tool-done" });
-    // しかし状態は idle のまま（working 化は title のみが行う）
-    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
   });
 });

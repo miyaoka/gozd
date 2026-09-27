@@ -31,19 +31,19 @@ pre-commit:
           - name: test-shared
             root: "packages/shared/"
             glob: "**/*.ts"
-            run: bun test
+            run: bun test --changed
           - name: test-claude-session-log
             root: "packages/claude-session-log/"
             glob: "**/*.ts"
-            run: bun test
+            run: bun test --changed
           - name: test-renderer
             root: "apps/renderer/"
             glob: "**/*.ts"
-            run: bun test
+            run: bun test --changed
           - name: test-electron
             root: "apps/electron/"
             glob: "**/*.ts"
-            run: bun test
+            run: bun test --changed
 
           # Formatter（ts/vue 以外。ts/vue は各 linter ジョブで oxfmt を実行）
           - name: oxfmt

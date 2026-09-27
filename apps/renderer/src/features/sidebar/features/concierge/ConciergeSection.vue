@@ -12,7 +12,7 @@ import { computed } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
 import { buildSessionRows, type SessionRow } from "../../../session";
 import { activateDir, useTerminalStore } from "../../../terminal";
-import { SessionList } from "../session-row";
+import { hasSessionRows, SessionList, visibleSessionRows } from "../session-row";
 import IconLucideConciergeBell from "~icons/lucide/concierge-bell";
 
 const props = defineProps<{
@@ -35,11 +35,12 @@ const active = computed(
 const sessionRows = computed(() => {
   const dir = concierge.value?.rootDir;
   if (dir === undefined) return { live: [], inactive: [] };
-  return buildSessionRows(dir, terminalStore.liveSessions, repoStore.sessionsOf(dir));
+  return visibleSessionRows(
+    buildSessionRows(dir, terminalStore.liveSessions, repoStore.sessionsOf(dir)),
+    active.value,
+  );
 });
-const hasSessions = computed(
-  () => sessionRows.value.live.length > 0 || sessionRows.value.inactive.length > 0,
-);
+const hasSessions = computed(() => hasSessionRows(sessionRows.value));
 
 function onHeaderClick() {
   if (concierge.value === undefined) return;

@@ -1,14 +1,14 @@
 <doc lang="md">
-1 worktree のカード。ヘッダ (branch 名 / server port バッジ / git status /
+1 worktree の表示。ヘッダ (branch 名 / server port バッジ / git status /
 upstream ahead-behind / ⋮) と、Claude セッション行 (SessionList) を縦に並べる。
-セッションが無い wt はヘッダのみ。
+出す行は利用側が決めて渡す。
 
 ## グルーピング
 
-「worktree とそこで動いたセッション群」を 1 つの単位として明示するため、カードは境界
-(border + 内パディング) を持ち、セッションがある場合はヘッダとボディを divider で区切る。
-ヘッダ = worktree identity ゾーン、ボディ = その worktree のセッション群ゾーンとして
-構造で分離する。
+カードにするかは docs/workspace.md の「各 worktree」に従う。カードは境界 (border + 内パディング)
+を持ち、ヘッダとボディを divider で区切る。ヘッダ = worktree identity ゾーン、ボディ = その
+worktree のセッション群ゾーンとして構造で分離する。ヘッダ 1 行のときは境界を持たず、選択中で
+あることはヘッダの fill が示す。
 
 ヘッダには icon を置かず branch 名のみで identity を示す。gutter に出る icon をセッション行の
 claude state icon だけに限定することで、worktree identity (branch 名) とセッションの状態 (icon)
@@ -23,9 +23,9 @@ server port バッジは、その worktree の端末で LISTEN 中の dev server
 
 ## ハイライト
 
-選択表現を 2 レベルで階層分離する。fill (青 capsule) は常にカード内 1 行だけ。
+選択表現を 2 レベルで階層分離する。fill (青 capsule) は常に wt ごとに 1 行だけ。
 
-- **カード = アウトライン**: active worktree は border-primary + 外周グロー
+- **カード = アウトライン**: カードで描く active worktree は border-primary + 外周グロー
   (`_fx-quest-active`) で示す。内部は塗らない。
 - **行 = fill**: focus がある 1 行だけ `bg-primary-subtle` の capsule。focused PTY が
   セッションなら該当セッション行、セッションに focus が無い (wt の素のターミナル) なら header。
@@ -37,18 +37,14 @@ server port バッジは、その worktree の端末で LISTEN 中の dev server
 <script setup lang="ts">
 import type { WorktreeEntry } from "@gozd/rpc";
 import { computed } from "vue";
-import {
-  type RepoWorktree,
-  branchLabel as resolveBranchLabel,
-  useRepoStore,
-} from "../../../../shared/repo";
+import { type RepoWorktree, branchLabel as resolveBranchLabel } from "../../../../shared/repo";
 import { useServerStore } from "../../../server";
-import { buildSessionRows, type SessionRow } from "../../../session";
+import type { DirSessionRows, SessionRow } from "../../../session";
 import type { ClaudeState } from "../../../terminal";
 import { displayClaudeState, useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
 import { hasChanges } from "../../utils";
-import { SessionList } from "../session-row";
+import { hasSessionRows, SessionList } from "../session-row";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideArrowUp from "~icons/lucide/arrow-up";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
@@ -56,7 +52,7 @@ import IconLucideServer from "~icons/lucide/server";
 
 const props = defineProps<{
   wt: RepoWorktree;
-  rootDir: string;
+  sessionRows: DirSessionRows;
   active: boolean;
 }>();
 
@@ -69,7 +65,6 @@ const emit = defineEmits<{
 
 const terminalStore = useTerminalStore();
 const serverStore = useServerStore();
-const repoStore = useRepoStore();
 
 /** この worktree の端末で LISTEN 中のサーバー port (issue #768)。Claude status と同粒度のバッジ。 */
 const livePorts = computed(() => serverStore.livePortsByWorktree(props.wt.path));
@@ -101,10 +96,6 @@ const statusIcons = computed(() => {
   return computeStatusIcons(props.wt.gitStatuses);
 });
 
-const sessionRows = computed(() =>
-  buildSessionRows(props.wt.path, terminalStore.liveSessions, repoStore.sessionsOf(props.rootDir)),
-);
-
 /**
  * header の capsule (青 fill) は「wt が active かつセッションに focus が無い」ときだけ。
  * セッションに focus があるときは該当行を fill するので、header まで fill すると
@@ -115,7 +106,7 @@ const sessionRows = computed(() =>
 const headerActive = computed(
   () =>
     props.active &&
-    !sessionRows.value.live.some((row) =>
+    !props.sessionRows.live.some((row) =>
       terminalStore.isSessionFocused(props.wt.path, row.sessionId),
     ),
 );
@@ -124,9 +115,14 @@ const headerActive = computed(
  * （WorktreeMenu 側の出し分けと対）。 */
 const canOpenMenu = computed(() => !props.wt.isMain);
 
-const hasSessions = computed(
-  () => sessionRows.value.live.length > 0 || sessionRows.value.inactive.length > 0,
-);
+const hasSessions = computed(() => hasSessionRows(props.sessionRows));
+
+/** カードとして描くときの枠。セッション行が無いときは付けず、ヘッダ 1 行だけにする */
+const cardClass = computed(() => [
+  "border p-0.5",
+  props.active ? "_fx-quest-active border-primary" : "border-border-subtle",
+  auraClass.value,
+]);
 
 function onMenuClick(event: MouseEvent) {
   event.stopPropagation();
@@ -140,11 +136,12 @@ function onHeaderClick() {
 </script>
 
 <template>
+  <!-- 行のときの px-0.75 はカードの border + p-0.5 と同じ幅で、branch 名の位置をカードと揃える -->
   <article
     :data-active="active"
     :data-wt-path="wt.path"
-    class="flex flex-col gap-0.5 rounded-lg border p-0.5 transition-colors"
-    :class="[active ? '_fx-quest-active border-primary' : 'border-border-subtle', auraClass]"
+    class="flex flex-col gap-0.5 rounded-lg transition-colors"
+    :class="hasSessions ? cardClass : 'px-0.75'"
   >
     <div class="group/wt relative">
       <button

@@ -1,6 +1,6 @@
 <doc lang="md">
-1 つの repo を表すサイドバーセクション。repo の識別を示すヘッダと、配下の worktree カード列を持つ。
-非 git project は worktree カードを持たず、ヘッダの下にその dir のセッション行を直接並べる。
+1 つの repo を表すサイドバーセクション。repo の識別を示すヘッダと、配下の worktree 列 (WtCard) を持つ。
+非 git project は worktree 列を持たず、ヘッダの下にその dir のセッション行を直接並べる。
 
 ## 背景 fetch の可視スコープ報告
 
@@ -13,18 +13,18 @@ section の viewport 可視 (`useElementVisibility`) と「展開表示中」(`b
 
 main worktree を先頭に固定し、以降は git が返した順のまま並べ、末尾に新規作成の導線を置く。
 
-state による並び替えは行わない。Claude 起動 / 状態遷移でカード位置が動くと
+state による並び替えは行わない。Claude 起動 / 状態遷移で wt の位置が動くと
 「どこに何があるか」を覚えていられないため、位置は静的に保ち、状態は state
 アイコンで識別する。
 
-Claude セッションの有無で wt カードを絞ることはしない。稼働を横断して見る面はセッション単位の
+Claude セッションの有無で wt を絞らない。稼働を横断して見る面はセッション単位の
 ダッシュボード（docs/session.md）と端末単位の view mode（docs/terminal.md）が受け持ち、この
 section は「どこで作業するか」の地図として常に全 worktree を出す。
 
 ## 操作
 
 - header 全体クリック: git repo は折りたたみトグル (永続)、非 git project は rootDir を
-  active dir に選択 (ファイラー表示の唯一の経路)。非 git は worktree カードを持たず畳む対象が
+  active dir に選択 (ファイラー表示の唯一の経路)。非 git は worktree 列を持たず畳む対象が
   無いため chevron も出さない。編集モード中はどちらも無効
 - 編集モードのヘッダは通常モードと完全に別描画: grip（drag handle）+ 非インタラクティブな
   名前表示 + ✕ のみで、_fx-shine の hover 演出もクリックも持たない。grip を分離するのは
@@ -51,13 +51,13 @@ repo 名の 2 行目に GitHub owner を出すのは展開時のみ。折りた�
 ## ハイライト
 
 active worktree を所有する repo は section 枠を薄い primary 線 + 浮き上がる影で示す
-(`._fx-panel[data-active]`)。塗り / グローは持たせず、wt カードの border-primary + 外周
-グローより弱くする。同じ青でも「枠線 (repo) < 枠線 + グロー (wt)」で主従が分かれ、wt
-ハイライトが repo 枠に埋もれない。
+(`._fx-panel[data-active]`)。塗り / グローは持たせない。active worktree 側は、カードなら
+border-primary + 外周グロー、ヘッダ 1 行ならヘッダの fill で示す。repo は枠線だけ、wt は
+グローか fill という別の表現で主従が分かれ、wt ハイライトが repo 枠に埋もれない。
 
 ## 開閉アニメーション
 
-wt カード列の開閉は `<Transition>` で height 0 ↔ auto を CSS transition する
+wt 列の開閉は `<Transition>` で height 0 ↔ auto を CSS transition する
 （`interpolate-size: allow-keywords` で auto が補間可能になる。Chromium 129+）。
 transition root は padding を持たず height だけを補間し、padding は内側の div が持つ
 （root が padding を持つと border-box でも h-0 時に padding 分の高さが残る）。
@@ -75,8 +75,9 @@ import { useRepoStore } from "../../../../shared/repo";
 import { RepoIcon } from "../../../repo-icon";
 import { buildSessionRows, type SessionRow } from "../../../session";
 import { useTerminalStore } from "../../../terminal";
-import { SessionList } from "../session-row";
+import { hasSessionRows, SessionList, visibleSessionRows } from "../session-row";
 import { WtCard } from "../worktree";
+import { buildWorktreeColumn } from "./worktreeColumn";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
 import IconLucideGripVertical from "~icons/lucide/grip-vertical";
@@ -133,6 +134,18 @@ const orderedWorktrees = computed(() => {
   return main !== undefined ? [main, ...others] : others;
 });
 
+/** worktree ごとに出すセッション行。行の有無でカードか 1 行かが決まり、区切りの位置にも使う */
+const worktreeEntries = computed(() =>
+  orderedWorktrees.value.map((wt) => ({
+    wt,
+    sessionRows: visibleSessionRows(
+      buildSessionRows(wt.path, terminalStore.liveSessions, repoStore.sessionsOf(props.rootDir)),
+      props.activeDir === wt.path,
+    ),
+  })),
+);
+const worktreeColumn = computed(() => buildWorktreeColumn(worktreeEntries.value));
+
 const sectionEl = useTemplateRef<HTMLElement>("section");
 const dragHandleEl = useTemplateRef<HTMLElement>("dragHandle");
 
@@ -149,18 +162,22 @@ const visiblyCollapsed = computed(() => {
   return collapsed.value;
 });
 
-// wt カード列が実際に展開表示されているか（非 git はカード列を持たないので常に false）
+// wt 列が実際に展開表示されているか（非 git は wt 列を持たないので常に false）
 const bodyVisible = computed(() => isGitRepo.value && !visiblyCollapsed.value);
 
 // 非 git project のセッション行。worktree を持たないため rootDir 自身が作業ディレクトリ
 const plainSessionRows = computed(() =>
-  buildSessionRows(props.rootDir, terminalStore.liveSessions, repoStore.sessionsOf(props.rootDir)),
+  visibleSessionRows(
+    buildSessionRows(
+      props.rootDir,
+      terminalStore.liveSessions,
+      repoStore.sessionsOf(props.rootDir),
+    ),
+    props.activeDir === props.rootDir,
+  ),
 );
 const plainSessionsVisible = computed(
-  () =>
-    !isGitRepo.value &&
-    !props.editMode &&
-    (plainSessionRows.value.live.length > 0 || plainSessionRows.value.inactive.length > 0),
+  () => !isGitRepo.value && !props.editMode && hasSessionRows(plainSessionRows.value),
 );
 
 // 背景 fetch の可視スコープ報告: 「展開表示 + viewport 内」の間だけ on-screen として
@@ -205,7 +222,7 @@ function onOpenMenu(event: MouseEvent) {
 
 // 通常モードのヘッダ button 専用（編集モードのヘッダは非インタラクティブな div）。
 function onHeaderClick() {
-  // 非 git project は worktree カードを持たず畳む対象が無いため、ヘッダクリックを
+  // 非 git project は worktree 列を持たず畳む対象が無いため、ヘッダクリックを
   // 「rootDir を active dir に選択」に振り分ける。これが非 git project のファイラーを
   // 表示する唯一の経路（git repo は WtCard クリックが担う）。
   if (!isGitRepo.value) {
@@ -338,17 +355,25 @@ function onHeaderClick() {
     >
       <div v-if="bodyVisible" class="[interpolate-size:allow-keywords]">
         <div class="flex flex-col gap-2 px-2 pt-1 pb-2">
-          <WtCard
-            v-for="wt in orderedWorktrees"
-            :key="wt.path"
-            :wt="wt"
-            :root-dir="rootDir"
-            :active="activeDir === wt.path"
-            @select-wt="emit('selectWt', $event)"
-            @select-session="(row) => emit('selectSession', row)"
-            @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"
-            @open-session-menu="(anchorEl, row) => emit('openSessionMenu', anchorEl, row, rootDir)"
-          />
+          <!-- 間隔は列の容器が持つ。worktree どうしは gap-0.5 で詰め、カードの前後だけ区切り (h-1) を
+               挟んで gap と合わせて 8px 空ける（buildWorktreeColumn） -->
+          <div class="flex flex-col gap-0.5">
+            <template v-for="item in worktreeColumn" :key="item.key">
+              <div v-if="item.kind === 'separator'" aria-hidden="true" class="h-1" />
+              <WtCard
+                v-else
+                :wt="item.entry.wt"
+                :session-rows="item.entry.sessionRows"
+                :active="activeDir === item.entry.wt.path"
+                @select-wt="emit('selectWt', $event)"
+                @select-session="(row) => emit('selectSession', row)"
+                @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"
+                @open-session-menu="
+                  (anchorEl, row) => emit('openSessionMenu', anchorEl, row, rootDir)
+                "
+              />
+            </template>
+          </div>
           <button
             type="button"
             class="_fx-shine flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs text-foreground-low transition-colors hover:bg-element-hover hover:text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:bg-transparent disabled:hover:text-foreground-muted"

@@ -299,10 +299,18 @@ interface ClaudeStatusManagerDeps {
    * resume の連打ガード (pendingResumeByLeafId) を session-start で消化するために使う。
    */
   onSessionAttached?: (ptyId: number, sessionId: string) => void;
+  /** PermissionRequest を asking に反映するまでの debounce 窓。テストで注入可能 */
+  askDebounceMs?: number;
 }
 
 export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
-  const { claudeStatusByPtyId, panes, isPtyAlive, onSessionAttached } = deps;
+  const {
+    claudeStatusByPtyId,
+    panes,
+    isPtyAlive,
+    onSessionAttached,
+    askDebounceMs = ASK_DEBOUNCE_MS,
+  } = deps;
 
   /** ptyId → PermissionRequest の debounce タイマー */
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
@@ -459,7 +467,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
               toolName,
               toolInput,
             };
-          }, ASK_DEBOUNCE_MS),
+          }, askDebounceMs),
         );
         // 効果（アラート音・読み上げ）は従来どおり debounce せず即時発火させる
         return { ptyId, event, toolName, toolInput };

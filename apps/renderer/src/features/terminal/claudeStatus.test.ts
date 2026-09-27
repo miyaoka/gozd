@@ -19,7 +19,7 @@ const IDLE_TITLE = "✳ project"; // U+2733 = ✳
 /** Date.now() が返し得ない過去の時刻。遷移で最終更新が刻み直されたか / 維持されたかを見分ける */
 const STALE_ACTIVITY_AT = 1;
 
-function setup() {
+function setup(askDebounceMs?: number) {
   const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
   const manager = createClaudeStatusManager({
     claudeStatusByPtyId,
@@ -28,6 +28,7 @@ function setup() {
       iteratePanes: () => [],
     },
     isPtyAlive: () => true,
+    askDebounceMs,
   });
   return { claudeStatusByPtyId, manager };
 }
@@ -298,7 +299,8 @@ describe("screenHasClaudeBlocker（承認 UI の可視判定）", () => {
 describe("needs-input（承認待ちへの遷移）", () => {
   // 刻み忘れても表示は崩れず、サイドバーの並び順と相対時刻だけが黙ってずれる
   test("承認待ちに入った時刻を最終更新として刻む", async () => {
-    const { claudeStatusByPtyId, manager } = setup();
+    // 判定は状態の ref への書き込みを同期点にしており debounce の長さに依存しない。0 は実時間の待ちを消すだけ
+    const { claudeStatusByPtyId, manager } = setup(0);
     seedStatus(claudeStatusByPtyId, 1, { state: "working", lastActivityAt: STALE_ACTIVITY_AT });
     // 承認待ちへの遷移は debounce の先で状態の ref に書かれる。その書き込みを同期点にする
     const asking = new Promise<ClaudeStatus>((resolve) => {

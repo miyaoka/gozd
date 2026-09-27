@@ -9,7 +9,7 @@ export function visibleSessionRows(rows: DirSessionRows, selected: boolean): Dir
   return { live: rows.live, inactive: [] };
 }
 
-/** 出すセッション行があるか。worktree をカードにするかの判定（docs/workspace.md の「各 worktree」） */
+/** 出すセッション行があるか。セッション行の入れ物（worktree ならカード）を出すかの判定 */
 export function hasSessionRows(rows: DirSessionRows): boolean {
   return rows.live.length > 0 || rows.inactive.length > 0;
 }

@@ -75,9 +75,9 @@ import { useRepoStore } from "../../../../shared/repo";
 import { RepoIcon } from "../../../repo-icon";
 import { buildSessionRows, type SessionRow } from "../../../session";
 import { useTerminalStore } from "../../../terminal";
-import { SessionList, visibleSessionRows } from "../session-row";
+import { hasSessionRows, SessionList, visibleSessionRows } from "../session-row";
 import { WtCard } from "../worktree";
-import { groupWorktreeEntries } from "./worktreeGroups";
+import { buildWorktreeColumn } from "./worktreeColumn";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
 import IconLucideGripVertical from "~icons/lucide/grip-vertical";
@@ -134,17 +134,18 @@ const orderedWorktrees = computed(() => {
   return main !== undefined ? [main, ...others] : others;
 });
 
-/** worktree ごとに出すセッション行。行の有無でカードか 1 行かが決まり、間隔のグループ分けにも使う */
+/** worktree ごとに出すセッション行。行の有無でカードか 1 行かが決まり、区切りの位置にも使う */
 const worktreeEntries = computed(() =>
   orderedWorktrees.value.map((wt) => ({
     wt,
+    path: wt.path,
     sessionRows: visibleSessionRows(
       buildSessionRows(wt.path, terminalStore.liveSessions, repoStore.sessionsOf(props.rootDir)),
       props.activeDir === wt.path,
     ),
   })),
 );
-const worktreeGroups = computed(() => groupWorktreeEntries(worktreeEntries.value));
+const worktreeColumn = computed(() => buildWorktreeColumn(worktreeEntries.value));
 
 const sectionEl = useTemplateRef<HTMLElement>("section");
 const dragHandleEl = useTemplateRef<HTMLElement>("dragHandle");
@@ -177,10 +178,7 @@ const plainSessionRows = computed(() =>
   ),
 );
 const plainSessionsVisible = computed(
-  () =>
-    !isGitRepo.value &&
-    !props.editMode &&
-    (plainSessionRows.value.live.length > 0 || plainSessionRows.value.inactive.length > 0),
+  () => !isGitRepo.value && !props.editMode && hasSessionRows(plainSessionRows.value),
 );
 
 // 背景 fetch の可視スコープ報告: 「展開表示 + viewport 内」の間だけ on-screen として
@@ -358,26 +356,24 @@ function onHeaderClick() {
     >
       <div v-if="bodyVisible" class="[interpolate-size:allow-keywords]">
         <div class="flex flex-col gap-2 px-2 pt-1 pb-2">
-          <!-- 間隔は列の容器が gap で持つ。ヘッダ 1 行の worktree が続く間は 1 グループで詰め、
-               カードの前後はグループの境目として外側の gap で空ける（groupWorktreeEntries） -->
-          <div
-            v-for="group in worktreeGroups"
-            :key="group[0]?.wt.path"
-            class="flex flex-col gap-0.5"
-          >
-            <WtCard
-              v-for="entry in group"
-              :key="entry.wt.path"
-              :wt="entry.wt"
-              :session-rows="entry.sessionRows"
-              :active="activeDir === entry.wt.path"
-              @select-wt="emit('selectWt', $event)"
-              @select-session="(row) => emit('selectSession', row)"
-              @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"
-              @open-session-menu="
-                (anchorEl, row) => emit('openSessionMenu', anchorEl, row, rootDir)
-              "
-            />
+          <!-- 間隔は列の容器が持つ。worktree どうしは gap-0.5 で詰め、カードの前後だけ区切り (h-1) を
+               挟んで gap と合わせて 8px 空ける（buildWorktreeColumn） -->
+          <div class="flex flex-col gap-0.5">
+            <template v-for="item in worktreeColumn" :key="item.key">
+              <div v-if="item.kind === 'separator'" aria-hidden="true" class="h-1" />
+              <WtCard
+                v-else
+                :wt="item.entry.wt"
+                :session-rows="item.entry.sessionRows"
+                :active="activeDir === item.entry.path"
+                @select-wt="emit('selectWt', $event)"
+                @select-session="(row) => emit('selectSession', row)"
+                @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"
+                @open-session-menu="
+                  (anchorEl, row) => emit('openSessionMenu', anchorEl, row, rootDir)
+                "
+              />
+            </template>
           </div>
           <button
             type="button"

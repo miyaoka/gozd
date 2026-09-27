@@ -75,7 +75,7 @@ import { useRepoStore } from "../../../../shared/repo";
 import { RepoIcon } from "../../../repo-icon";
 import { buildSessionRows, type SessionRow } from "../../../session";
 import { useTerminalStore } from "../../../terminal";
-import { SessionList } from "../session-row";
+import { SessionList, visibleSessionRows } from "../session-row";
 import { WtCard } from "../worktree";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
@@ -154,7 +154,14 @@ const bodyVisible = computed(() => isGitRepo.value && !visiblyCollapsed.value);
 
 // 非 git project のセッション行。worktree を持たないため rootDir 自身が作業ディレクトリ
 const plainSessionRows = computed(() =>
-  buildSessionRows(props.rootDir, terminalStore.liveSessions, repoStore.sessionsOf(props.rootDir)),
+  visibleSessionRows(
+    buildSessionRows(
+      props.rootDir,
+      terminalStore.liveSessions,
+      repoStore.sessionsOf(props.rootDir),
+    ),
+    props.activeDir === props.rootDir,
+  ),
 );
 const plainSessionsVisible = computed(
   () =>
@@ -338,17 +345,22 @@ function onHeaderClick() {
     >
       <div v-if="bodyVisible" class="[interpolate-size:allow-keywords]">
         <div class="flex flex-col gap-2 px-2 pt-1 pb-2">
-          <WtCard
-            v-for="wt in orderedWorktrees"
-            :key="wt.path"
-            :wt="wt"
-            :root-dir="rootDir"
-            :active="activeDir === wt.path"
-            @select-wt="emit('selectWt', $event)"
-            @select-session="(row) => emit('selectSession', row)"
-            @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"
-            @open-session-menu="(anchorEl, row) => emit('openSessionMenu', anchorEl, row, rootDir)"
-          />
+          <!-- wt 列の gap は行どうしの間隔。カードの前後の間隔は WtCard 側が持つ -->
+          <div class="flex flex-col gap-0.5">
+            <WtCard
+              v-for="wt in orderedWorktrees"
+              :key="wt.path"
+              :wt="wt"
+              :root-dir="rootDir"
+              :active="activeDir === wt.path"
+              @select-wt="emit('selectWt', $event)"
+              @select-session="(row) => emit('selectSession', row)"
+              @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"
+              @open-session-menu="
+                (anchorEl, row) => emit('openSessionMenu', anchorEl, row, rootDir)
+              "
+            />
+          </div>
           <button
             type="button"
             class="_fx-shine flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs text-foreground-low transition-colors hover:bg-element-hover hover:text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:bg-transparent disabled:hover:text-foreground-muted"

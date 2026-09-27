@@ -6,7 +6,8 @@
 
 import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { tryCatch } from "@gozd/shared";
-import { resolveGitBeforeTests, runFixtureGit } from "../testGitFixture";
+import { runFixtureGit } from "../testGitFixture";
+import { resolveGitBeforeTests } from "../testGitResolver";
 import {
   existsSync,
   lstatSync,

@@ -23,7 +23,8 @@ import {
   removeWorktreeForConcierge,
   resolveSessionOpenDir,
 } from "./concierge";
-import { resolveGitBeforeTests, runFixtureGit } from "./testGitFixture";
+import { runFixtureGit } from "./testGitFixture";
+import { resolveGitBeforeTests } from "./testGitResolver";
 
 const tempDirs: string[] = [];
 

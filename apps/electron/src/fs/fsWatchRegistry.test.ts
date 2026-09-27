@@ -15,7 +15,8 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StatusFull } from "../git/porcelain";
-import { resolveGitBeforeTests, runFixtureGit } from "../testGitFixture";
+import { runFixtureGit } from "../testGitFixture";
+import { resolveGitBeforeTests } from "../testGitResolver";
 import {
   createFsWatchRegistry,
   type FsWatchHandlers,

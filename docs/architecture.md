@@ -183,8 +183,9 @@ decode 失敗は接続を切らずログに残す。
 - worktree ごとの git dir も worktree 単位で独立に監視する
 - 非 git のディレクトリは root 自身を監視する（ファイル変更だけが意味を持つ）
 - 監視の登録 / 解除は冪等
-- **包含関係にある root を重ねて登録しない**。同一の変更が二重配送されるため、最小被覆集合だけを
-  監視する
+- **同じ変更を二重に配送しない**。監視する root が別の root を含むとき（repo 内の worktree、
+  main repo の `.git` を共有する worktree）、含む側の監視は含まれる側の root を除いて張る。変更は
+  それを含むすべての dir の監視対象として扱う
 - **repo 内に置かれた同じ repo の別 worktree（入れ子 worktree）の変更で、外側の git status を
   取り直さない**。git は入れ子 worktree を 1 エントリとしか見ないため、内部の変更は外側の status を
   変えない。submodule は内部の変更が外側の status に現れるため、この扱いに含めない。
@@ -195,6 +196,9 @@ decode 失敗は接続を切らずログに残す。
 
 ユーザー設定による除外パターンは **working tree 側の監視にだけ**適用し、git dir には掛けない。
 git dir を除外すると参照や HEAD の変化を落とし、branch / status の検知が壊れる。
+
+除外パターンは、各 working tree の root からの相対で解釈する。repo 内に置かれた worktree の中の
+変更にも、外側の repo ではなくその worktree の root からの相対でパターンが当たる。
 
 ## native 拡張の隔離
 

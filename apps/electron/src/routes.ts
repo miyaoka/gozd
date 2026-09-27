@@ -495,7 +495,7 @@ const fsWatchRegistry = createFsWatchRegistry(
   {
     transport: watcherClient,
     logEvent: pushDebugLog,
-    // buildEntry ごとに最新の config を読む。除外は value === true のキーだけ有効
+    // subscribe を張り直すたびに最新の config を読む。除外は value === true のキーだけ有効
     // （false は seed 済み default をユーザーが無効化する subtraction）
     getWatcherExclude: () =>
       Object.entries(loadAppConfig().watcherExclude)
@@ -505,9 +505,10 @@ const fsWatchRegistry = createFsWatchRegistry(
 );
 
 /** will-quit で全 watch を始末する（watcher スレッドの残骸を残さない）。
- * unwatchAll で subscription を畳んだ後、utilityProcess 自体を kill する */
+ * entry を畳んで utilityProcess 自体を kill する。kill 後に届く unsubscribe は watcherClient が
+ * no-op にする */
 export function unwatchAllFsWatches(): void {
-  fsWatchRegistry.unwatchAll();
+  void fsWatchRegistry.unwatchAll();
   unwatchAllAbsFiles();
   watcherClient.dispose();
 }
@@ -575,9 +576,9 @@ function handleFsSetFocusDir(body: unknown): unknown {
   return {} satisfies FsSetFocusDirResponse;
 }
 
-function handleFsUnwatch(body: unknown): unknown {
+async function handleFsUnwatch(body: unknown): Promise<unknown> {
   const req = body as FsUnwatchRequest;
-  fsWatchRegistry.unwatch(req.dir);
+  await fsWatchRegistry.unwatch(req.dir);
   return {} satisfies FsUnwatchResponse;
 }
 
@@ -593,8 +594,8 @@ function handleFsUnwatchFileAbsolute(body: unknown): unknown {
   return {} satisfies FsUnwatchFileAbsoluteResponse;
 }
 
-function handleFsUnwatchAll(): unknown {
-  return { unwatchedCount: fsWatchRegistry.unwatchAll() } satisfies FsUnwatchAllResponse;
+async function handleFsUnwatchAll(): Promise<unknown> {
+  return { unwatchedCount: await fsWatchRegistry.unwatchAll() } satisfies FsUnwatchAllResponse;
 }
 
 async function handleGitLog(body: unknown): Promise<unknown> {

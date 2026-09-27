@@ -1,7 +1,7 @@
 <doc lang="md">
 1 worktree の表示。ヘッダ (branch 名 / server port バッジ / git status /
 upstream ahead-behind / ⋮) と、Claude セッション行 (SessionList) を縦に並べる。
-端末の開いていないセッションは active な wt でだけ出す（`visibleSessionRows`）。
+出す行は `visibleSessionRows` が決める。
 
 ## グルーピング
 
@@ -10,8 +10,8 @@ upstream ahead-behind / ⋮) と、Claude セッション行 (SessionList) を�
 divider で区切る。ヘッダ = worktree identity ゾーン、ボディ = その worktree のセッション群
 ゾーンとして構造で分離する。
 
-出す行が無い wt は束ねる中身が無いため、境界を持たないヘッダ 1 行にする。稼働中の wt だけが
-カードとして浮き、それ以外は一覧の地に沈む。選択中であることはヘッダの fill が示す。
+出す行が無い wt は束ねる中身が無いため、境界を持たないヘッダ 1 行にする。選択中であることは
+ヘッダの fill が示す。
 
 ヘッダには icon を置かず branch 名のみで identity を示す。gutter に出る icon をセッション行の
 claude state icon だけに限定することで、worktree identity (branch 名) とセッションの状態 (icon)

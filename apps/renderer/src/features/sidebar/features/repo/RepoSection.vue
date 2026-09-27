@@ -1,5 +1,5 @@
 <doc lang="md">
-1 つの repo を表すサイドバーセクション。repo の識別を示すヘッダと、配下の worktree カード列を持つ。
+1 つの repo を表すサイドバーセクション。repo の識別を示すヘッダと、配下の worktree 列 (WtCard) を持つ。
 非 git project は worktree カードを持たず、ヘッダの下にその dir のセッション行を直接並べる。
 
 ## 背景 fetch の可視スコープ報告
@@ -51,9 +51,9 @@ repo 名の 2 行目に GitHub owner を出すのは展開時のみ。折りた�
 ## ハイライト
 
 active worktree を所有する repo は section 枠を薄い primary 線 + 浮き上がる影で示す
-(`._fx-panel[data-active]`)。塗り / グローは持たせず、wt カードの border-primary + 外周
-グローより弱くする。同じ青でも「枠線 (repo) < 枠線 + グロー (wt)」で主従が分かれ、wt
-ハイライトが repo 枠に埋もれない。
+(`._fx-panel[data-active]`)。塗り / グローは持たせない。active worktree 側は、カードなら
+border-primary + 外周グロー、ヘッダ 1 行ならヘッダの fill で示す。repo は枠線だけ、wt は
+グローか fill という別の表現で主従が分かれ、wt ハイライトが repo 枠に埋もれない。
 
 ## 開閉アニメーション
 

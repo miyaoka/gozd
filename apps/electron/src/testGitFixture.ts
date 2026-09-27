@@ -34,7 +34,13 @@ function fixtureGitEnv(): Record<string, string> {
   return env;
 }
 
-/** fixture 操作用に git を実行し、trim 済み stdout を返す */
+/** fixture 操作用に git を実行し、trim 済み stdout を返す。stderr はテストの出力に流さず、
+ * 失敗したときだけ例外のメッセージに載せる */
 export function runFixtureGit(args: string[], cwd: string): string {
-  return execFileSync("git", args, { cwd, env: fixtureGitEnv(), encoding: "utf8" }).trim();
+  return execFileSync("git", args, {
+    cwd,
+    env: fixtureGitEnv(),
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }

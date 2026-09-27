@@ -4,7 +4,7 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, lstatSync, renameSync, statSync, symlinkSync } from "node:fs";
+import { mkdirSync, lstatSync, readFileSync, renameSync, statSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
 import { generateTimestamp, tryCatch } from "@gozd/shared";
@@ -13,6 +13,7 @@ import { gozdWorktreesRoot, resolveMainRepoRoot, resolveProjectKey } from "../pr
 import { resolveStartPoint } from "./gitBranch";
 import { perWorktreeGitDir, worktreeList } from "./gitOps";
 import { runGit } from "./gitRunner";
+import type { WorktreeRemoveRefusal } from "@gozd/rpc";
 import type { WorktreeInfo } from "./porcelain";
 
 /**
@@ -152,6 +153,18 @@ const RM_PATH = "/bin/rm";
 /** 退避先の名前の接頭辞。worktree の隣に置くので、走査で gozd の退避物だと判る形にする */
 const TRASH_PREFIX = ".gozd-worktree-trash-";
 
+/** 強制しない削除の拒否。reasons は当てはまった条件のすべてで、呼び出し側が強制削除を
+ * 選ばせるときに、強制削除で失われるものを示すために使う */
+export class WorktreeRemoveRefusedError extends Error {
+  readonly reasons: WorktreeRemoveRefusal[];
+
+  constructor(reasons: WorktreeRemoveRefusal[], message: string) {
+    super(message);
+    this.name = "WorktreeRemoveRefusedError";
+    this.reasons = reasons;
+  }
+}
+
 /**
  * `git worktree remove [-f -f] <path>` 相当。ただし実体の unlink は待たない。
  *
@@ -161,9 +174,9 @@ const TRASH_PREFIX = ".gozd-worktree-trash-";
  * なる。実体の unlink は切り離した子プロセスへ渡す。
  *
  * git は worktree の実体が無くても not-a-worktree / main worktree / locked / validate を判定し、
- * 管理ファイルも消す。実体の有無で分岐するのは clean 判定と実削除だけなので、clean 判定だけを
- * `assertWorktreeClean` で肩代わりする。実体が無くても判定できるのは親ディレクトリが実在する
- * 場合で、git が解決を許す欠落はパス末尾の 1 要素だけ。
+ * 管理ファイルも消す。実体の有無で分岐するのは clean 判定と実削除だけなので、clean 判定を
+ * `assertRemovable` で肩代わりし、lock もそこで退避の前に判定する。実体が無くても判定できるのは
+ * 親ディレクトリが実在する場合で、git が解決を許す欠落はパス末尾の 1 要素だけ。
  */
 export async function removeWorktree(dir: string, path: string, force: boolean): Promise<void> {
   const trash = trashPathFor(path);
@@ -171,11 +184,12 @@ export async function removeWorktree(dir: string, path: string, force: boolean):
     await runWorktreeRemove(dir, path, force);
     return;
   }
-  if (!force) await assertWorktreeClean(path);
+  if (!force) await assertRemovable(path);
   renameSync(path, trash);
   const removed = await tryCatch(runWorktreeRemove(dir, path, force));
   if (!removed.ok) {
-    // locked worktree 等、git がまだ拒否し得る。実体を元の位置へ戻してから失敗を伝える
+    // worktree として登録されていないパスや、判定の後に取られた lock 等、git がまだ拒否し得る。
+    // 実体を元の位置へ戻してから失敗を伝える
     const restored = tryCatch(() => renameSync(trash, path));
     if (!restored.ok) {
       console.error(
@@ -212,26 +226,78 @@ function trashPathFor(path: string): string | undefined {
 }
 
 /**
- * 失われて困るものを持つ worktree で throw する。git の check_clean_worktree 相当を、実体を
- * 退避する前に肩代わりする（退避後の git はこの判定に到達できない）。
- *
- * submodule の判定は git の validate_no_submodules と同じく 2 段。worktree の git dir に
- * `modules` があれば、working tree 側が deinit 済みでも拒否する — そこには submodule の
- * object store が入っており、worktree の管理ファイルごと消えるため。`modules` が無ければ
- * 展開済みの submodule を探す（`submodule status` の先頭 `-` は未初期化を表す）。
+ * worktree の lock の理由。lock されていなければ undefined、理由なしの lock は空文字。
+ * `locked` の中身が理由で、git と同じく拒否の文言に添える。`locked` があるのに読めないときは、
+ * git の worktree_lock_reason と同じく lock の有無を決めずに throw する
  */
-async function assertWorktreeClean(path: string): Promise<void> {
-  const gitDir = await perWorktreeGitDir(path);
+function lockReasonOf(gitDir: string): string | undefined {
+  const read = tryCatch(() => readFileSync(join(gitDir, "locked"), "utf8"));
+  if (read.ok) return read.value.trim();
+  if ((read.error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+  throw read.error;
+}
+
+/** worktree が submodule を持つかと、`git status --porcelain` の出力 */
+async function checkContents(
+  path: string,
+  gitDir: string,
+): Promise<{ hasSubmodules: boolean; status: string }> {
   const modules = tryCatch(() => statSync(join(gitDir, "modules")).isDirectory());
   const hasModules = modules.ok && modules.value;
   const submodules = hasModules ? "" : await runGit(["submodule", "status"], path);
-  if (hasModules || submodules.split("\n").some((line) => line !== "" && !line.startsWith("-"))) {
-    throw new Error(`'${path}' contains submodules`);
-  }
+  const hasSubmodules =
+    hasModules || submodules.split("\n").some((line) => line !== "" && !line.startsWith("-"));
   const status = await runGit(["status", "--porcelain", "--ignore-submodules=none"], path);
-  if (status.trim() !== "") {
-    throw new Error(`'${path}' contains modified or untracked files`);
+  return { hasSubmodules, status };
+}
+
+/**
+ * 強制しない削除で拒否すべき worktree で throw する。実体を退避する前に判定する。
+ *
+ * lock された worktree は、git の `worktree remove` も拒否するが、それは実体を退避した後になる。
+ * lock の持ち主（worktree 隔離で動くエージェント等）はその worktree を使用中で、拒否までの間でも
+ * 作業場所が消えると持ち主の作業が壊れるため、退避の前に git dir の `locked` を見て拒否する。
+ *
+ * 失われて困るものの判定は、git の check_clean_worktree 相当を肩代わりする（退避後の git は
+ * この判定に到達できない）。submodule の判定は git の validate_no_submodules と同じく 2 段。
+ * worktree の git dir に `modules` があれば、working tree 側が deinit 済みでも拒否する — そこには
+ * submodule の object store が入っており、worktree の管理ファイルごと消えるため。`modules` が
+ * 無ければ展開済みの submodule を探す（`submodule status` の先頭 `-` は未初期化を表す）。
+ */
+async function assertRemovable(path: string): Promise<void> {
+  const gitDir = await perWorktreeGitDir(path);
+  const lockReason = lockReasonOf(gitDir);
+  const lockDetail =
+    lockReason === undefined
+      ? undefined
+      : `is locked${lockReason === "" ? "" : `, lock reason: ${lockReason}`}`;
+  const checked = await tryCatch(checkContents(path, gitDir));
+  if (!checked.ok) {
+    if (lockDetail === undefined) throw checked.error;
+    // 判定の git が失敗しても、lock の拒否は確定している。落とすと、使用中の作業場所を
+    // 拒否以外の失敗として強制削除に進ませる
+    console.error(
+      `[assertRemovable] contents check failed on locked worktree path=${path}: ${String(checked.error)}`,
+    );
+    throw new WorktreeRemoveRefusedError(
+      ["locked"],
+      `'${path}' ${lockDetail}; could not check submodules or changes`,
+    );
   }
+  const { hasSubmodules, status } = checked.value;
+  // 強制削除はすべての条件を無視して消すので、当てはまる条件をすべて挙げる
+  const refusals: { reason: WorktreeRemoveRefusal; detail: string }[] = [
+    ...(lockDetail === undefined ? [] : [{ reason: "locked" as const, detail: lockDetail }]),
+    ...(hasSubmodules ? [{ reason: "submodules" as const, detail: "contains submodules" }] : []),
+    ...(status.trim() === ""
+      ? []
+      : [{ reason: "changes" as const, detail: "contains modified or untracked files" }]),
+  ];
+  if (refusals.length === 0) return;
+  throw new WorktreeRemoveRefusedError(
+    refusals.map(({ reason }) => reason),
+    `'${path}' ${refusals.map(({ detail }) => detail).join("; ")}`,
+  );
 }
 
 /**

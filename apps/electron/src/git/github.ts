@@ -857,7 +857,7 @@ function graphqlArgs(owner: string, repo: string, query: string, after?: string)
  * 解決失敗（gh CLI 未インストール = CommandNotFoundError 等）はそのまま throw して
  * 上位で HTTP error として renderer に流す */
 async function runGhCategorized(args: string[], cwd: string): Promise<GhResult<string>> {
-  return withResolvedCommand("gh", async (ghPath) => {
+  return withResolvedCommand("gh", cwd, async (ghPath) => {
     const result = await tryCatch(
       execFileAsync(ghPath, args, { cwd, maxBuffer: 128 * 1024 * 1024 }),
     );

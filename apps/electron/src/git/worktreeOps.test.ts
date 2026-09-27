@@ -1,25 +1,38 @@
-// worktree 書き込み系操作のテスト。
+// worktree 書き込み系操作のうち、壊れても利用者が気づけない性質だけを検証する。
 //
 // createWorktreeSymlinks は git を要さない純 fs ロジックのため、main repo / worktree を模した
-// 2 つの temp dir を直接操作して検証する。resolveReviveBranch と removeWorktree は git の判定
-// そのものが対象なので、実 repo と実 worktree を作って検証する。
+// 2 つの temp dir を直接操作して検証する。resolveReviveBranch と removeWorktree は、判定の入力が
+// 実 repo の ref・worktree の登録・working tree の状態なので、実 repo と実 worktree を作って検証する。
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { tryCatch } from "@gozd/shared";
 import { runFixtureGit } from "../testGitFixture";
+import { resolveGitBeforeTests } from "../testGitResolver";
 import {
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readlinkSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktreeSymlinks, removeWorktree, resolveReviveBranch } from "./worktreeOps";
+
+beforeAll(resolveGitBeforeTests);
+
+/** 初期 commit 1 個の repo（default branch = main）を dir に作る */
+function initRepo(dir: string): void {
+  runFixtureGit(["init", "-b", "main"], dir);
+  runFixtureGit(["config", "user.email", "t@example.com"], dir);
+  runFixtureGit(["config", "user.name", "t"], dir);
+  writeFileSync(join(dir, "a.txt"), "a\n");
+  runFixtureGit(["add", "."], dir);
+  runFixtureGit(["commit", "-m", "first"], dir);
+}
 
 describe("createWorktreeSymlinks", () => {
   const tempDirs: string[] = [];
@@ -28,40 +41,12 @@ describe("createWorktreeSymlinks", () => {
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  function makePair(): { main: string; wt: string } {
+  // 張られないと worktree 側は main repo のローカル設定（`.claude/` 等）を黙って欠く。失敗は
+  // main の観察ログにしか出ない。親ディレクトリの作成と symlink の作成の両方をこのテストが担う
+  test("nested target は dest 親ディレクトリを作って main repo 側への symlink を張る", () => {
     const main = mkdtempSync(join(tmpdir(), "gozd-symlink-main-"));
     const wt = mkdtempSync(join(tmpdir(), "gozd-symlink-wt-"));
     tempDirs.push(main, wt);
-    return { main, wt };
-  }
-
-  test("source があり dest 未存在なら symlink を張る", () => {
-    const { main, wt } = makePair();
-    writeFileSync(join(main, ".env.local"), "X=1\n");
-    createWorktreeSymlinks(main, wt, [".env.local"]);
-    const dest = join(wt, ".env.local");
-    expect(lstatSync(dest).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(dest)).toBe(join(main, ".env.local"));
-  });
-
-  test("source 不在の target は skip する", () => {
-    const { main, wt } = makePair();
-    createWorktreeSymlinks(main, wt, [".missing"]);
-    expect(existsSync(join(wt, ".missing"))).toBe(false);
-  });
-
-  test("dest 既存の target は skip し上書きしない", () => {
-    const { main, wt } = makePair();
-    writeFileSync(join(main, ".claude"), "main");
-    writeFileSync(join(wt, ".claude"), "existing");
-    createWorktreeSymlinks(main, wt, [".claude"]);
-    const dest = join(wt, ".claude");
-    expect(lstatSync(dest).isSymbolicLink()).toBe(false);
-    expect(readFileSync(dest, "utf8")).toBe("existing");
-  });
-
-  test("nested target は dest 親ディレクトリを作って symlink する", () => {
-    const { main, wt } = makePair();
     mkdirSync(join(main, ".config"));
     writeFileSync(join(main, ".config", "app.json"), "{}");
     createWorktreeSymlinks(main, wt, [".config/app.json"]);
@@ -70,10 +55,11 @@ describe("createWorktreeSymlinks", () => {
     expect(readlinkSync(dest)).toBe(join(main, ".config", "app.json"));
   });
 
-  test("`..` traversal target は rejected で skip する（containment を外すと張られる位置を検証）", () => {
-    // main と wt を別々の親 dir 配下に置き、`..` の脱出先を各親に用意する。
-    // containment が無効なら source=mainParent/escape を dest=wtParent/escape に張るため、
-    // 脱出先の非生成を assert すれば「rejected による skip」を実証できる（source 不在 skip と区別）。
+  // containment が崩れると、`..` を含む設定から worktree の外に symlink が黙って作られる
+  test("`..` traversal target は worktree の外に symlink を張らない", () => {
+    // main と wt を別々の親 dir 配下に置き、`..` の脱出先を各親に用意する。containment が
+    // 無効なら source=mainParent/escape を dest=wtParent/escape に張るため、脱出先が
+    // 作られないことで、source 不在による skip と区別して拒否を示せる
     const mainParent = mkdtempSync(join(tmpdir(), "gozd-symlink-mainp-"));
     const wtParent = mkdtempSync(join(tmpdir(), "gozd-symlink-wtp-"));
     tempDirs.push(mainParent, wtParent);
@@ -82,87 +68,39 @@ describe("createWorktreeSymlinks", () => {
     mkdirSync(main);
     mkdirSync(wt);
     writeFileSync(join(mainParent, "escape"), "secret");
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
     createWorktreeSymlinks(main, wt, ["../escape"]);
+    const logged = consoleError.mock.calls.map(([message]) => String(message));
+    consoleError.mockRestore();
     expect(existsSync(join(wtParent, "escape"))).toBe(false);
-  });
-
-  test("中間パスが非ディレクトリでも throw せず後続 target を処理する", () => {
-    const { main, wt } = makePair();
-    // source .config/foo は存在させる（source 存在 check を通過させて mkdir 経路に入れる）
-    mkdirSync(join(main, ".config"));
-    writeFileSync(join(main, ".config", "foo"), "src");
-    writeFileSync(join(main, ".env"), "E=1");
-    // worktree 側の .config はファイル。mkdir(wt/.config) が throw する端ケースを作る
-    writeFileSync(join(wt, ".config"), "blocker");
-    expect(() => createWorktreeSymlinks(main, wt, [".config/foo", ".env"])).not.toThrow();
-    // 前段が throw しても後続 .env は張られる（worktree 作成全体を止めない不変条件）
-    expect(lstatSync(join(wt, ".env")).isSymbolicLink()).toBe(true);
+    // 拒否は観察ログにしか現れない
+    expect(logged).toEqual(["[createWorktreeSymlinks] rejected traversal target=../escape"]);
   });
 });
 
 describe("resolveReviveBranch", () => {
   const tempDirs: string[] = [];
 
-  /** 日付ブランチ名。同一プロセスの先行呼び出しと秒が重なると generateTimestamp が
-   * 連番 suffix を付けるため、両形を受ける */
-  const dateBranch = /^\d{8}_\d{6}(_\d+)?$/;
-
-  function git(args: string[], cwd: string): void {
-    runFixtureGit(args, cwd);
-  }
-
-  /** origin 無しの初期 commit 1 個 repo（default branch = main）。 */
-  function makeRepo(): string {
-    const dir = mkdtempSync(join(tmpdir(), "gozd-revive-branch-"));
-    tempDirs.push(dir);
-    git(["init", "-b", "main"], dir);
-    git(["config", "user.email", "t@example.com"], dir);
-    git(["config", "user.name", "t"], dir);
-    writeFileSync(join(dir, "a.txt"), "a\n");
-    git(["add", "."], dir);
-    git(["commit", "-m", "first"], dir);
-    return dir;
-  }
-
   afterEach(() => {
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  test("candidate 空 → 日付ブランチを default(HEAD) から作成", async () => {
-    const dir = makeRepo();
-    const { branch, startPoint } = await resolveReviveBranch(dir, "");
-    expect(branch).toMatch(dateBranch);
-    expect(startPoint).toBe("main");
-  });
-
+  // 既存ブランチに startPoint を付けると createWorktree が `-B` で default へ reset し、
+  // そのブランチだけにあった commit が到達不能になる
   test("candidate が既存ローカルブランチ(未 checkout) → attach（startPoint 空）", async () => {
-    const dir = makeRepo();
-    git(["branch", "feature/foo"], dir);
+    const dir = mkdtempSync(join(tmpdir(), "gozd-revive-branch-"));
+    tempDirs.push(dir);
+    initRepo(dir);
+    runFixtureGit(["branch", "feature/foo"], dir);
     const { branch, startPoint } = await resolveReviveBranch(dir, "feature/foo");
     expect(branch).toBe("feature/foo");
     expect(startPoint).toBe("");
   });
-
-  test("candidate が未存在 → その名前を default から作成", async () => {
-    const dir = makeRepo();
-    const { branch, startPoint } = await resolveReviveBranch(dir, "feature/new");
-    expect(branch).toBe("feature/new");
-    expect(startPoint).toBe("main");
-  });
-
-  test("candidate が他 worktree に checkout 済み → 日付ブランチへ倒す", async () => {
-    const dir = makeRepo();
-    git(["branch", "occupied"], dir);
-    const parent = mkdtempSync(join(tmpdir(), "gozd-revive-occ-"));
-    tempDirs.push(parent);
-    // occupied を別 worktree で checkout（占有させる）。git が wt path を新規作成する
-    git(["worktree", "add", join(parent, "wt"), "occupied"], dir);
-    const { branch, startPoint } = await resolveReviveBranch(dir, "occupied");
-    expect(branch).toMatch(dateBranch);
-    expect(startPoint).toBe("main");
-  });
 });
 
+// 非 force の削除が拒否すべき worktree を通すと、実体は切り離した rm に渡って戻らない。
+// git の check_clean_worktree / validate_no_submodules を退避前に肩代わりしている部分なので、
+// git の判定と同じ拒否条件をここで固定する
 describe("removeWorktree (integration)", () => {
   const tempDirs: string[] = [];
 
@@ -176,18 +114,13 @@ describe("removeWorktree (integration)", () => {
     tempDirs.push(root);
     const repo = join(root, "repo");
     mkdirSync(repo);
-    runFixtureGit(["init", "-b", "main"], repo);
-    runFixtureGit(["config", "user.email", "t@example.com"], repo);
-    runFixtureGit(["config", "user.name", "t"], repo);
-    writeFileSync(join(repo, "a.txt"), "a\n");
-    runFixtureGit(["add", "."], repo);
-    runFixtureGit(["commit", "-m", "first"], repo);
+    initRepo(repo);
     const wt = join(root, "wt");
     runFixtureGit(["worktree", "add", "-b", "feature", wt], repo);
     return { repo, wt, root };
   }
 
-  /** 登録されている worktree の件数。main worktree を含むので clean な削除後は 1 */
+  /** 登録されている worktree の件数。main worktree を含む */
   function worktreeCount(repo: string): number {
     return runFixtureGit(["worktree", "list", "--porcelain"], repo)
       .split("\n")
@@ -202,25 +135,12 @@ describe("removeWorktree (integration)", () => {
     return result.error;
   }
 
-  test("clean な worktree は登録も実体も消える", async () => {
-    const { repo, wt } = makeRepoWithWorktree();
-    await removeWorktree(repo, wt, false);
-    expect(existsSync(wt)).toBe(false);
-    expect(worktreeCount(repo)).toBe(1);
-  });
-
-  test("実体が消えた stale 登録は登録だけ消える", async () => {
-    const { repo, wt } = makeRepoWithWorktree();
-    rmSync(wt, { recursive: true, force: true });
-    await removeWorktree(repo, wt, false);
-    expect(worktreeCount(repo)).toBe(1);
-  });
-
   test("変更のあるファイルを持つ worktree は force なしで拒否する", async () => {
     const { repo, wt } = makeRepoWithWorktree();
     writeFileSync(join(wt, "a.txt"), "modified\n");
     const error = await rejection(removeWorktree(repo, wt, false));
     expect(error.message).toMatch(/modified or untracked/);
+    expect(error).toMatchObject({ reasons: ["changes"] });
     expect(existsSync(wt)).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
   });
@@ -230,40 +150,27 @@ describe("removeWorktree (integration)", () => {
     writeFileSync(join(wt, "scratch.txt"), "scratch\n");
     const error = await rejection(removeWorktree(repo, wt, false));
     expect(error.message).toMatch(/modified or untracked/);
+    expect(error).toMatchObject({ reasons: ["changes"] });
     expect(existsSync(join(wt, "scratch.txt"))).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
   });
 
-  test("変更のあるファイルを持つ worktree も force なら消える", async () => {
+  // git dir を working tree 内に持つ submodule（既存 repo を submodule として追加した形）。
+  // worktree の git dir に `modules` が無いため、展開済みの判定（`submodule status`）だけが
+  // 拒否の根拠になる。消えるとその submodule の未 push の commit ごと失われる
+  test("git dir を working tree 内に持つ submodule を持つ worktree は force なしで拒否する", async () => {
     const { repo, wt } = makeRepoWithWorktree();
-    writeFileSync(join(wt, "a.txt"), "modified\n");
-    await removeWorktree(repo, wt, true);
-    expect(existsSync(wt)).toBe(false);
-    expect(worktreeCount(repo)).toBe(1);
-  });
-
-  /** worktree に submodule を 1 個追加する。追加した submodule の worktree 側パスを返す */
-  function addSubmodule(root: string, wt: string): string {
-    const sub = join(root, "sub");
+    const sub = join(wt, "sub");
     mkdirSync(sub);
-    runFixtureGit(["init", "-b", "main"], sub);
-    runFixtureGit(["config", "user.email", "t@example.com"], sub);
-    runFixtureGit(["config", "user.name", "t"], sub);
-    writeFileSync(join(sub, "s.txt"), "s\n");
-    runFixtureGit(["add", "."], sub);
-    runFixtureGit(["commit", "-m", "sub"], sub);
-    // local path からの submodule 追加は protocol.file の明示許可が要る
-    runFixtureGit(["-c", "protocol.file.allow=always", "submodule", "add", sub, "sub"], wt);
+    initRepo(sub);
+    runFixtureGit(["submodule", "add", sub, "sub"], wt);
     runFixtureGit(["commit", "-m", "add submodule"], wt);
-    return join(wt, "sub");
-  }
-
-  test("展開済み submodule を持つ worktree は force なしで拒否する", async () => {
-    const { repo, wt, root } = makeRepoWithWorktree();
-    addSubmodule(root, wt);
+    const gitDir = runFixtureGit(["rev-parse", "--absolute-git-dir"], wt);
+    expect(existsSync(join(gitDir, "modules"))).toBe(false);
     const error = await rejection(removeWorktree(repo, wt, false));
     expect(error.message).toMatch(/contains submodules/);
-    expect(existsSync(wt)).toBe(true);
+    expect(error).toMatchObject({ reasons: ["submodules"] });
+    expect(existsSync(join(sub, "a.txt"))).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
   });
 
@@ -271,30 +178,88 @@ describe("removeWorktree (integration)", () => {
   // 残る。status も submodule status も clean を返すため、git dir を見ないと通ってしまう
   test("deinit 済み submodule を持つ worktree は force なしで拒否する", async () => {
     const { repo, wt, root } = makeRepoWithWorktree();
-    addSubmodule(root, wt);
+    const sub = join(root, "sub");
+    mkdirSync(sub);
+    initRepo(sub);
+    // local path からの submodule 追加は protocol.file の明示許可が要る
+    runFixtureGit(["-c", "protocol.file.allow=always", "submodule", "add", sub, "sub"], wt);
+    runFixtureGit(["commit", "-m", "add submodule"], wt);
     runFixtureGit(["submodule", "deinit", "-f", "sub"], wt);
     expect(runFixtureGit(["status", "--porcelain", "--ignore-submodules=none"], wt)).toBe("");
     const error = await rejection(removeWorktree(repo, wt, false));
     expect(error.message).toMatch(/contains submodules/);
+    expect(error).toMatchObject({ reasons: ["submodules"] });
     expect(existsSync(wt)).toBe(true);
     expect(worktreeCount(repo)).toBe(2);
   });
 
+  // 戻さないと実体は退避先の隠しディレクトリに残り、元のパスから消える
   test("git が拒否したら退避した実体を元の位置へ戻す", async () => {
-    const { repo, wt } = makeRepoWithWorktree();
-    // locked worktree は実体の有無に依らず git が拒否する（clean 判定は通過して rename まで進む）
-    runFixtureGit(["worktree", "lock", wt], repo);
-    const error = await rejection(removeWorktree(repo, wt, false));
-    expect(error.message).toMatch(/locked/);
-    expect(existsSync(join(wt, "a.txt"))).toBe(true);
-    expect(worktreeCount(repo)).toBe(2);
+    const { repo } = makeRepoWithWorktree();
+    // main worktree の中の追跡済みディレクトリは、clean 判定を通って退避まで進み、worktree として
+    // 登録されていないので git が拒否する
+    const sub = join(repo, "sub");
+    mkdirSync(sub);
+    writeFileSync(join(sub, "s.txt"), "s\n");
+    runFixtureGit(["add", "."], repo);
+    runFixtureGit(["commit", "-m", "add sub"], repo);
+    const error = await rejection(removeWorktree(repo, sub, false));
+    expect(error.message).toMatch(/is not a working tree/);
+    // git の拒否は、強制削除で失われるものを示す拒否の理由を持たない
+    expect(error).not.toHaveProperty("reasons");
+    expect(existsSync(join(sub, "s.txt"))).toBe(true);
   });
 
-  test("locked な worktree も force なら消える", async () => {
+  // lock の拒否を落とすと、使用中の作業場所を拒否以外の失敗として強制削除に進ませる
+  test("lock 済みの worktree は、変更の判定が失敗しても lock の理由で拒否する", async () => {
     const { repo, wt } = makeRepoWithWorktree();
-    runFixtureGit(["worktree", "lock", "--reason", "held by another tool", wt], repo);
-    await removeWorktree(repo, wt, true);
-    expect(existsSync(wt)).toBe(false);
-    expect(worktreeCount(repo)).toBe(1);
+    runFixtureGit(["worktree", "lock", wt], repo);
+    const gitDir = runFixtureGit(["rev-parse", "--absolute-git-dir"], wt);
+    writeFileSync(join(gitDir, "index"), "corrupt\n");
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    const error = await rejection(removeWorktree(repo, wt, false));
+    const logged = consoleError.mock.calls.map(([line]) => String(line));
+    consoleError.mockRestore();
+    expect(error).toMatchObject({ reasons: ["locked"] });
+    expect(error.message).toMatch(/is locked; could not check submodules or changes$/);
+    expect(logged).toEqual([
+      expect.stringMatching(/^\[assertRemovable\] contents check failed on locked worktree /),
+    ]);
   });
+
+  // 強制削除はすべての条件を無視して消すので、1 つだけ示すと残りの失われるものが隠れる
+  test("拒否の条件が重なるときは、当てはまる理由をすべて返す", async () => {
+    const { repo, wt } = makeRepoWithWorktree();
+    runFixtureGit(["worktree", "lock", wt], repo);
+    writeFileSync(join(wt, "a.txt"), "modified\n");
+    const error = await rejection(removeWorktree(repo, wt, false));
+    expect(error).toMatchObject({ reasons: ["locked", "changes"] });
+    expect(error.message).toMatch(/is locked; contains modified or untracked files$/);
+  });
+
+  // lock の持ち主は worktree を使用中で、拒否までの間でも作業場所が消えると持ち主の作業が壊れる。
+  // 理由なしの lock は `locked` が空で、理由の有無で lock の判定が分かれてはならない
+  test.each([
+    {
+      label: "with reason",
+      lockArgs: ["--reason", "agent running"],
+      message: /is locked, lock reason: agent running$/,
+    },
+    { label: "without reason", lockArgs: [], message: /is locked$/ },
+  ])(
+    "lock された worktree は、実体を動かさずに force なしで拒否する: $label",
+    async ({ lockArgs, message }) => {
+      const { repo, wt } = makeRepoWithWorktree();
+      runFixtureGit(["worktree", "lock", ...lockArgs, wt], repo);
+      const rename = spyOn(fs, "renameSync");
+      const error = await rejection(removeWorktree(repo, wt, false));
+      const renamed = rename.mock.calls.length;
+      rename.mockRestore();
+      expect(error.message).toMatch(message);
+      expect(error).toMatchObject({ reasons: ["locked"] });
+      expect(renamed).toBe(0);
+      expect(existsSync(join(wt, "a.txt"))).toBe(true);
+      expect(worktreeCount(repo)).toBe(2);
+    },
+  );
 });

@@ -5,17 +5,22 @@
 //
 // - **FSEvents stream → @parcel/watcher subscription**。Swift は 1 stream に
 //   [worktree root, per-worktree git dir, common git dir] の複数 root を登録できるが、
-//   @parcel/watcher は 1 subscribe = 1 root。包含する root を重ねて subscribe すると同一
-//   event が二重配送されるため、包含される path を除いた最小被覆集合だけ subscribe する
-//   （通常 clone: `.git` は root 配下 → 1 本。worktree: per-wt git dir は common 配下 →
-//   [worktree root, common git dir] の 2 本）。
+//   @parcel/watcher は 1 subscribe = 1 root で、root 配下を再帰的に監視する。各 entry は
+//   dir と git dir の最小被覆を root に持ち（通常 clone: `.git` は root 配下 → 1 本。
+//   worktree: per-wt git dir は common 配下 → [worktree root, common git dir] の 2 本）、
+//   registry は全 entry の root をそれぞれ subscribe する。root が別の root を含むとき
+//   （repo 内に置いた worktree、main repo の `.git` を common git dir に持つ worktree）は、
+//   含む側の ignore に含まれる側の絶対パスを加え、同じ event を二重に配送しない。除外パターンは
+//   各 root 自身からの相対で当たり、git dir の root には掛からない。event は path を含む entry に
+//   振り分ける。
 // - **actor → 素の closure state**。Node はシングルスレッドで排他は不要だが、await
 //   （gitDirs 解決 / refDigest / git status）を跨ぐ間に unwatch や後続 event が割り込む
 //   構造は同じなので、await 前後で watch 世代を確かめる。同じ dir の status 取得は
-//   single-flight で直列化し、古い取得が新しい結果を上書きしない。
+//   single-flight で直列化し、古い取得が新しい結果を上書きしない。subscribe の張り直しも
+//   直列化し、並行した張り直しが互いの途中状態を見て監視を途切れさせない。
 // - **構築中の同 dir 並行 watch は pendingWatches で直列化**。Swift actor にも
-//   `await gitDirs` 中の reentrancy 窓（entry 二重構築 → 先行 stream leak）があるが、
-//   こちらは構築 promise を待たせて構造的に塞ぐ。
+//   `await gitDirs` 中の reentrancy 窓（entry の二重構築）があるが、こちらは構築 promise を
+//   待たせて、refCount と entry の上書きを構造的に塞ぐ。
 //
 // 主要な設計判断（Swift 版から継承）:
 //
@@ -38,7 +43,7 @@ import { realpathSync } from "node:fs";
 import { withGitTier } from "../git/gitAdmission";
 import { gitDirs, gitStatusFull, refDigest, type RefDigest } from "../git/gitOps";
 import type { StatusFull } from "../git/porcelain";
-import { classify } from "./classify";
+import { classify, relativeUnder } from "./classify";
 
 /** 1 subscription の破棄ハンドル。@parcel/watcher の AsyncSubscription を transport 越しに抽象化 */
 export interface WatchHandle {
@@ -46,7 +51,7 @@ export interface WatchHandle {
 }
 
 /** native watcher への subscribe 経路を抽象化する。production は utilityProcess 隔離した
- * watcherClient を注入し、テストは実 @parcel/watcher を直接包む transport を注入する。
+ * watcherClient を注入し、テストは callback を捕まえる偽物を注入する。
  * これにより fsWatchRegistry は @parcel/watcher / electron に直接依存しない（classify 層を
  * native crash から切り離す境界）。onEvents は event path の配列、onError は文字列メッセージ */
 export interface WatchTransport {
@@ -78,12 +83,12 @@ export interface FsWatchOptions {
   /** working-tree status の取得関数。テスト用 seam（production は gitStatusFull） */
   statusFetcher?: (dir: string) => Promise<StatusFull>;
   /** ファイル監視から除外する glob 一覧を返す（VS Code の `files.watcherExclude` 相当）。
-   * buildEntry 時に読むため、設定変更は新規 watch にのみ反映される（既存 watch は再 watch
-   * まで旧 exclude のまま。VS Code は config 変更で re-watch するが、gozd は v1 で見送る）。
-   * production は AppConfig の watcherExclude を渡す。省略時は除外なし（テスト用 default） */
+   * subscribe を張り直すたびに読み、設定が変わっていれば working tree の root を新しい設定で
+   * 張り直す。張り直しは watch / unwatch を契機に走るので、設定の変更は次の watch / unwatch で
+   * 反映される。production は AppConfig の watcherExclude を渡す。省略時は除外なし（テスト用 default） */
   getWatcherExclude?: () => string[];
   /** native watcher への subscribe 経路（必須）。production は utilityProcess 隔離した
-   * watcherClient、テストは実 @parcel/watcher を包む adapter を渡す */
+   * watcherClient、テストは callback を捕まえる偽物を渡す */
   transport: WatchTransport;
   /** watcher 実行時エラー等の診断を event-log へ流す。routes 側で `debugLog` push に変換する。
    * console.error は packaged で見えないため使わない。省略時は no-op（テスト用） */
@@ -92,7 +97,8 @@ export interface FsWatchOptions {
 
 interface Entry {
   generation: number;
-  subscriptions: WatchHandle[];
+  /** この entry が監視を要する root（dir と git dir の最小被覆）。registry が root ごとに subscribe する */
+  roots: string[];
   /** `/fs/watch` で renderer から渡された原文の dir。push payload はこの値を返し、
    * renderer 側の `worktreeStore.dir` / `wt.path` 等の生文字列キーと直接比較できるようにする
    * （entries のキーは realpath 解決済み path で、event path の比較に使う） */
@@ -101,9 +107,9 @@ interface Entry {
   perWorktreeGitDir: string | undefined;
   /** `git rev-parse --git-common-dir` の realpath。通常 clone では perWorktreeGitDir と一致 */
   commonGitDir: string | undefined;
-  /** 同一 resolved dir に対する watch 呼び出し回数。unwatch で 0 になった時点で実 watcher を
-   * 停止する。dialog + preview / 複数 leaf 等が同じ dir を並行 watch するケースで「片方の
-   * unwatch がもう片方の watch も解放する」破れを構造的に防ぐ */
+  /** 同一 resolved dir に対する watch 呼び出し回数。unwatch で 0 になった時点で entry を外し、
+   * subscribe を張り直す。dialog + preview / 複数 leaf 等が同じ dir を並行 watch するケースで
+   * 「片方の unwatch がもう片方の watch も解放する」破れを構造的に防ぐ */
   refCount: number;
 }
 
@@ -121,6 +127,11 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     handlers;
 
   const entries = new Map<string, Entry>();
+  /** subscribe 済みの購読。キーは root と ignore の組（`subscriptionKey`）で、ignore が変われば
+   * 別の購読として張り直す */
+  const subscriptions = new Map<string, { root: string; ignore: string[]; handle: WatchHandle }>();
+  /** 張り直しの列。並行した張り直しが互いの途中状態を見て、張れていない root を当てにしない */
+  let reconcileTail: Promise<unknown> = Promise.resolve();
   /** watch 時の原文 dir → realpath 解決後のキー の逆引き。unwatch 時に dir が既に削除されて
    * いると realpath がフォールバックで入力 path を返し、watch 時のキーと一致せず entries が
    * leak するため、watch 時に解決した resolved key で確実に削除する */
@@ -146,8 +157,8 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
   const statusInFlightDirs = new Set<string>();
   /** 取得中に新しい要求が届いた dir。完了時に 1 回だけ取り直す */
   const statusRerunDirs = new Set<string>();
-  /** 構築中（await gitDirs / subscribe 中）の同 dir 並行 watch を待たせる。二重構築による
-   * 先行 subscription の leak を防ぐ */
+  /** 構築中（await gitDirs / subscribe 中）の同 dir 並行 watch を待たせる。entry の二重構築で
+   * refCount と entry が上書きされるのを防ぐ */
   const pendingWatches = new Map<string, Promise<void>>();
   /** watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を抑止する */
   let nextGeneration = 0;
@@ -171,18 +182,12 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
    * 祖先 root の subscribe が子孫を覆う */
   function coveringRoots(paths: string[]): string[] {
     const unique = [...new Set(paths)];
-    return unique.filter((path) => {
-      return !unique.some((other) => {
-        if (other === path) return false;
-        const otherWithSlash = other.endsWith("/") ? other : `${other}/`;
-        return path.startsWith(otherWithSlash);
-      });
-    });
+    return unique.filter((path) => !unique.some((other) => isStrictlyUnder(path, other)));
   }
 
   /** dir 配下に入れ子で watch されている、同じ repo の別 worktree の root を返す。
-   * @parcel/watcher は再帰 watch なので、repo 内に置かれた worktree（`.claude/worktrees/*` 等）
-   * の変更は外側の subscription にも届く。次のものは含めない:
+   * repo 内に置かれた worktree（`.claude/worktrees/*` 等）の変更は、path を含む外側の entry にも
+   * 振り分けられる。次のものは含めない:
    * - per-worktree git dir が同じもの: 同一作業ツリーのサブディレクトリで、変更が外側の status を変える
    * - common git dir が異なるもの: submodule は内部の変更が外側に gitlink の変更として現れる。
    *   別 repo の clone はこの条件だけでは submodule と区別できないため同じく含めない */
@@ -192,10 +197,9 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     commonGitDir: string | undefined,
   ): string[] {
     if (commonGitDir === undefined) return [];
-    const dirWithSlash = dir.endsWith("/") ? dir : `${dir}/`;
     const nested: string[] = [];
     for (const [key, entry] of entries) {
-      if (!key.startsWith(dirWithSlash)) continue;
+      if (!isStrictlyUnder(key, dir)) continue;
       if (entry.commonGitDir !== commonGitDir) continue;
       if (entry.perWorktreeGitDir === perWorktreeGitDir) continue;
       nested.push(key);
@@ -233,57 +237,158 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     const perWorktreeGitDir = dirs === undefined ? undefined : realpathOr(dirs.perWorktreeGitDir);
     const commonGitDir = dirs === undefined ? undefined : realpathOr(dirs.commonGitDir);
 
-    const candidates = [dir, perWorktreeGitDir, commonGitDir].filter(
-      (path): path is string => path !== undefined,
+    const roots = coveringRoots(
+      [dir, perWorktreeGitDir, commonGitDir].filter((path): path is string => path !== undefined),
     );
-    const watchRoots = coveringRoots(candidates);
-
-    const onEvents = (paths: string[]) => {
-      void handleEvents(dir, generation, paths);
-    };
-    const onError = (message: string) => {
-      // packaged で見えない console.error でなく event-log に出す（crash 観測と観察面を揃える）
-      logEvent("file-watcher", "watch-error", `${dir}: ${message}`);
-    };
-
-    // exclude は working-tree 由来の高churn（node_modules / build 等）を抑える設定だが、
-    // git dir を root とする subscription に掛けると ref/HEAD/index イベントを落として
-    // branch / status 検知が壊れる。git dir root（通常 clone では dir 配下に包含され
-    // watchRoots に現れないが、worktree では commonGitDir が独立 root になる）には
-    // 適用せず、working-tree root にだけ渡す
-    const gitDirRoots = new Set(
-      [perWorktreeGitDir, commonGitDir].filter((path): path is string => path !== undefined),
-    );
-    const excludeGlobs = getWatcherExclude();
-
-    const subscriptions: WatchHandle[] = [];
-    for (const root of watchRoots) {
-      const ignore = gitDirRoots.has(root) ? [] : excludeGlobs;
-      const sub = await tryCatch(transport.subscribe(root, ignore, onEvents, onError));
-      if (!sub.ok) {
-        // 部分成功のまま throw すると成功済み subscription が leak するため巻き戻す
-        for (const succeeded of subscriptions) {
-          void succeeded.unsubscribe();
-        }
-        throw sub.error;
-      }
-      subscriptions.push(sub.value);
-    }
 
     entries.set(dir, {
       generation,
-      subscriptions,
+      roots,
       originalDir: userDir,
       perWorktreeGitDir,
       commonGitDir,
       refCount: 1,
     });
+    if (commonGitDir !== undefined) recomputePrimary(commonGitDir);
+    const failures = await reconcileSubscriptions();
+    // 自分の root を張れなかったときだけ watch を失敗させる。他の entry の root の失敗は
+    // 張り直しが観察ログに残す
+    const ownFailure = roots.map((root) => failures.get(root)).find((error) => error !== undefined);
+    if (ownFailure !== undefined) {
+      // 監視を張れなかった entry は登録しない。この entry のために張れた root は張り直しで外れる
+      entries.delete(dir);
+      if (commonGitDir !== undefined) recomputePrimary(commonGitDir);
+      reconcileInBackground();
+      throw ownFailure;
+    }
     resolvedKeyByOriginalDir.set(userDir, dir);
     if (commonGitDir !== undefined) {
-      recomputePrimary(commonGitDir);
       // 登録の成立を再同期の起点にする。登録前からの状態と、subscribe の往復中に起きた変化を
       // 1 回の status で拾う
       scheduleStatusRefresh(dir, generation, userDir);
+    }
+  }
+
+  /** 張るべき root。全 entry の root をそれぞれ張る */
+  function desiredRoots(): string[] {
+    // 含まれる側を先に張るため、長い root から並べる
+    return [...new Set([...entries.values()].flatMap((entry) => entry.roots))].sort(
+      (a, b) => b.length - a.length,
+    );
+  }
+
+  /** root の購読に渡す ignore。
+   *
+   * - exclude は working-tree 由来の高churn（node_modules / build 等）を抑える設定だが、git dir を
+   *   root とする購読に掛けると ref/HEAD/index の event を落として branch / status の検知が壊れる。
+   *   git dir の root には掛けず、working tree の root にだけ掛ける
+   * - root が別の root を含むときは、含む側の ignore に含まれる側の絶対パスを加え、含まれる側の
+   *   event は含まれる側の購読だけが運ぶ。加えるのは張れている内側の root だけで、張れていない
+   *   内側は含む側が覆ったままにし、event を落とさない（二重配送は残る） */
+  function desiredIgnore(root: string, roots: string[]): string[] {
+    const isGitDirRoot = [...entries.values()].some(
+      (entry) => entry.perWorktreeGitDir === root || entry.commonGitDir === root,
+    );
+    const subscribedRoots = new Set(
+      [...subscriptions.values()].map((subscribed) => subscribed.root),
+    );
+    const innerRoots = roots.filter(
+      (other) => isStrictlyUnder(other, root) && subscribedRoots.has(other),
+    );
+    return [...(isGitDirRoot ? [] : getWatcherExclude()), ...innerRoots];
+  }
+
+  /** subscribe を desiredRoots と desiredIgnore が決める購読に合わせる。張り直しは列に並べて 1 本ずつ走らせる。
+   * 返り値は張れなかった root と、その原因 */
+  function reconcileSubscriptions(): Promise<Map<string, unknown>> {
+    const run = reconcileTail.then(reconcileOnce);
+    // 1 回の失敗で列が止まらないよう、列には結果だけを残す
+    reconcileTail = tryCatch(run);
+    return run;
+  }
+
+  /** 呼び出し元が完了を待たない張り直し。張れなかった root は reconcileOnce が観察ログに残す */
+  function reconcileInBackground(): void {
+    void tryCatch(reconcileSubscriptions()).then((result) => {
+      if (!result.ok) {
+        console.error(`[FSWatchRegistry] resubscribe failed: ${String(result.error)}`);
+      }
+    });
+  }
+
+  /** 足りない購読を先に張ってから、要らなくなった購読を外す。同じ root の購読を ignore の違いで
+   * 張り替えるときも、新しい購読が張れてから古い購読を外すので、監視が途切れない。含まれる側を
+   * 先に張り、含む側の ignore はその時点で張れた内側の root から決める */
+  async function reconcileOnce(): Promise<Map<string, unknown>> {
+    const failures = new Map<string, unknown>();
+    const roots = desiredRoots();
+    for (const root of roots) {
+      const ignore = desiredIgnore(root, roots);
+      const key = subscriptionKey(root, ignore);
+      if (subscriptions.has(key)) continue;
+      const subscribed = await tryCatch(
+        transport.subscribe(root, ignore, dispatchEvents, (message) => {
+          // packaged で見えない console.error でなく event-log に出す（crash 観測と観察面を揃える）
+          logEvent("file-watcher", "watch-error", `${root}: ${message}`);
+        }),
+      );
+      if (!subscribed.ok) {
+        failures.set(root, subscribed.error);
+        logEvent("file-watcher", "subscribe-failed", `${root}: ${String(subscribed.error)}`);
+        continue;
+      }
+      subscriptions.set(key, { root, ignore, handle: subscribed.value });
+    }
+    // 外すかどうかは張り終えた時点の entry で決める。張っている間に entry が増減していれば、
+    // その変化は列の次の張り直しが反映する
+    const kept = keptSubscriptionKeys();
+    for (const [key, { root, handle }] of subscriptions) {
+      if (kept.has(key)) continue;
+      subscriptions.delete(key);
+      // unsubscribe は async だが完了を待つ必要はない。失敗だけ観察可能にする
+      handle.unsubscribe().catch((error: unknown) => {
+        console.error(`[FSWatchRegistry] unsubscribe failed for ${root}: ${String(error)}`);
+      });
+    }
+    return failures;
+  }
+
+  /** 張り直しの後に残す購読。張るべき購読そのものと、張るべき購読がまだ張れていない root の
+   * 古い購読を残す。さらに、残す購読が ignore している root の購読も残す — 外すとその root の中を
+   * どの購読も運ばなくなる。その root を ignore しない購読に張り替わった後の張り直しで外れる */
+  function keptSubscriptionKeys(): Set<string> {
+    const roots = desiredRoots();
+    const desiredKeys = new Map(
+      roots.map((root) => [root, subscriptionKey(root, desiredIgnore(root, roots))]),
+    );
+    const kept = new Set(
+      [...subscriptions]
+        .filter(([key, { root }]) => {
+          const desiredKey = desiredKeys.get(root);
+          return desiredKey !== undefined && (desiredKey === key || !subscriptions.has(desiredKey));
+        })
+        .map(([key]) => key),
+    );
+    return withIgnoredRoots(kept);
+  }
+
+  /** kept の購読が ignore している root の購読を、増えなくなるまで kept に加える */
+  function withIgnoredRoots(kept: Set<string>): Set<string> {
+    const ignored = new Set([...kept].flatMap((key) => subscriptions.get(key)?.ignore ?? []));
+    const added = [...subscriptions]
+      .filter(([key, { root }]) => !kept.has(key) && ignored.has(root))
+      .map(([key]) => key);
+    if (added.length === 0) return kept;
+    return withIgnoredRoots(new Set([...kept, ...added]));
+  }
+
+  /** 1 本の subscription に届いた event を、path を含む entry ごとに振り分ける */
+  function dispatchEvents(paths: string[]): void {
+    for (const [dir, entry] of entries) {
+      const own = paths.filter((path) =>
+        entry.roots.some((root) => relativeUnder(path, root) !== undefined),
+      );
+      if (own.length > 0) void handleEvents(dir, entry.generation, own);
     }
   }
 
@@ -320,8 +425,9 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
   }
 
   /** dir の監視を停止する。watch されていなければ no-op。refCount を 1 減らし、0 になった
-   * 時点で実 watcher を停止する */
-  function unwatch(userDir: string): void {
+   * 時点で entry を外し、subscribe を残った entry に合わせて張り直す。張り直しが済むと
+   * resolve する。張り直せなかった root は観察ログに残り、その root の古い購読は残る */
+  async function unwatch(userDir: string): Promise<void> {
     const resolvedKey = resolvedKeyByOriginalDir.get(userDir) ?? realpathOr(userDir);
     const entry = entries.get(resolvedKey);
     if (entry === undefined) {
@@ -329,35 +435,32 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
       return;
     }
     entry.refCount--;
-    if (entry.refCount <= 0) {
-      unwatchResolved(resolvedKey);
-    }
     // 逆引きは entry の lifecycle に揃え、最終購読者の unwatch で unwatchResolved が
     // まとめて消す。ここで早期削除すると、次回 unwatch 時に realpath フォールバックに頼る
     // ことになり、dir 削除済み環境で resolved key が一致せず entry leak の race を開く
+    if (entry.refCount > 0) return;
+    unwatchResolved(resolvedKey);
+    await reconcileSubscriptions();
   }
 
   /** 保持している全 entry の監視を一括停止する。renderer の onUnmounted / app teardown 用の
    * 構造的 cleanup 経路。個別 unwatch と異なり refCount に関わらず全 entry を強制解放する。
-   * 返り値は実際に破棄した entry 数（観察可能性用） */
-  function unwatchAll(): number {
+   * 全購読の解放を始めると、実際に破棄した entry 数（観察可能性用）で resolve する。native 側の
+   * 解放の完了は待たない */
+  async function unwatchAll(): Promise<number> {
     const dirs = [...entries.keys()];
     for (const dir of dirs) {
       unwatchResolved(dir);
     }
+    await reconcileSubscriptions();
     return dirs.length;
   }
 
+  /** entry と、その dir に紐づく状態を外す。subscribe の張り直しは呼び出し側が行う */
   function unwatchResolved(dir: string): void {
     const entry = entries.get(dir);
     if (entry === undefined) return;
     entries.delete(dir);
-    for (const sub of entry.subscriptions) {
-      // unsubscribe は async だが完了を待つ必要はない。失敗だけ観察可能にする
-      sub.unsubscribe().catch((error: unknown) => {
-        console.error(`[FSWatchRegistry] unsubscribe failed for ${dir}: ${String(error)}`);
-      });
-    }
     // dedup キャッシュも掃除する。再 watch 後の最初の status を無条件 push させ、dir 削除後の
     // 別 repo 再配置などで stale 値が次の push を握り潰すのを防ぐ
     lastPushedStatusByDir.delete(dir);
@@ -552,6 +655,17 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
   }
 
   return { watch, unwatch, unwatchAll, setFocusDir };
+}
+
+/** path が root の配下にあるか（root 自身は含まない） */
+function isStrictlyUnder(path: string, root: string): boolean {
+  const relative = relativeUnder(path, root);
+  return relative !== undefined && relative !== "";
+}
+
+/** 購読の同一性。同じ root でも ignore が違えば別の購読として張り直す */
+function subscriptionKey(root: string, ignore: string[]): string {
+  return JSON.stringify([root, ignore]);
 }
 
 /** StatusFull の内容等値比較。Swift 版は Equatable 導出に相当 */

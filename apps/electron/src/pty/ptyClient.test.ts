@@ -144,7 +144,7 @@ describe("ptyClient", () => {
     proc.emit("spawn");
     await tick();
     proc.emit("message", { type: "spawnError", id: 1, message: "boom" } satisfies PtyToHostMessage);
-    // bun は非 await の .rejects も追跡して失敗を捕捉する（codebase の commandResolver.test と同作法）
+    // bun は非 await の .rejects も追跡して失敗を捕捉する
     expect(pidP).rejects.toThrow("boom");
   });
 

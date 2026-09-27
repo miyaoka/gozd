@@ -190,7 +190,7 @@ function isWorktreeStructureChange(underCommon: string): boolean {
 
 /** path が root 配下なら root からの相対パスを返す。配下でなければ undefined。
  * `path === root` のときは `""` を返す */
-function relativeUnder(path: string, root: string | undefined): string | undefined {
+export function relativeUnder(path: string, root: string | undefined): string | undefined {
   if (root === undefined) return undefined;
   if (path === root) return "";
   const rootWithSlash = root.endsWith("/") ? root : `${root}/`;

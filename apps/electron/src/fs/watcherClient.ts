@@ -107,7 +107,7 @@ export function createWatcherClient(deps: WatcherClientDeps): WatcherClient {
   function onExit(code: number): void {
     child = undefined;
     ready = undefined;
-    // spawn 完了前の exit なら getChild の promise を reject し、await 中の buildEntry が
+    // spawn 完了前の exit なら getChild の promise を reject し、await 中の subscribe が
     // 永久に hang するのを防ぐ
     const rejectSpawn = readyReject;
     readyReject = undefined;
@@ -223,7 +223,7 @@ export function createWatcherClient(deps: WatcherClientDeps): WatcherClient {
   ): Promise<WatchHandle> {
     const id = nextId++;
     const sub: Subscription = { root, ignore, onEvents, onError };
-    // ack 前に crash / subscribeError なら throw され、live には入らない（buildEntry が巻き戻す）
+    // ack 前に crash / subscribeError なら throw され、live には入らない（registry の張り直しが失敗として扱う）
     await sendSubscribe(id, sub);
     live.set(id, sub);
     return {

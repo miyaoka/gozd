@@ -175,6 +175,7 @@ export type {
   GitWorktreeListResponse,
   GitWorktreeRemoveRequest,
   GitWorktreeRemoveResponse,
+  WorktreeRemoveRefusal,
   NewWorktreePayload,
   BranchScope,
   SortMode,

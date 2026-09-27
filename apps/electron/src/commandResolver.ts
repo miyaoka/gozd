@@ -40,7 +40,7 @@ const RESOLVE_TIMEOUT_MS = 10_000;
 const STDERR_TAIL_BYTES = 4096;
 
 /** shell spawn 失敗 / hang / timeout / marker 抽出失敗。Swift 版 `GitError.launchFailed` 相当 */
-export class CommandResolveError extends Error {
+class CommandResolveError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "CommandResolveError";
@@ -52,6 +52,15 @@ class CommandNotFoundError extends Error {
   constructor(commandName: string) {
     super(`'${commandName}' not found via login shell. Is it installed?`);
     this.name = "CommandNotFoundError";
+  }
+}
+
+/** 起動の cwd が無い（stat できない）。spawn の ENOENT は実行ファイルが無いように読めるため、
+ * cwd を名指しする。元の失敗は cause に残す */
+class InvalidCwdError extends Error {
+  constructor(cwd: string, statError: unknown, spawnError: Error) {
+    super(`The cwd is invalid: ${cwd}\n${String(statError)}`, { cause: spawnError });
+    this.name = "InvalidCwdError";
   }
 }
 
@@ -225,8 +234,6 @@ function lookupViaLoginShell(
 interface CommandResolverOptions {
   /** テスト用の shell オーバーライド。未指定なら本番経路（userLoginShell()） */
   shellOverride?: string;
-  /** テスト用の timeout オーバーライド */
-  timeoutMs?: number;
 }
 
 export interface CommandResolver {
@@ -243,7 +250,6 @@ export interface CommandResolver {
 
 export function createCommandResolver({
   shellOverride,
-  timeoutMs = RESOLVE_TIMEOUT_MS,
 }: CommandResolverOptions = {}): CommandResolver {
   const cache = new Map<string, string>();
   const negativeCache = new Set<string>();
@@ -262,7 +268,7 @@ export function createCommandResolver({
     if (existing !== undefined) return existing;
 
     const shell = shellOverride ?? userLoginShell();
-    const task = lookupViaLoginShell(name, shell, timeoutMs);
+    const task = lookupViaLoginShell(name, shell, RESOLVE_TIMEOUT_MS);
     inflight.set(name, task);
     const result = await tryCatch(task);
     inflight.delete(name);
@@ -303,19 +309,28 @@ function isEnoent(error: Error): boolean {
 }
 
 /**
- * name を絶対パスに解決して run を実行する共通経路。
+ * name を絶対パスに解決し、cwd で起動する run を実行する共通経路。
  *
  * - 未インストール（resolve が undefined）→ CommandNotFoundError を throw（retry 不要、即上位へ）
- * - run が ENOENT で失敗 → キャッシュが stale（mise / asdf upgrade で versioned path が消えた等）
- *   の可能性があるため、1 回だけ invalidate + 再解決して retry する
+ * - run が ENOENT で失敗 → spawn の ENOENT は、実行ファイルと cwd のどちらが無くても起きる
+ *   - cwd が無ければ、cwd を名指しするエラーにする（execa の fixCwdError と同じ）。元の文言は
+ *     実行ファイルが無いように読める
+ *   - 解決済みの実行ファイルが無ければ、キャッシュが stale（mise / asdf upgrade で versioned
+ *     path が消えた等）なので、1 回だけ invalidate + 再解決して retry する
+ *   - どちらも在れば、元の ENOENT をそのまま投げる
  */
 export async function withResolvedCommand<T>(
   name: string,
+  cwd: string,
   run: (commandPath: string) => Promise<T>,
 ): Promise<T> {
-  const first = await tryCatch(run(await resolveRequired(name)));
+  const commandPath = await resolveRequired(name);
+  const first = await tryCatch(run(commandPath));
   if (first.ok) return first.value;
   if (!isEnoent(first.error)) throw first.error;
+  const cwdStat = tryCatch(() => statSync(cwd));
+  if (!cwdStat.ok) throw new InvalidCwdError(cwd, cwdStat.error, first.error);
+  if (tryCatch(() => statSync(commandPath)).ok) throw first.error;
   console.error(
     `[commandResolver] cached path for '${name}' hit ENOENT, invalidating and re-resolving`,
   );

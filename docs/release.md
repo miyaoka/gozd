@@ -14,34 +14,31 @@ Electron バイナリに元から入っている ad-hoc 署名が残ることで
 > 署名しない選択は、ビルド後に channel identity を書き込めることの前提でもある。署名を導入する
 > 場合は、書き込みが署名を壊さない経路を先に用意する必要がある。
 
-## チャンネル
+## リリースの発行
 
-| チャンネル | トリガー                                    | tag 形式                     | Release    |
-| ---------- | ------------------------------------------- | ---------------------------- | ---------- |
-| canary     | main への push（feat / fix があるときだけ） | `v0.1.1-canary.<UTC 日時>`   | prerelease |
-| stable     | 手動実行（事前に人間が version を bump）    | `v0.1.1`（バージョンと一致） | latest     |
+main への push で feat / fix があるときだけ自動でリリースし、すべてを Latest として出す。
 
-判定・採番と、ビルド・添付を別の段階に分ける。**チャンネル別に直列実行を強制する** — canary の
-日時採番で同刻衝突と時系列の逆転を防ぐため。
+判定・採番と、ビルド・添付を別の段階に分ける。**リリースを直列実行する** — 既存 tag から
+次の番号を決めるため、並走すると同じ番号が衝突する。
 
-- **canary の発火判定**: 直近の tag から HEAD までに feat / fix があればリリースする。
+- **発火判定**: 直近の tag から HEAD までに feat / fix があればリリースする。
   **依存更新の commit は scope の除外で落ちる。前提となる契約は「人間は依存更新用の scope を
   feat / fix で使わない」**（[コミット型の規律](../.claude/skills/commit/SKILL.md)）
-- **canary の採番**: 「最新 stable の次 patch + UTC 日時」。semver の順序が
-  stable < canary < 次 stable で単調になり、**prerelease フラグだけでチャンネルを選べる**
-  - **タグ名の文字列順が時系列と一致することを保証する**。パッケージマネージャは版を並べ替えず
-    GitHub の返却順をそのまま最新の判定に使うため、文字列順が崩れると更新が最新に追従しなくなる。
-    **連番は同日に一定数を超えると崩れるので採らない**（固定幅の日時なら常に成立する）
-- **stable の検証**: tag の重複（bump し忘れ）と、最新 stable からの逆行はエラーで弾く
+- **採番は CalVer（`vYYYY.M.PATCH`、UTC）**。PATCH は同じ年月の中の連番で、年月が変わると 0 に
+  戻る。版番号は互換性の情報を持たず、リリースの前後関係だけを表す
+  - **各要素をゼロ埋めしない**。ビルドは semver として版を正規化し先頭ゼロを消すため、ゼロ埋め
+    すると tag と焼き込まれる版が食い違う
+  - **prerelease 部（`-` 以降）を使わない**。GitHub は prerelease 部を文字列として並べ、
+    パッケージマネージャは一覧を並べ替えずその順を使うため、数値の繰り上がりで最新の判定が崩れる
+- **最新の判定は Latest の印に委ねる**。パッケージマネージャは prerelease を追わない設定では
+  Latest の印が付いた release を最新として解決するため、発行時に明示する
 
 ## バージョン管理
 
-**バージョンの SSOT はリポジトリにコミットされた値**（GitHub Releases 配布の Electron アプリの
-標準運用）。
+**バージョンの SSOT は tag**。CI が採番した tag 由来のバージョンをビルドにだけ焼き込み、
+リポジトリには書き戻さない（実行中のバージョンを About パネルで判別できる）。
 
-- **stable**: 人間の bump commit が唯一の更新点。CI はリポジトリに書き戻さない
-- **canary**: リポジトリに書き戻さない。**CI が採番した tag 由来のバージョンをビルドにだけ焼き込む**
-  （実行中の canary を About パネルで判別できる）
+- リポジトリにコミットされた version はリリースされない local ビルドの値で、リリースの版を表さない
 - **ビルド識別子はバージョンとは別**で、全ビルドに commit の日時と hash が入る。About パネルの
   括弧内表示と、`~/Applications` 同期の比較キーを兼ねる
   - **未コミットの変更を含むビルドは hash に印が付き、表示と中身の不一致が自己申告される**
@@ -59,28 +56,15 @@ gozd-macos-arm64.tar.gz
 - asset 名は **mise が設定なしで OS / arch を自動検出できる命名**にする
 - **ルートを 2 エントリにする**のは mise 対策。ルートがディレクトリ 1 個だけの tar は自動で 1 階層
   剥がされ、`.app` バンドルが解体される
-- release notes は自動生成し、依存更新は除外する
-- **ノートの範囲**: canary は直前リリースとの差分、stable は **前回の stable を起点にして canary
-  サイクル全体を含める**。起点の自動決定はチャンネルを区別せず直前リリースに倒れるため、stable 側
-  だけ明示が要る
+- release notes は直前リリースとの差分を自動生成し、依存更新は除外する
 
 ## インストール
 
 ```toml
-# canary を追う
-[tools."github:miyaoka/gozd"]
-version = "latest"
-prerelease = true
-postinstall = '"$MISE_TOOL_INSTALL_PATH/bin/gozd" sync-app'
-
-# stable のみ
 [tools."github:miyaoka/gozd"]
 version = "latest"
 postinstall = '"$MISE_TOOL_INSTALL_PATH/bin/gozd" sync-app'
 ```
-
-**1 ユーザーが追うのはどちらか片方**。同時併用はしない（アプリの identity はどちらも同じ stable
-channel の「Gozd」になるため）。
 
 ## 更新の反映
 
@@ -121,4 +105,4 @@ channel の「Gozd」になるため）。
 | ------------------------ | ------------ |
 | 機能検証                 | 開発起動     |
 | パッケージ検証・merge 前 | `Gozd Local` |
-| merge 後                 | canary       |
+| merge 後                 | リリース     |

@@ -4,9 +4,9 @@
 //   - 無指定 → local channel（productName "Gozd Local"、appId 末尾 .local、marker "local"）。
 //     mise 配布の Gozd と socket / bundle id が分かれ、隣で共存・同時起動できる
 // marker は Resources/app/channel に書く。実行時は gozdEnv（main）と bin/gozd（wrapper）が読む。
-// GOZD_BUILD_VERSION（release CI が canary の tag 由来 version を渡す）は electron-builder の
+// GOZD_BUILD_VERSION（release CI が tag 由来の version を渡す）は electron-builder の
 // extraMetadata.version として同梱 package.json に注入され、About パネルの表示になる。
-// stable は事前に人間が bump した package.json の version がそのまま使われるため注入しない。
+// バージョンの SSOT は tag で、package.json の version はリリースされない local ビルドの値。
 
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";

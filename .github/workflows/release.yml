@@ -1,29 +1,21 @@
 # リリースワークフロー
-# - push (main): canary。直近 tag からの feat / fix（deps scope 除外）があれば
-#   prerelease を自動発行する。バージョンは「最新 stable の次 patch + UTC 日時」で自動決定する
-# - workflow_dispatch: stable。事前に人間が apps/electron/package.json の version を
-#   bump して merge しておく前提で、CI は採番せず package.json の version で tag + release
-#   を作る（tag と manifest の一致を保つ。openai/codex の tag-check と同型）
+# main への push で、直近 tag からの feat / fix（deps scope 除外）があればリリースを自動発行する。
+# バージョンは CalVer（vYYYY.M.PATCH、UTC）で自動採番し、Latest として出す
 name: release
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 # decide job は checkout + git 読みのみで write 不要。release job 側の明示ブロックだけ昇格する
 permissions:
   contents: read
 
-# canary の日時サフィックスは decide 時刻で採番するため、同 channel のリリースを直列化して
-# 同刻衝突と時系列逆転を構造的に防ぐ。
-# cancel はしない（ビルド途中の cancel は tag だけ残る等の中途半端な状態を作るため）。
-# group を channel 別に分けるのは、共有 group だと queued 状態の stable dispatch が後続の
-# canary push に supersede されて取り消されるため。channel 間で tag は衝突しない
-# （vX.Y.Z と vX.Y.(Z+1)-canary.<datetime> でバージョン部が必ず異なる）
+# PATCH は既存 tag の max + 1 で採番するため、リリースを直列化して同番号の衝突を構造的に防ぐ。
+# cancel はしない（ビルド途中の cancel は tag だけ残る等の中途半端な状態を作るため）
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && 'stable' || 'canary' }}
+  group: release
 
 jobs:
   # ==============================================================
@@ -35,8 +27,6 @@ jobs:
     outputs:
       proceed: ${{ steps.decide.outputs.proceed }}
       tag: ${{ steps.decide.outputs.tag }}
-      channel: ${{ steps.decide.outputs.channel }}
-      prev_stable: ${{ steps.decide.outputs.prev_stable }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -52,57 +42,37 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 最新 stable tag（prerelease を含まない v*）。無ければ v0.0.0 起点
-          latest_stable="$(git tag -l 'v*' | grep -v '[-]' | sort -V | tail -1 || true)"
-          latest_stable="${latest_stable:-v0.0.0}"
-
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            channel=stable
-            version="$(jq -r .version apps/electron/package.json)"
-            tag="v${version}"
-            # 事前 bump の検証: tag 未使用かつ最新 stable より大きいこと
-            if git rev-parse -q --verify "refs/tags/${tag}" > /dev/null; then
-              echo "::error::tag ${tag} already exists. Bump apps/electron/package.json version first"
-              exit 1
-            fi
-            # 「最新 stable より厳密に大きい」を要求する。同値も弾くことで、stable tag が
-            # 1 つも無い初期状態（latest_stable 既定 v0.0.0 = package.json 0.0.0）の
-            # 未 bump リリースもエラーになる
-            if [[ "${tag}" == "${latest_stable}" ]] || [[ "$(printf '%s\n' "${latest_stable}" "${tag}" | sort -V | tail -1)" != "${tag}" ]]; then
-              echo "::error::version ${tag} must be newer than latest stable ${latest_stable}. Bump apps/electron/package.json version first"
-              exit 1
-            fi
+          # 発火判定: 直近の tag から HEAD に feat / fix があるか。
+          # renovate は全 commit が scope (deps) を持つため scope 除外で確実に落ちる
+          last="$(git describe --tags --abbrev=0 2> /dev/null || true)"
+          if [[ -n "${last}" ]]; then
+            range="${last}..HEAD"
           else
-            channel=canary
-            # 発火判定: 直近の tag（チャンネル問わず）から HEAD に feat / fix があるか。
-            # renovate は全 commit が scope (deps) を持つため scope 除外で確実に落ちる
-            last="$(git describe --tags --abbrev=0 2> /dev/null || true)"
-            if [[ -n "${last}" ]]; then
-              range="${last}..HEAD"
-            else
-              range="HEAD"
-            fi
-            count="$(git log "${range}" --format=%s | grep -E '^(feat|fix)(\([^)]+\))?!?:' | grep -cvE '^(feat|fix)\(deps\)' || true)"
-            if [[ "${count}" -eq 0 ]]; then
-              echo "no feat/fix commits since ${last:-repository root}; skipping release"
-              echo "proceed=false" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
-            # canary tag: 最新 stable の次 patch + UTC 日時（semver 順序が
-            # stable < canary < 次 stable で単調になる）。連番にしないのは、GitHub の
-            # release 一覧の並びと mise の latest 解決が数値連番で崩れるため
-            # （メカニズムの詳細は docs/release.md）
-            IFS=. read -r major minor patch <<< "${latest_stable#v}"
-            next="v${major}.${minor}.$((patch + 1))"
-            tag="${next}-canary.$(date -u +%Y%m%d%H%M%S)"
+            range="HEAD"
+          fi
+          count="$(git log "${range}" --format=%s | grep -E '^(feat|fix)(\([^)]+\))?!?:' | grep -cvE '^(feat|fix)\(deps\)' || true)"
+          if [[ "${count}" -eq 0 ]]; then
+            echo "no feat/fix commits since ${last:-repository root}; skipping release"
+            echo "proceed=false" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
 
-          echo "channel=${channel} tag=${tag}"
+          # CalVer: YYYY.M は UTC の年月、PATCH は同じ年月の既存 tag の max + 1（無ければ 0）。
+          # 月をゼロ埋めしないのは、semver が先頭ゼロを正規化で消し、tag と焼き込む version が
+          # ずれるため
+          year_month="$(date -u +%Y.%-m)"
+          last_patch="$(git tag -l "v${year_month}.*" | sed "s/^v${year_month}\.//" | sort -n | tail -1)"
+          if [[ -n "${last_patch}" ]]; then
+            patch=$((last_patch + 1))
+          else
+            patch=0
+          fi
+          tag="v${year_month}.${patch}"
+
+          echo "tag=${tag}"
           {
             echo "proceed=true"
             echo "tag=${tag}"
-            echo "channel=${channel}"
-            echo "prev_stable=${latest_stable}"
           } >> "${GITHUB_OUTPUT}"
 
   # ==============================================================
@@ -119,7 +89,6 @@ jobs:
       attestations: write
     env:
       TAG: ${{ needs.decide.outputs.tag }}
-      CHANNEL: ${{ needs.decide.outputs.channel }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -132,17 +101,11 @@ jobs:
 
       - uses: $/.github/actions/setup-environment
 
-      # リリースビルドは canary / stable どちらも stable identity（GOZD_BUILD_CHANNEL）。
-      # canary は tag 由来の version を extraMetadata で焼き込む。stable は人間が bump 済みの
-      # package.json の version がそのまま使われる
+      # リリースビルドは stable identity（GOZD_BUILD_CHANNEL）で、tag 由来の version を焼き込む
       - name: Build .app
         run: |
           set -euo pipefail
-          build_version=""
-          if [[ "${CHANNEL}" == "canary" ]]; then
-            build_version="${TAG#v}"
-          fi
-          GOZD_BUILD_CHANNEL=stable GOZD_BUILD_VERSION="${build_version}" pnpm --filter @gozd/electron build:app
+          GOZD_BUILD_CHANNEL=stable GOZD_BUILD_VERSION="${TAG#v}" pnpm --filter @gozd/electron build:app
 
       # ルートは bin/ + Gozd.app/ の 2 エントリにする。ルートがディレクトリ 1 個だけの
       # tar は mise が strip_components=1 を自動適用して .app バンドルが解体されるため
@@ -161,20 +124,10 @@ jobs:
         with:
           subject-path: gozd-macos-arm64.tar.gz
 
+      # mise は /releases/latest で最新を解決するため、Latest を明示する
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-          PREV_STABLE: ${{ needs.decide.outputs.prev_stable }}
         run: |
           set -euo pipefail
-          flags=(--generate-notes --target "${GITHUB_SHA}")
-          if [[ "${CHANNEL}" == "canary" ]]; then
-            flags+=(--prerelease)
-          else
-            # generate-notes の起点自動決定は channel を区別せず直前リリース（canary 含む）に
-            # なるため、stable は前回 stable を起点に明示して canary サイクル全体を含める。
-            # 前回 stable は常に実在する前提。latest_stable が既定 v0.0.0 に倒れるのは
-            # stable tag がゼロの状態だけで、v0.1.0 リリース済みのため到達しない
-            flags+=(--latest --notes-start-tag "${PREV_STABLE}")
-          fi
-          gh release create "${TAG}" "${flags[@]}" gozd-macos-arm64.tar.gz
+          gh release create "${TAG}" --generate-notes --latest --target "${GITHUB_SHA}" gozd-macos-arm64.tar.gz

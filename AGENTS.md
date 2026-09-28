@@ -15,22 +15,22 @@ AI エージェントの並列開発を管理するデスクトップアプリ�
 
 ## ドキュメント（`docs/`）
 
-| ファイル                                  | 内容                                                                        |
-| ----------------------------------------- | --------------------------------------------------------------------------- |
-| [architecture.md](docs/architecture.md)   | **全体像**（起動フロー、通信経路、PTY 環境変数、Claude hooks）              |
-| [workspace.md](docs/workspace.md)         | ワークスペース設計（マルチ repo、worktree 運用、UI 階層）                   |
-| [rpc.md](docs/rpc.md)                     | RPC スキーマ（@gozd/rpc の型 SSOT、通信モデル、購読契約）                   |
-| [git.md](docs/git.md)                     | git / GitHub 連携（push 経路、更新トリガー、gh エラー分類）                 |
-| [filer.md](docs/filer.md)                 | ファイラー（ツリー表示、git status 色分け、アイコン、ファイル監視）         |
-| [preview.md](docs/preview.md)             | プレビュー（コード、diff、画像、SVG、Markdown、リアクティブ更新）           |
-| [terminal.md](docs/terminal.md)           | ターミナル（分割、worktree 保持、ファイルパスリンク、PTY 管理）             |
-| [command.md](docs/command.md)             | コマンドシステム（レジストリ、context key、when 条件）                      |
-| [keybinding.md](docs/keybinding.md)       | キーバインディング（e.code ベース、設定フォーマット、解決フロー）           |
-| [session.md](docs/session.md)             | セッション（帰属、タイトル、サイドバー UI、ダッシュボード）                 |
-| [concierge.md](docs/concierge.md)         | 窓口（ディレクトリ、指示の注入、窓口に渡す操作、worktree の削除の安全）     |
-| [claude-status.md](docs/claude-status.md) | Claude ステータス管理（状態遷移、hooks、interrupt 検知）                    |
-| [server.md](docs/server.md)               | サーバー検出（LISTEN port ポーリング、worktree 帰属、一覧パネル）           |
-| [release.md](docs/release.md)             | リリースと配布（canary / stable、CI、mise、wrapper 同期、channel identity） |
+| ファイル                                  | 内容                                                                         |
+| ----------------------------------------- | ---------------------------------------------------------------------------- |
+| [architecture.md](docs/architecture.md)   | **全体像**（起動フロー、通信経路、PTY 環境変数、Claude hooks）               |
+| [workspace.md](docs/workspace.md)         | ワークスペース設計（マルチ repo、worktree 運用、UI 階層）                    |
+| [rpc.md](docs/rpc.md)                     | RPC スキーマ（@gozd/rpc の型 SSOT、通信モデル、購読契約）                    |
+| [git.md](docs/git.md)                     | git / GitHub 連携（push 経路、更新トリガー、gh エラー分類）                  |
+| [filer.md](docs/filer.md)                 | ファイラー（ツリー表示、git status 色分け、アイコン、ファイル監視）          |
+| [preview.md](docs/preview.md)             | プレビュー（コード、diff、画像、SVG、Markdown、リアクティブ更新）            |
+| [terminal.md](docs/terminal.md)           | ターミナル（分割、worktree 保持、ファイルパスリンク、PTY 管理）              |
+| [command.md](docs/command.md)             | コマンドシステム（レジストリ、context key、when 条件）                       |
+| [keybinding.md](docs/keybinding.md)       | キーバインディング（e.code ベース、設定フォーマット、解決フロー）            |
+| [session.md](docs/session.md)             | セッション（帰属、タイトル、サイドバー UI、ダッシュボード）                  |
+| [concierge.md](docs/concierge.md)         | 窓口（ディレクトリ、指示の注入、窓口に渡す操作、worktree の削除の安全）      |
+| [claude-status.md](docs/claude-status.md) | Claude ステータス管理（状態遷移、hooks、interrupt 検知）                     |
+| [server.md](docs/server.md)               | サーバー検出（LISTEN port ポーリング、worktree 帰属、一覧パネル）            |
+| [release.md](docs/release.md)             | リリースと配布（自動リリース、CalVer、mise、wrapper 同期、channel identity） |
 
 ## ドキュメントの階層
 

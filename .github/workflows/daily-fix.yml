@@ -65,7 +65,7 @@ jobs:
           branch: bot/daily-fix
           sign-commits: true
           delete-branch: true
-          # style は release workflow の canary 発火判定（feat / fix）に掛からない
+          # style は release workflow の発火判定（feat / fix）に掛からない
           commit-message: "style: repay lint and format drift found by fix:all"
           title: "style: repay lint and format drift found by fix:all"
           body: Automated PR from the daily `daily-fix` workflow. It runs `fix:all` across the whole repo and repays the lint / format drift it finds.

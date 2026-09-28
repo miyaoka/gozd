@@ -44,19 +44,7 @@ gozd はスロベニア語で「森」（[ɡɔ́st]、「ゴスト」）。
 
 ## インストール
 
-[mise](https://mise.jdx.dev/) でインストールする。`postinstall` がインストール直後に `~/Applications/Gozd.app` へアプリを配置する。
-
-### canary（開発版）を追う
-
-main への機能 merge ごとに自動リリースされる。
-
-```bash
-mise use -g 'github:miyaoka/gozd[prerelease=true,postinstall="\"$MISE_TOOL_INSTALL_PATH/bin/gozd\" sync-app"]'
-```
-
-### stable のみを追う
-
-手動リリースされる安定版だけを取得する。
+[mise](https://mise.jdx.dev/) でインストールする。`postinstall` がインストール直後に `~/Applications/Gozd.app` へアプリを配置する。main への機能 merge ごとに自動リリースされる。
 
 ```bash
 mise use -g 'github:miyaoka/gozd[postinstall="\"$MISE_TOOL_INSTALL_PATH/bin/gozd\" sync-app"]'

@@ -809,8 +809,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   // toolById と key 空間を分けると AskUserQuestion / それ以外で経路が混ざらず、tool_result の
   // 引き当てが「どちらの table にいるか」で一意に決まる。
   const askById = new Map<string, Extract<TranscriptEvent, { kind: "ask" }>>();
-  // assistant 発言に変換した SubagentHandback の tool_use_id。後続の tool_result は配達確認だけで
-  // 表示する情報を持たないため、未ペアとして skipped に計上せず消費する。
+  // assistant 発言に変換した SubagentHandback の tool_use_id。
   const handbackIds = new Set<string>();
 
   let totalLines = 0;

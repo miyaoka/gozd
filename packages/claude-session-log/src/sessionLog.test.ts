@@ -1726,6 +1726,65 @@ describe("parseSessionLog", () => {
     ]);
   });
 
+  describe("SubagentHandback を subagent の最終応答にする", () => {
+    const handbackUse = (input: Record<string, unknown>): unknown => ({
+      type: "assistant",
+      timestamp: TS,
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tu1", name: "SubagentHandback", input }],
+      },
+    });
+    const handbackResult: unknown = {
+      type: "user",
+      timestamp: TS,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu1",
+            content: [{ type: "text", text: '{"success":true}' }],
+          },
+        ],
+      },
+      toolUseResult: { success: true, message: "Report delivered to your caller." },
+    };
+
+    test("message を assistant 発言にし、配達確認の tool_result は skipped にしない", () => {
+      const log = parseSessionLog(jsonl(handbackUse({ message: "## 報告" }), handbackResult));
+      expect(log.events).toEqual([{ kind: "assistant", text: "## 報告", ts: TS }]);
+      expect(log.skipped).toBe(0);
+    });
+
+    test("message が文字列でなければ tool として残し、配達確認を result に入れる", () => {
+      const log = parseSessionLog(jsonl(handbackUse({}), handbackResult));
+      const [ev] = log.events;
+      expect(ev?.kind).toBe("tool");
+      if (ev?.kind === "tool") expect(ev.result?.text).toBe('{"success":true}');
+      expect(log.skipped).toBe(0);
+    });
+
+    test("message が空文字なら tool として残す", () => {
+      const log = parseSessionLog(jsonl(handbackUse({ message: "" }), handbackResult));
+      expect(log.events.map((e) => e.kind)).toEqual(["tool"]);
+    });
+
+    test("配達の失敗は skipped に計上する", () => {
+      const failed = {
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "tu1", content: "failed", is_error: true }],
+        },
+      };
+      const log = parseSessionLog(jsonl(handbackUse({ message: "## 報告" }), failed));
+      expect(log.events).toEqual([{ kind: "assistant", text: "## 報告", ts: TS }]);
+      expect(log.skipped).toBe(1);
+    });
+  });
+
   describe("compact は rewind 分岐にしない", () => {
     const SUMMARY = "This session is being continued from a previous conversation.";
     /** boundary の子に置く要約レコード。content の形を差し替えて使う。 */

@@ -572,19 +572,19 @@ export interface ParsedSessionLog {
   emptyThinking: number;
 }
 
+/**
+ * subagent が呼び出し元へ最終報告を返す tool 名。input.message が subagent の最終報告。
+ * main 側に届く同じ本文は hidden に倒すため (`peerSpeaker`)、報告を発言として読める場所は
+ * sub 側のこの tool_use だけになる。
+ */
+const HANDBACK_TOOL_NAME = "SubagentHandback";
+
 // --- AskUserQuestion 専用 helper ---
 
 /**
  * AskUserQuestion tool 名。SSOT。判定はこのリテラル一致のみ (大小文字違いや別名は持たない)。
  */
 const ASK_TOOL_NAME = "AskUserQuestion";
-
-/**
- * subagent が呼び出し元へ最終報告を返す tool 名。input.message が subagent の最終応答であり、
- * 呼び出し後に assistant の text は続かない。main 側に届く同じ本文は hidden に倒すため
- * (`peerSpeaker`)、報告を発言として読める場所は sub 側のこの tool_use だけになる。
- */
-const HANDBACK_TOOL_NAME = "SubagentHandback";
 
 /**
  * tool_use.input から AskUserQuestion 用の questions[] を取り出す。信頼境界外なので
@@ -639,8 +639,8 @@ function toolResultText(content: string | ContentBlock[]): string {
  * text → user / image → image の対応は同一。ここに一元化し「一方だけ image 分離を欠く」
  * 非対称バグ (base64 が text に生露出する類) を構造的に防ぐ。
  *
- * tool_result は実 user メッセージにしか現れず ask / tool 充填という別ロジック (askById /
- * toolById への副作用) なのでこの helper の責務外。呼び出し側が先に処理する。text / image
+ * tool_result は実 user メッセージにしか現れず handback の消費 / ask / tool 充填という別ロジック
+ * (handbackIds / askById / toolById の参照) なのでこの helper の責務外。呼び出し側が先に処理する。text / image
  * 以外は undefined を返し、呼び出し側が skipped 計上する (silent drop 禁止の観察可能性は
  * 呼び出し側に残す)。
  */
@@ -1017,10 +1017,15 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type === "tool_result") {
+            // assistant 発言に変換した SubagentHandback の配達確認。成功は表示する情報を
+            // 持たないので消費し、配達の失敗は無言で落とさず skipped に計上する。
+            if (handbackIds.has(block.tool_use_id)) {
+              if (block.is_error === true) skipped++;
+              continue;
+            }
             // AskUserQuestion の応答なら ask イベントの answer を充填する。引き当ては
             // askById 優先 → toolById fallback の順 (同 tool_use_id が両方に居ることは無いが、
             // ask 経路を先に試すことで「ask に登録されているのに tool として処理する」誤りを防ぐ)。
-            if (handbackIds.has(block.tool_use_id)) continue;
             const ask = askById.get(block.tool_use_id);
             if (ask !== undefined) {
               // 充填ソースは raw line top-level の `toolUseResult.answers` を SSOT に使う。
@@ -1133,9 +1138,9 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
             events.push(ask);
             continue;
           }
-          // SubagentHandback は subagent の最終応答として assistant 発言にする。tool のまま
-          // 並べると応答の末尾が tool 呼び出しになり、応答が終わっていないように読める。
-          // message が文字列でない病的ケースは tool として可視化する。
+          // SubagentHandback は subagent の最終報告として assistant 発言にする。後続の発言が
+          // 無いままログが終わっても、報告が発言としてターン境界になる。message が空または
+          // 文字列でない病的ケースは tool として可視化する。
           const handbackMessage = block.input?.message;
           if (
             block.name === HANDBACK_TOOL_NAME &&

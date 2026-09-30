@@ -1757,9 +1757,31 @@ describe("parseSessionLog", () => {
       expect(log.skipped).toBe(0);
     });
 
-    test("message が文字列でなければ tool として残す", () => {
+    test("message が文字列でなければ tool として残し、配達確認を result に入れる", () => {
       const log = parseSessionLog(jsonl(handbackUse({}), handbackResult));
+      const [ev] = log.events;
+      expect(ev?.kind).toBe("tool");
+      if (ev?.kind === "tool") expect(ev.result?.text).toBe('{"success":true}');
+      expect(log.skipped).toBe(0);
+    });
+
+    test("message が空文字なら tool として残す", () => {
+      const log = parseSessionLog(jsonl(handbackUse({ message: "" }), handbackResult));
       expect(log.events.map((e) => e.kind)).toEqual(["tool"]);
+    });
+
+    test("配達の失敗は skipped に計上する", () => {
+      const failed = {
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "tu1", content: "failed", is_error: true }],
+        },
+      };
+      const log = parseSessionLog(jsonl(handbackUse({ message: "## 報告" }), failed));
+      expect(log.events).toEqual([{ kind: "assistant", text: "## 報告", ts: TS }]);
+      expect(log.skipped).toBe(1);
     });
   });
 

@@ -580,6 +580,13 @@ export interface ParsedSessionLog {
 const ASK_TOOL_NAME = "AskUserQuestion";
 
 /**
+ * subagent が呼び出し元へ最終報告を返す tool 名。input.message が subagent の最終応答であり、
+ * 呼び出し後に assistant の text は続かない。main 側に届く同じ本文は hidden に倒すため
+ * (`peerSpeaker`)、報告を発言として読める場所は sub 側のこの tool_use だけになる。
+ */
+const HANDBACK_TOOL_NAME = "SubagentHandback";
+
+/**
  * tool_use.input から AskUserQuestion 用の questions[] を取り出す。信頼境界外なので
  * 各フィールド欠落 / 型違いを許容して空文字 / 空配列 / false に倒す。
  */
@@ -802,6 +809,9 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   // toolById と key 空間を分けると AskUserQuestion / それ以外で経路が混ざらず、tool_result の
   // 引き当てが「どちらの table にいるか」で一意に決まる。
   const askById = new Map<string, Extract<TranscriptEvent, { kind: "ask" }>>();
+  // assistant 発言に変換した SubagentHandback の tool_use_id。後続の tool_result は配達確認だけで
+  // 表示する情報を持たないため、未ペアとして skipped に計上せず消費する。
+  const handbackIds = new Set<string>();
 
   let totalLines = 0;
   let malformed = 0;
@@ -1010,6 +1020,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
             // AskUserQuestion の応答なら ask イベントの answer を充填する。引き当ては
             // askById 優先 → toolById fallback の順 (同 tool_use_id が両方に居ることは無いが、
             // ask 経路を先に試すことで「ask に登録されているのに tool として処理する」誤りを防ぐ)。
+            if (handbackIds.has(block.tool_use_id)) continue;
             const ask = askById.get(block.tool_use_id);
             if (ask !== undefined) {
               // 充填ソースは raw line top-level の `toolUseResult.answers` を SSOT に使う。
@@ -1120,6 +1131,19 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
             };
             if (toolUseId !== "") askById.set(toolUseId, ask);
             events.push(ask);
+            continue;
+          }
+          // SubagentHandback は subagent の最終応答として assistant 発言にする。tool のまま
+          // 並べると応答の末尾が tool 呼び出しになり、応答が終わっていないように読める。
+          // message が文字列でない病的ケースは tool として可視化する。
+          const handbackMessage = block.input?.message;
+          if (
+            block.name === HANDBACK_TOOL_NAME &&
+            typeof handbackMessage === "string" &&
+            handbackMessage !== ""
+          ) {
+            if (toolUseId !== "") handbackIds.add(toolUseId);
+            events.push({ kind: "assistant", text: handbackMessage, ts });
             continue;
           }
           const tool: Extract<TranscriptEvent, { kind: "tool" }> = {

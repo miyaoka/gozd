@@ -29,10 +29,7 @@
  */
 import { isExternalUrl } from "@gozd/shared";
 import { shikiToMonaco } from "@shikijs/monaco";
-import { useEventListener } from "@vueuse/core";
 import * as monaco from "monaco-editor";
-import { registerWindow } from "monaco-editor/base/browser/dom.js";
-import { ensureCodeWindow } from "monaco-editor/base/browser/window.js";
 // editor.worker は upstream で deprecated (src/deprecated/editor/editor.worker.ts) だが、自己起動
 // する代替エントリーが配布物に無い。参照先の `editor.worker.start` は internal 扱いなので、
 // self.onmessage の起動シーケンスを自前に置き換えない
@@ -284,31 +281,5 @@ function wireGutterBlame(
   };
 }
 
-// main window は Monaco (dom.js) が module 初期化で id=1 として自己登録するため 2 から採番する。
-// 焼き込み済みウィンドウへの再呼び出しでも採番だけは進む (条件付きにしない。単調増加である限り
-// キーの一意性は保たれる)
-let nextMonacoWindowId = 2;
-
-/**
- * el が属するウィンドウを Monaco の window registry に登録する。main window は no-op。
- * 登録済みウィンドウへの再呼び出しは Monaco 側の registerWindow が冪等 (登録済み id は
- * Disposable.None を返す) なので無害。
- *
- * Monaco の focus 判定 (`getActiveDocument`) は registry 登録済みウィンドウしか走査せず、
- * 未登録の child window では常に main document へ fallback する。その結果、child 内の
- * エディタは DOM フォーカスを得ても「非フォーカス」と誤認され、caret が描画されない。
- * editor / diff editor を create する前に必ずコンテナ要素で呼ぶこと。
- *
- * 登録解除はウィンドウの pagehide で行う (エディタ unmount ではなくウィンドウ寿命に載せる。
- * モード切替でエディタだけ作り直してもウィンドウは登録されたままでよい)。
- */
-function registerMonacoWindow(el: HTMLElement): void {
-  const win = el.ownerDocument.defaultView;
-  if (win === null || win === window) return;
-  ensureCodeWindow(win, nextMonacoWindowId++);
-  const registration = registerWindow(win);
-  useEventListener(win, "pagehide", () => registration.dispose(), { once: true });
-}
-
-export { monaco, MONACO_THEME, registerMonacoWindow, resolveMonacoLanguage, wireGutterBlame };
+export { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterBlame };
 export type { GutterBlameHandle };

@@ -49,8 +49,3 @@ ignoredOptionalDependencies:
   - '@anthropic-ai/claude-agent-sdk-*'
 
 shellEmulator: true
-
-patchedDependencies:
-  # バージョン限定: patch は配布物の行位置に依存する。name-only key だと将来バージョンにも
-  # 適用され、失敗理由が patch 側の腐敗として現れて分かりにくい
-  monaco-editor@0.56.0: patches/monaco-editor.patch

@@ -34,6 +34,7 @@ import { tryCatch } from "@gozd/shared";
 import type * as Monaco from "monaco-editor";
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { MONACO_THEME_SCOPE_CLASS } from "./monacoThemeScope";
 import { previewCodeFontFamily, previewFontSize } from "./previewConfig";
 
 const props = withDefaults(
@@ -123,7 +124,7 @@ onMounted(async () => {
 });
 
 async function setupEditor(el: HTMLElement, myEpoch: number): Promise<void> {
-  const { monaco, MONACO_THEME, registerMonacoWindow, resolveMonacoLanguage, wireGutterBlame } =
+  const { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterBlame } =
     await import("./monacoSetup");
   const language = await resolveMonacoLanguage(props.filePath);
   // await 中に unmount された場合、containerRef は Vue によって undefined に戻される。
@@ -136,8 +137,6 @@ async function setupEditor(el: HTMLElement, myEpoch: number): Promise<void> {
   editorReady.value = true;
   await nextTick();
   if (containerRef.value !== el) return;
-  // undock child window 内で caret を出すための registry 登録 (monacoSetup の doc 参照)
-  registerMonacoWindow(el);
   editor = monaco.editor.create(el, {
     value: props.content,
     language,
@@ -310,7 +309,7 @@ watch([previewFontSize, previewCodeFontFamily], ([size, family]) => {
       v-show="editorReady"
       ref="containerRef"
       class="size-full"
-      :class="blameEnabled ? '_blame-gutter' : ''"
+      :class="[MONACO_THEME_SCOPE_CLASS, blameEnabled ? '_blame-gutter' : '']"
     />
 
     <!-- blame popover の anchor。Monaco 内部の DOM は anchor に使えない

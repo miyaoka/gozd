@@ -33,8 +33,7 @@ in-app パネルを unmount して OS ウィンドウを mount する即差し�
 ない隙間になるが、昇格はボタン操作で位置も変わらないため追従の破綻がなく、ゴーストで埋める
 必要がない (ドラッグ追従中にウィンドウを生成する経路だけがこのラグを問題にする)。同時 mount を
 避けることは preview では必須で、同一 draft に対して生きた Monaco editor が 2 つ並ぶと入力
-経路が二重になり、Monaco のフォーカス判定 (`getActiveDocument`) もどちらの document を見るかで
-揺れる。
+経路が二重になる。
 
 OS ウィンドウの生成失敗 (`openFailed`) は `promoteFailed` として consumer へ通し、consumer は
 store の `demote()` で in-app パネルへ引き返す。entry を消すと preview の「移動済みの未保存

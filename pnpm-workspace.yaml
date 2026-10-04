@@ -40,7 +40,7 @@ catalog:
   oxlint-tsgolint: 7.0.2003
   tailwindcss: 4.3.3
   typescript: npm:@typescript/typescript6@6.0.2
-  vite: 8.3.1
+  vite: 8.3.2
 
 # Claude Agent SDK は Claude Code 本体のバイナリを platform 別の optionalDependencies で持つ。
 # gozd が使うのはセッション一覧を読み取る関数だけで、esbuild が main に bundle するため

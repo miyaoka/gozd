@@ -120,7 +120,7 @@ jobs:
 
       # 署名の代わりの改竄検知。mise は GitHub attestation 検証をデフォルト有効にしている
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: gozd-macos-arm64.tar.gz
 

@@ -65,6 +65,6 @@
     "vite": "catalog:",
     "vitest": "5.0.3",
     "vitest-browser-vue": "3.1.0",
-    "vue-tsc": "3.3.11"
+    "vue-tsc": "3.3.12"
   }
 }

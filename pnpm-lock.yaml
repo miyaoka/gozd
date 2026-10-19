@@ -130,14 +130,14 @@ importers:
   apps/renderer:
     dependencies:
       '@dnd-kit/abstract':
-        specifier: 0.5.0
-        version: 0.5.0
+        specifier: 0.5.1
+        version: 0.5.1
       '@dnd-kit/helpers':
-        specifier: 0.5.0
-        version: 0.5.0
+        specifier: 0.5.1
+        version: 0.5.1
       '@dnd-kit/vue':
-        specifier: 0.5.0
-        version: 0.5.0(vue@3.5.43(@typescript/typescript6@6.0.2))
+        specifier: 0.5.1
+        version: 0.5.1(vue@3.5.43(@typescript/typescript6@6.0.2))
       '@gozd/claude-session-log':
         specifier: workspace:*
         version: link:../../packages/claude-session-log
@@ -529,9 +529,6 @@ packages:
   '@chevrotain/utils@13.2.0':
     resolution: {integrity: sha512-SzKYY68rseOrb9KILVzPsl6SjkQtdWw01SRGB5aCVI5kFcHltQsOYV3JB0Ffst72DgkvHCyDQ0NLwxtmCCf97Q==}
 
-  '@dnd-kit/abstract@0.5.0':
-    resolution: {integrity: sha512-hi13iMJgjPX/KDYVKg5VeDIhmYiV6buc9bAX+tCLYf4QdyYjPbsXjn2sPo6m7fQ6SGJBEFgHJ2PemeKDUbwBaA==}
-
   '@dnd-kit/abstract@0.5.1':
     resolution: {integrity: sha512-XI13sUYRvRgggMocjHlQhLRgENm/2GF94KF7mk+c0uxse7sbn75r0BgxoNPDlzLTDPWx6PkS0YHoeXN9JWhnOA==}
 
@@ -544,14 +541,14 @@ packages:
   '@dnd-kit/geometry@0.5.1':
     resolution: {integrity: sha512-7X/Ro2U5qW96SihIukMitnc3pYc5n/PmHmJ28oApLBIJRfLxPLgrL6X0ZbQT7qUEfdUIqXnehobJ3jXAc4hdAA==}
 
-  '@dnd-kit/helpers@0.5.0':
-    resolution: {integrity: sha512-i4y+51/icSw+OHMr/su19qhnmNhAzh8PnBwXvapFYTd+64oodIyJRiRkB+hhfxAfnur7RYSW8qacDTrXjg2XOg==}
+  '@dnd-kit/helpers@0.5.1':
+    resolution: {integrity: sha512-/nH5fpWuQmmc2FlwNAlxgZVQfAiMHeh+riGUZS69vj1Oq/MPc98APHgvjsVy7rN9MFd1XCgGYVcmb2pKvfYzNA==}
 
   '@dnd-kit/state@0.5.1':
     resolution: {integrity: sha512-SN0BZ0d/ob9dK8sTqk/0z3eNBWV6xPSrLbHUBbiCo9Sj3xfhPFk6ej2oZpDcqk7LWaujT57ocgdtznY7wQ2yFw==}
 
-  '@dnd-kit/vue@0.5.0':
-    resolution: {integrity: sha512-dM5wtnFNmOvzpIyLSLB8SL3K7Axz1NxyNzRnNAldGwV0ZKtUcss9ZXXd+dFwgwoE9VA+vMW81UxyJh2Ax+9Icw==}
+  '@dnd-kit/vue@0.5.1':
+    resolution: {integrity: sha512-/CRRuq1mHjFeoJpj+K4UDpEurFnZYHuxwgaPqEbizKS4ersbb+S8wxbqwiO3j8QQFKesYSotmxMjQwP9ogJ80g==}
     peerDependencies:
       vue: ^3.5.0
 
@@ -5427,12 +5424,6 @@ snapshots:
 
   '@chevrotain/utils@13.2.0': {}
 
-  '@dnd-kit/abstract@0.5.0':
-    dependencies:
-      '@dnd-kit/geometry': 0.5.1
-      '@dnd-kit/state': 0.5.1
-      tslib: 2.8.1
-
   '@dnd-kit/abstract@0.5.1':
     dependencies:
       '@dnd-kit/geometry': 0.5.1
@@ -5458,9 +5449,9 @@ snapshots:
       '@dnd-kit/state': 0.5.1
       tslib: 2.8.1
 
-  '@dnd-kit/helpers@0.5.0':
+  '@dnd-kit/helpers@0.5.1':
     dependencies:
-      '@dnd-kit/abstract': 0.5.0
+      '@dnd-kit/abstract': 0.5.1
       tslib: 2.8.1
 
   '@dnd-kit/state@0.5.1':
@@ -5468,9 +5459,9 @@ snapshots:
       '@preact/signals-core': 1.14.4
       tslib: 2.8.1
 
-  '@dnd-kit/vue@0.5.0(vue@3.5.43(@typescript/typescript6@6.0.2))':
+  '@dnd-kit/vue@0.5.1(vue@3.5.43(@typescript/typescript6@6.0.2))':
     dependencies:
-      '@dnd-kit/abstract': 0.5.0
+      '@dnd-kit/abstract': 0.5.1
       '@dnd-kit/dom': 0.5.1
       '@dnd-kit/state': 0.5.1
       tslib: 2.8.1

@@ -104,7 +104,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends zsh
 
-      # pnpm-workspace.yaml: catalog でバージョン管理、各 package.json は catalog: 参照のため差分が出ない
       # package.json: 集約スクリプト（*:all）の定義元。root には build / typecheck の script が
       # 無く差分モードでは --if-present で素通りするため、ここを触った PR は全体モードに
       # 切り替えないと集約スクリプト自身の破損を検出できない（glob に ** を付けないので

@@ -370,9 +370,16 @@ onMounted(async () => {
     terminal.focus();
   }
 
-  // Shift+Enter で Esc+CR を送信する（Claude Code が改行として認識するシーケンス）
-  // keydown で送信、keypress で xterm のデフォルト改行を抑止、keyup は通過させる
   terminal.attachCustomKeyEventHandler((ev) => {
+    // xterm は IME 変換中の keydown のうち、keyCode 229（IME が処理したキー）・CapsLock・
+    // Shift / Ctrl / Alt 以外を「確定キー」とみなし、変換中の文字列を即送信する。Meta はこれに
+    // 含まれないため、⌘ を修飾に使う操作（Karabiner の ⌘+hjkl → 矢印など）で変換が続いたまま
+    // 文字列が送られ、後の確定で重複する。xterm に渡さず、修飾キーとして変換を継続させる
+    if (ev.type === "keydown" && ev.isComposing && ev.key === "Meta") {
+      return false;
+    }
+    // Shift+Enter で Esc+CR を送信する（Claude Code が改行として認識するシーケンス）
+    // keydown で送信、keypress で xterm のデフォルト改行を抑止、keyup は通過させる
     if (ev.key === "Enter" && ev.shiftKey && ev.type !== "keyup") {
       if (ev.type === "keydown") {
         const ptyId = terminalStore.getPtyId(props.leafId);

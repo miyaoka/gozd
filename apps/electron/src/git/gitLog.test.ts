@@ -1,8 +1,8 @@
 // gitLog の parser pure test + 実 git repo での統合テスト。
-// parseRefs / parseLogRecords の契約は Swift 版 GitOps+Log.swift の parser と対。
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { runFixtureGit } from "../testGitFixture";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,46 +33,123 @@ describe("parseRefs", () => {
 });
 
 describe("parseLogRecords", () => {
-  const record = (fields: string[]) => `${fields.join("\x1f")}\x1e`;
+  const HASH_A = "a".repeat(40);
+  const HASH_B = "b".repeat(40);
+  const HASH_C = "c".repeat(40);
+  const AUTHOR = "author alice <alice@example.com> 1700000000 +0900";
 
-  test("8 field record を CommitInfo に変換する", () => {
-    const text = record([
-      "abc123",
-      "abc",
-      "p1 p2",
-      "alice",
-      "1700000000",
-      "subject",
-      "body",
-      "HEAD -> main",
-    ]);
-    expect(parseLogRecords(text)).toEqual([
+  /** raw 出力の 1 record。メッセージ行は git と同じく 4 文字インデントし、末尾に区切りの空行を付ける */
+  const record = (commitLine: string, header: string[], message: string[]) =>
+    `${[commitLine, ...header, "", ...message.map((line) => `    ${line}`), ""].join("\n")}\n`;
+
+  test("raw record を CommitInfo に変換する", () => {
+    const text = record(
+      `commit ${HASH_A} (HEAD -> main, origin/main)`,
+      [
+        "tree t",
+        `parent ${HASH_B}`,
+        `parent ${HASH_C}`,
+        AUTHOR,
+        "committer c <c@example.com> 1 +0000",
+      ],
+      ["subject", "", "body 1", "", "body 2"],
+    );
+    expect(parseLogRecords(text, "header")).toEqual([
       {
-        hash: "abc123",
-        shortHash: "abc",
-        parents: ["p1", "p2"],
+        hash: HASH_A,
+        shortHash: "aaaaaaa",
+        parents: [HASH_B, HASH_C],
         author: "alice",
         date: 1700000000,
         message: "subject",
-        body: "body",
-        refs: ["HEAD", "main"],
+        body: "body 1\n\nbody 2",
+        refs: ["HEAD", "main", "origin/main"],
         truncatedAbove: false,
+        signature: "none",
       },
     ]);
   });
 
-  test("root commit（parents 空）は空配列", () => {
-    const text = record(["abc", "a", "", "alice", "1", "s", "", ""]);
-    expect(parseLogRecords(text)[0].parents).toEqual([]);
+  test("複数 record を順に返し、ref の無い commit 行と root commit を扱う", () => {
+    const text =
+      record(`commit ${HASH_A}`, ["tree t", `parent ${HASH_B}`, AUTHOR], ["first"]) +
+      record(`commit ${HASH_B}`, ["tree t", AUTHOR], ["root"]);
+    const commits = parseLogRecords(text, "header");
+    expect(commits.map((c) => [c.hash, c.parents, c.refs, c.message])).toEqual([
+      [HASH_A, [HASH_B], [], "first"],
+      [HASH_B, [], [], "root"],
+    ]);
   });
 
-  test("field 数が 8 でない record は silent skip せず throw する", () => {
-    expect(() => parseLogRecords("only\x1ftwo\x1e")).toThrow(/expected 8/);
+  test("commitLine は commit 行の親を使う（shallow の境界では空）", () => {
+    const merged = record(
+      `commit ${HASH_A} ${HASH_B} ${HASH_C} (HEAD -> main)`,
+      ["tree t", `parent ${HASH_B}`, `parent ${HASH_C}`, AUTHOR],
+      ["merge"],
+    );
+    const grafted = record(
+      `commit ${HASH_A} (grafted)`,
+      ["tree t", `parent ${HASH_B}`, AUTHOR],
+      ["boundary"],
+    );
+    expect(parseLogRecords(merged, "commitLine")[0]).toMatchObject({
+      parents: [HASH_B, HASH_C],
+      refs: ["HEAD", "main"],
+    });
+    expect(parseLogRecords(grafted, "commitLine")[0]).toMatchObject({
+      parents: [],
+      refs: ["grafted"],
+    });
   });
 
-  test("author date が整数でない record は throw する", () => {
-    const text = record(["a", "b", "", "alice", "not-a-date", "s", "", ""]);
-    expect(() => parseLogRecords(text)).toThrow(/not an integer/);
+  test("subject は最初の段落を空白で連結して行頭の空白を残し、body が無ければ空文字", () => {
+    const text = record(`commit ${HASH_A}`, ["tree t", AUTHOR], ["  line 1", "line 2"]);
+    expect(parseLogRecords(text, "header")[0]).toMatchObject({
+      message: "  line 1 line 2",
+      body: "",
+    });
+  });
+
+  test("author のタイムゾーンの形は問わず epoch を読む", () => {
+    const text = record(
+      `commit ${HASH_A}`,
+      ["tree t", "author alice <a@example.com> 1700000000 +09:00"],
+      ["s"],
+    );
+    expect(parseLogRecords(text, "header")[0]).toMatchObject({ author: "alice", date: 1700000000 });
+  });
+
+  test("メッセージ中の commit / gpgsig で始まる行は record の先頭や署名とみなさない", () => {
+    const text = record(
+      `commit ${HASH_A}`,
+      ["tree t", AUTHOR],
+      ["subject", "", `commit ${HASH_B}`, "gpgsig -----BEGIN SSH SIGNATURE-----"],
+    );
+    const commits = parseLogRecords(text, "header");
+    expect(commits).toHaveLength(1);
+    expect(commits[0].signature).toBe("none");
+  });
+
+  test("署名ヘッダの armor から方式を判別する", () => {
+    const signed = (key: string, armor: string) =>
+      parseLogRecords(
+        record(`commit ${HASH_A}`, ["tree t", AUTHOR, `${key} ${armor}`, " xxx"], ["s"]),
+        "header",
+      )[0].signature;
+    expect(signed("gpgsig", "-----BEGIN SSH SIGNATURE-----")).toBe("ssh");
+    expect(signed("gpgsig", "-----BEGIN PGP SIGNATURE-----")).toBe("gpg");
+    expect(signed("gpgsig-sha256", "-----BEGIN SIGNED MESSAGE-----")).toBe("x509");
+    expect(signed("gpgsig", "-----BEGIN FUTURE-----")).toBe("unknown");
+  });
+
+  test("想定外の形は silent skip せず throw する", () => {
+    const parse = (text: string) => () => parseLogRecords(text, "header");
+    expect(parse("tree t\n")).toThrow(/before the first commit/);
+    expect(parse(record("commit xyz", ["tree t", AUTHOR], ["s"]))).toThrow(/malformed commit line/);
+    expect(parse(record(`commit ${HASH_A}`, ["tree t"], ["s"]))).toThrow(/no author header/);
+    expect(
+      parse(record(`commit ${HASH_A}`, ["tree t", "author alice <a@example.com> x +0000"], ["s"])),
+    ).toThrow(/malformed author header/);
   });
 });
 
@@ -198,6 +275,36 @@ describe("log (integration)", () => {
     // append された HEAD セグメントの先頭に境界マーカーが立つ
     expect(result.commits[1].refs).toContain("HEAD");
     expect(result.commits[1].truncatedAbove).toBe(true);
+  });
+
+  test("SSH 署名した commit は ssh、署名していない commit は none になる", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gozd-gitlog-signed-"));
+    tempDirs.push(dir);
+    const keyPath = join(dir, "signing-key");
+    execFileSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", keyPath], {
+      stdio: "ignore",
+    });
+    runFixtureGit(["init", "-b", "main"], dir);
+    runFixtureGit(["config", "user.email", "t@example.com"], dir);
+    runFixtureGit(["config", "user.name", "t"], dir);
+    runFixtureGit(["config", "gpg.format", "ssh"], dir);
+    runFixtureGit(["config", "user.signingkey", keyPath], dir);
+    runFixtureGit(["commit", "--allow-empty", "-m", "unsigned"], dir);
+    runFixtureGit(["commit", "--allow-empty", "-S", "-m", "signed"], dir);
+    // ユーザー設定で色を強制していても、raw 出力に色の制御文字が入らずに読める
+    runFixtureGit(["config", "color.ui", "always"], dir);
+
+    const result = await log({
+      dir,
+      maxCount: 50,
+      firstParentOnly: false,
+      branchScope: "default",
+      sortMode: "topo",
+    });
+    expect(result.commits.map((c) => [c.message, c.signature])).toEqual([
+      ["signed", "ssh"],
+      ["unsigned", "none"],
+    ]);
   });
 
   test("unborn branch（commit 無し）は空 commits で正常応答する", async () => {

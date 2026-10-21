@@ -18,8 +18,10 @@ import { formatDetailTime } from "../../shared/time";
 import { UNCOMMITTED_HASH } from "../worktree";
 import CommitSegmentList from "./CommitSegmentList";
 import { linkifyCommitMessage } from "./linkifyCommitMessage";
+import { signatureText } from "./signatureLabel";
 import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
 import IconLucideHash from "~icons/lucide/hash";
+import IconLucideSignature from "~icons/lucide/signature";
 import IconLucideTag from "~icons/lucide/tag";
 import IconLucideUser from "~icons/lucide/user";
 
@@ -94,6 +96,12 @@ function isUncommitted(hash: string): boolean {
           <div class="flex items-center gap-2">
             <IconLucideHash class="size-3.5 shrink-0 text-foreground-low" />
             <span class="font-mono text-foreground-low">{{ commit.hash }}</span>
+          </div>
+
+          <!-- Signature: 署名がある commit だけ緑で出す（graph の hash の色と揃える） -->
+          <div v-if="commit.signature !== 'none'" class="flex items-center gap-2 text-success-text">
+            <IconLucideSignature class="size-3.5 shrink-0" />
+            <span>{{ signatureText(commit.signature) }}</span>
           </div>
 
           <!-- Parents -->

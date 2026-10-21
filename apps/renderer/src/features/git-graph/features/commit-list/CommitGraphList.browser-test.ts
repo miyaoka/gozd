@@ -45,6 +45,7 @@ function commit(overrides: Partial<GitCommit> & Pick<GitCommit, "hash">): GitCom
     body: "",
     refs: [],
     truncatedAbove: false,
+    signature: "none",
     ...overrides,
   };
 }

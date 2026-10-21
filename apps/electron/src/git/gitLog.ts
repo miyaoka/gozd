@@ -1,8 +1,8 @@
-// log walk / merge-base / reset 系の commit ops。Swift 版 `GitOps+Log.swift` の対応物。
+// log walk / merge-base / reset 系の commit ops。
 // `git log --stdin` で N ref を 1 walk する `log` を中核に置き、後続 RPC（logLine / blame
-// anchored history）が共有する `LOG_FORMAT` と `parseLogRecords` SSOT を本ファイルに閉じる。
+// anchored history）が共有する `LOG_OUTPUT_ARGS` と `parseLogRecords` SSOT を本ファイルに閉じる。
 
-import type { BranchScope } from "@gozd/rpc";
+import type { BranchScope, GitCommitSignature } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import {
   allBranchRefs,
@@ -15,15 +15,39 @@ import { runGit, runGitWithStdin } from "./gitRunner";
 import { isAllZeroHex, validateRev } from "./gitValidate";
 
 /**
- * `git log --format=<format>` の format string SSOT。commit metadata 取得経路はすべて
- * この定数を使う。`parseLogRecords` が期待する 8 fields / US separator / RS terminator 構成と
- * 一対一で対応する。format を変えるなら `parseLogRecords` も同時に触ること。
+ * `git log` の出力指定 SSOT。commit metadata 取得経路はすべて、親の読み方（`ParentSource`）に
+ * 対応する引数を使い、同じ `ParentSource` を渡した `parseLogRecords` で出力を読む。
  *
- * fields（US `\x1f` 区切り、最後の `\x1e` で record 終端）:
- * `%H` hash / `%h` shortHash / `%P` parents / `%an` author /
- * `%at` author date (unix epoch) / `%s` subject / `%b` body / `%D` refs
+ * `--format` ではなく raw 出力にするのは、署名ヘッダ（`gpgsig`）を検証抜きに出せる
+ * placeholder が `--format` に無いため。`%G?` 系はどれも署名ごとに gpg / ssh-keygen を起動して
+ * 検証し、鍵や `gpg.ssh.allowedSignersFile` が手元に無いと署名済みでも `N` / `E` を返す。
+ *
+ * - `--decorate=short`: ユーザーの `log.decorate=full` を上書きする。full だと ref が
+ *   `refs/heads/main` 形式になり、renderer の `startsWith("origin/")` / current branch 抽出が崩れる
+ * - `--no-show-signature`: ユーザーの `log.showSignature` を上書きする。有効だと検証結果の行が
+ *   raw 出力に混ざる
+ * - `--no-color`: ユーザーの `color.ui=always` を上書きする。有効だと commit 行に色の制御文字が入る
  */
-export const LOG_FORMAT = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e";
+const RAW_OUTPUT_ARGS = ["--pretty=raw", "--decorate=short", "--no-show-signature", "--no-color"];
+
+/**
+ * commit の親をどこから読むか。
+ *
+ * - `commitLine`: `--parents` が commit 行に出す親。shallow clone の境界では空になり（旧 `%P` と同じ）、
+ *   graph が手元に無い親へ線を伸ばさない。pathspec を伴う log に `--parents` を付けると親の書き換えで
+ *   並びが変わるため、pathspec の無い graph の walk だけが使う
+ * - `header`: raw 出力の `parent` ヘッダ。grafts や shallow を考慮しない本来の親
+ */
+export type ParentSource = "commitLine" | "header";
+
+/** 親の読み方ごとの `git log` の出力指定。`commitLine` は `--parents` が無いと親が空になる */
+export const LOG_OUTPUT_ARGS: Record<ParentSource, string[]> = {
+  commitLine: [...RAW_OUTPUT_ARGS, "--parents"],
+  header: RAW_OUTPUT_ARGS,
+};
+
+/** 短縮 hash の桁数。graph の行に出す目印で、完全な hash はコミット詳細に出る */
+const SHORT_HASH_LENGTH = 7;
 
 export interface CommitInfo {
   hash: string;
@@ -38,6 +62,7 @@ export interface CommitInfo {
    * 全ブランチ表示で HEAD が窓から押し出され HEAD-only walk を append した境界の
    * 先頭 commit にだけ true が立つ */
   truncatedAbove: boolean;
+  signature: GitCommitSignature;
 }
 
 export interface LogResult {
@@ -179,9 +204,9 @@ async function rescueCurrentBranch(
  * stdin に ref 名を改行区切りで流し込む。CLI 引数長制限の回避と、ref 集合を atomic に
  * 渡せる利点が `--stdin` を選ぶ理由。
  *
- * fail mode: commit metadata 値に US（`\x1f`）が混入した record は `parseLogRecords` の
- * field 数チェックで throw され、graph 全体が notify.error に倒れる。`result.commits` の
- * SSOT 性（partial success による silent な commit 欠落の禁止）を優先し strict 契約に倒す。
+ * fail mode: 想定外の形の record は `parseLogRecords` が throw し、graph 全体が
+ * notify.error に倒れる。`result.commits` の SSOT 性（partial success による silent な
+ * commit 欠落の禁止）を優先し strict 契約に倒す。
  */
 async function runLogStdin(
   dir: string,
@@ -201,9 +226,7 @@ async function runLogStdin(
       );
     }
   }
-  // `--decorate=short` でユーザーの `log.decorate=full` 設定を上書きする。full にすると %D が
-  // `refs/heads/main` 形式になり、renderer の `startsWith("origin/")` / current branch 抽出が崩れる
-  const args = ["log", `--format=${LOG_FORMAT}`, "--decorate=short"];
+  const args = ["log", ...LOG_OUTPUT_ARGS.commitLine];
   args.push(sortMode === "topo" ? "--topo-order" : "--date-order");
   if (maxCount > 0) args.push(`--max-count=${maxCount}`);
   if (firstParentOnly) args.push("--first-parent");
@@ -211,46 +234,128 @@ async function runLogStdin(
   // treatNonZeroExitAsSuccess は使わない。git log が SIGPIPE / SIGTERM 等で
   // 「exit ≠ 0 + stderr 空」終了したケースを silent success として通さない
   const stdout = await runGitWithStdin(args, dir, `${refs.join("\n")}\n`);
-  return parseLogRecords(stdout);
+  return parseLogRecords(stdout, "commitLine");
 }
 
 /**
- * `git log --format=<LOG_FORMAT>` の生 stdout を CommitInfo 配列にパースする pure 関数。
- * commit metadata 取得経路はすべてこの parser を経由する SSOT で、strict 契約
- * （8 fields / 整数 author date）を共通化する。想定外フォーマットは silent skip /
+ * `git log <LOG_OUTPUT_ARGS[parentSource]>`（raw 出力）の生 stdout を CommitInfo 配列にパースする pure 関数。
+ * commit metadata 取得経路はすべてこの parser を経由する SSOT。想定外の形は silent skip /
  * epoch 0 倒しにせず throw して観察可能化する。
+ *
+ * raw 出力の 1 record:
+ * - `commit <hash>` 行。`--parents` なら親の hash、decorate される ref があれば ` (<refs>)` が続く
+ * - ヘッダ行（`parent` / `author` / `gpgsig` 等）。値の継続行は先頭が空白
+ * - 空行のあとにメッセージ。各行は 4 文字インデントされる
+ *
+ * メッセージの各行がインデントされるため、行頭が `commit ` の行は record の先頭に限られる。
  */
-export function parseLogRecords(text: string): CommitInfo[] {
-  const commits: CommitInfo[] = [];
-  for (const record of text.split("\x1e")) {
-    const trimmed = record.trim();
-    if (trimmed === "") continue;
-    const parts = trimmed.split("\x1f");
-    // 8 fields: hash, shortHash, parents, author, date, subject, body, refs
-    if (parts.length !== 8) {
-      throw new Error(`git log record: expected 8 US-separated fields, got ${parts.length}`);
+export function parseLogRecords(text: string, parentSource: ParentSource): CommitInfo[] {
+  const records: string[][] = [];
+  for (const line of text.split("\n")) {
+    if (line.startsWith("commit ")) {
+      records.push([line]);
+      continue;
     }
-    const parents = parts[2] === "" ? [] : parts[2].split(" ").filter((p) => p !== "");
-    if (!/^-?\d+$/.test(parts[4])) {
-      throw new Error(`git log record: author date field is not an integer: ${parts[4]}`);
+    const current = records.at(-1);
+    if (current === undefined) {
+      if (line === "") continue;
+      throw new Error(`git log record: unexpected line before the first commit: ${line}`);
     }
-    commits.push({
-      hash: parts[0],
-      shortHash: parts[1],
-      parents,
-      author: parts[3],
-      date: Number(parts[4]),
-      message: parts[5],
-      body: parts[6],
-      refs: parseRefs(parts[7]),
-      truncatedAbove: false,
-    });
+    current.push(line);
   }
-  return commits;
+  return records.map((lines) => parseRawCommit(lines, parentSource));
+}
+
+const COMMIT_LINE = /^commit ([0-9a-f]+)((?: [0-9a-f]+)*)(?: \((.*)\))?$/;
+
+/** `<name> <<email>> <epoch> <tz>`。name は空のことがある。使うのは epoch だけなので、
+ * タイムゾーンの形は問わない（fsck が警告する形の commit で log 全体を落とさない） */
+const AUTHOR_VALUE = /^(.*?) ?<[^>]*> (-?\d+)(?: .*)?$/;
+
+/** メッセージ行のインデント（git の pretty.c が raw 出力で付ける） */
+const MESSAGE_INDENT = "    ";
+
+function parseRawCommit(lines: string[], parentSource: ParentSource): CommitInfo {
+  const commitMatch = COMMIT_LINE.exec(lines[0]);
+  if (commitMatch === null) throw new Error(`git log record: malformed commit line: ${lines[0]}`);
+  const hash = commitMatch[1];
+
+  const headerEnd = lines.indexOf("", 1);
+  const header = lines.slice(1, headerEnd === -1 ? lines.length : headerEnd);
+  const headerParents: string[] = [];
+  let authorValue: string | undefined;
+  let signature: GitCommitSignature = "none";
+  for (const line of header) {
+    // 継続行（先頭が空白）はヘッダのキーを持たない
+    if (line.startsWith(" ")) continue;
+    const separator = line.indexOf(" ");
+    const key = separator === -1 ? line : line.slice(0, separator);
+    const value = separator === -1 ? "" : line.slice(separator + 1);
+    if (key === "parent") headerParents.push(value);
+    else if (key === "author") authorValue = value;
+    else if (SIGNATURE_HEADER_KEYS.includes(key)) {
+      signature = SIGNATURE_KIND_BY_ARMOR[value] ?? "unknown";
+    }
+  }
+  if (authorValue === undefined) throw new Error(`git log record: no author header in ${hash}`);
+  const authorMatch = AUTHOR_VALUE.exec(authorValue);
+  if (authorMatch === null) {
+    throw new Error(`git log record: malformed author header in ${hash}: ${authorValue}`);
+  }
+
+  const messageLines = headerEnd === -1 ? [] : lines.slice(headerEnd + 1);
+  // record の末尾には次の commit 行との区切りの空行が付く
+  while (messageLines.at(-1) === "") messageLines.pop();
+  const message = messageLines.map((line) => {
+    if (!line.startsWith(MESSAGE_INDENT)) {
+      throw new Error(`git log record: message line is not indented in ${hash}: ${line}`);
+    }
+    return line.slice(MESSAGE_INDENT.length);
+  });
+  const { subject, body } = splitMessage(message);
+  const commitLineParents = commitMatch[2].split(" ").filter((parent) => parent !== "");
+
+  return {
+    hash,
+    shortHash: hash.slice(0, SHORT_HASH_LENGTH),
+    parents: parentSource === "commitLine" ? commitLineParents : headerParents,
+    author: authorMatch[1],
+    date: Number(authorMatch[2]),
+    message: subject,
+    body,
+    refs: parseRefs(commitMatch[3] ?? ""),
+    truncatedAbove: false,
+    signature,
+  };
+}
+
+function isBlank(line: string): boolean {
+  return line.trim() === "";
 }
 
 /**
- * `git log --format=%D` の出力をパースする。
+ * メッセージを `%s` / `%b` と同じ規則で分ける。subject は先頭の空行を飛ばした最初の段落を
+ * 空白 1 つで連結したもの（行頭の空白は残す）、body はその後の空行を飛ばした残り全体。body の末尾改行は
+ * 付けない（raw 出力ではコミットオブジェクトが末尾改行で終わるかを区別できない）。
+ */
+function splitMessage(lines: string[]): { subject: string; body: string } {
+  let i = 0;
+  while (i < lines.length && isBlank(lines[i])) i++;
+  const subjectLines: string[] = [];
+  while (i < lines.length && !isBlank(lines[i])) {
+    subjectLines.push(lines[i].trimEnd());
+    i++;
+  }
+  while (i < lines.length && isBlank(lines[i])) i++;
+  const rest = lines.slice(i);
+  return {
+    subject: subjectLines.join(" "),
+    body: rest.join("\n"),
+  };
+}
+
+/**
+ * `--decorate=short` が commit 行に付ける ref 一覧（`%D` と同じ形）をパースする。
  * "HEAD -> main, origin/main, tag: v1.0" → ["HEAD", "main", "origin/main", "tag:v1.0"]。
  * renderer 側が refs.includes("HEAD") で HEAD 行を識別するため、HEAD は独立要素にする。
  *
@@ -277,6 +382,17 @@ export function parseRefs(refStr: string): string[] {
   }
   return result;
 }
+
+/** 署名ヘッダのキー。SHA-1 repo は `gpgsig`、SHA-256 repo は `gpgsig-sha256` */
+const SIGNATURE_HEADER_KEYS = ["gpgsig", "gpgsig-sha256"];
+
+/** 署名ブロック先頭行 → 方式。git の gpg-interface.c が方式の判別に使う armor と同じ */
+const SIGNATURE_KIND_BY_ARMOR: Record<string, GitCommitSignature> = {
+  "-----BEGIN PGP SIGNATURE-----": "gpg",
+  "-----BEGIN PGP MESSAGE-----": "gpg",
+  "-----BEGIN SSH SIGNATURE-----": "ssh",
+  "-----BEGIN SIGNED MESSAGE-----": "x509",
+};
 
 /**
  * `git merge-base <hash1> <hash2>` 相当。2 commit の最低共通祖先を返す。

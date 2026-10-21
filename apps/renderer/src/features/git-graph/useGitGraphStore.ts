@@ -16,6 +16,7 @@ const uncommittedCommit: GitCommit = {
   body: "",
   refs: [],
   truncatedAbove: false,
+  signature: "none",
 };
 
 export const useGitGraphStore = defineStore("gitGraph", () => {

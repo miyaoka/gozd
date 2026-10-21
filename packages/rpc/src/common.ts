@@ -72,7 +72,13 @@ export interface GitCommit {
    * renderer はこの行の上に「途切れ行」を描き、最新クラスタと現在ブランチクラスタの
    * 不連続を可視化する。 */
   truncatedAbove: boolean;
+  /** commit object に載っている署名の方式。署名の有無だけを表し、検証はしない */
+  signature: GitCommitSignature;
 }
+
+/** commit の署名方式。署名ブロックの armor から判別する。`unknown` は armor が
+ * 既知のどれにも当たらない署名で、署名があることだけは確かなもの */
+export type GitCommitSignature = "none" | "gpg" | "ssh" | "x509" | "unknown";
 
 /** PR の head ref に対する CI の総合結果。GitHub GraphQL の `StatusState` に対応する。
  * 型は list から導出する。受信側の検証に使う実体と型が同じ declaration から出るため、

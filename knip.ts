@@ -18,7 +18,8 @@ const config: KnipConfig = {
         "src/importMetaUrlShim.ts",
       ],
       // iconutil: macOS 標準コマンド（build:app script で iconset → icns 変換）
-      ignoreBinaries: ["iconutil"],
+      // ssh-keygen: OpenSSH 同梱コマンド（git の SSH 署名 commit を作るテスト fixture で鍵を生成）
+      ignoreBinaries: ["iconutil", "ssh-keygen"],
       // electron-builder: buildApp.ts が spawnSync("pnpm", ["exec", "electron-builder", ...]) で
       // 呼ぶため、package.json scripts を読む knip からは unused に見える
       // @vscode/ripgrep: rg バイナリは per-platform パッケージ（@vscode/ripgrep-darwin-arm64）に

@@ -10,6 +10,7 @@ import { computed } from "vue";
 import { ageColor, formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
 import type { CommitMessageSegment } from "../../linkifyCommitMessage";
+import { signatureText } from "../../signatureLabel";
 import { useGitGraphStore } from "../../useGitGraphStore";
 import { ROW_HEIGHT } from "./graphGeometry";
 import type { GraphNode } from "./graphLayout";
@@ -49,6 +50,16 @@ const backgroundClass = computed(() => {
 });
 
 const dateColor = computed(() => ageColor(props.node.commit.date));
+
+const hashColor = computed(() =>
+  props.node.commit.signature === "none" ? "text-foreground-low" : "text-success-text",
+);
+
+const hashTitle = computed(() => {
+  const signature = props.node.commit.signature;
+  if (signature === "none") return undefined;
+  return signatureText(signature);
+});
 
 const displayRefs = computed(() =>
   computeDisplayRefs(
@@ -115,7 +126,7 @@ function onContextmenu(e: MouseEvent) {
     </div>
 
     <!-- hash -->
-    <div class="truncate px-1 font-mono text-foreground-low">
+    <div class="truncate px-1 font-mono" :class="hashColor" :title="hashTitle">
       {{ node.commit.shortHash }}
     </div>
   </div>

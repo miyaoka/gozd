@@ -19,6 +19,7 @@ function commit(
     body: "",
     refs,
     truncatedAbove,
+    signature: "none",
   };
 }
 

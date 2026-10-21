@@ -65,6 +65,7 @@ export type {
 export type {
   FileReadResult,
   GitCommit,
+  GitCommitSignature,
   GitFileChange,
   GitIssue,
   GitPullRequest,

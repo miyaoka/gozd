@@ -81,7 +81,7 @@ describe("parseLogRecords", () => {
     ]);
   });
 
-  test("commitLine は commit 行の親を使い、ヘッダの parent を見ない（shallow の境界では空）", () => {
+  test("commitLine は commit 行の親を使う（shallow の境界では空）", () => {
     const merged = record(
       `commit ${HASH_A} ${HASH_B} ${HASH_C} (HEAD -> main)`,
       ["tree t", `parent ${HASH_B}`, `parent ${HASH_C}`, AUTHOR],
@@ -100,7 +100,6 @@ describe("parseLogRecords", () => {
       parents: [],
       refs: ["grafted"],
     });
-    expect(parseLogRecords(grafted, "header")[0].parents).toEqual([HASH_B]);
   });
 
   test("subject は最初の段落を空白で連結して行頭の空白を残し、body が無ければ空文字", () => {

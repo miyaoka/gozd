@@ -15,8 +15,8 @@ import { runGit, runGitWithStdin } from "./gitRunner";
 import { isAllZeroHex, validateRev } from "./gitValidate";
 
 /**
- * `git log` の出力指定 SSOT。commit metadata 取得経路はすべてこの引数を使い、出力を
- * `parseLogRecords` で読む。
+ * `git log` の出力指定 SSOT。commit metadata 取得経路はすべて、親の読み方（`ParentSource`）に
+ * 対応する引数を使い、同じ `ParentSource` を渡した `parseLogRecords` で出力を読む。
  *
  * `--format` ではなく raw 出力にするのは、署名ヘッダ（`gpgsig`）を検証抜きに出せる
  * placeholder が `--format` に無いため。`%G?` 系はどれも署名ごとに gpg / ssh-keygen を起動して
@@ -28,12 +28,7 @@ import { isAllZeroHex, validateRev } from "./gitValidate";
  *   raw 出力に混ざる
  * - `--no-color`: ユーザーの `color.ui=always` を上書きする。有効だと commit 行に色の制御文字が入る
  */
-export const LOG_OUTPUT_ARGS = [
-  "--pretty=raw",
-  "--decorate=short",
-  "--no-show-signature",
-  "--no-color",
-];
+const RAW_OUTPUT_ARGS = ["--pretty=raw", "--decorate=short", "--no-show-signature", "--no-color"];
 
 /**
  * commit の親をどこから読むか。
@@ -44,6 +39,12 @@ export const LOG_OUTPUT_ARGS = [
  * - `header`: raw 出力の `parent` ヘッダ。grafts や shallow を考慮しない本来の親
  */
 export type ParentSource = "commitLine" | "header";
+
+/** 親の読み方ごとの `git log` の出力指定。`commitLine` は `--parents` が無いと親が空になる */
+export const LOG_OUTPUT_ARGS: Record<ParentSource, string[]> = {
+  commitLine: [...RAW_OUTPUT_ARGS, "--parents"],
+  header: RAW_OUTPUT_ARGS,
+};
 
 /** 短縮 hash の桁数。graph の行に出す目印で、完全な hash はコミット詳細に出る */
 const SHORT_HASH_LENGTH = 7;
@@ -225,7 +226,7 @@ async function runLogStdin(
       );
     }
   }
-  const args = ["log", ...LOG_OUTPUT_ARGS, "--parents"];
+  const args = ["log", ...LOG_OUTPUT_ARGS.commitLine];
   args.push(sortMode === "topo" ? "--topo-order" : "--date-order");
   if (maxCount > 0) args.push(`--max-count=${maxCount}`);
   if (firstParentOnly) args.push("--first-parent");
@@ -237,7 +238,7 @@ async function runLogStdin(
 }
 
 /**
- * `git log <LOG_OUTPUT_ARGS>`（raw 出力）の生 stdout を CommitInfo 配列にパースする pure 関数。
+ * `git log <LOG_OUTPUT_ARGS[parentSource]>`（raw 出力）の生 stdout を CommitInfo 配列にパースする pure 関数。
  * commit metadata 取得経路はすべてこの parser を経由する SSOT。想定外の形は silent skip /
  * epoch 0 倒しにせず throw して観察可能化する。
  *

@@ -137,14 +137,14 @@ export async function logLine(params: {
     // 正しく parse されない。仕様上の制約のため明示 reject
     throw new Error("git log -L: path contains ':', which is unsupported");
   }
-  const args = ["log", ...LOG_OUTPUT_ARGS, "--no-patch", "-L", `${line},${line}:${relPath}`];
+  const args = ["log", ...LOG_OUTPUT_ARGS.header, "--no-patch", "-L", `${line},${line}:${relPath}`];
   if (maxCount > 0) args.push(`--max-count=${maxCount}`);
   args.push(rev);
   return parseLogRecords(await runGit(args, dir), "header");
 }
 
 /**
- * ファイル全体の変更履歴。`git log <LOG_OUTPUT_ARGS> --no-patch <rev> -- <relPath>` 相当。
+ * ファイル全体の変更履歴。`git log <LOG_OUTPUT_ARGS.header> --no-patch <rev> -- <relPath>` 相当。
  *
  * logLine（行単位）との違いは、pathspec（`-- <relPath>`）でファイル全体を walk する点と、
  * **rev に空文字を許容** する点。空文字は rev を渡さず HEAD walk に倒れ「そのファイルの
@@ -159,7 +159,7 @@ export async function logFile(params: {
 }): Promise<CommitInfo[]> {
   const { dir, relPath, rev, maxCount } = params;
   validateRev(rev);
-  const args = ["log", ...LOG_OUTPUT_ARGS, "--no-patch"];
+  const args = ["log", ...LOG_OUTPUT_ARGS.header, "--no-patch"];
   if (maxCount > 0) args.push(`--max-count=${maxCount}`);
   if (rev !== "") args.push(rev);
   args.push("--", relPath);

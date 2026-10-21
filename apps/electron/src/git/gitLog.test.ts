@@ -1,5 +1,4 @@
 // gitLog の parser pure test + 実 git repo での統合テスト。
-// parseRefs / parseLogRecords の契約は Swift 版 GitOps+Log.swift の parser と対。
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { runFixtureGit } from "../testGitFixture";
@@ -36,6 +35,7 @@ describe("parseRefs", () => {
 describe("parseLogRecords", () => {
   const HASH_A = "a".repeat(40);
   const HASH_B = "b".repeat(40);
+  const HASH_C = "c".repeat(40);
   const AUTHOR = "author alice <alice@example.com> 1700000000 +0900";
 
   /** raw 出力の 1 record。メッセージ行は git と同じく 4 文字インデントし、末尾に区切りの空行を付ける */
@@ -45,14 +45,20 @@ describe("parseLogRecords", () => {
   test("raw record を CommitInfo に変換する", () => {
     const text = record(
       `commit ${HASH_A} (HEAD -> main, origin/main)`,
-      ["tree t", `parent ${HASH_B}`, "parent c1", AUTHOR, "committer c <c@example.com> 1 +0000"],
+      [
+        "tree t",
+        `parent ${HASH_B}`,
+        `parent ${HASH_C}`,
+        AUTHOR,
+        "committer c <c@example.com> 1 +0000",
+      ],
       ["subject", "", "body 1", "", "body 2"],
     );
-    expect(parseLogRecords(text)).toEqual([
+    expect(parseLogRecords(text, "header")).toEqual([
       {
         hash: HASH_A,
         shortHash: "aaaaaaa",
-        parents: [HASH_B, "c1"],
+        parents: [HASH_B, HASH_C],
         author: "alice",
         date: 1700000000,
         message: "subject",
@@ -68,16 +74,50 @@ describe("parseLogRecords", () => {
     const text =
       record(`commit ${HASH_A}`, ["tree t", `parent ${HASH_B}`, AUTHOR], ["first"]) +
       record(`commit ${HASH_B}`, ["tree t", AUTHOR], ["root"]);
-    const commits = parseLogRecords(text);
+    const commits = parseLogRecords(text, "header");
     expect(commits.map((c) => [c.hash, c.parents, c.refs, c.message])).toEqual([
       [HASH_A, [HASH_B], [], "first"],
       [HASH_B, [], [], "root"],
     ]);
   });
 
-  test("subject は最初の段落を空白で連結し、body が無ければ空文字", () => {
-    const text = record(`commit ${HASH_A}`, ["tree t", AUTHOR], ["line 1", "line 2"]);
-    expect(parseLogRecords(text)[0]).toMatchObject({ message: "line 1 line 2", body: "" });
+  test("commitLine は commit 行の親を使い、ヘッダの parent を見ない（shallow の境界では空）", () => {
+    const merged = record(
+      `commit ${HASH_A} ${HASH_B} ${HASH_C} (HEAD -> main)`,
+      ["tree t", `parent ${HASH_B}`, `parent ${HASH_C}`, AUTHOR],
+      ["merge"],
+    );
+    const grafted = record(
+      `commit ${HASH_A} (grafted)`,
+      ["tree t", `parent ${HASH_B}`, AUTHOR],
+      ["boundary"],
+    );
+    expect(parseLogRecords(merged, "commitLine")[0]).toMatchObject({
+      parents: [HASH_B, HASH_C],
+      refs: ["HEAD", "main"],
+    });
+    expect(parseLogRecords(grafted, "commitLine")[0]).toMatchObject({
+      parents: [],
+      refs: ["grafted"],
+    });
+    expect(parseLogRecords(grafted, "header")[0].parents).toEqual([HASH_B]);
+  });
+
+  test("subject は最初の段落を空白で連結して行頭の空白を残し、body が無ければ空文字", () => {
+    const text = record(`commit ${HASH_A}`, ["tree t", AUTHOR], ["  line 1", "line 2"]);
+    expect(parseLogRecords(text, "header")[0]).toMatchObject({
+      message: "  line 1 line 2",
+      body: "",
+    });
+  });
+
+  test("author のタイムゾーンの形は問わず epoch を読む", () => {
+    const text = record(
+      `commit ${HASH_A}`,
+      ["tree t", "author alice <a@example.com> 1700000000 +09:00"],
+      ["s"],
+    );
+    expect(parseLogRecords(text, "header")[0]).toMatchObject({ author: "alice", date: 1700000000 });
   });
 
   test("メッセージ中の commit / gpgsig で始まる行は record の先頭や署名とみなさない", () => {
@@ -86,7 +126,7 @@ describe("parseLogRecords", () => {
       ["tree t", AUTHOR],
       ["subject", "", `commit ${HASH_B}`, "gpgsig -----BEGIN SSH SIGNATURE-----"],
     );
-    const commits = parseLogRecords(text);
+    const commits = parseLogRecords(text, "header");
     expect(commits).toHaveLength(1);
     expect(commits[0].signature).toBe("none");
   });
@@ -95,6 +135,7 @@ describe("parseLogRecords", () => {
     const signed = (key: string, armor: string) =>
       parseLogRecords(
         record(`commit ${HASH_A}`, ["tree t", AUTHOR, `${key} ${armor}`, " xxx"], ["s"]),
+        "header",
       )[0].signature;
     expect(signed("gpgsig", "-----BEGIN SSH SIGNATURE-----")).toBe("ssh");
     expect(signed("gpgsig", "-----BEGIN PGP SIGNATURE-----")).toBe("gpg");
@@ -103,21 +144,12 @@ describe("parseLogRecords", () => {
   });
 
   test("想定外の形は silent skip せず throw する", () => {
-    expect(() => parseLogRecords("tree t\n")).toThrow(/before the first commit/);
-    expect(() => parseLogRecords(record("commit xyz", ["tree t", AUTHOR], ["s"]))).toThrow(
-      /malformed commit line/,
-    );
-    expect(() => parseLogRecords(record(`commit ${HASH_A}`, ["tree t"], ["s"]))).toThrow(
-      /no author header/,
-    );
-    expect(() =>
-      parseLogRecords(
-        record(
-          `commit ${HASH_A}`,
-          ["tree t", "author alice <a@example.com> not-a-date +0000"],
-          ["s"],
-        ),
-      ),
+    const parse = (text: string) => () => parseLogRecords(text, "header");
+    expect(parse("tree t\n")).toThrow(/before the first commit/);
+    expect(parse(record("commit xyz", ["tree t", AUTHOR], ["s"]))).toThrow(/malformed commit line/);
+    expect(parse(record(`commit ${HASH_A}`, ["tree t"], ["s"]))).toThrow(/no author header/);
+    expect(
+      parse(record(`commit ${HASH_A}`, ["tree t", "author alice <a@example.com> x +0000"], ["s"])),
     ).toThrow(/malformed author header/);
   });
 });
@@ -260,6 +292,8 @@ describe("log (integration)", () => {
     runFixtureGit(["config", "user.signingkey", keyPath], dir);
     runFixtureGit(["commit", "--allow-empty", "-m", "unsigned"], dir);
     runFixtureGit(["commit", "--allow-empty", "-S", "-m", "signed"], dir);
+    // ユーザー設定で色を強制していても、raw 出力に色の制御文字が入らずに読める
+    runFixtureGit(["config", "color.ui", "always"], dir);
 
     const result = await log({
       dir,

@@ -140,7 +140,7 @@ export async function logLine(params: {
   const args = ["log", ...LOG_OUTPUT_ARGS, "--no-patch", "-L", `${line},${line}:${relPath}`];
   if (maxCount > 0) args.push(`--max-count=${maxCount}`);
   args.push(rev);
-  return parseLogRecords(await runGit(args, dir));
+  return parseLogRecords(await runGit(args, dir), "header");
 }
 
 /**
@@ -163,7 +163,7 @@ export async function logFile(params: {
   if (maxCount > 0) args.push(`--max-count=${maxCount}`);
   if (rev !== "") args.push(rev);
   args.push("--", relPath);
-  return parseLogRecords(await runGit(args, dir));
+  return parseLogRecords(await runGit(args, dir), "header");
 }
 
 /**

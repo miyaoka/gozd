@@ -1,4 +1,4 @@
-// log walk / merge-base / reset 系の commit ops。Swift 版 `GitOps+Log.swift` の対応物。
+// log walk / merge-base / reset 系の commit ops。
 // `git log --stdin` で N ref を 1 walk する `log` を中核に置き、後続 RPC（logLine / blame
 // anchored history）が共有する `LOG_OUTPUT_ARGS` と `parseLogRecords` SSOT を本ファイルに閉じる。
 
@@ -26,8 +26,24 @@ import { isAllZeroHex, validateRev } from "./gitValidate";
  *   `refs/heads/main` 形式になり、renderer の `startsWith("origin/")` / current branch 抽出が崩れる
  * - `--no-show-signature`: ユーザーの `log.showSignature` を上書きする。有効だと検証結果の行が
  *   raw 出力に混ざる
+ * - `--no-color`: ユーザーの `color.ui=always` を上書きする。有効だと commit 行に色の制御文字が入る
  */
-export const LOG_OUTPUT_ARGS = ["--pretty=raw", "--decorate=short", "--no-show-signature"];
+export const LOG_OUTPUT_ARGS = [
+  "--pretty=raw",
+  "--decorate=short",
+  "--no-show-signature",
+  "--no-color",
+];
+
+/**
+ * commit の親をどこから読むか。
+ *
+ * - `commitLine`: `--parents` が commit 行に出す親。shallow clone の境界では空になり（旧 `%P` と同じ）、
+ *   graph が手元に無い親へ線を伸ばさない。pathspec を伴う log に `--parents` を付けると親の書き換えで
+ *   並びが変わるため、pathspec の無い graph の walk だけが使う
+ * - `header`: raw 出力の `parent` ヘッダ。grafts や shallow を考慮しない本来の親
+ */
+export type ParentSource = "commitLine" | "header";
 
 /** 短縮 hash の桁数。graph の行に出す目印で、完全な hash はコミット詳細に出る */
 const SHORT_HASH_LENGTH = 7;
@@ -209,7 +225,7 @@ async function runLogStdin(
       );
     }
   }
-  const args = ["log", ...LOG_OUTPUT_ARGS];
+  const args = ["log", ...LOG_OUTPUT_ARGS, "--parents"];
   args.push(sortMode === "topo" ? "--topo-order" : "--date-order");
   if (maxCount > 0) args.push(`--max-count=${maxCount}`);
   if (firstParentOnly) args.push("--first-parent");
@@ -217,7 +233,7 @@ async function runLogStdin(
   // treatNonZeroExitAsSuccess は使わない。git log が SIGPIPE / SIGTERM 等で
   // 「exit ≠ 0 + stderr 空」終了したケースを silent success として通さない
   const stdout = await runGitWithStdin(args, dir, `${refs.join("\n")}\n`);
-  return parseLogRecords(stdout);
+  return parseLogRecords(stdout, "commitLine");
 }
 
 /**
@@ -226,13 +242,13 @@ async function runLogStdin(
  * epoch 0 倒しにせず throw して観察可能化する。
  *
  * raw 出力の 1 record:
- * - `commit <hash>` 行。decorate される ref があれば ` (<refs>)` が続く
+ * - `commit <hash>` 行。`--parents` なら親の hash、decorate される ref があれば ` (<refs>)` が続く
  * - ヘッダ行（`parent` / `author` / `gpgsig` 等）。値の継続行は先頭が空白
  * - 空行のあとにメッセージ。各行は 4 文字インデントされる
  *
  * メッセージの各行がインデントされるため、行頭が `commit ` の行は record の先頭に限られる。
  */
-export function parseLogRecords(text: string): CommitInfo[] {
+export function parseLogRecords(text: string, parentSource: ParentSource): CommitInfo[] {
   const records: string[][] = [];
   for (const line of text.split("\n")) {
     if (line.startsWith("commit ")) {
@@ -246,25 +262,26 @@ export function parseLogRecords(text: string): CommitInfo[] {
     }
     current.push(line);
   }
-  return records.map(parseRawCommit);
+  return records.map((lines) => parseRawCommit(lines, parentSource));
 }
 
-const COMMIT_LINE = /^commit ([0-9a-f]+)(?: \((.*)\))?$/;
+const COMMIT_LINE = /^commit ([0-9a-f]+)((?: [0-9a-f]+)*)(?: \((.*)\))?$/;
 
-/** `<name> <<email>> <epoch> <tz>`。name は空のことがある */
-const AUTHOR_VALUE = /^(.*?) ?<[^>]*> (-?\d+) [+-]\d{4}$/;
+/** `<name> <<email>> <epoch> <tz>`。name は空のことがある。使うのは epoch だけなので、
+ * タイムゾーンの形は問わない（fsck が警告する形の commit で log 全体を落とさない） */
+const AUTHOR_VALUE = /^(.*?) ?<[^>]*> (-?\d+)(?: .*)?$/;
 
 /** メッセージ行のインデント（git の pretty.c が raw 出力で付ける） */
 const MESSAGE_INDENT = "    ";
 
-function parseRawCommit(lines: string[]): CommitInfo {
+function parseRawCommit(lines: string[], parentSource: ParentSource): CommitInfo {
   const commitMatch = COMMIT_LINE.exec(lines[0]);
   if (commitMatch === null) throw new Error(`git log record: malformed commit line: ${lines[0]}`);
   const hash = commitMatch[1];
 
   const headerEnd = lines.indexOf("", 1);
   const header = lines.slice(1, headerEnd === -1 ? lines.length : headerEnd);
-  const parents: string[] = [];
+  const headerParents: string[] = [];
   let authorValue: string | undefined;
   let signature: GitCommitSignature = "none";
   for (const line of header) {
@@ -273,7 +290,7 @@ function parseRawCommit(lines: string[]): CommitInfo {
     const separator = line.indexOf(" ");
     const key = separator === -1 ? line : line.slice(0, separator);
     const value = separator === -1 ? "" : line.slice(separator + 1);
-    if (key === "parent") parents.push(value);
+    if (key === "parent") headerParents.push(value);
     else if (key === "author") authorValue = value;
     else if (SIGNATURE_HEADER_KEYS.includes(key)) {
       signature = SIGNATURE_KIND_BY_ARMOR[value] ?? "unknown";
@@ -295,16 +312,17 @@ function parseRawCommit(lines: string[]): CommitInfo {
     return line.slice(MESSAGE_INDENT.length);
   });
   const { subject, body } = splitMessage(message);
+  const commitLineParents = commitMatch[2].split(" ").filter((parent) => parent !== "");
 
   return {
     hash,
     shortHash: hash.slice(0, SHORT_HASH_LENGTH),
-    parents,
+    parents: parentSource === "commitLine" ? commitLineParents : headerParents,
     author: authorMatch[1],
     date: Number(authorMatch[2]),
     message: subject,
     body,
-    refs: parseRefs(commitMatch[2] ?? ""),
+    refs: parseRefs(commitMatch[3] ?? ""),
     truncatedAbove: false,
     signature,
   };
@@ -316,7 +334,7 @@ function isBlank(line: string): boolean {
 
 /**
  * メッセージを `%s` / `%b` と同じ規則で分ける。subject は先頭の空行を飛ばした最初の段落を
- * 空白 1 つで連結したもの、body はその後の空行を飛ばした残り全体。body の末尾改行は
+ * 空白 1 つで連結したもの（行頭の空白は残す）、body はその後の空行を飛ばした残り全体。body の末尾改行は
  * 付けない（raw 出力ではコミットオブジェクトが末尾改行で終わるかを区別できない）。
  */
 function splitMessage(lines: string[]): { subject: string; body: string } {
@@ -324,7 +342,7 @@ function splitMessage(lines: string[]): { subject: string; body: string } {
   while (i < lines.length && isBlank(lines[i])) i++;
   const subjectLines: string[] = [];
   while (i < lines.length && !isBlank(lines[i])) {
-    subjectLines.push(lines[i].trim());
+    subjectLines.push(lines[i].trimEnd());
     i++;
   }
   while (i < lines.length && isBlank(lines[i])) i++;

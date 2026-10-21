@@ -74,7 +74,7 @@ export interface GitCommit {
   truncatedAbove: boolean;
 }
 
-/** git graph の 1 commit。graph だけが署名を表示するため、署名は graph の応答にだけ載せる */
+/** git graph の 1 commit。graph の応答だけが署名を持つ */
 export interface GitGraphCommit extends GitCommit {
   /** commit object に載っている署名の方式。署名の有無だけを表し、検証はしない */
   signature: GitCommitSignature;

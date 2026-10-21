@@ -46,6 +46,7 @@ const GAP_COMMIT: GitCommit = {
   body: "",
   refs: [],
   truncatedAbove: false,
+  signature: "none",
 };
 
 /** レーン計算の結果 */

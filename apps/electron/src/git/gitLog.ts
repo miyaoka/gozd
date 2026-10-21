@@ -2,7 +2,7 @@
 // `git log --stdin` で N ref を 1 walk する `log` を中核に置き、後続 RPC（logLine / blame
 // anchored history）が共有する `LOG_FORMAT` と `parseLogRecords` SSOT を本ファイルに閉じる。
 
-import type { BranchScope } from "@gozd/rpc";
+import type { BranchScope, GitCommitSignature } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import {
   allBranchRefs,
@@ -38,7 +38,11 @@ export interface CommitInfo {
    * 全ブランチ表示で HEAD が窓から押し出され HEAD-only walk を append した境界の
    * 先頭 commit にだけ true が立つ */
   truncatedAbove: boolean;
+  signature: GitCommitSignature;
 }
+
+/** `LOG_FORMAT` から取れる部分。署名は format では検証抜きに取れないため `withSignatures` が足す */
+type LogRecord = Omit<CommitInfo, "signature">;
 
 export interface LogResult {
   commits: CommitInfo[];
@@ -121,7 +125,7 @@ export async function log(params: LogParams): Promise<LogResult> {
     firstParentOnly,
     sortMode,
   );
-  return { commits: merged, defaultBranch, branchHead };
+  return { commits: await withSignatures(dir, merged), defaultBranch, branchHead };
 }
 
 function fallbackEmpty(
@@ -145,13 +149,13 @@ function fallbackEmpty(
  */
 async function rescueCurrentBranch(
   dir: string,
-  commits: CommitInfo[],
+  commits: LogRecord[],
   branchScope: BranchScope,
   headExists: boolean,
   maxCount: number,
   firstParentOnly: boolean,
   sortMode: LogSortMode,
-): Promise<CommitInfo[]> {
+): Promise<LogRecord[]> {
   // "current" は始点が HEAD のみで押し出しが起きないため救済不要。"default" / "all" のみ対象。
   if (branchScope === "current" || !headExists) return commits;
   // HEAD の在否判定は parse 済み refs を見る（%D の `HEAD -> branch` / detached `HEAD` は
@@ -189,7 +193,7 @@ async function runLogStdin(
   maxCount: number,
   firstParentOnly: boolean,
   sortMode: LogSortMode,
-): Promise<CommitInfo[]> {
+): Promise<LogRecord[]> {
   if (refs.length === 0) return [];
   // ref 名の入力検証。`\n` を区切り子として stdin に流すため、ref 名内に CR / LF / NUL が
   // 混入していると別 ref として注入される。`symbolic-ref` / `rev-parse` の出力経路を信頼せず
@@ -220,8 +224,8 @@ async function runLogStdin(
  * （8 fields / 整数 author date）を共通化する。想定外フォーマットは silent skip /
  * epoch 0 倒しにせず throw して観察可能化する。
  */
-export function parseLogRecords(text: string): CommitInfo[] {
-  const commits: CommitInfo[] = [];
+export function parseLogRecords(text: string): LogRecord[] {
+  const commits: LogRecord[] = [];
   for (const record of text.split("\x1e")) {
     const trimmed = record.trim();
     if (trimmed === "") continue;
@@ -276,6 +280,70 @@ export function parseRefs(refStr: string): string[] {
     }
   }
   return result;
+}
+
+/** 署名ヘッダのキー。SHA-1 repo は `gpgsig`、SHA-256 repo は `gpgsig-sha256` */
+const SIGNATURE_HEADER_KEYS = ["gpgsig", "gpgsig-sha256"];
+
+/** 署名ブロック先頭行 → 方式。git の gpg-interface.c が方式の判別に使う armor と同じ */
+const SIGNATURE_KIND_BY_ARMOR: Record<string, GitCommitSignature> = {
+  "-----BEGIN PGP SIGNATURE-----": "gpg",
+  "-----BEGIN PGP MESSAGE-----": "gpg",
+  "-----BEGIN SSH SIGNATURE-----": "ssh",
+  "-----BEGIN SIGNED MESSAGE-----": "x509",
+};
+
+/**
+ * log record に署名方式を足して CommitInfo にする。
+ *
+ * `%G?` 系の format は署名を検証するため使わない。検証は署名 commit ごとに gpg / ssh-keygen を
+ * 起動し、鍵や `gpg.ssh.allowedSignersFile` が手元に無いと署名済みでも `N` / `E` を返す。
+ * ここでは commit object の署名ヘッダの有無だけを、`rev-list --header` 1 回で読む。
+ *
+ * 渡した hash が応答に欠けたら throw する（log と同じ strict 契約。silent に "none" へ倒さない）。
+ */
+export async function withSignatures(dir: string, records: LogRecord[]): Promise<CommitInfo[]> {
+  if (records.length === 0) return [];
+  const hashes = [...new Set(records.map((record) => record.hash))];
+  const stdout = await runGitWithStdin(
+    ["rev-list", "--no-walk=unsorted", "--header", "--stdin"],
+    dir,
+    `${hashes.join("\n")}\n`,
+  );
+  const signatures = parseSignatures(stdout);
+  return records.map((record) => {
+    const signature = signatures.get(record.hash);
+    if (signature === undefined) {
+      throw new Error(`withSignatures: rev-list returned no header for ${record.hash}`);
+    }
+    return { ...record, signature };
+  });
+}
+
+/**
+ * `git rev-list --header` の出力（NUL 終端の record。1 行目が hash、空行までが commit ヘッダ）から
+ * hash → 署名方式を引く。署名ヘッダの値は署名ブロックの先頭行で、継続行は先頭が空白になる。
+ */
+export function parseSignatures(text: string): Map<string, GitCommitSignature> {
+  const result = new Map<string, GitCommitSignature>();
+  for (const record of text.split("\0")) {
+    if (record === "") continue;
+    const lines = record.split("\n");
+    const headerEnd = lines.indexOf("");
+    const header = lines.slice(1, headerEnd === -1 ? lines.length : headerEnd);
+    result.set(lines[0], signatureOfHeader(header));
+  }
+  return result;
+}
+
+function signatureOfHeader(header: string[]): GitCommitSignature {
+  for (const line of header) {
+    const separator = line.indexOf(" ");
+    if (separator === -1) continue;
+    if (!SIGNATURE_HEADER_KEYS.includes(line.slice(0, separator))) continue;
+    return SIGNATURE_KIND_BY_ARMOR[line.slice(separator + 1)] ?? "unknown";
+  }
+  return "none";
 }
 
 /**

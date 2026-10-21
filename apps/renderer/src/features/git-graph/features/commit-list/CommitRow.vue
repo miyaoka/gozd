@@ -10,6 +10,7 @@ import { computed } from "vue";
 import { ageColor, formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
 import type { CommitMessageSegment } from "../../linkifyCommitMessage";
+import { signatureText } from "../../signatureLabel";
 import { useGitGraphStore } from "../../useGitGraphStore";
 import { ROW_HEIGHT } from "./graphGeometry";
 import type { GraphNode } from "./graphLayout";
@@ -114,8 +115,15 @@ function onContextmenu(e: MouseEvent) {
       {{ node.commit.author }}
     </div>
 
-    <!-- hash -->
-    <div class="truncate px-1 font-mono text-foreground-low">
+    <!-- hash: 署名がある commit は hash を緑にする -->
+    <div
+      v-if="node.commit.signature !== 'none'"
+      class="truncate px-1 font-mono text-success-text"
+      :title="signatureText(node.commit.signature)"
+    >
+      {{ node.commit.shortHash }}
+    </div>
+    <div v-else class="truncate px-1 font-mono text-foreground-low">
       {{ node.commit.shortHash }}
     </div>
   </div>

@@ -21,6 +21,7 @@ function commit(hash: string, refs: string[]): GitCommit {
     body: "",
     refs,
     truncatedAbove: false,
+    signature: "none",
   };
 }
 

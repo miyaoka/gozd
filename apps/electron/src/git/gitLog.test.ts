@@ -3,10 +3,11 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { runFixtureGit } from "../testGitFixture";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { log, parseLogRecords, parseRefs } from "./gitLog";
+import { log, parseLogRecords, parseRefs, parseSignatures } from "./gitLog";
 import { isAllZeroHex, validateRelPath, validateRev } from "./gitValidate";
 
 describe("parseRefs", () => {
@@ -73,6 +74,47 @@ describe("parseLogRecords", () => {
   test("author date が整数でない record は throw する", () => {
     const text = record(["a", "b", "", "alice", "not-a-date", "s", "", ""]);
     expect(() => parseLogRecords(text)).toThrow(/not an integer/);
+  });
+});
+
+describe("parseSignatures", () => {
+  const record = (hash: string, header: string[]) =>
+    `${hash}\n${header.join("\n")}\n\n    subject\n\0`;
+
+  test("署名ヘッダの armor から方式を判別し、署名ヘッダが無ければ none", () => {
+    const text = [
+      record("a1", [
+        "tree t",
+        "gpgsig -----BEGIN SSH SIGNATURE-----",
+        " xxx",
+        " -----END SSH SIGNATURE-----",
+      ]),
+      record("b2", [
+        "tree t",
+        "parent p",
+        "parent q",
+        "gpgsig -----BEGIN PGP SIGNATURE-----",
+        " xxx",
+      ]),
+      record("c3", ["tree t", "gpgsig-sha256 -----BEGIN SIGNED MESSAGE-----", " xxx"]),
+      record("d4", ["tree t", "gpgsig -----BEGIN FUTURE-----", " xxx"]),
+      record("e5", ["tree t", "author a <a@example.com> 1 +0000"]),
+    ].join("");
+    expect(parseSignatures(text)).toEqual(
+      new Map([
+        ["a1", "ssh"],
+        ["b2", "gpg"],
+        ["c3", "x509"],
+        ["d4", "unknown"],
+        ["e5", "none"],
+      ]),
+    );
+  });
+
+  test("本文中の gpgsig で始まる行は署名ヘッダとみなさない", () => {
+    expect(parseSignatures("a1\ntree t\n\ngpgsig -----BEGIN SSH SIGNATURE-----\n\0")).toEqual(
+      new Map([["a1", "none"]]),
+    );
   });
 });
 
@@ -198,6 +240,34 @@ describe("log (integration)", () => {
     // append された HEAD セグメントの先頭に境界マーカーが立つ
     expect(result.commits[1].refs).toContain("HEAD");
     expect(result.commits[1].truncatedAbove).toBe(true);
+  });
+
+  test("SSH 署名した commit は ssh、署名していない commit は none になる", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gozd-gitlog-signed-"));
+    tempDirs.push(dir);
+    const keyPath = join(dir, "signing-key");
+    execFileSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", keyPath], {
+      stdio: "ignore",
+    });
+    runFixtureGit(["init", "-b", "main"], dir);
+    runFixtureGit(["config", "user.email", "t@example.com"], dir);
+    runFixtureGit(["config", "user.name", "t"], dir);
+    runFixtureGit(["config", "gpg.format", "ssh"], dir);
+    runFixtureGit(["config", "user.signingkey", keyPath], dir);
+    runFixtureGit(["commit", "--allow-empty", "-m", "unsigned"], dir);
+    runFixtureGit(["commit", "--allow-empty", "-S", "-m", "signed"], dir);
+
+    const result = await log({
+      dir,
+      maxCount: 50,
+      firstParentOnly: false,
+      branchScope: "default",
+      sortMode: "topo",
+    });
+    expect(result.commits.map((c) => [c.message, c.signature])).toEqual([
+      ["signed", "ssh"],
+      ["unsigned", "none"],
+    ]);
   });
 
   test("unborn branch（commit 無し）は空 commits で正常応答する", async () => {

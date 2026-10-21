@@ -12,7 +12,7 @@
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit } from "@gozd/rpc";
+import type { GitGraphCommit } from "@gozd/rpc";
 import { computed } from "vue";
 import { formatDetailTime } from "../../shared/time";
 import { UNCOMMITTED_HASH } from "../worktree";
@@ -27,7 +27,7 @@ import IconLucideUser from "~icons/lucide/user";
 
 interface Props {
   /** 表示対象のコミット配列 */
-  commits: GitCommit[];
+  commits: GitGraphCommit[];
   /** GitHub repo base URL。`#番号` を issue/PR リンクに変換するのに使う */
   baseUrl: string | undefined;
 }

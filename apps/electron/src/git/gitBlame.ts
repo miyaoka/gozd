@@ -5,7 +5,7 @@
 import { tryCatch } from "@gozd/shared";
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { LOG_FORMAT, parseLogRecords, withSignatures, type CommitInfo } from "./gitLog";
+import { LOG_FORMAT, parseLogRecords, type CommitInfo } from "./gitLog";
 import { GitCommandError, runGit } from "./gitRunner";
 import { isAllZeroHex, validateRev } from "./gitValidate";
 
@@ -147,7 +147,7 @@ export async function logLine(params: {
   ];
   if (maxCount > 0) args.push(`--max-count=${maxCount}`);
   args.push(rev);
-  return withSignatures(dir, parseLogRecords(await runGit(args, dir)));
+  return parseLogRecords(await runGit(args, dir));
 }
 
 /**
@@ -170,7 +170,7 @@ export async function logFile(params: {
   if (maxCount > 0) args.push(`--max-count=${maxCount}`);
   if (rev !== "") args.push(rev);
   args.push("--", relPath);
-  return withSignatures(dir, parseLogRecords(await runGit(args, dir)));
+  return parseLogRecords(await runGit(args, dir));
 }
 
 /**

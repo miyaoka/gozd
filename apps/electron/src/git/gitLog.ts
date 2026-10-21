@@ -38,14 +38,15 @@ export interface CommitInfo {
    * 全ブランチ表示で HEAD が窓から押し出され HEAD-only walk を append した境界の
    * 先頭 commit にだけ true が立つ */
   truncatedAbove: boolean;
+}
+
+/** graph の 1 commit。署名は format では検証抜きに取れないため `withSignatures` が足す */
+interface GraphCommitInfo extends CommitInfo {
   signature: GitCommitSignature;
 }
 
-/** `LOG_FORMAT` から取れる部分。署名は format では検証抜きに取れないため `withSignatures` が足す */
-type LogRecord = Omit<CommitInfo, "signature">;
-
 export interface LogResult {
-  commits: CommitInfo[];
+  commits: GraphCommitInfo[];
   defaultBranch: string;
   /** HEAD が指す branch 名。detached HEAD では空文字 */
   branchHead: string;
@@ -149,13 +150,13 @@ function fallbackEmpty(
  */
 async function rescueCurrentBranch(
   dir: string,
-  commits: LogRecord[],
+  commits: CommitInfo[],
   branchScope: BranchScope,
   headExists: boolean,
   maxCount: number,
   firstParentOnly: boolean,
   sortMode: LogSortMode,
-): Promise<LogRecord[]> {
+): Promise<CommitInfo[]> {
   // "current" は始点が HEAD のみで押し出しが起きないため救済不要。"default" / "all" のみ対象。
   if (branchScope === "current" || !headExists) return commits;
   // HEAD の在否判定は parse 済み refs を見る（%D の `HEAD -> branch` / detached `HEAD` は
@@ -193,7 +194,7 @@ async function runLogStdin(
   maxCount: number,
   firstParentOnly: boolean,
   sortMode: LogSortMode,
-): Promise<LogRecord[]> {
+): Promise<CommitInfo[]> {
   if (refs.length === 0) return [];
   // ref 名の入力検証。`\n` を区切り子として stdin に流すため、ref 名内に CR / LF / NUL が
   // 混入していると別 ref として注入される。`symbolic-ref` / `rev-parse` の出力経路を信頼せず
@@ -224,8 +225,8 @@ async function runLogStdin(
  * （8 fields / 整数 author date）を共通化する。想定外フォーマットは silent skip /
  * epoch 0 倒しにせず throw して観察可能化する。
  */
-export function parseLogRecords(text: string): LogRecord[] {
-  const commits: LogRecord[] = [];
+export function parseLogRecords(text: string): CommitInfo[] {
+  const commits: CommitInfo[] = [];
   for (const record of text.split("\x1e")) {
     const trimmed = record.trim();
     if (trimmed === "") continue;
@@ -294,7 +295,7 @@ const SIGNATURE_KIND_BY_ARMOR: Record<string, GitCommitSignature> = {
 };
 
 /**
- * log record に署名方式を足して CommitInfo にする。
+ * log record に署名方式を足して GraphCommitInfo にする。
  *
  * `%G?` 系の format は署名を検証するため使わない。検証は署名 commit ごとに gpg / ssh-keygen を
  * 起動し、鍵や `gpg.ssh.allowedSignersFile` が手元に無いと署名済みでも `N` / `E` を返す。
@@ -302,7 +303,7 @@ const SIGNATURE_KIND_BY_ARMOR: Record<string, GitCommitSignature> = {
  *
  * 渡した hash が応答に欠けたら throw する（log と同じ strict 契約。silent に "none" へ倒さない）。
  */
-export async function withSignatures(dir: string, records: LogRecord[]): Promise<CommitInfo[]> {
+async function withSignatures(dir: string, records: CommitInfo[]): Promise<GraphCommitInfo[]> {
   if (records.length === 0) return [];
   const hashes = [...new Set(records.map((record) => record.hash))];
   const stdout = await runGitWithStdin(

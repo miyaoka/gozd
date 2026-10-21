@@ -1,4 +1,4 @@
-import type { GitCommit } from "@gozd/rpc";
+import type { GitGraphCommit } from "@gozd/rpc";
 
 /**
  * 隣接する2行間のラインセグメント。
@@ -24,7 +24,7 @@ interface LineSegment {
 
 /** グラフ上の1行分のデータ */
 export interface GraphNode {
-  commit: GitCommit;
+  commit: GitGraphCommit;
   /** この行のレーン（x 座標） */
   lane: number;
   /** 色インデックス */
@@ -36,7 +36,7 @@ export interface GraphNode {
 
 /** gap 行の placeholder commit。refs / hash を空にして HEAD 判定・選択・headNode 探索に
  *  引っかからないようにする。gap 行は描画専用で commit データを持たない。 */
-const GAP_COMMIT: GitCommit = {
+const GAP_COMMIT: GitGraphCommit = {
   hash: "",
   shortHash: "",
   parents: [],
@@ -95,7 +95,7 @@ export const HEAD_COLOR = 0;
  *   始めて HEAD_COLOR の衝突を避ける
  */
 export function computeGraphLayout(
-  commits: GitCommit[],
+  commits: GitGraphCommit[],
   { headHash }: { headHash?: string } = {},
 ): GraphLayout {
   const commitIndexMap = new Map<string, number>();

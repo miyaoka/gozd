@@ -18,7 +18,7 @@ HEAD-only walk を末尾 append し境界に `truncatedAbove` を立てる。ren
 import {
   BranchScope,
   SortMode,
-  type GitCommit,
+  type GitGraphCommit,
   type BranchChangePayload,
   type GitStatusChangePayload,
   type RemoteRefsChangePayload,
@@ -63,7 +63,7 @@ const sortMode = ref<SortMode>("date");
 const branchScope = ref<BranchScope>("default");
 
 /** refs 配列に "HEAD" を持つコミットを探す */
-function findHeadCommit(rawCommits: GitCommit[]): GitCommit | undefined {
+function findHeadCommit(rawCommits: GitGraphCommit[]): GitGraphCommit | undefined {
   return rawCommits.find((c) => c.refs.includes("HEAD"));
 }
 

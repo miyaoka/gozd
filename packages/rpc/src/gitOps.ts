@@ -5,6 +5,7 @@ import type {
   FileReadResult,
   GitCommit,
   GitFileChange,
+  GitGraphCommit,
   GitIssue,
   GitPullRequest,
   GitPullRequestBadge,
@@ -61,7 +62,7 @@ export interface GitLogResponse {
    * 新しい順 maxCount ウィンドウから押し出され結果に 1 件も含まれない場合のみ、HEAD-only
    * walk を追加して末尾に append する (古い現在ブランチを graph 上で見えるように救済。
    * HEAD 系統はウィンドウの最古 commit より古いため append で順序契約は保たれる)。 */
-  commits: GitCommit[];
+  commits: GitGraphCommit[];
   /** `git symbolic-ref refs/remotes/origin/HEAD` の結果 (例: `main`)。
    * 解決失敗時 / origin 未設定時は空文字。 */
   defaultBranch: string;

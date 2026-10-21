@@ -1,4 +1,4 @@
-import type { GitCommit } from "@gozd/rpc";
+import type { GitGraphCommit } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import { computeGraphLayout, HEAD_COLOR } from "./graphLayout";
 
@@ -8,7 +8,7 @@ function commit(
   parents: string[],
   refs: string[] = [],
   truncatedAbove = false,
-): GitCommit {
+): GitGraphCommit {
   return {
     hash,
     shortHash: hash,

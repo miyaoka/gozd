@@ -5,7 +5,7 @@ contextmenu は preventDefault し anchor / 座標をその場で snapshot し�
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit, GitPullRequestBadge } from "@gozd/rpc";
+import type { GitGraphCommit, GitPullRequestBadge } from "@gozd/rpc";
 import { computed } from "vue";
 import { ageColor, formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
@@ -51,6 +51,16 @@ const backgroundClass = computed(() => {
 
 const dateColor = computed(() => ageColor(props.node.commit.date));
 
+const hashColor = computed(() =>
+  props.node.commit.signature === "none" ? "text-foreground-low" : "text-success-text",
+);
+
+const hashTitle = computed(() => {
+  const signature = props.node.commit.signature;
+  if (signature === "none") return undefined;
+  return signatureText(signature);
+});
+
 const displayRefs = computed(() =>
   computeDisplayRefs(
     props.node.commit.refs,
@@ -60,7 +70,7 @@ const displayRefs = computed(() =>
   ),
 );
 
-function isMergeCommit(commit: GitCommit): boolean {
+function isMergeCommit(commit: GitGraphCommit): boolean {
   return commit.parents.length > 1;
 }
 
@@ -115,15 +125,8 @@ function onContextmenu(e: MouseEvent) {
       {{ node.commit.author }}
     </div>
 
-    <!-- hash: 署名がある commit は hash を緑にする -->
-    <div
-      v-if="node.commit.signature !== 'none'"
-      class="truncate px-1 font-mono text-success-text"
-      :title="signatureText(node.commit.signature)"
-    >
-      {{ node.commit.shortHash }}
-    </div>
-    <div v-else class="truncate px-1 font-mono text-foreground-low">
+    <!-- hash -->
+    <div class="truncate px-1 font-mono" :class="hashColor" :title="hashTitle">
       {{ node.commit.shortHash }}
     </div>
   </div>

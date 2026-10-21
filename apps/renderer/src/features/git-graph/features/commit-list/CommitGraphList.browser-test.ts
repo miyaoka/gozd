@@ -1,4 +1,4 @@
-import type { GitCommit, GitPullRequestBadge } from "@gozd/rpc";
+import type { GitGraphCommit, GitPullRequestBadge } from "@gozd/rpc";
 import type { ElectronRpcBridge } from "@gozd/shared";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, expect, test } from "vitest";
@@ -35,7 +35,7 @@ function expectSamePx(actual: number, expected: number) {
   expect(actual).toBeLessThan(expected + PX_TOLERANCE);
 }
 
-function commit(overrides: Partial<GitCommit> & Pick<GitCommit, "hash">): GitCommit {
+function commit(overrides: Partial<GitGraphCommit> & Pick<GitGraphCommit, "hash">): GitGraphCommit {
   return {
     shortHash: overrides.hash.slice(0, 7),
     parents: [],
@@ -51,7 +51,7 @@ function commit(overrides: Partial<GitCommit> & Pick<GitCommit, "hash">): GitCom
 }
 
 /** 末尾の commit を別セグメント先頭にして gap 行を 1 行挿入させる */
-const COMMITS: GitCommit[] = [
+const COMMITS: GitGraphCommit[] = [
   commit({ hash: "a".repeat(40), refs: ["HEAD", "main"], parents: ["b".repeat(40)] }),
   commit({ hash: "b".repeat(40), parents: ["c".repeat(40)] }),
   commit({ hash: "c".repeat(40), truncatedAbove: true }),
@@ -195,7 +195,7 @@ test("gap 行のラベルが graph 列基準で字下げされ、行末まで伸
  * local と origin が別 commit に居る branch。PR は branch 名に紐づくので両方の行に出る。
  * origin の行だけが PR head の位置なので、local の行は dim される。
  */
-const OUT_OF_SYNC_COMMITS: GitCommit[] = [
+const OUT_OF_SYNC_COMMITS: GitGraphCommit[] = [
   commit({ hash: "a".repeat(40), refs: ["HEAD", "feat"], parents: ["b".repeat(40)] }),
   commit({ hash: "b".repeat(40), refs: ["origin/feat"] }),
 ];

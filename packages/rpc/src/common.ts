@@ -72,6 +72,10 @@ export interface GitCommit {
    * renderer はこの行の上に「途切れ行」を描き、最新クラスタと現在ブランチクラスタの
    * 不連続を可視化する。 */
   truncatedAbove: boolean;
+}
+
+/** git graph の 1 commit。graph だけが署名を表示するため、署名は graph の応答にだけ載せる */
+export interface GitGraphCommit extends GitCommit {
   /** commit object に載っている署名の方式。署名の有無だけを表し、検証はしない */
   signature: GitCommitSignature;
 }

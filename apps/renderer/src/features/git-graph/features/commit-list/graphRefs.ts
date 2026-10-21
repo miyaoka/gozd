@@ -1,4 +1,4 @@
-import type { GitCommit } from "@gozd/rpc";
+import type { GitGraphCommit } from "@gozd/rpc";
 import type { DisplayRef } from "./displayRef";
 
 /** `git log --decorate` の ref を分類した結果。`name` は `origin/` / `tag:` を剥がした裸の名前。 */
@@ -33,7 +33,7 @@ function classifyRef(ref: string): ClassifiedRef | undefined {
  * native 側の `git log` 始点 ref が HEAD のみに絞られ origin/<default> 系の commit が消えるため、
  * HEAD 系統から到達しない ref ペアの out-of-sync は検出できない (scope 意味の直接の帰結)。
  */
-export function computeOutOfSyncBranches(commits: GitCommit[]): Set<string> {
+export function computeOutOfSyncBranches(commits: GitGraphCommit[]): Set<string> {
   const localCommits = new Map<string, string>();
   const remoteCommits = new Map<string, string>();
 
@@ -161,7 +161,7 @@ export function hasOriginRef(displayRef: DisplayRef): boolean {
  *
  * PR バッジの取得はこの集合を名指しで引く。描いていない branch の PR は誰も読まない。
  */
-export function graphBranchNames(commits: GitCommit[]): string[] {
+export function graphBranchNames(commits: GitGraphCommit[]): string[] {
   const names = new Set<string>();
   for (const commit of commits) {
     for (const r of commit.refs) {

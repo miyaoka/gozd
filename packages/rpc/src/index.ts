@@ -67,6 +67,7 @@ export type {
   GitCommit,
   GitCommitSignature,
   GitFileChange,
+  GitGraphCommit,
   GitIssue,
   GitPullRequest,
   GitPullRequestBadge,

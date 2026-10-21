@@ -5,7 +5,7 @@ contextmenu は preventDefault し anchor / 座標をその場で snapshot し�
 </doc>
 
 <script setup lang="ts">
-import type { GitGraphCommit, GitPullRequestBadge } from "@gozd/rpc";
+import type { GitCommit, GitPullRequestBadge } from "@gozd/rpc";
 import { computed } from "vue";
 import { ageColor, formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
@@ -70,7 +70,7 @@ const displayRefs = computed(() =>
   ),
 );
 
-function isMergeCommit(commit: GitGraphCommit): boolean {
+function isMergeCommit(commit: GitCommit): boolean {
   return commit.parents.length > 1;
 }
 

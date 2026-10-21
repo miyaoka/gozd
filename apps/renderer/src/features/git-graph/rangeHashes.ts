@@ -1,4 +1,4 @@
-import type { GitGraphCommit } from "@gozd/rpc";
+import type { GitCommit } from "@gozd/rpc";
 
 /**
  * 範囲選択時の対象 commit hash 列を組み立てる。
@@ -25,7 +25,7 @@ export function buildRangeHashes(
   selected: string,
   compare: string,
   hashToIndex: Map<string, number>,
-  commits: readonly GitGraphCommit[],
+  commits: readonly GitCommit[],
   uncommittedHash: string,
 ): string[] {
   const sIdx = selected === uncommittedHash ? -1 : (hashToIndex.get(selected) ?? Infinity);

@@ -1,4 +1,4 @@
-import type { GitGraphCommit } from "@gozd/rpc";
+import type { GitCommit } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import type { DisplayRef } from "./displayRef";
 import {
@@ -10,7 +10,7 @@ import {
 } from "./graphRefs";
 
 /** テスト用 commit を最小フィールドで生成する */
-function commit(hash: string, refs: string[]): GitGraphCommit {
+function commit(hash: string, refs: string[]): GitCommit {
   return {
     hash,
     shortHash: hash,

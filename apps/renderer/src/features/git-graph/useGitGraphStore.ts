@@ -1,4 +1,4 @@
-import type { GitGraphCommit } from "@gozd/rpc";
+import type { GitCommit } from "@gozd/rpc";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useRepoStore } from "../../shared/repo";
@@ -6,7 +6,7 @@ import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import { buildRangeHashes } from "./rangeHashes";
 
 /** Working Tree 用の仮想コミット。CommitDetailPane で "Uncommitted Changes" 表示に使用 */
-const uncommittedCommit: GitGraphCommit = {
+const uncommittedCommit: GitCommit = {
   hash: UNCOMMITTED_HASH,
   shortHash: "*",
   parents: [],
@@ -31,7 +31,7 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
   const selectionVersion = ref(0);
 
   /** git log で取得したコミット一覧。GitGraphPane が loadLog() で更新し、ChangesPane が選択状態経由で参照する */
-  const commits = ref<GitGraphCommit[]>([]);
+  const commits = ref<GitCommit[]>([]);
 
   /** hash → コミットインデックスのルックアップ */
   const hashToIndex = computed(() => {
@@ -140,7 +140,7 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
    * - 範囲選択: first-parent walk で得た実 diff 対象のみ (Working Tree 端を含めば先頭に
    *   uncommittedCommit を挿入)。off-branch の commit は除外する
    */
-  const selectedCommits = computed<GitGraphCommit[]>(() => {
+  const selectedCommits = computed<GitCommit[]>(() => {
     const map = hashToIndex.value;
 
     if (compareHash.value === null) {

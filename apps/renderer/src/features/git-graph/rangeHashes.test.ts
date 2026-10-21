@@ -1,4 +1,4 @@
-import type { GitGraphCommit } from "@gozd/rpc";
+import type { GitCommit } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import { buildRangeHashes } from "./rangeHashes";
 
@@ -14,7 +14,7 @@ import { buildRangeHashes } from "./rangeHashes";
 const WT_SENTINEL = "__test-working-tree__";
 
 /** テスト用 commit を最小フィールドで生成する */
-function commit(hash: string, parents: string[], refs: string[] = []): GitGraphCommit {
+function commit(hash: string, parents: string[], refs: string[] = []): GitCommit {
   return {
     hash,
     shortHash: hash,
@@ -37,7 +37,7 @@ function commit(hash: string, parents: string[], refs: string[] = []): GitGraphC
  *   commits[2] = "c2" (parents: [c3])
  *   commits[3] = "c3" (root, no parents)
  */
-function makeCommits(): GitGraphCommit[] {
+function makeCommits(): GitCommit[] {
   return [
     commit("c0", ["c1"], ["HEAD"]),
     commit("c1", ["c2"]),
@@ -46,7 +46,7 @@ function makeCommits(): GitGraphCommit[] {
   ];
 }
 
-function makeMap(commits: GitGraphCommit[]): Map<string, number> {
+function makeMap(commits: GitCommit[]): Map<string, number> {
   return new Map(commits.map((c, i) => [c.hash, i]));
 }
 
@@ -96,7 +96,7 @@ describe("buildRangeHashes", () => {
   });
 
   test("HEAD ref を持つ commit が無いまま newer=WT_SENTINEL を渡すと空配列", () => {
-    const commits: GitGraphCommit[] = [commit("c0", [])]; // HEAD ref を持たない
+    const commits: GitCommit[] = [commit("c0", [])]; // HEAD ref を持たない
     const map = makeMap(commits);
     expect(buildRangeHashes(WT_SENTINEL, WT_SENTINEL, map, commits, WT_SENTINEL)).toEqual([]);
   });

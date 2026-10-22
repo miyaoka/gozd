@@ -64,7 +64,8 @@ function isEditableElement(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
   const tag = el.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA") return true;
-  return el.isContentEditable;
+  // EditContext を付けた要素（端末の入力面）は isContentEditable が false のまま入力を受ける
+  return el.isContentEditable || el.editContext !== null;
 }
 
 /**

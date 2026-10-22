@@ -2,8 +2,8 @@
 //
 // - `~/.config/gozd/config.json` / `~/.local/state/gozd/app-state.json` は
 //   dev / stable で共有する
-// - load はファイル不在ならデフォルト値（初回起動）。既存ファイルの欠落フィールド
-//   （旧 proto3 JSON は default 値を省略して書いた）は default 充填する
+// - load はファイル不在ならデフォルト値（初回起動）。既存ファイルの欠落フィールドは
+//   default 充填する
 // - 「存在するが型違反」のフィールドはファイルの性格で扱いを分ける（rawJson.ts の契約）:
 //   - AppState（機械専有の state）: 破損として検知し、stderr ログ + 初期状態で上書き save
 //     （ベータ方針: 部分救済を書かない）。例外は列挙値のフィールドの未知の値で、そのフィールド
@@ -66,7 +66,7 @@ function asBooleanMap(raw: unknown, label: string): Record<string, boolean> {
   return result;
 }
 
-/** Swift 期の `.atomic` write と同じ保証: 同 dir の tmp に書いて rename */
+/** 同 dir の tmp に書いて rename し、書きかけのファイルを読ませない */
 export function writeFileAtomic(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmpPath = `${path}.tmp-${process.pid}`;

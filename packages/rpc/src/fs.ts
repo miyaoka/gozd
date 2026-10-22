@@ -102,7 +102,7 @@ export interface FsReadFileAbsoluteResponse {
 
 /** fsWriteFile: dir 配下に書き込む。path traversal guard は main 側。
  * content は UTF-8 テキスト（書き込み経路は preview の編集保存のみで、バイナリ書き込みは
- * 存在しない。旧ワイヤの base64 bytes は proto 廃止時にテキスト直送へ置き換えた）。 */
+ * 存在しない）。 */
 export interface FsWriteFileRequest {
   dir: string;
   path: string;

@@ -1,5 +1,4 @@
-// windowState store のテスト。Swift 側に対応物は無い（macOS 標準復元任せのため）。
-// 契約: round-trip 保存、壊れた永続ファイルはデフォルト起動（undefined）に倒れて
+// windowState store のテスト。契約: round-trip 保存、壊れた永続ファイルはデフォルト起動（undefined）に倒れて
 // throw しない（後方互換を作らない永続データポリシー）。
 
 import { afterEach, describe, expect, test } from "bun:test";

@@ -16,9 +16,6 @@ export interface ElectronRpcBridge {
    * ハンドラ未実装・処理失敗は reject（renderer 側で throw に変換する契約）
    */
   request: (path: string, body: unknown) => Promise<unknown>;
-  /**
-   * main → renderer push の購読。type / payload は Swift shell 期の
-   * `window.__gozdReceive(type, payload)` と同一契約（ワイヤ互換を維持）
-   */
+  /** main → renderer push の購読 */
   onPush: (cb: (type: string, payload: unknown) => void) => void;
 }

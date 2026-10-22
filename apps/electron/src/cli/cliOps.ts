@@ -1,6 +1,5 @@
-// gozd-cli のコマンド構築ロジック（純関数部）。Swift 版 `GozdCLI/main.swift` の
-// 対応物（issue #895「CLI: ソケットプロトコル互換を保って TS で再実装」）。
-// ワイヤは ClientMessage の JSON 1 行（NDJSON）。形状は旧 proto3 JSON mapping と同一。
+// gozd-cli のコマンド構築ロジック（純関数部）。
+// ワイヤは ClientMessage の JSON 1 行（NDJSON）。
 
 import type { HookMessage, NewWorktreeMessage } from "@gozd/rpc";
 import type { Result } from "@gozd/shared";
@@ -10,10 +9,10 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
-// socket / launch dir で共有する prefix（Swift `bundlePrefix` と同じ値）
+// socket / launch dir で共有する prefix
 const BUNDLE_PREFIX = "gozd";
 
-/** GOZD_SOCKET_PATH（非空）優先、無ければ stable channel の socket（Swift 版と同じ fallback） */
+/** GOZD_SOCKET_PATH（非空）優先、無ければ stable channel の socket */
 export function resolveSocketPath(env: Record<string, string | undefined>): string {
   const fromEnv = env.GOZD_SOCKET_PATH;
   if (fromEnv !== undefined && fromEnv !== "") return fromEnv;
@@ -21,7 +20,7 @@ export function resolveSocketPath(env: Record<string, string | undefined>): stri
 }
 
 /** socket ファイル名 `gozd-<channel>.sock` から channel を抽出して launch dir を導出する。
- * 形式外は stable 扱い（Swift `launchRequestDir()` と同じ契約） */
+ * 形式外は stable 扱い */
 export function launchRequestDirFromSocketPath(socketPath: string): string {
   const base = basename(socketPath);
   const prefix = `${BUNDLE_PREFIX}-`;
@@ -94,7 +93,7 @@ export function buildHookMessage(
   };
 }
 
-/** stdin テキストを lenient に JSON parse する（空 / 壊れは空オブジェクト。Swift 版と同じ） */
+/** stdin テキストを lenient に JSON parse する（空 / 壊れは空オブジェクト） */
 export function parseStdinJson(text: string): Record<string, unknown> {
   const trimmed = text.trim();
   if (trimmed === "") return {};

@@ -1,4 +1,4 @@
-// gozd-cli のコマンド構築ロジックのテスト。Swift 版 GozdCLI の契約
+// gozd-cli のコマンド構築ロジックのテスト。契約
 // （channel 導出 / HookMessage 組み立て / pending_work 畳み込み）を固定する。
 
 import { describe, expect, test } from "bun:test";
@@ -19,7 +19,7 @@ describe("resolveSocketPath", () => {
     expect(resolveSocketPath({ GOZD_SOCKET_PATH: "/tmp/x.sock" })).toBe("/tmp/x.sock");
   });
 
-  test("無ければ stable channel に fallback（Swift 版と同じ）", () => {
+  test("無い / 空文字なら stable channel に fallback", () => {
     expect(resolveSocketPath({})).toBe(join(tmpdir(), "gozd-stable.sock"));
     expect(resolveSocketPath({ GOZD_SOCKET_PATH: "" })).toBe(join(tmpdir(), "gozd-stable.sock"));
   });
@@ -153,7 +153,7 @@ describe("buildHookMessage", () => {
 });
 
 describe("parseStdinJson", () => {
-  test("空 / 壊れ / 非オブジェクトは空オブジェクトに倒す（Swift 版と同じ lenient 契約）", () => {
+  test("空 / 壊れ / 非オブジェクトは空オブジェクトに倒す", () => {
     expect(parseStdinJson("")).toEqual({});
     expect(parseStdinJson("  \n")).toEqual({});
     expect(parseStdinJson("{ broken")).toEqual({});

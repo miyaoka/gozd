@@ -38,10 +38,7 @@ overlay が伸びる側に出す。main (上端固定) はトグルの下、sub 
 
 run 単位で畳むため、assistant が連続応答するケースでも応答は 1 件に代表され、対話の流れが
 追える。表示順は events の出現順そのまま (上から下が時間の経過方向)。各 bubble は本文の抜粋で、
-話者によらず書式を解釈せず平文で出す (本文は全文 preview で markdown として読む)。span ラップした
-`line-clamp-2` で 2 行省略する (WebKit の button native renderer が
-`-webkit-box-orient: vertical` を無視するため、button 直下では line-clamp が効かず
-中間 span に逃がしている)。bubble が 0 件の overlay は非表示にし、両 overlay とも空なら
+話者によらず書式を解釈せず平文で出す (本文は全文 preview で markdown として読む)。2 行で省略する。bubble が 0 件の overlay は非表示にし、両 overlay とも空なら
 何も描画しない。
 
 ## 進行中インジケータ
@@ -665,10 +662,8 @@ watch([hasMain, hasSub], ([main, sub]) => {
       >
         {{ subLabel }}
       </summary>
-      <!-- bubble 用の内側コンテナ。details に直接 flex / gap を当てると WebKit で
-           generated content の gap 計算が崩れる挙動があるため、details はネイティブの
-           open/close と summary 表示制御だけに使い、レイアウト / スクロールは中の div に
-           閉じる。wrapper の構造は main と同じ。 -->
+      <!-- bubble 用の内側コンテナ。details はネイティブの open/close と summary 表示制御だけに
+           使い、レイアウト / スクロールは中の div に閉じる。wrapper の構造は main と同じ。 -->
       <div
         ref="subScroller"
         class="pointer-events-auto flex max-h-[calc(50cqh-2rem)] flex-col-reverse overflow-y-auto p-2"

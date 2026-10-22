@@ -1,4 +1,4 @@
-// ファイルシステム操作 RPC のロジック層。Swift 版 `FSOps.swift` の対応物。
+// ファイルシステム操作 RPC のロジック層。
 //
 // - path は dir からの相対パスとして扱い、判定は `resolveContained` に委譲する
 //   （path containment の SSOT は pathContainment.ts）
@@ -93,9 +93,8 @@ export function writeFileAbsolute(absolutePath: string, content: string): void {
 
 export function stat(dir: string, path: string): FsStatResult {
   const target = resolveSafe(dir, path);
-  // Swift 版と同じ組み合わせ: 存在 / directory 判定は symlink を辿り（fileExists 相当）、
-  // 種別 / size / mtime は link 自体を見る（attributesOfItem 相当）。dangling symlink は
-  // 「辿った先が無い」ため exists: false になる
+  // 存在 / directory 判定は symlink を辿り、種別 / size / mtime は link 自体を見る。
+  // dangling symlink は「辿った先が無い」ため exists: false になる
   const followed = tryCatch(() => statSync(target));
   if (!followed.ok) {
     return { exists: false, type: "", size: 0, modifiedAt: "" };

@@ -1,8 +1,8 @@
 // CLI / nc から SocketServer へ送られるメッセージ。
 // NDJSON 1 行 = 1 ClientMessage。
 //
-// ワイヤ形状は旧 proto3 oneof の JSON mapping（`{"hook":{...}}` / `{"open":{...}}`）を
-// そのまま維持する。nc 直送コマンドに固定 JSON として埋め込める:
+// ワイヤ形状は種別名を唯一のキーに持つ JSON（`{"hook":{...}}` / `{"open":{...}}`）。
+// nc 直送コマンドに固定 JSON として埋め込める:
 //
 //   echo '{"hook":{"event":"running","ptyId":'"$GOZD_PTY_ID"'}}' | nc -w 1 -U "$GOZD_SOCKET_PATH"
 //

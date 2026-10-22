@@ -1,8 +1,8 @@
 // ユーザー設定。`~/.config/gozd/config.json` に永続化される。
 //
 // 設計判断: セクションをネスト型にして型を持たせる。永続化ファイルの読み書きは
-// main 側 stores.ts が行い、旧ファイルの欠落フィールドは load 時に default 充填する
-// （「フィールド不在 = default 値」という旧 proto3 JSON の永続ファイル契約を維持する）。
+// main 側 stores.ts が行い、欠落フィールドは load 時に default 充填する
+// （「フィールド不在 = default 値」という永続ファイルの契約）。
 
 import type { EmptyMessage } from "./common";
 

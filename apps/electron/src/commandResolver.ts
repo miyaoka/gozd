@@ -1,5 +1,4 @@
 // 外部 CLI（git / gh 等）の絶対パスをユーザーログインシェル経由で解決してキャッシュする。
-// Swift 版 `ProcessExec.swift` の `CommandResolver` の対応物。
 //
 // **現プロセス PATH を解決に使わない理由**: Finder/Dock 起動の `.app` は launchd の最小 PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`) しか継承しない。`/usr/bin/git` は Xcode/CLT の Apple 版で、
@@ -13,7 +12,7 @@
 //   の値で、Finder 起動の GUI アプリでは信頼できない（fallback: `$SHELL` → `/bin/zsh`）
 // - `-i -l` 両方付ける: mise / asdf 等は `.zshrc`（interactive 側）で activate されるケースが
 //   多く、`-l` 単独では読まない。VSCode の shell environment resolver と同じ判断
-// - `detached: true`（libuv が `setsid()` を呼ぶ = Swift 版 `POSIX_SPAWN_SETSID` 相当）:
+// - `detached: true`（libuv が `setsid()` を呼ぶ）:
 //   `.app` プロセスは controlling tty を持たないため、子シェルの `-i` job control 初期化
 //   （tcsetpgrp 系）が blocking syscall で永久 hang する。新 session leader に切り離すと
 //   self-consistent な状態で初期化されて hang しない
@@ -39,7 +38,7 @@ const RESOLVE_TIMEOUT_MS = 10_000;
 /** 失敗時に stderr 末尾を error message に残す上限。rc の警告 / hang 直前の出力を事後分析する */
 const STDERR_TAIL_BYTES = 4096;
 
-/** shell spawn 失敗 / hang / timeout / marker 抽出失敗。Swift 版 `GitError.launchFailed` 相当 */
+/** shell spawn 失敗 / hang / timeout / marker 抽出失敗 */
 class CommandResolveError extends Error {
   constructor(message: string) {
     super(message);
@@ -47,7 +46,7 @@ class CommandResolveError extends Error {
   }
 }
 
-/** `command -v` が空 = CLI 未インストール。Swift 版 `GitError.commandNotFound` 相当 */
+/** `command -v` が空 = CLI 未インストール */
 class CommandNotFoundError extends Error {
   constructor(commandName: string) {
     super(`'${commandName}' not found via login shell. Is it installed?`);

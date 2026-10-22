@@ -16,7 +16,7 @@ describe("socketMessages", () => {
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  test("hook メッセージは Swift onHook と同形の payload で push される", async () => {
+  test("hook メッセージは欠落フィールドを default で埋めた payload で push される", async () => {
     const pushed: Array<{ type: string; payload: unknown }> = [];
     const handle = createSocketMessageHandler((type, payload) => pushed.push({ type, payload }));
     await handle('{"hook":{"event":"running","ptyId":3}}');

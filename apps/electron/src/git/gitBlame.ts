@@ -1,4 +1,4 @@
-// blame と blame-anchored log（logLine）。Swift 版 `GitOps+Blame.swift` の対応物。
+// blame と blame-anchored log（logLine）。
 // 前者は `git blame --porcelain` の 1 行 spawn、後者は `git log -L<n>,<n>:<path>` で
 // 1 行の変更履歴を walk する。両者とも LOG_OUTPUT_ARGS / parseLogRecords SSOT（gitLog.ts）を共有する。
 

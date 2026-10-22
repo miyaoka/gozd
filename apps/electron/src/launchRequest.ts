@@ -1,12 +1,10 @@
-// CLI cold start の launch request 消費。Swift 版 `AppRuntime.consumeLaunchRequest` の
-// 対応物。gozd-cli が `GOZD_COLD_START` 時に `$TMPDIR/gozd-{channel}-launch/` へ
-// `{"targetPath": "..."}` を書き出し（channel は GOZD_SOCKET_PATH のファイル名から導出）、
-// app が起動時に最古の 1 件を読んで削除する。
+// CLI cold start の launch request 消費。gozd-cli が `GOZD_COLD_START` 時に
+// `$TMPDIR/gozd-{channel}-launch/` へ `{"targetPath": "..."}` を書き出し（channel は
+// GOZD_SOCKET_PATH のファイル名から導出）、app が起動時に最古の 1 件を読んで削除する。
 //
-// 読み取り・parse の成否に関わらず対象ファイルは削除する（Swift 版の defer removeItem と
-// 同じ）。壊れた request を残すと起動のたびに拾われて永久に失敗し続けるため、
-// 「consume = 削除」の意味論で揃える。Swift 版が silent に nil を返す失敗経路は、
-// silent drop 禁止規律に合わせて stderr ログを足してある。
+// 読み取り・parse の成否に関わらず対象ファイルは削除する。壊れた request を残すと
+// 起動のたびに拾われて永久に失敗し続けるため、「consume = 削除」の意味論で揃える。
+// 失敗経路は silent drop 禁止規律に合わせて stderr ログを残す。
 
 import { tryCatch } from "@gozd/shared";
 import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -17,7 +15,7 @@ export function consumeLaunchRequest(launchDir: string): string | undefined {
   const entries = tryCatch(() => readdirSync(launchDir));
   if (!entries.ok || entries.value.length === 0) return undefined;
 
-  // 作成時刻順で最古の 1 件だけ消費する（Swift 版と同じ契約。残りは次回起動に持ち越し）
+  // 作成時刻順で最古の 1 件だけ消費する（残りは次回起動に持ち越し）
   const sorted = entries.value
     .map((name) => {
       const path = join(launchDir, name);

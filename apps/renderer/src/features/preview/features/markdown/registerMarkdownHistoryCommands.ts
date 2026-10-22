@@ -8,8 +8,8 @@
  *
  * handler が `true` を返す契約: `useKeyBindings` は `execute` の戻り値が true のときだけ
  * `preventDefault` / `stopPropagation` を呼ぶ。precondition `previewVisible` で gating した
- * 時点でユーザー意図は「マニュアル back / forward」確定なので、stack が空でもブラウザ既定
- * (WebKit の `cmd+[` history back 等) に逃さないため常に true を返す。
+ * 時点でユーザー意図は「マニュアル back / forward」確定なので、stack が空でもブラウザ既定に
+ * 逃さないため常に true を返す。
  */
 import { useCommandRegistry } from "../../../../shared/command";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";

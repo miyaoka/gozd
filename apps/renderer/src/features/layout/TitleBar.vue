@@ -78,8 +78,8 @@ onUnmounted(disposeFullscreen);
       </div>
     </div>
 
-    <!-- ツールバー右端のグローバルトグル (Swift 期は native titlebar の ToolbarItem。Electron shell は
-         native toolbar を持たないためこのカスタム titlebar 右端に集約する)。drag 帯なので no-drag 指定必須。 -->
+    <!-- ツールバー右端のグローバルトグル (native toolbar を持たないためこのカスタム titlebar 右端に
+         集約する)。drag 帯なので no-drag 指定必須。 -->
     <div class="_titlebar-actions ml-auto flex shrink-0 items-center gap-0.5 pr-2">
       <button
         type="button"

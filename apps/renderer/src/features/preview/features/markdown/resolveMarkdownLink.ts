@@ -9,9 +9,8 @@ import type { PathTarget } from "../../../worktree";
  * (allowlist の判定点を 1 つに保つ契約)。
  *
  * 残る scheme 判定は信頼境界としての拒否側だけ。Markdown プレビューはリポジトリ内ファイル
- * 由来のテキストを描画するため、旧内部 scheme (`gozd-file://` / `gozd-rpc://` / `gozd-app://`) /
- * `file:` / `data:` / `javascript:` 等の内部 or 危険 scheme は明示的に invalid に倒す
- * (廃止済み scheme も defense in depth で残す)。
+ * 由来のテキストを描画するため、preview 配信 scheme (`gozd-preview://`) / `file:` / `data:` /
+ * `javascript:` 等の内部 or 危険 scheme を含め、scheme 付きの href はすべて invalid に倒す。
  *
  * passthrough は `#fragment` 単独 (同一文書内アンカー) だけに限る。
  *

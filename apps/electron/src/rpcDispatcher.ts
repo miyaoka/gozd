@@ -1,4 +1,4 @@
-// RPC dispatcher。Swift 版 `RpcDispatcher.swift` の対応物。
+// RPC dispatcher。
 //
 // renderer からの request は preload → `ipcMain.handle("rpc:request")` → ここに届く。
 // body / response は `@gozd/rpc` の型を structured clone でそのまま運ぶ plain data

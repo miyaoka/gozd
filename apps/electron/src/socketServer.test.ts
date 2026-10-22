@@ -1,5 +1,4 @@
-// SocketServer の統合テスト。Swift 版 `SocketServerTests.swift` のケースを対で移植し、
-// NDJSON 分割（1 行 = 1 メッセージ / 複数行 / 並行接続）の契約を実ソケットで固定する。
+// SocketServer の統合テスト。NDJSON 分割（1 行 = 1 メッセージ / 複数行 / 並行接続）の契約を実ソケットで固定する。
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";

@@ -2,7 +2,7 @@ import type { ElectronRpcBridge } from "@gozd/shared";
 import { contextBridge, ipcRenderer } from "electron";
 import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG, type SpikeApi } from "./ipc";
 
-// RPC 本経路。renderer の shared/rpc がこの有無でシェル（Electron / Swift）を判定する
+// RPC 本経路。renderer の shared/rpc の request はこれが無ければ bootstrap の破綻としてエラーにする
 const rpcBridge: ElectronRpcBridge = {
   request: (path, body) => ipcRenderer.invoke("rpc:request", path, body),
   onPush: (cb) => {

@@ -24,8 +24,7 @@ export interface PtySpawnResponse {
 
 /** PTY master fd への書き込み（renderer → 子プロセスのキー入力等）。
  * data は xterm.js の onData が渡す UTF-8 テキストそのまま
- * （旧ワイヤの base64 bytes は proto 廃止時にテキスト直送へ置き換えた。
- * 入力の源泉が JS string なので encode/decode の往復は不要）。 */
+ * （入力の源泉が JS string なので bytes への encode/decode の往復は不要）。 */
 export interface PtyWriteRequest {
   ptyId: number;
   data: string;

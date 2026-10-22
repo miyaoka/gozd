@@ -1,5 +1,4 @@
 // Claude Code の `--settings` で読み込まれる hooks 設定 JSON を生成する。
-// Swift 版 `Claude/ClaudeHooksSettings.swift` の対応物。
 //
 // - Claude が消費する外部 schema なので gozd の型 SSOT (@gozd/rpc) には乗らない。固定構造を組む
 // - 2 経路の hook command:
@@ -51,13 +50,13 @@ export function claudeHooksSettings(): Record<string, unknown> {
   };
 }
 
-/** 設定 JSON ファイルを path に書き出す（Swift 版と同じく sorted keys + 末尾改行） */
+/** 設定 JSON ファイルを path に書き出す（sorted keys + 末尾改行） */
 export function writeClaudeHooksSettings(path: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(claudeHooksSettings(), sortKeysReplacer, 2)}\n`);
 }
 
-/** JSON.stringify で Swift の .sortedKeys と同じくキーを辞書順に出す */
+/** JSON.stringify でキーを辞書順に出す */
 function sortKeysReplacer(_key: string, value: unknown): unknown {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
   const sorted: Record<string, unknown> = {};

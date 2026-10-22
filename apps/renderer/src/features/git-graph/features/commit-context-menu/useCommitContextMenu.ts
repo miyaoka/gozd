@@ -9,7 +9,7 @@
  * x / y は contextmenu イベント時のマウス座標。指定時はメニュー側で `position: fixed; left/top`
  * を使い、undefined なら CSS Anchor Position で anchor 要素基準で出す。
  *
- * open を pointerup まで遅延させて WebKit の light-dismiss を回避する仕組みと、その不変条件は
+ * open を pointerup まで遅延させて popover の light-dismiss を回避する仕組みと、その不変条件は
  * listener 実装と同居する `useCommitContextMenuTrigger.ts` に置く。
  */
 import { usePopover } from "../../../../shared/popover";

@@ -1,6 +1,5 @@
-# Electron 版 gozd の .app パッケージング設定。Swift 版 apps/native/scripts/build-app.sh の
-# 対応物。配布は GitHub Releases + mise（docs/release.md）。channel 別の上書き
-# （productName / appId / extraMetadata）は buildApp.ts が CLI 引数で行う。
+# gozd の .app パッケージング設定。配布は GitHub Releases + mise（docs/release.md）。
+# channel 別の上書き（productName / appId / extraMetadata）は buildApp.ts が CLI 引数で行う。
 #
 # 署名: Developer ID 署名 / notarize なし。identity が無いため electron-builder の署名
 # ステップはスキップされる（ad-hoc の自動付与はされない）。未署名で成立する背景
@@ -21,7 +20,7 @@
 #       node_modules/node-pty, @parcel/watcher*  ← dlopen する native
 #     app/                             ← extraResources（asar の外。実ディレクトリ）
 #       bin/                             ← wrapper + gozd-cli shim（gozdEnv が Resources/app/bin を期待）
-#       zsh/                             ← zsh init チェーン（Swift 版と共有）
+#       zsh/                             ← zsh init チェーン
 #       claude-plugin/                   ← gozd の skill を運ぶ Claude Code plugin（--plugin-dir で渡す）
 #       concierge/                       ← 窓口の Claude に付ける指示（--append-system-prompt-file で渡す）
 #       views/main/                      ← renderer の Vite ビルド成果物

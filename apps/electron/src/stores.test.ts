@@ -15,7 +15,7 @@ function makeTempDir(): string {
 }
 
 describe("normalizeAppState (strict)", () => {
-  test("欠落フィールドは default 充填する（proto3 契約の維持）", () => {
+  test("欠落フィールドは default 充填する", () => {
     const state = normalizeAppState({
       sidebarRepos: [{ rootDir: "/r1" }],
       repoLists: [{ id: "p1" }],

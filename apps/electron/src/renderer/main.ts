@@ -42,7 +42,7 @@ async function main() {
   const spawnRes = await rpc.request("/pty/spawn", {
     dir: "/",
     executable: "/bin/zsh",
-    // args はワイヤ契約 (Swift execve 流儀) どおり argv[0] を含む argv 全体
+    // args はワイヤ契約どおり argv[0] を含む argv 全体
     args: ["/bin/zsh", "-l"],
     env: {},
     rows: terminal.rows,
@@ -67,7 +67,6 @@ async function main() {
     }
   });
 
-  // PtyWriteRequest.data はテキスト直送（旧ワイヤの base64 bytes は proto 廃止時に置き換えた）
   const writePty = (data: string) => {
     void rpc.request("/pty/write", { ptyId, data });
   };

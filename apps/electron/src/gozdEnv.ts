@@ -1,6 +1,4 @@
 // gozd 実行時リソースのパス解決と PTY 環境変数の構築。
-// Swift 版 `AppRuntime.defaultSocketPath / claudeSettingsPath / makeEnvOverlay` +
-// `Shell/GozdEnvOverlay.swift` の対応物。
 //
 // channel: packaged `.app` は build 時に焼き込まれた marker（Resources/app/channel）で
 // "stable"（release CI ビルド）/ "local"（無指定の build:app）に分かれ、未パッケージ
@@ -87,8 +85,7 @@ const conciergePromptPath = isPackaged
 export const bundledRendererIndex = join(bundledAppRoot, "views", "main", "index.html");
 
 /** PTY 子プロセスに継承させない親プロセス由来のキー。
- * gozd app が内部フラグとして持つ env を子に漏らさない（Swift strippedKeys と同集合 +
- * Electron 固有の GOZD_ELECTRON_RENDERER_URL） */
+ * gozd app が内部フラグとして持つ env を子に漏らさない */
 const STRIPPED_KEYS = [
   "GOZD_DEV_PROJECT_ROOT",
   "GOZD_DEV_VITE_PORT",
@@ -112,7 +109,7 @@ export function sanitizeParentEnv(): Record<string, string> {
 
 /** 親プロセス env を base に renderer env と gozd overlay を重ねた最終形を返す。
  * 優先順（後勝ち）: 親 env → renderer env → gozd overlay。
- * allow-list 継承ではなく全継承 + deny-list（GozdEnvOverlay.swift の設計判断を踏襲） */
+ * allow-list 継承ではなく全継承 + deny-list */
 export function buildPtyEnv(
   rendererEnv: Record<string, string>,
   ptyId: number,

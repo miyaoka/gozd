@@ -1,4 +1,4 @@
-// consumeLaunchRequest のテスト。Swift 版 `AppRuntime.consumeLaunchRequest` と同じ契約:
+// consumeLaunchRequest のテスト。契約:
 // 最古 1 件のみ consume（残りは持ち越し）、読み取り成否に関わらず対象ファイルは削除。
 
 import { afterEach, describe, expect, test } from "bun:test";

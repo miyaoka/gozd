@@ -1,5 +1,5 @@
 // portScanner の帰属・差分 push・失敗 skip の契約テスト。
-// Swift 版 PortScanner の意味論（live / orphaned / external、失敗スキャンは前回
+// 意味論（live / orphaned / external、失敗スキャンは前回
 // snapshot 維持、差分時のみ push）を deps 注入で固定する。
 
 import { describe, expect, test } from "bun:test";

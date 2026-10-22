@@ -1,5 +1,5 @@
 // Claude Code が ~/.claude/projects/<cwd エンコード>/<session_id>.jsonl に書き出す
-// セッションログ (JSONL) の解決・読み取り。Swift 版 `Claude/ClaudeSessionLog.swift` の対応物。
+// セッションログ (JSONL) の解決・読み取り。
 //
 // 解決方式: session_id (UUID) を ~/.claude/projects/*/<session_id>.jsonl で解決する。
 // cwd → ディレクトリ名のエンコード規則は Claude 側の内部仕様で将来変わりうるため

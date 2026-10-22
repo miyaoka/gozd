@@ -30,7 +30,8 @@ tool / system (hook 等の注入) は LINE に対応物が無いため、中央�
   持つケースは Q→options→A のセットを縦に並べる。回答未充填 (resume 中断 / `toolUseResult.answers`
   欠落) は user 吹き出しの代わりに dim な「(no response)」を出す。scroll-spy の観測対象に含める
   (発言と同じ会話扱い)
-- scroll-spy は `IntersectionObserver`。チャット行の最外要素に `data-ev`
+- scroll-spy は `IntersectionObserver`。現在位置の ts を親へ emit するため、CSS の
+  scroll marker ではなく JS で観測する。チャット行の最外要素に `data-ev`
   を残し、会話行 (発言 / ask) を index で観測して topmost の ts を `current-ts` に出す
 - `parsed` が差し替わる (別 subagent を選び直す等) たびに observer を貼り直す
 - `sessionKey` は v-for の :key 先頭に混ぜ、別セッションへ切り替わった際に `<details>` を

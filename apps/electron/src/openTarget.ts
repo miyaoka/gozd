@@ -1,5 +1,4 @@
-// 任意 path を gozdOpen event payload に変換する。pickAndOpen（ダイアログ選択）、
-// socket 経由の OpenMessage、cold start の launch request の共通エントリポイント。
+// 任意 path を gozdOpen event payload に変換する。gozdOpen を発火する経路はすべてここを通す。
 //
 // - 存在しないパスは undefined を返す（呼び出し元は「push しない」として扱う契約）。
 //   gozd に新規ファイル編集機能はなく、通すと renderer が幽霊 repo を addRepo して
@@ -79,8 +78,8 @@ export async function buildGozdOpenPayload(
 
   const payload: GozdOpenPayload = {
     dir,
-    // channel は dev/stable の実行時リソース分離識別子。Electron shell は channel 分離を
-    // まだ持たないため空文字（renderer 側は空なら setChannel しない契約）
+    // channel は preload 経由で renderer に渡すため、このフィールドは使わず常に空文字
+    // （renderer 側は空なら setChannel しない契約）
     channel: "",
     repoName,
     isGitRepo,

@@ -1,6 +1,6 @@
 // branch / remote 系の解決 helper。
 //
-// エラー方針:各関数は commandFailed（GitCommandError）を握り潰さず
+// エラー方針: 各関数は commandFailed（GitCommandError）を握り潰さず
 // throw し、空文字への fallback 判断は呼び出し側（gitLog.log / resolveStartPoint）に委ねる。
 // spawn 失敗（ENOENT 等）も rethrow して上位の notify.error 経路に通す。
 

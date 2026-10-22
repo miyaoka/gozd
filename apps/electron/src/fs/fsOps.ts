@@ -94,8 +94,7 @@ export function writeFileAbsolute(absolutePath: string, content: string): void {
 export function stat(dir: string, path: string): FsStatResult {
   const target = resolveSafe(dir, path);
   // 存在 / directory 判定は symlink を辿り、種別 / size / mtime は link 自体を見る。
-  // dangling symlink は
-  // 「辿った先が無い」ため exists: false になる
+  // dangling symlink は「辿った先が無い」ため exists: false になる
   const followed = tryCatch(() => statSync(target));
   if (!followed.ok) {
     return { exists: false, type: "", size: 0, modifiedAt: "" };

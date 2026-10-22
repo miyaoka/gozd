@@ -11,9 +11,10 @@
  * bun test から DOM 無しで直接呼べる方が回帰が固い。SFC 側は `computed` で薄く呼ぶだけ。
  *
  * V8 の `Error.stack` は先頭行に `<name>: <message>` を含む（multi-line message ならその 1 行目のみ）。
+ * ただし message が空なら先頭行は `<name>` だけになる。
  * `name:` で始まる先頭行は捨て、`head` を毎回前置する。これで多段の stack でも先頭行の
- * フォーマットが揃う。先頭行が `name:` で始まらない stack（代入で差し替えられたもの等）は
- * 全行をフレーム列として扱う。
+ * フォーマットが揃う。先頭行が `name:` で始まらない stack（message が空のもの、代入で
+ * 差し替えられたもの等）は全行をフレーム列として扱う。
  */
 import { tryCatch } from "@gozd/shared";
 

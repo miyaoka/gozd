@@ -1,6 +1,6 @@
 import { type ComputedRef, type Ref, ref, watch } from "vue";
 
-/** CSS Overflow 5 の container プロパティ（Chromium で有効、TypeScript 型定義が未対応） */
+/** CSS Overflow 5 の container プロパティ（TypeScript 型定義が未対応） */
 declare global {
   interface ScrollIntoViewOptions {
     container?: ScrollLogicalPosition;

@@ -308,8 +308,6 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 function onRowClick(hash: string, e: MouseEvent) {
-  // control+click は選択変更に倒さず contextmenu 経路に委譲する。Chromium は macOS の
-  // control+click で click を dispatch しない (contextmenu のみ) ため、この分岐は保険にとどまる。
   if (e.ctrlKey) return;
   if (e.shiftKey) {
     gitGraphStore.selectCompare(hash);

@@ -6,7 +6,7 @@
  *
  * **不変条件 (実装変更時に必読)**:
  * - `setTimeout(0)` / `requestAnimationFrame` / `queueMicrotask` 等の defer は
- *   `popover="auto"` light-dismiss を **抜けない** (Chromium 147 で確認、156 では解消)。続く mouseup が
+ *   `popover="auto"` light-dismiss を **抜けない**。続く mouseup が
  *   popover に到達して即 dismiss される (whatwg/html#10905)
  * - `pointerup` を `capture: true` で window に貼ると、popover が show される **前** に listener が
  *   pointerup を消化する → 続く mouseup は popover open 前の press cycle として扱われ light-dismiss の

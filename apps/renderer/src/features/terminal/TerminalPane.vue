@@ -57,9 +57,6 @@ function syncTerminalFocusFromActiveElement() {
   contextKeys.set("terminalFocus", isFocused);
 }
 
-// ウィンドウの表示状態変更時に terminalFocus を同期
-// hidden 時は false にリセット、復帰時は activeElement から再判定
-// （復帰時に xterm の focus イベントが再発火する保証が無いため。Chromium では未検証）
 useEventListener(document, "visibilitychange", () => {
   if (document.hidden) {
     contextKeys.set("terminalFocus", false);

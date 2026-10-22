@@ -662,10 +662,8 @@ watch([hasMain, hasSub], ([main, sub]) => {
       >
         {{ subLabel }}
       </summary>
-      <!-- bubble 用の内側コンテナ。details に直接 flex / gap を当てても flex item は
-           summary と ::details-content の 2 つで、bubble 同士には gap が効かないため、
-           details はネイティブの open/close と summary 表示制御だけに使い、レイアウト /
-           スクロールは中の div に閉じる。wrapper の構造は main と同じ。 -->
+      <!-- bubble 用の内側コンテナ。details はネイティブの open/close と summary 表示制御だけに
+           使い、レイアウト / スクロールは中の div に閉じる。wrapper の構造は main と同じ。 -->
       <div
         ref="subScroller"
         class="pointer-events-auto flex max-h-[calc(50cqh-2rem)] flex-col-reverse overflow-y-auto p-2"

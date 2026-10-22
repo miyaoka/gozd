@@ -65,10 +65,6 @@ const folderDisplayName = computed(() =>
 );
 
 function onClick(event: MouseEvent) {
-  // macOS の control+click は context menu trigger の意図として toggle / select には倒さず
-  // contextmenu 経路に委譲。Chromium は macOS の control+click で click を dispatch しない
-  // (contextmenu のみ) ため、この分岐は保険にとどまる。gozd は macOS 専用なので ctrlKey === control+click と等価。cross-platform
-  // 対応する場合は OS 判定 (navigator.platform / userAgent) で macOS 経路に絞る必要がある。
   if (event.ctrlKey) return;
   if (props.node.kind === "folder") {
     emit("toggleFolder", props.node.anchorPath);

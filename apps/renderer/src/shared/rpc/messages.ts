@@ -11,9 +11,9 @@
 //    SSOT で送信側を閉じるが、このバスには renderer 内部イベント（fsWatchReady / claudeFx 等、
 //    feature 所有の型）も乗るため、受信側をワイヤの map だけで閉じることはできない。
 //
-// 2. **`window` への登録は明示の `initRpcDispatcher()` で行う**。モジュールトップレベルで
-//    `window.__gozdReceive = ...` を実行すると import するだけで window へ書き込む副作用が
-//    生じ、bun:test / SSR / 非 DOM 環境でロードエラーになる。renderer の bootstrap
+// 2. **push の購読は明示の `initRpcDispatcher()` で行う**。モジュールトップレベルで
+//    `window.__gozdElectronRpc.onPush(...)` を実行すると import するだけで window を参照する
+//    副作用が生じ、bun:test / SSR / 非 DOM 環境でロードエラーになる。renderer の bootstrap
 //    (`main.ts`) で 1 回だけ呼び出す契約にすることで、import 時の副作用を排除する。
 
 import type { PushPayloadMap } from "@gozd/rpc";

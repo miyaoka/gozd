@@ -222,11 +222,9 @@ function createWindow(): BrowserWindow {
   window.on("leave-full-screen", () =>
     windowPush("windowFullscreenChange", { isFullscreen: false }),
   );
-  // ロード経路は 3 つ（Swift 版 GozdApp.task と同型）:
+  // ロード経路は 3 つ:
   //   1. GOZD_ELECTRON_RENDERER_URL: Vite dev server（HMR / 検証）
-  //   2. packaged: .app 同梱の renderer（Vite build は base "./" のため file:// で成立。
-  //      Swift は WebPage に loadFileURL 相当が無く gozd-app:// scheme を要したが、
-  //      Electron は loadFile で足りる）
+  //   2. packaged: .app 同梱の renderer（Vite build は base "./" のため file:// で成立）
   //   3. fallback: spike テストページ
   if (rendererUrl !== undefined && rendererUrl !== "") {
     void window.loadURL(rendererUrl);
@@ -301,8 +299,8 @@ void app.whenReady().then(() => {
 
   // dev の Dock アイコン。packaged は electron-builder が焼いた icns（production 用
   // icon.png 由来）が使われるが、未パッケージ（electron .）は Electron デフォルト
-  // アイコンになるため、Swift 期の dev 用アイコン（旧 icon.dev.iconset）を実行時に
-  // 当てる。dev / production をアイコンで識別する運用（Swift 期の Gozd-Dev.app 相当）
+  // アイコンになるため、dev 用アイコン（icon.dev.iconset）を実行時に当てる。
+  // dev / production をアイコンで識別する
   if (!isPackaged) {
     const devIconResult = tryCatch(() =>
       app.dock?.setIcon(
@@ -335,11 +333,10 @@ void app.whenReady().then(() => {
   // AppConfig ファイルの hot reload（直接編集を appConfigChange として push）
   startAppConfigWatcher(socketPush);
 
-  // CLI cold start の launch request を消費して gozdOpen を push する
-  // （Swift 版 performInitialOpen 対応）。push が renderer の購読登録より先に飛ぶと
-  // 落ちるため、page load 完了まで待つ。once なのは Vite フルリロード等の再 load で
-  // 再発火させないため（consume 済みなので no-op だが、意味論を Swift の
-  // 「起動時 1 回」に揃える）
+  // CLI cold start の launch request を消費して gozdOpen を push する。
+  // push が renderer の購読登録より先に飛ぶと落ちるため、page load 完了まで待つ。
+  // once なのは Vite フルリロード等の再 load で再発火させないため（consume 済みなので
+  // no-op だが、意味論を「起動時 1 回」に揃える）
   window.webContents.once("did-finish-load", () => {
     const target = consumeLaunchRequest(launchRequestDir);
     if (target === undefined) return;

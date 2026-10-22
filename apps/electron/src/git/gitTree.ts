@@ -1,4 +1,4 @@
-// commit / tree / file content 系の op。Swift 版 `GitOps+Tree.swift` の対応物。
+// commit / tree / file content 系の op。
 // `git show` / `git ls-tree` / `git diff <hash>^..<hash>`（commitFiles / prDiffFiles）を扱う。
 // root commit を含む range の起点は EMPTY_TREE_HASH を経由して empty tree に倒す
 // （root が追加したファイルも diff に含めるため）。

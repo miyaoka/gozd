@@ -1,5 +1,4 @@
-// buildPtyEnv のテスト。Swift 版 `GozdEnvOverlayTests.swift` のケースを対で移植し、
-// 3 層 merge（親 env → renderer env → gozd overlay）と ZDOTDIR チェーンの契約を固定する。
+// buildPtyEnv のテスト。3 層 merge（親 env → renderer env → gozd overlay）と ZDOTDIR チェーンの契約を固定する。
 // buildPtyEnv は process.env を base に読むため、テストは process.env に一時キーを
 // 立てて相対的な挙動を検証する。
 

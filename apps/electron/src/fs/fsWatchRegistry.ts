@@ -1,11 +1,10 @@
 // dir 単位でファイル監視を保持し、再帰的なファイル変更を push event に振り分ける registry。
-// Swift 版 `FSWatchRegistry.swift`（actor）の対応物。分類の設計判断は `classify.ts` 冒頭を参照。
+// 分類の設計判断は `classify.ts` 冒頭を参照。
 //
-// Swift 版との構造差分:
+// 構造:
 //
-// - **FSEvents stream → @parcel/watcher subscription**。Swift は 1 stream に
-//   [worktree root, per-worktree git dir, common git dir] の複数 root を登録できるが、
-//   @parcel/watcher は 1 subscribe = 1 root で、root 配下を再帰的に監視する。各 entry は
+// - **1 subscription = 1 root**。@parcel/watcher は 1 subscribe で 1 root 配下を再帰的に
+//   監視する。各 entry は
 //   dir と git dir の最小被覆を root に持ち（通常 clone: `.git` は root 配下 → 1 本。
 //   worktree: per-wt git dir は common 配下 → [worktree root, common git dir] の 2 本）、
 //   registry は全 entry の root をそれぞれ subscribe する。root が別の root を含むとき
@@ -13,16 +12,16 @@
 //   含む側の ignore に含まれる側の絶対パスを加え、同じ event を二重に配送しない。除外パターンは
 //   各 root 自身からの相対で当たり、git dir の root には掛からない。event は path を含む entry に
 //   振り分ける。
-// - **actor → 素の closure state**。Node はシングルスレッドで排他は不要だが、await
+// - **状態は素の closure に持つ**。Node はシングルスレッドで排他は不要だが、await
 //   （gitDirs 解決 / refDigest / git status）を跨ぐ間に unwatch や後続 event が割り込む
-//   構造は同じなので、await 前後で watch 世代を確かめる。同じ dir の status 取得は
+//   ため、await 前後で watch 世代を確かめる。同じ dir の status 取得は
 //   single-flight で直列化し、古い取得が新しい結果を上書きしない。subscribe の張り直しも
 //   直列化し、並行した張り直しが互いの途中状態を見て監視を途切れさせない。
-// - **構築中の同 dir 並行 watch は pendingWatches で直列化**。Swift actor にも
-//   `await gitDirs` 中の reentrancy 窓（entry の二重構築）があるが、こちらは構築 promise を
-//   待たせて、refCount と entry の上書きを構造的に塞ぐ。
+// - **構築中の同 dir 並行 watch は pendingWatches で直列化**。`await gitDirs` 中に同じ dir の
+//   watch が来ると entry を二重に構築するため、構築 promise を待たせて、refCount と entry の
+//   上書きを構造的に塞ぐ。
 //
-// 主要な設計判断（Swift 版から継承）:
+// 主要な設計判断:
 //
 // - **push の重複は許容**。renderer 側は冪等な再 fetch で受け止める。
 // - **branchChange / remoteRefsChange / head 由来 worktreeChange は digest gating**。
@@ -78,7 +77,7 @@ export interface FsWatchOptions {
    * pure trailing-debounce のため、窓幅未満の間隔で鳴り続ける病的な継続 churn では発火が
    * 先送りされ続ける starvation edge を持つが、現実のファイル変更は必ず gap が空くため
    * 実害は薄い（max-wait cap は「sustained churn 中の定期 git status」を再導入するため
-   * 意図的に入れない。Swift 版と同判断） */
+   * 意図的に入れない） */
   statusDebounceMs?: number;
   /** working-tree status の取得関数。テスト用 seam（production は gitStatusFull） */
   statusFetcher?: (dir: string) => Promise<StatusFull>;
@@ -139,8 +138,8 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
   /** commonGitDir → primary watcher の resolved dir。repo-scope event の dedup に使う。
    * 選出基準は main worktree（perWorktreeGitDir === commonGitDir）。gozd 配置 wt path が
    * main repo path より lex 小になるため「lex 最小」では wt が primary を奪い、
-   * `.git/worktrees/<name>/` 単独削除の worktreeChange が silent drop する（Swift 版
-   * `recomputePrimary` docstring 参照）。main worktree は `git worktree remove` で消せない
+   * `.git/worktrees/<name>/` 単独削除の worktreeChange が silent drop する。
+   * main worktree は `git worktree remove` で消せない
    * invariant も併せ持つため、発火元として常に生存する */
   const primaryByCommonGitDir = new Map<string, string>();
   /** commonGitDir → 直近に観測した ref digest。候補が立った primary watcher で内容比較し、
@@ -168,7 +167,7 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
 
   /** realpath で symlink を解決した絶対パスを返す。解決失敗時は入力をそのまま返す
    * （FSEvents 由来の event path は realpath で届くため、`/var` と `/private/var` のような
-   * symlink の差を吸収する。Swift 版と同じ判断） */
+   * symlink の差を吸収する） */
   function realpathOr(path: string): string {
     const result = tryCatch(() => realpathSync.native(path));
     return result.ok ? result.value : path;
@@ -668,7 +667,7 @@ function subscriptionKey(root: string, ignore: string[]): string {
   return JSON.stringify([root, ignore]);
 }
 
-/** StatusFull の内容等値比較。Swift 版は Equatable 導出に相当 */
+/** StatusFull の内容等値比較 */
 function statusEquals(a: StatusFull, b: StatusFull): boolean {
   return (
     a.head === b.head &&

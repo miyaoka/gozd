@@ -1,5 +1,4 @@
 // 短命接続で ClientMessage を 1 行送って終了するソケットクライアント。
-// Swift 版 `GozdSocketClient.sendOverUnixSocket`（write-all + shutdown + drain）の対応物。
 // `end(line)` が write + FIN（shutdown 相当）、その後 close（サーバ側 EOF）まで待つ。
 
 import type { ClientMessage, ClientReply } from "@gozd/rpc";

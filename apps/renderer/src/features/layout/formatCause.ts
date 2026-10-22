@@ -10,12 +10,10 @@
  * `NotificationCenterItem.vue` の SFC 外に置く理由: chain walker は純関数で
  * bun test から DOM 無しで直接呼べる方が回帰が固い。SFC 側は `computed` で薄く呼ぶだけ。
  *
- * V8 と JavaScriptCore で `Error.stack` のフォーマットが違う点も中で正規化する:
- * - V8: 先頭行に `<name>: <message>` を含む（multi-line message ならその 1 行目のみ）
- * - JavaScriptCore: フレーム列のみ、`<name>: <message>` 行を持たない
- *
- * `name:` で始まる先頭行は V8 形式とみなして捨て、`head` を毎回前置する。これで多段の
- * stack でも先頭行のフォーマットが揃う。
+ * V8 の `Error.stack` は先頭行に `<name>: <message>` を含む（multi-line message ならその 1 行目のみ）。
+ * `name:` で始まる先頭行は捨て、`head` を毎回前置する。これで多段の stack でも先頭行の
+ * フォーマットが揃う。先頭行が `name:` で始まらない stack（代入で差し替えられたもの等）は
+ * 全行をフレーム列として扱う。
  */
 import { tryCatch } from "@gozd/shared";
 

@@ -1,15 +1,14 @@
 // VOICEVOX エンジン（HTTP localhost:50021）への薄いラッパー。
-// Swift 版 `Voicevox/VoicevoxOps.swift` の対応物。
 //
-// 設計判断（Swift 版と同一）:
+// 設計判断:
 //
 // 1. **HTTP は fetch で叩く**。エンジン本体（VOICEVOX.app）は別インストール、
 //    gozd は接続するだけ。
 //
 // 2. **launch は VOICEVOX.app 同梱の engine バイナリ `vv-engine/run` を直接 spawn する**。
 //    engine は headless 利用を正規ルートで提供しており、GUI を介さず直接起動するのが
-//    公式設計に沿う。Swift 版は Launch Services で bundleId からインストールパスを解決
-//    するが、node には対応 API が無いため Spotlight（`mdfind`）で解決し、失敗時は
+//    公式設計に沿う。インストールパスは、node に Launch Services で bundleId から解決する
+//    API が無いため Spotlight（`mdfind`）で解決し、失敗時は
 //    標準インストール場所（/Applications、~/Applications）を確認する。
 //    stdout / stderr は親 (gozd) を継承させ、engine の起動失敗ログを観察可能に保つ。
 //
@@ -26,7 +25,7 @@ const execFileAsync = promisify(execFile);
 
 const BASE_URL = "http://127.0.0.1:50021";
 const VOICEVOX_BUNDLE_ID = "jp.hiroshiba.voicevox";
-// VOICEVOX.app 内部レイアウトの SSOT（Swift 版 engineSegments と対）
+// VOICEVOX.app 内部レイアウトの SSOT
 const ENGINE_RELATIVE_PATH = join("Contents", "Resources", "vv-engine", "run");
 
 const CHECK_ENGINE_TIMEOUT_MS = 1_500;
@@ -121,7 +120,7 @@ async function resolveVoicevoxAppPath(): Promise<string | undefined> {
 }
 
 // spawn した engine プロセスを保持し、並行 launch の二重 spawn を防ぐ
-// （Swift 版 spawnedEngine と同じ役割。exit で自分が保持対象なら解放する）
+// （exit で自分が保持対象なら解放する）
 let spawnedEngine: ChildProcess | undefined;
 
 export async function launch(): Promise<boolean> {

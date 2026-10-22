@@ -1,4 +1,4 @@
-// git CLI ラッパー。Swift 版 `GitRunner.swift` の対応物。
+// git CLI ラッパー。
 //
 // - `GIT_OPTIONAL_LOCKS=0`: read-only コマンド (`status` 等) が opportunistic に取る
 //   `index.lock` を抑止する。gozd はバックグラウンドで `git status` を頻繁に叩くため、
@@ -132,7 +132,7 @@ export async function runGitBuffer(args: string[], cwd: string): Promise<Buffer>
 
 /**
  * `git diff` 系専用: exit 0（差分なし）/ 1（差分あり）をどちらも成功として stdout を返す。
- * exit > 1 は通常エラー扱い（Swift runGitDiffNoIndex と同契約）
+ * exit > 1 は通常エラー扱い
  */
 export async function runGitAllowExit1(args: string[], cwd: string): Promise<string> {
   return runResolvedGit(args, cwd, async (gitPath) => {
@@ -159,7 +159,7 @@ export function runGit(args: string[], cwd: string): Promise<string> {
  *
  * `treatNonZeroExitAsSuccess`: check-ignore は「無視パスがあれば exit 0、無ければ exit 1」を
  * 返す仕様のため、exit != 0 でも stderr が空なら成功として stdout を返す opt-in
- * （このフラグは check-ignore 専用。Swift 版 runGitWithStdin と同契約）
+ * （このフラグは check-ignore 専用）
  */
 export function runGitWithStdin(
   args: string[],

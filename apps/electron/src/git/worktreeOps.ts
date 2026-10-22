@@ -1,4 +1,4 @@
-// worktree / branch を変更する書き込み系操作。Swift 版 `WorktreeOps.swift` の対応物。
+// worktree / branch を変更する書き込み系操作。
 // 読み取り系（list / log）は gitOps / gitLog。新規作成経路の合成（main repo root の解決 →
 // 起点 ref と leaf 名の既定値決定 → 作成）は worktreeCreate。
 

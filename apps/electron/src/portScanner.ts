@@ -1,5 +1,4 @@
-// 実行中サーバー（TCP LISTEN プロセス）の定期ポーリング検出。Swift 版 `PortScanner.swift`
-// の対応物（issue #768）。
+// 実行中サーバー（TCP LISTEN プロセス）の定期ポーリング検出。
 //
 // macOS にはソケットの LISTEN 開始を通知する event API が無いため、lsof で全 LISTEN を
 // 周期スキャンする。各 LISTEN プロセスの ppid チェーン（ps -axo pid=,ppid=）を辿り、
@@ -69,7 +68,7 @@ export function createPortScanner(deps: PortScannerDeps) {
   // 一度 live 帰属した LISTEN pid → 最後に観測した worktreePath。PTY 消滅後に
   // orphaned 判定するために記憶する。プロセス消滅時に scan 末尾で掃除するため
   // 無制限には伸びない。pid 再利用の理論的リスクはあるが、観測のみで破壊操作は
-  // しないため許容する（Swift 版と同じ判断）
+  // しないため許容する
   const knownWorktreeByPid = new Map<number, string>();
   let lastSnapshot: ScannedServer[] = [];
   let pushedOnce = false;

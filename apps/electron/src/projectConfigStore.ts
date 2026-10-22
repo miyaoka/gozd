@@ -1,5 +1,4 @@
 // プロジェクト固有設定の永続化（`~/.config/gozd/projects/<projectKey>/config.json`）。
-// Swift 版 `Store/ProjectConfigStore.swift` の対応物。
 //
 // - projectKey 解決は projectKey.ts の resolveProjectKey を使う
 //   （main / worktree / subdir のどこから開いても同じ config.json を参照する）
@@ -48,7 +47,7 @@ export async function loadProjectConfig(dir: string): Promise<ProjectConfig> {
 export async function saveProjectConfig(dir: string, config: ProjectConfig): Promise<void> {
   const path = await configFilePath(dir);
   mkdirSync(dirname(path), { recursive: true });
-  // Swift 期の `.atomic` write と同じ保証: 同 dir の tmp に書いて rename
+  // 同 dir の tmp に書いて rename し、書きかけのファイルを読ませない
   // settings UI の「Open settings file (JSON)」で preview 表示する対象のため整形して書く
   const tmpPath = `${path}.tmp-${process.pid}`;
   writeFileSync(tmpPath, JSON.stringify(config, null, 2));

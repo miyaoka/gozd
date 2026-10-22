@@ -1,5 +1,4 @@
-// ClaudeHooksSettings のテスト。Swift 版 `ClaudeHooksSettingsTests.swift` のケースを
-// 対で移植し、hook command の 2 経路（nc 直送 / CLI 経由）と wire 形式
+// ClaudeHooksSettings のテスト。hook command の 2 経路（nc 直送 / CLI 経由）と wire 形式
 // （ClientMessage の JSON 1 行）の契約を固定する。
 
 import type { ClientMessage } from "@gozd/rpc";

@@ -1,4 +1,4 @@
-// FSEvents バッチの path 分類。Swift 版 `FSWatchRegistry.classify` の対応物。
+// FSEvents バッチの path 分類。
 // 「生の変更 path 列 → どの push event を発火すべきかの候補」の写像をこのファイルに閉じる。
 //
 // 分類は files backend (loose `refs/` + `packed-refs`) と reftable backend (Git 2.51+、

@@ -1,6 +1,4 @@
-// classify の pure unit test。Swift 版 `FSWatchRegistryTests.swift` の
-// `ClassifyTests`（pure 部）を bun test に移植したもの。ケース名・fixture を対で維持し、
-// 両シェルの分類契約が一致していることをテスト名の突合で確認できるようにする。
+// classify の pure unit test。分類契約を固定する。
 
 import { describe, expect, test } from "bun:test";
 import { classify } from "./classify";

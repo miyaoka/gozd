@@ -1,5 +1,4 @@
-// resolveContained の pure unit test。Swift 版 `PathContainmentTests.swift` の
-// ケースを対で移植し、両シェルの containment 契約が一致していることを固定する。
+// resolveContained の pure unit test。containment 契約を固定する。
 
 import { describe, expect, test } from "bun:test";
 import { resolveContained } from "./pathContainment";

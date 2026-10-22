@@ -1,6 +1,5 @@
-// git porcelain 出力の pure parser。Swift 版 `GitOps+Worktree.swift` /
-// `GitOps+Status.swift` の parser 部の対応物。「生 git output → 構造化データ」の
-// 写像をこのファイルに閉じる。
+// git porcelain 出力の pure parser。「生 git output → 構造化データ」の写像を
+// このファイルに閉じる。
 
 import { isAllZeroHex } from "./gitValidate";
 
@@ -83,7 +82,7 @@ export function parseWorktreePorcelain(text: string): WorktreeInfo[] {
 }
 
 /** 単一スペース区切りで最大 maxParts 個に分割する。最後の要素は残り全体（path 中の
- * スペースを保持するため）。Swift の `split(separator:maxSplits:)` と同じ挙動 */
+ * スペースを保持するため） */
 function splitFields(line: string, maxParts: number): string[] {
   const fields: string[] = [];
   let rest = line;

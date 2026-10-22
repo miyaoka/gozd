@@ -308,8 +308,8 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 function onRowClick(hash: string, e: MouseEvent) {
-  // macOS WebKit は control+click を button=0 の click として dispatch する (webkit bugzilla 52174)。
-  // contextmenu と一緒に通常 click も発火するため、control+click は選択変更に倒さず contextmenu 経路に委譲する。
+  // control+click は選択変更に倒さず contextmenu 経路に委譲する。Chromium は macOS の
+  // control+click で click を dispatch しない (contextmenu のみ) ため、この分岐は保険にとどまる。
   if (e.ctrlKey) return;
   if (e.shiftKey) {
     gitGraphStore.selectCompare(hash);

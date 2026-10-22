@@ -59,7 +59,6 @@ function syncTerminalFocusFromActiveElement() {
 
 // ウィンドウの表示状態変更時に terminalFocus を同期
 // hidden 時は false にリセット、復帰時は activeElement から再判定
-// （WKWebView では復帰時に xterm の focus が再発火しない場合がある）
 useEventListener(document, "visibilitychange", () => {
   if (document.hidden) {
     contextKeys.set("terminalFocus", false);

@@ -140,14 +140,14 @@ const pendingOpen = ref<PendingOpen | null>(null);
  *
  * **不変条件 (実装変更時に必読)**:
  * - `setTimeout(0)` / `requestAnimationFrame` / `queueMicrotask` 等の task / microtask defer は
- *   `popover="auto"` light-dismiss を **抜けない** (WebKit shell 期に実機検証済)。続く mouseup が
+ *   `popover="auto"` light-dismiss を **抜けない** (Chromium 147 で確認、156 では解消)。続く mouseup が
  *   popover に到達して即 dismiss される (whatwg/html#10905)
  * - `pointerup` を `capture: true` で window に貼ると、popover が show される **前** に listener が
  *   pointerup を消化する → 続く mouseup は popover open 前の press cycle として扱われ
  *   light-dismiss の対象外になる。`{ capture: true }` を外したり、pointerdown / mousedown 経路に
  *   変えてはならない
- * - `event.button === 2` のような button filter を入れてはならない。macOS WebKit は control+click
- *   を button=0 として dispatch する (bugzilla 52174) ため、control+click 経由の native context
+ * - `event.button === 2` のような button filter を入れてはならない。macOS の Chromium は
+ *   control+click を button=0 として dispatch するため、control+click 経由の native context
  *   menu 経路で menu が開かなくなる
  * - `pointerdown` で pending を reset する経路を追加してはならない。右クリック sequence
  *   (pointerdown → contextmenu → pointerup) では右ボタン pointerdown が `onFileContextMenu`
@@ -165,9 +165,8 @@ useEventListener(
   window,
   "pointerup",
   () => {
-    // `event.button` で右クリック (=2) のみに絞らない理由: macOS WebKit は control + click を
-    // **button=0** として dispatch する (webkit bugzilla 52174, "RESOLVED INVALID" だが挙動は
-    // 残っている)。button 絞り込みを入れると macOS native の context menu 経路 (control+click)
+    // `event.button` で右クリック (=2) のみに絞らない理由: macOS の Chromium は control + click を
+    // **button=0** として dispatch する。button 絞り込みを入れると macOS native の context menu 経路 (control+click)
     // で menu が開かなくなる。pending ref そのものが「直前に contextmenu があった」flag を
     // 兼ねるため、最初の pointerup で消化 + null 化する設計で十分。多ボタン同時押し race
     // (右クリック保持中に別所で左 click) は edge case として受容する

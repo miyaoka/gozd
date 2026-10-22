@@ -1,8 +1,8 @@
 // 複数 RPC で共有される値型をここにまとめる。
 // 1 つの RPC でしか使わない型は当該 RPC のファイルに置く。
 //
-// ワイヤ / 永続化契約: フィールド名がそのまま JSON キーになる（旧 proto3 JSON mapping の
-// lowerCamelCase 表記を踏襲）。`?` 付きフィールドは「JSON キー不在」で未設定を表現する。
+// ワイヤ / 永続化契約: フィールド名（lowerCamelCase）がそのまま JSON キーになる。
+// `?` 付きフィールドは「JSON キー不在」で未設定を表現する。
 
 /** 空 message。空 request / 空 response の型に使う */
 export type EmptyMessage = Record<string, never>;

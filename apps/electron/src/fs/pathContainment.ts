@@ -1,5 +1,4 @@
 // untrusted な subpath を base ディレクトリ配下へ安全に解決する path containment の SSOT。
-// Swift 版 `PathContainment.swift`（`FilePath.lexicallyResolving`）の対応物。
 //
 // - **絶対パス注入を無害化**: subpath の root（`/etc/passwd` の `/`）を除去して base 配下に閉じる
 // - **`..` 脱出を拒否**: 正規化後に先頭が `..` になる（base を抜ける）なら undefined
@@ -11,7 +10,7 @@
 // これで防御レベルは下がらない — worktree は user / Claude が自由に書ける作業ディレクトリで、
 // dir 制約なしの `/fs/readFileAbsolute`（preview の正規経路）が既に存在する。機密 bytes 回収を
 // 止める主防壁は CORS Origin allowlist 側にあり、lexical containment は「base 配下に閉じる」
-// 役割として必要十分（詳細は Swift 版 PathContainment.swift の冒頭コメント）。
+// 役割として必要十分。
 
 import { join, normalize } from "node:path";
 

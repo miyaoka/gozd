@@ -1,5 +1,4 @@
-// fsOps の統合テスト。Swift 版 `FSOpsTests.swift` のケースを対で移植し、
-// notFound 規律 / path traversal 拒否 / `.git` 完全一致除外の契約を固定する。
+// fsOps の統合テスト。notFound 規律 / path traversal 拒否 / `.git` 完全一致除外の契約を固定する。
 
 import { FS_EXISTS_ABSOLUTE_MAX_PATHS } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";

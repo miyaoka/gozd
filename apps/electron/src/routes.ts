@@ -280,7 +280,7 @@ export function killAllPtys(): void {
   ptyPids.clear();
 }
 
-// 実行中サーバーの周期検出（Swift 版 PortScanner 対応物）。push 先の window は
+// 実行中サーバーの周期検出。push 先の window は
 // main.ts が起動時に startPortScanner で bind する（fs watch push と同じ後付け束縛）
 let serverPush: PushFn | undefined;
 const portScanner = createPortScanner({
@@ -320,7 +320,7 @@ async function handlePtySpawn(body: unknown, ctx: RpcContext): Promise<unknown> 
 
   registerSpawn(id, req.worktreePath);
 
-  // ワイヤ契約 (Swift PTYManager の execve 流儀): req.args は argv **全体** で、
+  // ワイヤ契約: req.args は execve と同じく argv **全体** で、
   // args[0] = argv[0] (プログラム名)。node-pty は spawn(file, args) の args に
   // argv[0] を含めない ([file, ...args] を自前で組む) ため、args[0] を落として渡す。
   // 落とさないと `zsh /bin/zsh -i` のように実行され、zsh がバイナリをスクリプトとして
@@ -443,7 +443,7 @@ async function handleGitFetchRemotes(body: unknown): Promise<unknown> {
 
 // fs watch の push は「最後に /fs/watch を呼んだ window」の sender に配送する。
 // registry は request をまたいで生き続けるため、per-request の ctx.push をそのまま束縛できない。
-// gozd はシングルウィンドウなので実質固定（Swift 版も単一 WebPage への push で同じ前提）。
+// gozd はシングルウィンドウなので実質固定。
 // マルチウィンドウ化する場合は dir → sender の対応を registry 側に持たせる必要がある
 let fsPush: PushFn | undefined;
 
@@ -946,7 +946,7 @@ async function handlePreviewReleaseHtml(body: unknown): Promise<unknown> {
 async function handleOpenFile(body: unknown): Promise<unknown> {
   const req = body as OpenFileRequest;
   // path は renderer が解決済みの絶対パス契約。非絶対（空文字含む）を CWD 基準で silent に
-  // 解決する暗黙 fallback を塞ぐため、入口で明示エラーに倒す（Swift 版と同じ規律）
+  // 解決する暗黙 fallback を塞ぐため、入口で明示エラーに倒す
   if (!req.path.startsWith("/")) {
     throw new Error(`path must be absolute: ${req.path}`);
   }
@@ -979,7 +979,7 @@ async function handlePickAndOpen(_body: unknown, ctx: RpcContext): Promise<unkno
 }
 
 function handleWindowClose(): unknown {
-  // シングルウィンドウ運用ではアプリ終了相当（Swift 版 NSApplication.terminate と同じ）
+  // シングルウィンドウ運用ではアプリ終了相当
   app.quit();
   return {} satisfies WindowCloseResponse;
 }

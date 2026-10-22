@@ -1,6 +1,6 @@
-// GitHub 連携。Swift 版 `GitHubOps.swift` の対応物。
+// GitHub 連携。
 //
-// 設計判断（Swift 版から継承）:
+// 設計判断:
 // - **gh CLI 必須**。未認証 / rate limit / repo 不在等の non-zero exit は stderr から
 //   GhError 4 種に分類して返し、renderer 側で文言を出し分ける（全失敗の nil 一律化では
 //   rate limit 枯渇に気づけない）
@@ -929,7 +929,7 @@ function truncateDetail(s: string): string {
   return result;
 }
 
-// GraphQL 応答の defensive navigation。Swift 版の `as? [String: Any]` 連鎖に対応する。
+// GraphQL 応答の defensive navigation。
 // 応答 shape が想定と違っても throw せず ""/0/false に倒し、根 (nodes 配列不在) だけ
 // GhError("unexpected response shape") として観察可能化する
 

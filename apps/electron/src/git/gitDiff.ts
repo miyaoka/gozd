@@ -1,4 +1,4 @@
-// hunk diff の生成 / line counting / 行範囲展開。Swift 版 `GitOps+Diff.swift` の対応物。
+// hunk diff の生成 / line counting / 行範囲展開。
 // `git diff --no-index` で差分エンジンを git 本体（xdiff、C 実装）に委譲し、結果 unified diff を
 // `parseUnifiedDiffHunks` で構造化する。renderer 側 jsdiff 全走査の代替で、pnpm-lock 級でも止まらない。
 

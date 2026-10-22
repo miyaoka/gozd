@@ -353,9 +353,6 @@ native アプリ志向の UI なので、chrome (ボタン / ラベル / ツリ�
 - contenteditable でも markdown でもない plain text コンテンツ (会話本文 / ターミナル全文 popover / エラートースト本文等) はコンテンツコンテナに `select-text` を当てる
 - 選択可コンテンツの中にある操作専用要素 (fold の `summary`、行番号等) は内側で `select-none` を保ち、操作と選択を分離する
 
-> [!CAUTION]
-> WebKit (WKWebView) は `-webkit-` プレフィックス無しの `user-select` を**無視する**。Tailwind の `select-none` / `select-text` は両方出力するので utility を使う限り問題ない。`main.css` 等の生 CSS で `user-select` を書くときは `-webkit-user-select` を必ず併記する (無いと default-none 自体が効かない)。
-
 ## 条件付き class は `:class` バインディングで書く
 
 ```vue

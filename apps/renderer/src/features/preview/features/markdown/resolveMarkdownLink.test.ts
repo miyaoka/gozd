@@ -89,16 +89,10 @@ describe("resolveMarkdownLink", () => {
   });
 
   describe("scheme allowlist 外 (invalid)", () => {
-    test("gozd-rpc:// は invalid (RPC 経路への遷移を許可しない)", () => {
-      expect(resolve("gozd-rpc://localhost/fs/readFile", relBase("docs/preview.md")).kind).toBe(
-        "invalid",
-      );
-    });
-
-    test("gozd-app:// は invalid (内部 asset scheme)", () => {
-      expect(resolve("gozd-app://localhost/views/main/", relBase("docs/preview.md")).kind).toBe(
-        "invalid",
-      );
+    test("gozd-preview:// は invalid (preview 配信 scheme)", () => {
+      expect(
+        resolve("gozd-preview://p1/Users/foo/index.html", relBase("docs/preview.md")).kind,
+      ).toBe("invalid");
     });
 
     test("file:, data:, javascript: は invalid", () => {

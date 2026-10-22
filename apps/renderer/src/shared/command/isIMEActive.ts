@@ -1,6 +1,6 @@
 /**
  * IME 変換中かどうかを判定する。
- * WKWebView では isComposing が false のまま keyCode 229 が送られるケースがあるため、
+ * composition を開始する keydown は isComposing が false のまま keyCode 229 で届く (UI Events) ため、
  * 両方をチェックする。
  */
 const IME_KEYCODE = 229;

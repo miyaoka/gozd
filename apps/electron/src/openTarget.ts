@@ -1,6 +1,5 @@
-// 任意 path を gozdOpen event payload に変換する。Swift 版 `AppRuntime.buildGozdOpenPayload`
-// の対応物。pickAndOpen（ダイアログ選択）と、将来の CLI / socket 経由 OpenMessage の
-// 共通エントリポイント。
+// 任意 path を gozdOpen event payload に変換する。pickAndOpen（ダイアログ選択）、
+// socket 経由の OpenMessage、cold start の launch request の共通エントリポイント。
 //
 // - 存在しないパスは undefined を返す（呼び出し元は「push しない」として扱う契約）。
 //   gozd に新規ファイル編集機能はなく、通すと renderer が幽霊 repo を addRepo して

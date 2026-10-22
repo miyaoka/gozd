@@ -1,5 +1,4 @@
-// gozd-cli の TS 実装エントリ。Swift 版 `GozdCLI/main.swift` の置き換え
-// （issue #895「CLI: ソケットプロトコル互換を保って TS で再実装」）。
+// gozd-cli のエントリ。
 //
 // 実行形態: esbuild で dist/cli.cjs に bundle し、`bin/gozd-cli` shim が起動する。
 //   - dev: `node dist/cli.cjs`
@@ -16,9 +15,9 @@
 //   gozd-cli session open <id>     … セッションを開く（画面をそのセッションへ切り替える）
 //   gozd-cli --help                … usage
 //
-// open / hook は Swift 版と同一契約。worktree / repo / session は TS 版で足したサブコマンドで、
-// この名前のディレクトリを開くには `gozd ./repo` のようにパスとして渡す。旧版の CLI はこれらの
-// 先頭引数を open のパスとみなす（未知の先頭引数 = パス扱いのため）。
+// worktree / repo / session は後から足したサブコマンドで、この名前のディレクトリを開くには
+// `gozd ./repo` のようにパスとして渡す。これらを持たない旧版の CLI はこれらの先頭引数を
+// open のパスとみなす（未知の先頭引数 = パス扱いのため）。
 
 import type { ClientMessage, ClientReply } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
@@ -293,7 +292,7 @@ async function main(): Promise<void> {
     process.stdout.write(USAGE);
     return;
   }
-  // `hook` / `open` / `--*` 以外の先頭引数は open のパスとみなす（Swift 版と同じ）
+  // `hook` / `open` / `--*` 以外の先頭引数は open のパスとみなす
   await openCommand(first);
 }
 

@@ -30,8 +30,7 @@ tool / system (hook 等の注入) は LINE に対応物が無いため、中央�
   持つケースは Q→options→A のセットを縦に並べる。回答未充填 (resume 中断 / `toolUseResult.answers`
   欠落) は user 吹き出しの代わりに dim な「(no response)」を出す。scroll-spy の観測対象に含める
   (発言と同じ会話扱い)
-- scroll-spy は `IntersectionObserver`。純 CSS の scroll marker / `:target-current` は
-  WebKit (Safari 26 / macOS 26) 未対応のため使えない。チャット行の最外要素に `data-ev`
+- scroll-spy は `IntersectionObserver`。チャット行の最外要素に `data-ev`
   を残し、会話行 (発言 / ask) を index で観測して topmost の ts を `current-ts` に出す
 - `parsed` が差し替わる (別 subagent を選び直す等) たびに observer を貼り直す
 - `sessionKey` は v-for の :key 先頭に混ぜ、別セッションへ切り替わった際に `<details>` を
@@ -237,7 +236,7 @@ useEventListener(contentRef, ["wheel", "pointerdown", "keydown", "touchstart"], 
 // スクロールしたら保留中の追従要求 (pendingBottomScroll) を捨てる。
 //
 // 打ち切りを computeAtBottom() ではなく「scrollTop が減ったか」で判定するのが要点。scroll
-// イベントは scrollTop 代入に対し非同期発火する (WebKit 仕様) ため、追従中に後続 markdown が
+// イベントは scrollTop 代入に対し非同期発火する (HTML 仕様) ため、追従中に後続 markdown が
 // 描画されて scrollHeight が伸びた後に programmatic scrollToBottom の遅延イベントが届くと、
 // computeAtBottom() だけでは「底でない」と誤判定し、ユーザー無操作のまま追従を打ち切ってしまう
 // (= 複数ブロック描画で最後まで追従できない元の症状の再発)。programmatic な追従は scrollTop を
@@ -326,7 +325,6 @@ function onAssistantLinkClick(href: string) {
 
 // --- scroll-spy (現在地 → 横断タイムラインの playhead) ---
 //
-// 純 CSS の scroll marker / :target-current は WebKit 未対応 (2026-05 時点) のため、
 // IntersectionObserver で「本文上部バンドに入っている会話イベント」を検出し、
 // その topmost の ts を親へ emit する。親はそれを横断タイムラインの playhead 位置に使う。
 // bottom margin -65% で現在地判定をコンテナ上部 35% に絞る。

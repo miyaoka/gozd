@@ -1,5 +1,4 @@
-// ClaudeSessionLog の統合テスト。Swift 版 `ClaudeSessionLogTests.swift` のケースを対で
-// 移植し、watch_dir 契約（found / projects 親 / 空文字の 3 状態）を固定する。
+// ClaudeSessionLog の統合テスト。watch_dir 契約（found / projects 親 / 空文字の 3 状態）を固定する。
 // subagent / workflow JOIN のケースは fixture ディレクトリ構造ごと検証する。
 
 import { afterEach, describe, expect, test } from "bun:test";

@@ -1,5 +1,5 @@
-// git CLI に文字列 (rev / path) を渡す前の入口 validator。Swift 版 `GitValidate.swift` の
-// 対応物。git 自身も revision parse で reject するため完全な構文再現は目的にせず、
+// git CLI に文字列 (rev / path) を渡す前の入口 validator。
+// git 自身も revision parse で reject するため完全な構文再現は目的にせず、
 // option 注入 / sandbox 逸脱 / 制御文字混入の **safety net** として機能することだけを担保する。
 
 const HEX_CHARS = new Set("0123456789abcdefABCDEF");

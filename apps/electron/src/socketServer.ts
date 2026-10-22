@@ -1,5 +1,5 @@
 // Unix Domain Socket 上で NDJSON（改行区切り JSON）を受け取る軽量サーバー。
-// Swift 版 `Socket/SocketServer.swift` の対応物。CLI（`gozd open` / `gozd-cli hook`）と
+// CLI（`gozd open` / `gozd-cli hook`）と
 // nc 直送の hook コマンドがクライアント。
 //
 // - 1 行 = 1 メッセージ。接続クローズ時に残った不完全な行は捨てる（クライアントは

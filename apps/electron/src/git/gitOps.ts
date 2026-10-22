@@ -1,5 +1,4 @@
-// git RPC op。Swift 版 `GitOps+Worktree.swift` / `GitOps+Status.swift` /
-// `GitOps+Branch.swift` の対応物。parser は `porcelain.ts` に分離してある。
+// git RPC op。parser は `porcelain.ts` に分離してある。
 
 import { tryCatch } from "@gozd/shared";
 import { statSync } from "node:fs";
@@ -139,8 +138,7 @@ export interface GitDirs {
 }
 
 /**
- * per-worktree git dir と common git dir の絶対パスを取る。Swift 版
- * `GitOps.gitDirs` の対応物。
+ * per-worktree git dir と common git dir の絶対パスを取る。
  *
  * - dir が git 管理下でない場合は **undefined** を返す（git rev-parse は exit 128）。
  *   これは「git repo ではない」という事実を表す正常パスで、エラーではない。
@@ -150,7 +148,7 @@ export interface GitDirs {
  *
  * `git rev-parse` は NUL 区切り出力モードを持たず、複数フラグ同時指定は newline
  * 区切りで返す。改行を含む病的パスで fragile になるため、フラグを 1 つずつ別 spawn
- * して各呼び出しが単一行のみ返す形にする（Swift 版と同じ判断）
+ * して各呼び出しが単一行のみ返す形にする
  */
 export async function gitDirs(dir: string): Promise<GitDirs | undefined> {
   const result = await tryCatch(
@@ -201,7 +199,6 @@ export interface RefDigest {
 /**
  * local branch / remote-tracking / current HEAD の現在値をそれぞれ 1 つの文字列に畳んで返す。
  * `git for-each-ref` の出力は refname 昇順で決定的なので、文字列そのものを前回値と等値比較できる。
- * Swift 版 `GitOps.refDigest` の対応物。
  */
 export async function refDigest(dir: string): Promise<RefDigest> {
   const stdout = await runGit(

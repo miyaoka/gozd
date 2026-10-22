@@ -1,18 +1,18 @@
 /**
  * commit 行の右クリックメニューを開くトリガー。呼び出し側は右クリック時に
  * `requestOpen(anchorEl, { dir, hash, x, y })` を呼ぶだけでよい。実際の popover 表示は次の
- * pointerup まで遅延させる (WebKit light-dismiss 回避)。この遅延と回避策はこの composable が
+ * pointerup まで遅延させる (popover の light-dismiss 回避)。この遅延と回避策はこの composable が
  * 内包し、context-menu 機能を自己完結させる。
  *
  * **不変条件 (実装変更時に必読)**:
  * - `setTimeout(0)` / `requestAnimationFrame` / `queueMicrotask` 等の defer は
- *   `popover="auto"` light-dismiss を **抜けない** (WebKit shell 期に実機検証済)。続く mouseup が
+ *   `popover="auto"` light-dismiss を **抜けない** (Chromium 147 で確認、156 では解消)。続く mouseup が
  *   popover に到達して即 dismiss される (whatwg/html#10905)
  * - `pointerup` を `capture: true` で window に貼ると、popover が show される **前** に listener が
  *   pointerup を消化する → 続く mouseup は popover open 前の press cycle として扱われ light-dismiss の
  *   対象外になる。`{ capture: true }` を外したり pointerdown / mousedown 経路に変えてはならない
- * - `event.button` filter を入れてはならない。macOS WebKit は control+click を button=0 として
- *   dispatch する (webkit bugzilla 52174) ため、control+click 経由で menu が開かなくなる。
+ * - `event.button` filter を入れてはならない。macOS の Chromium は control+click を button=0 として
+ *   dispatch するため、control+click 経由で menu が開かなくなる。
  *   pending そのものが「直前に contextmenu があった」flag を兼ねる
  * - `pointerdown` で pending を reset する経路を追加してはならない。状態遷移を pointerup のみで完結させる
  * - keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火しないため

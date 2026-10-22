@@ -63,7 +63,7 @@ describe("formatCauseChain", () => {
     expect(out.includes("at frame2")).toBe(true);
   });
 
-  test("WebKit 形式 stack（先頭 `name:` 行なし）はそのままフレームを後置", () => {
+  test("先頭 `name:` 行なしの stack はそのままフレームを後置", () => {
     const e = new Error("msg");
     e.stack = "frame1@file.js:1\nframe2@file.js:2";
     const out = formatCauseChain(e);

@@ -40,6 +40,7 @@ import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { openExternalOrNotify } from "../../shared/rpc";
 import { createCwdTracker } from "./cwdTracker";
+import { useTerminalTextInput } from "./features/text-input";
 import { createOsc8Normalizer } from "./normalizeOsc8";
 import { parseOsc7Cwd } from "./parseOsc7Cwd";
 import { rpcPtyResize, rpcPtyWrite } from "./rpc";
@@ -355,12 +356,11 @@ onMounted(async () => {
     recordTerminalGeometry(terminal.cols, terminal.rows);
   }
 
-  // xterm の focus/blur イベントを親に通知（focus の責務は TerminalLeaf が持つ）
-  terminal.textarea?.addEventListener("focus", () => {
-    emit("focus");
-  });
-  terminal.textarea?.addEventListener("blur", () => {
-    emit("blur");
+  // 端末の焦点とキー入力・IME は入力面が受ける。focus/blur を親に通知する
+  // （focus の責務は TerminalLeaf が持つ）。terminal.focus() は入力面へ向け直される
+  useTerminalTextInput(terminal, {
+    onFocus: () => emit("focus"),
+    onBlur: () => emit("blur"),
   });
 
   // mount 時点で props.focused が立っていれば初回 focus を当てる。
@@ -371,21 +371,12 @@ onMounted(async () => {
   }
 
   terminal.attachCustomKeyEventHandler((ev) => {
-    // xterm は IME 変換中の keydown のうち、keyCode 229（IME が処理したキー）・CapsLock・
-    // Shift / Ctrl / Alt 以外を「確定キー」とみなし、変換中の文字列を即送信する。Meta はこれに
-    // 含まれないため、⌘ を修飾に使う操作（Karabiner の ⌘+hjkl → 矢印など）で変換が続いたまま
-    // 文字列が送られ、後の確定で重複する。xterm に渡さず、修飾キーとして変換を継続させる
-    if (ev.type === "keydown" && ev.isComposing && ev.key === "Meta") {
-      return false;
-    }
     // Shift+Enter で Esc+CR を送信する（Claude Code が改行として認識するシーケンス）
-    // keydown で送信、keypress で xterm のデフォルト改行を抑止、keyup は通過させる
-    if (ev.key === "Enter" && ev.shiftKey && ev.type !== "keyup") {
-      if (ev.type === "keydown") {
-        const ptyId = terminalStore.getPtyId(props.leafId);
-        if (ptyId !== undefined) {
-          sendPtyWrite(ptyId, "\x1b\r");
-        }
+    // false を返すと xterm は CR を送らず、入力面が既定動作を止める
+    if (ev.key === "Enter" && ev.shiftKey && ev.type === "keydown") {
+      const ptyId = terminalStore.getPtyId(props.leafId);
+      if (ptyId !== undefined) {
+        sendPtyWrite(ptyId, "\x1b\r");
       }
       return false;
     }

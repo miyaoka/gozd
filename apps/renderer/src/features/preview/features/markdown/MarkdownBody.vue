@@ -26,7 +26,8 @@ navigation に委ねる経路を残さないのは、consumer によって委ね
 - `literalHtml` を渡すと本文中の HTML を要素にせず、書かれた文字のまま出す。HTML が書式ではなく
   書かれた文字そのものである本文 (会話の発言等) のための口で、`Array<string>` の `<string>` が
   sanitizer に消されたり、`<Button>` が button 要素になったりしない
-- `resolveImageSrc` を渡すと `<img src>` を sanitize の中で書き換える (`sanitizeMarkdownHtml`)
+- `resolveImageSrc` を渡すと画像の URL (`src` と `srcset` の各候補) を sanitize の中で書き換える
+  (`sanitizeMarkdownHtml`)
 </doc>
 
 <script setup lang="ts">
@@ -44,7 +45,7 @@ const props = defineProps<{
   leadMark?: string;
   /** 本文中の HTML を要素にせず、書かれた文字のまま出す */
   literalHtml?: boolean;
-  /** `<img src>` の書き換え。undefined を返した img は src を外す */
+  /** 画像の URL 1 つの書き換え。undefined を返した URL は読ませない */
   resolveImageSrc?: ImageSrcResolver;
 }>();
 
@@ -170,14 +171,25 @@ async function renderMermaidBlocks() {
   }
 }
 
+/**
+ * 描画の版数。描画は await を挟むため重なりうる。後から始まった描画があれば古い描画は結果を
+ * 反映せず `rendered` も出さない。古い描画が後から完了すると、表示と `rendered` の対応がずれる
+ * （consumer が `rendered` で描画中の状態を確定させるため）
+ */
+let renderSeq = 0;
+
 watch(
   () => [props.content, props.literalHtml, props.resolveImageSrc] as const,
   async ([content, literalHtml, resolveImageSrc]) => {
+    const mySeq = ++renderSeq;
     const rawHtml = await (literalHtml ? markdownWithLiteralHtml : markdown).parse(content);
+    if (mySeq !== renderSeq) return;
     renderedHtml.value = sanitizeMarkdownHtml(rawHtml, resolveImageSrc);
     // DOM 反映後に mermaid を描画し、その後 rendered を通知して高さ確定に依存する consumer のフックにする。
     await nextTick();
+    if (mySeq !== renderSeq) return;
     await renderMermaidBlocks();
+    if (mySeq !== renderSeq) return;
     emit("rendered");
   },
   { immediate: true },

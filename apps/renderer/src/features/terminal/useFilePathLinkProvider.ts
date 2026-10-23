@@ -2,6 +2,7 @@ import { FS_EXISTS_ABSOLUTE_MAX_PATHS } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import type { IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { logEvent } from "../../shared/debug";
+import { rpcFsExistsAbsolute } from "../../shared/rpc";
 import { usePreviewStore } from "../preview";
 import {
   joinAbsRel,
@@ -18,7 +19,6 @@ import {
   resolveHomeDir,
 } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
-import { rpcFsExistsAbsolute } from "./rpc";
 
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。

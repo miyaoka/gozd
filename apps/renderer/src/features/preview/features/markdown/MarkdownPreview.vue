@@ -9,7 +9,7 @@ marked で Markdown → HTML 変換し、DOMPurify でサニタイズして表�
 - 内部リンクの遷移は `useMarkdownHistoryStore.navigate()` 経由で行い、back / forward 履歴に積む。
   filer / terminal などの外部経路で selection が変わると履歴は破棄される (詳細は `useMarkdownHistoryStore` を参照)
 - 画像は HTML preview と同じ配信 scheme から読む。`target` の root を配信許可として登録し、
-  `<img src>` をその URL に書き換える (`resolveMarkdownImageSrc`)。配信は working tree の
+  画像の URL (`src` と `srcset` の各候補) をその URL に書き換える (`resolveMarkdownImageSrc`)。配信は working tree の
   実ファイルを読むため、過去の版を表示していても画像は今のものになる (リンクの解決と同じ基準)
 - 画像ファイルの変更は `useMarkdownImageWatch` で受け、画像の URL に版数を載せて描き直す。
   URL が同じままだと、配信が `no-store` でもページ内の画像キャッシュが使われる
@@ -76,8 +76,9 @@ const imageEpoch = ref(0);
 /** 直近の描画が配信 scheme から読んだ画像の絶対パス。変更の監視対象 */
 const imagePaths = shallowRef<ReadonlySet<string>>(new Set());
 /**
- * 描画中に書き換えた画像のパス。描画の完了で `imagePaths` に移す。描画が重なると前の描画の
- * パスも混ざるが、監視が余分に張られるだけで次の描画で戻る
+ * 描画中に書き換えた画像のパス。描画の完了で `imagePaths` に移す。MarkdownBody は最後に始まった
+ * 描画でだけ `rendered` を出すが、sanitize まで進んだ古い描画のパスはここに残る。監視が余分に
+ * 張られるだけで、次の描画で外れる
  */
 let renderingPaths = new Set<string>();
 
@@ -101,13 +102,9 @@ function onRendered() {
   renderingPaths = new Set();
 }
 
-useMarkdownImageWatch(
-  () => props.target,
-  imagePaths,
-  () => {
-    imageEpoch.value++;
-  },
-);
+useMarkdownImageWatch(imagePaths, () => {
+  imageEpoch.value++;
+});
 
 /**
  * MarkdownBody が外部送りと `preventDefault` を済ませた後の href を受け、worktree 相対として

@@ -38,8 +38,9 @@ const IMAGE_URL_ATTRIBUTES: Record<string, { src: boolean; srcset: boolean }> = 
 };
 
 purify.addHook("afterSanitizeAttributes", (node) => {
-  // 書き換え関数を渡さない利用側（session log 等）でも srcset の scheme は絞る。sanitizer は
-  // 属性値の先頭しか見ないため、2 つ目以降の候補に書かれた配信 scheme が素通りする
+  // 書き換え関数を渡さない利用側（session log 等）でも、画像の URL（src と srcset の各候補）の
+  // scheme は http(s) / data: に絞る。sanitizer は属性値の先頭しか見ないため、srcset の 2 つ目
+  // 以降の候補に書かれた配信 scheme が素通りする
   const resolver = activeImageResolver ?? keepAllowedImageScheme;
   const attributes = IMAGE_URL_ATTRIBUTES[node.nodeName];
   if (attributes === undefined) return;

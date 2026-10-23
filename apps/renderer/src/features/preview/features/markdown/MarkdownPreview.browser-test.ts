@@ -5,7 +5,7 @@ import { render } from "vitest-browser-vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 
 /**
- * `<img src>` の書き換えを実ブラウザで確かめる。対象は bun では見えない、sanitizer の hook が
+ * 画像の URL の書き換えを実ブラウザで確かめる。対象は bun では見えない、sanitizer の hook が
  * 要素を DOM に入れる前に src を差し替えること。
  */
 const ROOT = "/gozd-browser-test/repo";

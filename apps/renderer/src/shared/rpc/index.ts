@@ -6,7 +6,7 @@
 // ここに集まるのは、層ごとに持つと同じ操作でも押した場所で挙動が変わるため。
 export { rpcLoadAppConfig, updateAppConfig } from "./appConfig";
 export { rpc } from "./client";
-export { rpcFsUnwatch, rpcFsUnwatchAll, rpcFsWatch } from "./fs";
+export { rpcFsExistsAbsolute, rpcFsUnwatch, rpcFsUnwatchAll, rpcFsWatch } from "./fs";
 export type { FsWatchReadyPayload } from "./fs";
 export { isLinkActivation, openExternalOrNotify } from "./openExternal";
 export {

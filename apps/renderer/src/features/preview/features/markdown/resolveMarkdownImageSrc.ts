@@ -2,7 +2,7 @@ import { tryCatch } from "@gozd/shared";
 import type { PreviewServingTarget } from "../../previewServingTarget";
 
 /**
- * Markdown プレビュー内 `<img src>` を、main の配信 scheme の URL に解決する。
+ * Markdown プレビュー内の画像の URL（`src` と `srcset` の各候補）を、main の配信 scheme の URL に解決する。
  *
  * markdown は renderer の DOM に直接描画するため、相対 src はそのままだと renderer 自身の URL を
  * 基準に解決されて届かない。UI 全体の base は変えられないので src を個別に書き換える。

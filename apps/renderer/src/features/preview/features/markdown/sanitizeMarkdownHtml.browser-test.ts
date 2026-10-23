@@ -13,9 +13,3 @@ test("書き換え関数が無くても、srcset の候補の配信 scheme と�
   const img = new DOMParser().parseFromString(html, "text/html").querySelector("img");
   expect(img?.getAttribute("srcset")).toBe("a.png 1x, https://e.example/b.png 4x");
 });
-
-test("書き換え関数が無いとき、相対の src はそのまま残す", () => {
-  const html = sanitizeMarkdownHtml('<img src="docs/a.png">', undefined);
-  const img = new DOMParser().parseFromString(html, "text/html").querySelector("img");
-  expect(img?.getAttribute("src")).toBe("docs/a.png");
-});

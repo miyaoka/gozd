@@ -95,8 +95,7 @@ export function useTerminalTextInput(terminal: Terminal, options: TerminalTextIn
           span.style.textDecorationLine = "underline";
           span.style.textDecorationStyle = run.underline.style;
           span.style.textDecorationThickness = `${UNDERLINE_THICKNESS_PX[run.underline.thickness]}px`;
-          // 既定の auto はカンマなど下線に掛かるグリフの周りで線を抜き、文節の範囲が途切れて見える。
-          // Blink が入力欄に描く変換中の下線も抜かない
+          // 既定の auto はカンマなど下線に掛かるグリフの周りで線を抜き、文節の範囲が途切れて見える
           span.style.textDecorationSkipInk = "none";
         }
         return span;

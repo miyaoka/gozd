@@ -16,6 +16,8 @@ const ROOT = "/gozd-browser-test/repo";
 const OUTSIDE_DIR = "/gozd-browser-test/notes";
 const IMAGE = '<img alt="logo" src="images/logo.png">';
 const MERMAID_RENDER_TIMEOUT_MS = 15_000;
+/** テスト 1 件の上限は browser mode の既定で 15 秒。poll より先に切れると失敗の理由が読めなくなる */
+const MERMAID_TEST_TIMEOUT_MS = 30_000;
 
 /** 単一ファイル監視の要求 */
 let watchRequests: string[];
@@ -156,21 +158,25 @@ test("親 dir がある画像の監視に失敗したら通知する", async () 
   await expect.poll(() => useNotificationStore().notifications.value.length).toBe(1);
 });
 
-test("mermaid を含む markdown でも、描画の重なりで画像の監視が外れない", async () => {
-  const content = `${IMAGE}\n\n\`\`\`mermaid\ngraph TD\n  A --> B\n\`\`\`\n`;
-  const { container, src } = await renderPreview(WORKTREE_TARGET, content);
-  const imagePath = `${ROOT}/images/logo.png`;
-  // mermaid は初回の dynamic import が重く、CI では既定の待ち時間（1 秒）に収まらない
-  await expect
-    .poll(() => container.querySelector("svg"), { timeout: MERMAID_RENDER_TIMEOUT_MS })
-    .not.toBeNull();
-  await expect.poll(() => watchRequests).toContain(imagePath);
-  const before = src();
+test(
+  "mermaid を含む markdown でも、描画の重なりで画像の監視が外れない",
+  { timeout: MERMAID_TEST_TIMEOUT_MS },
+  async () => {
+    const content = `${IMAGE}\n\n\`\`\`mermaid\ngraph TD\n  A --> B\n\`\`\`\n`;
+    const { container, src } = await renderPreview(WORKTREE_TARGET, content);
+    const imagePath = `${ROOT}/images/logo.png`;
+    // mermaid は初回の dynamic import が重く、CI では既定の待ち時間（1 秒）に収まらない
+    await expect
+      .poll(() => container.querySelector("svg"), { timeout: MERMAID_RENDER_TIMEOUT_MS })
+      .not.toBeNull();
+    await expect.poll(() => watchRequests).toContain(imagePath);
+    const before = src();
 
-  dispatchMessage("fsChangeAbsolute", { path: imagePath });
+    dispatchMessage("fsChangeAbsolute", { path: imagePath });
 
-  await expect.poll(() => reloadedSameImage(before, src())).toBe(true);
-});
+    await expect.poll(() => reloadedSameImage(before, src())).toBe(true);
+  },
+);
 
 test("表示から外れた画像の監視が後から失敗しても、通知も後始末もしない", async () => {
   const held: ((error: Error) => void)[] = [];

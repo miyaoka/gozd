@@ -20,6 +20,10 @@ function installRpcBridge() {
   const bridge: ElectronRpcBridge = {
     request: (path, body) => {
       if (path === "/preview/releaseServing") return Promise.resolve({});
+      // 画像ごとの変更監視。このファイルは URL の書き換えだけを見るので応答だけ返す
+      if (path === "/fs/watchFileAbsolute" || path === "/fs/unwatchFileAbsolute") {
+        return Promise.resolve({});
+      }
       if (path !== "/preview/servingUrl") throw new Error(`unexpected RPC: ${path}`);
       servingUrlCalls++;
       const req = body as { absPath: string; previewId: string };

@@ -15,6 +15,7 @@ import MarkdownPreview from "./MarkdownPreview.vue";
 const ROOT = "/gozd-browser-test/repo";
 const OUTSIDE_DIR = "/gozd-browser-test/notes";
 const IMAGE = '<img alt="logo" src="images/logo.png">';
+const MERMAID_RENDER_TIMEOUT_MS = 15_000;
 
 /** 単一ファイル監視の要求 */
 let watchRequests: string[];
@@ -159,7 +160,10 @@ test("mermaid を含む markdown でも、描画の重なりで画像の監視�
   const content = `${IMAGE}\n\n\`\`\`mermaid\ngraph TD\n  A --> B\n\`\`\`\n`;
   const { container, src } = await renderPreview(WORKTREE_TARGET, content);
   const imagePath = `${ROOT}/images/logo.png`;
-  await expect.poll(() => container.querySelector("svg")).not.toBeNull();
+  // mermaid は初回の dynamic import が重く、CI では既定の待ち時間（1 秒）に収まらない
+  await expect
+    .poll(() => container.querySelector("svg"), { timeout: MERMAID_RENDER_TIMEOUT_MS })
+    .not.toBeNull();
   await expect.poll(() => watchRequests).toContain(imagePath);
   const before = src();
 

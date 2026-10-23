@@ -17,7 +17,7 @@ describe("previewServingTarget", () => {
     });
   });
 
-  test("root が / に退化する場合は native preview を諦める", () => {
+  test("root が / に退化する場合は配信対象を返さない", () => {
     // ファイルシステム全体が配信可能になるのを防ぐ。登録は取り消せないため未然に切る
     expect(previewServingTarget("/a.html", undefined)).toBeUndefined();
     expect(previewServingTarget("/repo/docs/a.html", "/")).toBeUndefined();

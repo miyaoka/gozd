@@ -46,7 +46,7 @@ function dirOf(absPath: string): string | undefined {
  * 別ディレクトリを指す HTML があるため）。worktree 外の絶対パスは、そのファイルが居る
  * ディレクトリだけに絞る（起点が無いので広げる根拠が無い）。
  *
- * root が `/` に退化する場合は undefined を返し、呼び出し側は source 表示に倒す。
+ * root が `/` に退化する場合は undefined を返す（ファイルシステム全体を配信可能にしない）。
  */
 export function previewServingTarget(
   absPath: string,
@@ -54,7 +54,7 @@ export function previewServingTarget(
 ): PreviewServingTarget | undefined {
   const root = worktreeDir ?? dirOf(absPath);
   // root が "/" になるとファイルシステム全体が配信可能になり、範囲を絞る意味が消える。
-  // 該当するのは worktree 外かつ root 直下のファイルだけなので native preview を諦める
+  // 該当するのは worktree 外かつ root 直下のファイルだけ
   if (root === undefined || root === "/") return undefined;
   return { absPath, root };
 }

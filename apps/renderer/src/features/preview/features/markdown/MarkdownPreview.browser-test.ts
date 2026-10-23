@@ -59,7 +59,7 @@ async function renderPreviewScreen() {
   document.body.appendChild(container);
   const screen = await render(MarkdownPreview, {
     container,
-    props: { content: CONTENT, target: { absPath: ABS_PATH, root: ROOT } },
+    props: { content: CONTENT, target: { absPath: ABS_PATH, root: ROOT, scope: "worktree" } },
   });
   return { container, screen };
 }
@@ -96,7 +96,10 @@ test("同じ対象を別の object で渡し直しても、画像の src を外�
   await expect.poll(() => srcOf(container, "relative")).toMatch(/^gozd-preview:/);
   const before = srcOf(container, "relative");
 
-  await screen.rerender({ content: CONTENT, target: { absPath: ABS_PATH, root: ROOT } });
+  await screen.rerender({
+    content: CONTENT,
+    target: { absPath: ABS_PATH, root: ROOT, scope: "worktree" },
+  });
 
   expect(srcOf(container, "relative")).toBe(before);
   expect(servingUrlCalls).toBe(1);

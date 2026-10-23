@@ -7,7 +7,22 @@ const ORIGIN = "gozd-preview://p1";
 
 /** main の pathToPreviewUrl と同じ形の URL（root 配下の md 自身） */
 function baseFor(relPath: string) {
-  return markdownImageBase(`${ORIGIN}${ROOT}/${relPath}`, `${ROOT}/${relPath}`, ROOT);
+  return markdownImageBase(`${ORIGIN}${ROOT}/${relPath}`, {
+    absPath: `${ROOT}/${relPath}`,
+    root: ROOT,
+    scope: "worktree",
+  });
+}
+
+/** worktree 外の markdown。root はファイルが居る dir */
+const OUTSIDE_DIR = "/Users/me/notes";
+
+function outsideBaseFor(name: string) {
+  return markdownImageBase(`${ORIGIN}${OUTSIDE_DIR}/${name}`, {
+    absPath: `${OUTSIDE_DIR}/${name}`,
+    root: OUTSIDE_DIR,
+    scope: "directory",
+  });
 }
 
 function resolve(src: string, base: ReturnType<typeof baseFor> | undefined) {
@@ -26,6 +41,19 @@ describe("resolveMarkdownImageSrc", () => {
 
   test("`/` 始まりは root 基準で解決する", () => {
     expect(resolve("/docs/a.png", baseFor("docs/guide/a.md"))).toBe(`${ORIGIN}${ROOT}/docs/a.png`);
+  });
+
+  test("worktree 外の markdown では `/` 始まりをファイルシステムの絶対パスとして解く", () => {
+    expect(resolve(`${OUTSIDE_DIR}/img/a.png`, outsideBaseFor("a.md"))).toBe(
+      `${ORIGIN}${OUTSIDE_DIR}/img/a.png`,
+    );
+    // root（ファイルが居る dir）の外を指す絶対パスは読ませない
+    expect(resolve("/etc/x.png", outsideBaseFor("a.md"))).toBeUndefined();
+    expect(resolve("/img/a.png", outsideBaseFor("a.md"))).toBeUndefined();
+  });
+
+  test("worktree 外の markdown でも相対 src はファイルの dir 基準で解く", () => {
+    expect(resolve("img/a.png", outsideBaseFor("a.md"))).toBe(`${ORIGIN}${OUTSIDE_DIR}/img/a.png`);
   });
 
   test("root の外を指す src は読ませない", () => {

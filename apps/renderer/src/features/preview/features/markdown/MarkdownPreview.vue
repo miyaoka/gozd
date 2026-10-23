@@ -49,11 +49,11 @@ const IMAGE_BASE_FAILED_MESSAGE = "Could not load images in markdown preview";
 // 値ごとのソースにする。target は選択のたびに作り直されるため、1 つの getter で配列を返すと
 // 同じファイルの再選択でも発火し、画像の src が外れて配信 URL を取り直す
 watch(
-  [() => props.target?.absPath, () => props.target?.root],
-  async ([absPath, root]) => {
+  [() => props.target?.absPath, () => props.target?.root, () => props.target?.scope],
+  async ([absPath, root, scope]) => {
     const mySeq = ++imageBaseSeq;
     imageBase.value = undefined;
-    if (absPath === undefined || root === undefined) return;
+    if (absPath === undefined || root === undefined || scope === undefined) return;
     const result = await serving.requestUrl(absPath, root);
     if (mySeq !== imageBaseSeq) return;
     if (!result.ok) {
@@ -63,7 +63,7 @@ watch(
       );
       return;
     }
-    imageBase.value = markdownImageBase(result.value.url, absPath, root);
+    imageBase.value = markdownImageBase(result.value.url, { absPath, root, scope });
   },
   { immediate: true },
 );

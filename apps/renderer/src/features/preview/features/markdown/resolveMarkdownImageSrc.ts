@@ -1,4 +1,5 @@
 import { tryCatch } from "@gozd/shared";
+import type { PreviewServingTarget } from "../../previewServingTarget";
 
 /**
  * Markdown プレビュー内 `<img src>` を、main の配信 scheme の URL に解決する。
@@ -16,10 +17,12 @@ const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 export interface MarkdownImageBase {
   /** 表示中の markdown 自身の配信 URL。相対 src の基準 */
   documentUrl: string;
-  /** 配信を許す root の配信 URL（末尾 `/`）。`/` 始まりの src の基準 */
+  /** 配信を許す root の配信 URL（末尾 `/`）。`/` 始まりの src を root 基準で解く場合の基準 */
   rootUrl: string;
   /** 配信を許す root の絶対パス。解決先の上限 */
   rootPath: string;
+  /** `/` 始まりの src の基準。`root` は配信 root、`filesystem` はファイルシステムの絶対パス */
+  slashBase: "root" | "filesystem";
 }
 
 /**
@@ -28,14 +31,15 @@ export interface MarkdownImageBase {
  */
 export function markdownImageBase(
   documentUrl: string,
-  absPath: string,
-  root: string,
+  target: PreviewServingTarget,
 ): MarkdownImageBase {
-  const depth = absPath.slice(root.length + 1).split("/").length - 1;
+  const depth = target.absPath.slice(target.root.length + 1).split("/").length - 1;
   return {
     documentUrl,
     rootUrl: new URL("../".repeat(depth) || "./", documentUrl).href,
-    rootPath: root,
+    rootPath: target.root,
+    // worktree 外の markdown はリンクの解決と同じく `/` をファイルシステムの絶対パスとして読む
+    slashBase: target.scope === "worktree" ? "root" : "filesystem",
   };
 }
 
@@ -43,7 +47,9 @@ export function markdownImageBase(
  * 書き換え後の src を返す。読ませない src は undefined を返し、呼び出し側は src を外す
  * （残すと renderer の origin へ無意味な要求が飛ぶ）。
  *
- * - `/` 始まりは root 基準（VS Code の markdown preview が workspace root 基準にするのと同じ）
+ * - `/` 始まりは、worktree 内の markdown なら worktree root 基準（VS Code の markdown preview が
+ *   workspace root 基準にするのと同じ）、worktree 外ならファイルシステムの絶対パス。どちらも
+ *   リンクの解決（`resolveMarkdownLink`）と同じ基準
  * - `//` 始まりは `https:` を補う。renderer の origin の scheme（開発時は http、配布版は file）に
  *   解決先を左右させない
  * - root の外を指すものは読ませない。範囲は main の配信と同じく、pathname を decode して正規化した
@@ -59,7 +65,7 @@ export function resolveMarkdownImageSrc(
   if (src.startsWith("//")) return `https:${src}`;
   if (base === undefined) return undefined;
 
-  const fromRoot = src.startsWith("/");
+  const fromRoot = src.startsWith("/") && base.slashBase === "root";
   const parsed = tryCatch(
     () => new URL(fromRoot ? `.${src}` : src, fromRoot ? base.rootUrl : base.documentUrl),
   );

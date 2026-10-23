@@ -69,10 +69,10 @@ import {
 import { UndockedWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
 import { joinAbsRel, useWorktreeStore } from "../worktree";
-import { canRenderHtmlNatively, htmlPreviewTarget } from "./htmlPreviewTarget";
 import PreviewContent from "./PreviewContent.vue";
 import { detectFileType } from "./previewFileType";
 import type { PreviewMode } from "./previewMode";
+import { canRenderHtmlNatively, previewServingTarget } from "./previewServingTarget";
 import PreviewToolbar from "./PreviewToolbar.vue";
 import UnsavedDraftConfirmDialog from "./UnsavedDraftConfirmDialog.vue";
 import { usePreviewStore } from "./usePreviewStore";
@@ -121,7 +121,7 @@ const fileType = detectFileType(doc.filePath);
  * 配信は working tree の実ファイルを読むため、original を表示中は native preview を出さない
  * （本体 PreviewPane と同じ gate）。undock は commit / PR 選択を焼き込まないので snapshot 判定は不要
  */
-const htmlPath = htmlPreviewTarget(
+const htmlPath = previewServingTarget(
   sourceAbsPath,
   source.kind === "worktree" ? source.dir : undefined,
 );

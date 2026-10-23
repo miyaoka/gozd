@@ -5,9 +5,8 @@ import { render } from "vitest-browser-vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 
 /**
- * `<img src>` の書き換えを実ブラウザで確かめる。bun では見えない 2 つが対象:
- * sanitizer の hook が要素を DOM に入れる前に src を差し替えること、
- * Chromium の URL パーサが配信 scheme の相対 URL を階層として解決すること。
+ * `<img src>` の書き換えを実ブラウザで確かめる。対象は bun では見えない、sanitizer の hook が
+ * 要素を DOM に入れる前に src を差し替えること。
  */
 const ROOT = "/gozd-browser-test/repo";
 const ABS_PATH = `${ROOT}/README.md`;
@@ -16,8 +15,8 @@ const ABS_PATH = `${ROOT}/README.md`;
 function installRpcBridge() {
   const bridge: ElectronRpcBridge = {
     request: (path, body) => {
-      if (path === "/preview/releaseHtml") return Promise.resolve({});
-      if (path !== "/preview/htmlUrl") throw new Error(`unexpected RPC: ${path}`);
+      if (path === "/preview/releaseServing") return Promise.resolve({});
+      if (path !== "/preview/servingUrl") throw new Error(`unexpected RPC: ${path}`);
       const req = body as { absPath: string; previewId: string };
       return Promise.resolve({ url: `gozd-preview://${req.previewId}${req.absPath}` });
     },
@@ -71,7 +70,8 @@ test("相対 src を配信 scheme の URL に書き換え、範囲外と直書�
 
 test("配信 URL の取得前は相対 src を DOM に入れない", async () => {
   window.__gozdElectronRpc = {
-    request: (path) => (path === "/preview/htmlUrl" ? new Promise(() => {}) : Promise.resolve({})),
+    request: (path) =>
+      path === "/preview/servingUrl" ? new Promise(() => {}) : Promise.resolve({}),
     onPush: () => {},
   };
   const container = await renderPreview();

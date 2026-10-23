@@ -1,15 +1,15 @@
 import type { PreviewMode } from "./previewMode";
 
 /**
- * HTML preview の配信対象と、配信を許す root の導出。
+ * 配信 scheme から読む対象（HTML preview の文書、markdown preview の画像の起点）と、配信を許す root の導出。
  *
  * 本体 preview (PreviewPane) と undock window (UndockedPreviewWindow) が同じ規則を使うため
  * 純関数に切り出す。root は main の配信範囲になるので、広げすぎると preview 経由で読める
  * ファイルが増える（VS Code の `localResourceRoots` と同じ性質）。
  */
 
-export interface HtmlPreviewTarget {
-  /** preview 対象 HTML の絶対パス */
+export interface PreviewServingTarget {
+  /** preview 対象（HTML / markdown）の絶対パス */
   absPath: string;
   /** 配信を許す root の絶対パス */
   root: string;
@@ -48,10 +48,10 @@ function dirOf(absPath: string): string | undefined {
  *
  * root が `/` に退化する場合は undefined を返し、呼び出し側は source 表示に倒す。
  */
-export function htmlPreviewTarget(
+export function previewServingTarget(
   absPath: string,
   worktreeDir: string | undefined,
-): HtmlPreviewTarget | undefined {
+): PreviewServingTarget | undefined {
   const root = worktreeDir ?? dirOf(absPath);
   // root が "/" になるとファイルシステム全体が配信可能になり、範囲を絞る意味が消える。
   // 該当するのは worktree 外かつ root 直下のファイルだけなので native preview を諦める

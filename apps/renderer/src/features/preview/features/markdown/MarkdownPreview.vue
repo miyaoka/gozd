@@ -19,7 +19,7 @@ import { useNotificationStore } from "../../../../shared/notification";
 import { relDirOf } from "../../../filer";
 import { normalizeAbsolute, normalizeRelative, useWorktreeStore } from "../../../worktree";
 import { abortComposition, blockEdit } from "../../contenteditableHostGuard";
-import type { HtmlPreviewTarget } from "../../htmlPreviewTarget";
+import type { PreviewServingTarget } from "../../previewServingTarget";
 import { usePreviewServing } from "../../usePreviewServing";
 import MarkdownBody from "./MarkdownBody.vue";
 import {
@@ -33,7 +33,7 @@ import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
 const props = defineProps<{
   content: string;
   /** 画像の配信対象 (markdown 自身の絶対パスと配信を許す root)。undefined なら相対の画像は読まない */
-  target?: HtmlPreviewTarget;
+  target?: PreviewServingTarget;
 }>();
 
 const worktreeStore = useWorktreeStore();
@@ -68,7 +68,7 @@ watch(
 
 const resolveImageSrc = computed(() => {
   const base = imageBase.value;
-  return (src: string) => resolveMarkdownImageSrc(src, base);
+  return (src: string) => resolveMarkdownImageSrc(src, base, normalizeAbsolute);
 });
 
 /**

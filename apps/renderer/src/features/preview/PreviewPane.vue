@@ -42,9 +42,9 @@ import { usePrDiffToggleStore } from "../git-graph";
 import { joinAbsRel, UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import { ChangesSummaryView } from "./features/changes-summary";
 import { useBlamePopover, useFileHistoryPopover } from "./features/commit-history";
-import { canRenderHtmlNatively, htmlPreviewTarget } from "./htmlPreviewTarget";
 import PreviewContent from "./PreviewContent.vue";
 import PreviewHeader from "./PreviewHeader.vue";
+import { canRenderHtmlNatively, previewServingTarget } from "./previewServingTarget";
 import PreviewToolbar from "./PreviewToolbar.vue";
 import { resolveOpenablePath } from "./resolveOpenablePath";
 import { usePreviewContent } from "./usePreviewContent";
@@ -220,10 +220,10 @@ watch(displayContent, () => {
 const servingTarget = computed(() => {
   const sel = worktreeStore.selection;
   if (sel === undefined) return undefined;
-  if (sel.kind === "absolute") return htmlPreviewTarget(sel.absPath, undefined);
+  if (sel.kind === "absolute") return previewServingTarget(sel.absPath, undefined);
   const dir = worktreeStore.dir;
   if (dir === undefined) return undefined;
-  return htmlPreviewTarget(joinAbsRel(dir, sel.relPath), dir);
+  return previewServingTarget(joinAbsRel(dir, sel.relPath), dir);
 });
 
 const htmlTarget = computed(() => {

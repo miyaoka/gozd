@@ -23,11 +23,11 @@ import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
 import { MarkdownPreview } from "./features/markdown";
 import HtmlPreview from "./HtmlPreview.vue";
-import type { HtmlPreviewTarget } from "./htmlPreviewTarget";
 import ImagePreview from "./ImagePreview.vue";
 import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "./previewConfig";
 import type { FileType } from "./previewFileType";
 import type { PreviewMode } from "./previewMode";
+import type { PreviewServingTarget } from "./previewServingTarget";
 
 withDefaults(
   defineProps<{
@@ -39,7 +39,7 @@ withDefaults(
     /** content 更新のカウンタ。増えると HTML preview が iframe を再 load する */
     htmlEpoch?: number;
     /** markdown の画像の配信対象。markdown 以外では undefined */
-    markdownTarget?: HtmlPreviewTarget;
+    markdownTarget?: PreviewServingTarget;
     fileType: FileType;
     activeMode: PreviewMode;
     previewEnabled: boolean;

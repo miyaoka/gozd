@@ -1,6 +1,6 @@
 import { tryCatch } from "@gozd/shared";
 import { onBeforeUnmount } from "vue";
-import { rpcPreviewHtmlUrl, rpcPreviewReleaseHtml } from "./rpc";
+import { rpcPreviewServingUrl, rpcPreviewReleaseServing } from "./rpc";
 
 /**
  * main の配信 scheme (`gozd-preview://`) から読む preview 面 1 つ分の配信許可。
@@ -23,7 +23,7 @@ export function usePreviewServing() {
 
   /** `absPath` の配信 URL を得る。同時に `root` 配下がこの preview に配信可能として登録される */
   function requestUrl(absPath: string, root: string) {
-    const run = pending.then(() => tryCatch(rpcPreviewHtmlUrl({ absPath, root, previewId })));
+    const run = pending.then(() => tryCatch(rpcPreviewServingUrl({ absPath, root, previewId })));
     // 失敗しても次の要求を止めないよう、chain 自体は解決済みに保つ
     pending = run.then(
       () => undefined,
@@ -37,7 +37,7 @@ export function usePreviewServing() {
     // grant を再登録し、閉じた preview の配信許可がプロセスの生存期間ずっと残る。
     // 解放できなくても UI 上は何も起きないので観察ログを残す
     pending = pending.then(() =>
-      tryCatch(rpcPreviewReleaseHtml({ previewId })).then((released) => {
+      tryCatch(rpcPreviewReleaseServing({ previewId })).then((released) => {
         if (!released.ok) {
           console.error(
             `[usePreviewServing] failed to release preview root: ${String(released.error)}`,

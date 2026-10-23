@@ -202,10 +202,10 @@ export type {
   GozdOpenPayload,
 } from "./open";
 export type {
-  PreviewHtmlUrlRequest,
-  PreviewHtmlUrlResponse,
-  PreviewReleaseHtmlRequest,
-  PreviewReleaseHtmlResponse,
+  PreviewServingUrlRequest,
+  PreviewServingUrlResponse,
+  PreviewReleaseServingRequest,
+  PreviewReleaseServingResponse,
 } from "./preview";
 export type {
   ProjectConfig,

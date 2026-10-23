@@ -108,10 +108,10 @@ import type {
   OpenExternalResponse,
   OpenFileRequest,
   OpenFileResponse,
-  PreviewHtmlUrlRequest,
-  PreviewHtmlUrlResponse,
-  PreviewReleaseHtmlRequest,
-  PreviewReleaseHtmlResponse,
+  PreviewServingUrlRequest,
+  PreviewServingUrlResponse,
+  PreviewReleaseServingRequest,
+  PreviewReleaseServingResponse,
   PickAndOpenResponse,
   ProjectConfigEnsureFileRequest,
   ProjectConfigEnsureFileResponse,
@@ -914,10 +914,10 @@ async function handleOpenExternal(body: unknown): Promise<unknown> {
   return {} satisfies OpenExternalResponse;
 }
 
-// HTML preview の iframe に load させる URL を返し、同時に配信可能な root を登録する。
+// preview 対象の配信 URL を返し、同時に配信可能な root を登録する。
 // 登録しない限り previewProtocol は何も配信しない（VS Code の localResourceRoots と同型）
-async function handlePreviewHtmlUrl(body: unknown): Promise<unknown> {
-  const req = body as PreviewHtmlUrlRequest;
+async function handlePreviewServingUrl(body: unknown): Promise<unknown> {
+  const req = body as PreviewServingUrlRequest;
   // host に載る契約（小文字英数とハイフン）。破ると登録キーと host が食い違い配信だけ 403 になる
   if (!isValidPreviewId(req.previewId)) {
     throw new Error(`previewId must be lowercase alphanumeric or hyphen: ${req.previewId}`);
@@ -933,14 +933,14 @@ async function handlePreviewHtmlUrl(body: unknown): Promise<unknown> {
     throw new Error(`absPath must be under root: ${req.absPath} (root=${req.root})`);
   }
   await addPreviewRoot(req.root, req.previewId);
-  return { url: pathToPreviewUrl(req.absPath, req.previewId) } satisfies PreviewHtmlUrlResponse;
+  return { url: pathToPreviewUrl(req.absPath, req.previewId) } satisfies PreviewServingUrlResponse;
 }
 
 // preview が閉じた / 対象を変えたときに配信許可を手放す
-async function handlePreviewReleaseHtml(body: unknown): Promise<unknown> {
-  const req = body as PreviewReleaseHtmlRequest;
+async function handlePreviewReleaseServing(body: unknown): Promise<unknown> {
+  const req = body as PreviewReleaseServingRequest;
   releasePreviewRoots(req.previewId);
-  return {} satisfies PreviewReleaseHtmlResponse;
+  return {} satisfies PreviewReleaseServingResponse;
 }
 
 async function handleOpenFile(body: unknown): Promise<unknown> {
@@ -1169,8 +1169,8 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/projectConfig/ensureFile", handleProjectConfigEnsureFile],
   ["/open/external", handleOpenExternal],
   ["/open/file", handleOpenFile],
-  ["/preview/htmlUrl", handlePreviewHtmlUrl],
-  ["/preview/releaseHtml", handlePreviewReleaseHtml],
+  ["/preview/servingUrl", handlePreviewServingUrl],
+  ["/preview/releaseServing", handlePreviewReleaseServing],
   ["/open/pickAndOpen", handlePickAndOpen],
   ["/window/close", handleWindowClose],
   ["/window/setTitleContext", handleWindowSetTitleContext],

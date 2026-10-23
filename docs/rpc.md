@@ -37,7 +37,7 @@ renderer が path と body を渡し、main が path でハンドラへ配送し
   応答は型を満たすことを検査してから返す
 
 ファイル内容などのバイナリも本経路で生 bytes として運ぶ。バイナリ専用の配信 scheme は
-HTML preview 用の 1 つだけで、それ以外の到達経路を増やさない（[preview.md](preview.md)）。
+preview 用の 1 つだけ（HTML preview と markdown preview の画像が使う）で、それ以外の到達経路を増やさない（[preview.md](preview.md)）。
 
 ### push
 

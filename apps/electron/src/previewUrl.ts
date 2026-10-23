@@ -1,4 +1,4 @@
-// HTML preview の配信 URL の契約（scheme 名 / preview id / URL の組み立て・分解）。
+// preview の配信 URL の契約（scheme 名 / preview id / URL の組み立て・分解）。
 //
 // 配信の実装 (previewProtocol.ts) は electron に依存するが、navigation 防壁の判定
 // (urlPolicy.ts) と RPC 入口の検証は純関数として bun test から呼ぶ。両者が同じ契約を
@@ -20,7 +20,7 @@ export function isValidPreviewId(previewId: string): boolean {
 }
 
 /**
- * 絶対パスから preview URL を組み立てる（renderer が iframe src に使う形）。
+ * 絶対パスから preview URL を組み立てる（renderer が iframe src と markdown の img src に使う形）。
  *
  * host 部に preview instance の id を置くことで **origin が preview ごとに分かれる**。
  * host を固定値にすると全 preview が同一 origin になり、CSP の `'self'` が preview 間の壁に

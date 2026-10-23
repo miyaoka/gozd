@@ -13,21 +13,21 @@ import {
   GitShowCommitFileResponse,
   GitShowFileRequest,
   GitShowFileResponse,
-  PreviewHtmlUrlRequest,
-  PreviewHtmlUrlResponse,
-  PreviewReleaseHtmlRequest,
-  PreviewReleaseHtmlResponse,
+  PreviewServingUrlRequest,
+  PreviewServingUrlResponse,
+  PreviewReleaseServingRequest,
+  PreviewReleaseServingResponse,
 } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
-/** HTML preview の iframe に load させる URL を得る（同時に配信 root が main へ登録される） */
-export const rpcPreviewHtmlUrl = (req: PreviewHtmlUrlRequest) =>
-  rpc<PreviewHtmlUrlResponse>("/preview/htmlUrl", req);
+/** preview 対象の配信 URL を得る（同時に配信 root が main へ登録される） */
+export const rpcPreviewServingUrl = (req: PreviewServingUrlRequest) =>
+  rpc<PreviewServingUrlResponse>("/preview/servingUrl", req);
 
 /** preview が閉じた / 対象を変えたときに配信許可を手放す */
-export const rpcPreviewReleaseHtml = (req: PreviewReleaseHtmlRequest) =>
-  rpc<PreviewReleaseHtmlResponse>("/preview/releaseHtml", req);
+export const rpcPreviewReleaseServing = (req: PreviewReleaseServingRequest) =>
+  rpc<PreviewReleaseServingResponse>("/preview/releaseServing", req);
 
 export const rpcGitShowFile = (req: GitShowFileRequest) =>
   rpc<GitShowFileResponse>("/git/showFile", req);

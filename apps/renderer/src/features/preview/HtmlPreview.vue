@@ -18,12 +18,12 @@ previewed HTML はリポジトリ内の任意ファイルで untrusted。実 ori
 能力は main が配信時に付ける CSP で落とす (`previewProtocol.ts` の `PREVIEW_CSP`)。
 script / frame / form は無効で、参照できるのは同 origin の asset と data: URI だけ。
 
-配信範囲は `/preview/htmlUrl` に渡した root 配下に限られる。main は登録の無い path を
+配信範囲は `/preview/servingUrl` に渡した root 配下に限られる。main は登録の無い path を
 配信しない (VS Code の `localResourceRoots` と同型)。
 
 URL の host 部はこの instance の id で、**origin が preview ごとに分かれる**。同一 origin だと
 CSP の `'self'` が preview 間の壁にならず、別 preview の root 配下を参照できてしまう。許可も
-id に紐づき、unmount で `/preview/releaseHtml` して手放す。
+id に紐づき、unmount で `/preview/releaseServing` して手放す。
 
 origin が renderer と異なるため、iframe 内 JS から親の `__gozdElectronRpc` には到達できない
 (そもそも script を CSP で止めている)。
@@ -72,11 +72,10 @@ xterm.js のテキスト選択は pointer capture を使わず、gozd から実�
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
 import { useEventListener } from "@vueuse/core";
-import { onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
+import { ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { rpcPreviewHtmlUrl, rpcPreviewReleaseHtml } from "./rpc";
+import { usePreviewServing } from "./usePreviewServing";
 
 const props = defineProps<{
   /** レンダリング対象 HTML の絶対パス */
@@ -132,27 +131,13 @@ useEventListener(
 /** 固定 message + 詳細を cause に分離し、対象違いでトーストが累積しないようにする */
 const URL_FAILED_MESSAGE = "Could not open HTML preview";
 
-/**
- * URL 取得要求の直列化。前回の要求が終わってから次を始める。
- *
- * main は「最後に完了した要求」の root を配信許可として保持するため、並行させると repo をまたぐ
- * 素早い切替で完了順が逆転し、許可が前の root に残ったまま新しい URL を読みに行って 403 になる
- * （renderer 側の版数ガードは src の取り違えしか防げない）。発射順 = 処理順にすれば起きない。
- */
-let pending: Promise<unknown> = Promise.resolve();
+const serving = usePreviewServing();
 
 /**
  * 非同期レース防止のバージョンカウンター (usePreviewContent と同じ規律)。
  * 対象が短時間に変わると RPC が並行し、古い応答が後に完了すると選択中と違う HTML を描いてしまう。
  */
 let requestSeq = 0;
-
-/**
- * この preview instance の識別子。main が配信許可 (root) をこの id に紐づけて保持し、
- * unmount で解放する。解放しないと閉じた preview の root が残り、別の preview がその配下を
- * 読めてしまう。
- */
-const previewId = crypto.randomUUID();
 
 watch(
   () => [props.absPath, props.root, props.epoch] as const,
@@ -163,13 +148,7 @@ watch(
     if (prev !== undefined && (prev[0] !== absPath || prev[1] !== root)) {
       src.value = undefined;
     }
-    const run = pending.then(() => tryCatch(rpcPreviewHtmlUrl({ absPath, root, previewId })));
-    // 失敗しても次の要求を止めないよう、chain 自体は解決済みに保つ
-    pending = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    const result = await run;
+    const result = await serving.requestUrl(absPath, root);
     if (mySeq !== requestSeq) return;
     if (!result.ok) {
       src.value = undefined;
@@ -182,19 +161,6 @@ watch(
   },
   { immediate: true },
 );
-
-onBeforeUnmount(() => {
-  // 解放も同じキューに載せる。直列化しないと、in-flight の htmlUrl が解放の後に完了して
-  // grant を再登録し、閉じた preview の配信許可がプロセスの生存期間ずっと残る。
-  // 解放できなくても UI 上は何も起きないので観察ログを残す
-  pending = pending.then(() =>
-    tryCatch(rpcPreviewReleaseHtml({ previewId })).then((released) => {
-      if (!released.ok) {
-        console.error(`[HtmlPreview] failed to release preview root: ${String(released.error)}`);
-      }
-    }),
-  );
-});
 </script>
 
 <template>

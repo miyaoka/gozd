@@ -69,10 +69,10 @@ import {
 import { UndockedWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
 import { joinAbsRel, useWorktreeStore } from "../worktree";
-import { canRenderHtmlNatively, htmlPreviewTarget } from "./htmlPreviewTarget";
 import PreviewContent from "./PreviewContent.vue";
 import { detectFileType } from "./previewFileType";
 import type { PreviewMode } from "./previewMode";
+import { canRenderHtmlNatively, previewServingTarget } from "./previewServingTarget";
 import PreviewToolbar from "./PreviewToolbar.vue";
 import UnsavedDraftConfirmDialog from "./UnsavedDraftConfirmDialog.vue";
 import { usePreviewStore } from "./usePreviewStore";
@@ -116,20 +116,22 @@ const source = props.preview.source;
 const sourceAbsPath =
   source.kind === "absolute" ? source.absPath : joinAbsRel(source.dir, source.relPath);
 const fileType = detectFileType(doc.filePath);
-/**
- * HTML preview の配信対象。worktree 起点なら worktree root を配信範囲にする。
- * 配信は working tree の実ファイルを読むため、original を表示中は native preview を出さない
- * （本体 PreviewPane と同じ gate）。undock は commit / PR 選択を焼き込まないので snapshot 判定は不要
- */
-const htmlPath = htmlPreviewTarget(
+/** 配信 scheme から読む対象。worktree 起点なら worktree root を配信範囲にする */
+const servingTarget = previewServingTarget(
   sourceAbsPath,
   source.kind === "worktree" ? source.dir : undefined,
 );
+/**
+ * 配信は working tree の実ファイルを読むため、original を表示中は native preview を出さない
+ * （本体 PreviewPane と同じ gate）。undock は commit / PR 選択を焼き込まないので snapshot 判定は不要
+ */
 const htmlTarget = computed(() =>
   canRenderHtmlNatively({ activeMode: activeMode.value, isSnapshot: false, isNotFound: false })
-    ? htmlPath
+    ? servingTarget
     : undefined,
 );
+/** markdown は内容を渡して描画するため mode の gate を掛けない。画像だけ working tree から読む */
+const markdownTarget = fileType === "markdown" ? servingTarget : undefined;
 const isImageFile = fileType === "image" || fileType === "svg";
 
 /** current 側の中身。undock 時 snapshot を初期値に、source の実ファイル変更へ追従する */
@@ -462,6 +464,7 @@ function dockToPreview() {
         :html-abs-path="htmlTarget?.absPath"
         :html-root="htmlTarget?.root"
         :html-epoch="htmlEpoch"
+        :markdown-target="markdownTarget"
         :image-source="imageSource"
         :display-is-binary="displayIsBinary"
         :error="contentError"

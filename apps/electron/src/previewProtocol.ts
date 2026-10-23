@@ -1,4 +1,4 @@
-// HTML preview に実 origin と実 URL 空間を与える配信 scheme。
+// preview（HTML preview と markdown preview の画像）に実 origin と実 URL 空間を与える配信 scheme。
 //
 // srcdoc に文字列を流し込む形では、document の base URL が親 (renderer) の URL になるため
 // previewed HTML の相対リンク・画像・CSS が原理的に解決しない。origin も opaque になるので

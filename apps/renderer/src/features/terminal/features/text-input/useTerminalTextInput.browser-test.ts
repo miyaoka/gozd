@@ -173,7 +173,8 @@ describe("IME", () => {
     expect(sent).toEqual(["今日"]);
   });
 
-  test("文節の太さに合わせて下線の太さを描き分ける", () => {
+  /** 文節 2 つ（太い下線・細い下線）の変換中の状態を作り、描かれた span を返す */
+  function composeClauses(): HTMLSpanElement[] {
     const ec = host().editContext;
     if (ec === null) throw new Error("no EditContext");
     ec.dispatchEvent(new Event("compositionstart"));
@@ -187,7 +188,11 @@ describe("IME", () => {
       getTextFormats: () => formats,
     });
     ec.dispatchEvent(formatEvent);
-    const spans = [...host().querySelectorAll("span")].map((s) => [
+    return [...host().querySelectorAll("span")];
+  }
+
+  test("文節の太さに合わせて下線の太さを描き分ける", () => {
+    const spans = composeClauses().map((s) => [
       s.textContent,
       getComputedStyle(s).textDecorationLine,
       getComputedStyle(s).textDecorationThickness,
@@ -196,6 +201,11 @@ describe("IME", () => {
       ["今日は", "underline", "2px"],
       ["いい天気", "underline", "1px"],
     ]);
+  });
+
+  test("変換中の下線は文字の形で途切れない", () => {
+    const skipInk = composeClauses().map((s) => getComputedStyle(s).textDecorationSkipInk);
+    expect(skipInk).toEqual(["none", "none"]);
   });
 });
 

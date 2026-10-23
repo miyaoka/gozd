@@ -127,7 +127,8 @@ renderer の再構築中に落ちた push は、mount 時の pull による再�
 script 実行と外部通信を落とす。描画されたコンテンツ（markdown 等）から RPC bridge を呼べないのは
 sanitizer が script を除去するため。描画されたコンテンツが配信 scheme の URL を直接書けないのは
 sanitizer の URI allowlist が未知 scheme を落とすためで、markdown の画像が配信 scheme に届くのは
-sanitizer を通った相対 src を first-party コードが書き換えたものだけ。**sanitizer の設定を
+sanitizer を通った相対 src を first-party コードが書き換えたものだけ。URI allowlist は属性値の先頭
+しか見ないため、複数の URL を持つ属性（`srcset`）は URL ごとに scheme を絞る。**sanitizer の設定を
 緩めるときはこの 2 つの境界を再確認する**。
 
 ### ソケットからの受付

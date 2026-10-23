@@ -82,6 +82,12 @@ describe("resolveMarkdownImageSrc", () => {
     }
   });
 
+  test("http(s) / data 以外の scheme は読ませない", () => {
+    for (const src of ["gozd-preview://other/etc/passwd", "file:///etc/passwd", "blob:x"]) {
+      expect(resolve(src, baseFor("README.md"))).toBeUndefined();
+    }
+  });
+
   test("protocol-relative は https を補う", () => {
     expect(resolve("//cdn.example/a.png", baseFor("README.md"))).toBe("https://cdn.example/a.png");
     expect(resolve("//cdn.example/a.png", undefined)).toBe("https://cdn.example/a.png");

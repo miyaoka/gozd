@@ -7,11 +7,23 @@ import type { PreviewServingTarget } from "../../previewServingTarget";
  * markdown は renderer の DOM に直接描画するため、相対 src はそのままだと renderer 自身の URL を
  * 基準に解決されて届かない。UI 全体の base は変えられないので src を個別に書き換える。
  *
- * 書き換えるのは scheme を持たない src だけ。scheme 付き (http(s) / data: 等) はそのまま返す。
- * 危険な scheme や配信 scheme を直書きした src は、ここに来る前に sanitizer が落としている。
+ * 書き換えるのは scheme を持たない src だけ。scheme 付きは `keepAllowedImageScheme` に従う。
  */
 
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+const ALLOWED_IMAGE_SCHEME_RE = /^(?:https?|data):/i;
+
+/**
+ * scheme 付きの画像 URL は http(s) / data: だけを残し、それ以外（配信 scheme の直書き、file: 等）は
+ * undefined にする。scheme の無い URL はそのまま返す。
+ *
+ * sanitizer の URI allowlist は属性値の先頭しか見ないため、srcset の 2 つ目以降の候補に書かれた
+ * scheme は素通りする。画像の URL は候補ごとにここを通す。
+ */
+export function keepAllowedImageScheme(url: string): string | undefined {
+  if (!URL_SCHEME_RE.test(url)) return url;
+  return ALLOWED_IMAGE_SCHEME_RE.test(url) ? url : undefined;
+}
 
 /** 解決の起点 */
 export interface MarkdownImageBase {
@@ -61,7 +73,8 @@ export function resolveMarkdownImageSrc(
   base: MarkdownImageBase | undefined,
   normalizeAbsolute: (absPath: string) => string,
 ): string | undefined {
-  if (src === "" || URL_SCHEME_RE.test(src)) return src;
+  if (src === "") return src;
+  if (URL_SCHEME_RE.test(src)) return keepAllowedImageScheme(src);
   if (src.startsWith("//")) return `https:${src}`;
   if (base === undefined) return undefined;
 

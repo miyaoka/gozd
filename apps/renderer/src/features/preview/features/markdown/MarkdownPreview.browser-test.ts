@@ -41,6 +41,8 @@ const CONTENT = [
   '<img alt="escape" src="../outside.png">',
   '<img alt="authored-scheme" src="gozd-preview://other/etc/passwd">',
   '<img alt="external" src="https://img.shields.io/badge/a-b-c">',
+  '<img alt="srcset" src="docs/a.png" srcset="docs/a.png 1x, gozd-preview://other/x.png 2x, ../outside.png 3x">',
+  '<picture><source id="picture-source" srcset="docs/b.png 1x, docs/b@2x.png 2x"><img alt="picture" src="docs/c.png"></picture>',
 ].join("\n\n");
 
 function srcOf(container: Element, alt: string): string | null {
@@ -103,4 +105,25 @@ test("同じ対象を別の object で渡し直しても、画像の src を外�
 
   expect(srcOf(container, "relative")).toBe(before);
   expect(servingUrlCalls).toBe(1);
+});
+
+const SERVED = /^gozd-preview:\/\/[a-z0-9-]+\/gozd-browser-test\/repo/;
+
+test("srcset の各候補を書き換え、範囲外と直書きの scheme の候補は落とす", async () => {
+  const container = await renderPreview();
+  await expect.poll(() => srcOf(container, "srcset")).toMatch(SERVED);
+
+  const srcset = container.querySelector('img[alt="srcset"]')?.getAttribute("srcset") ?? "";
+  const candidates = srcset.split(", ");
+  expect(candidates).toHaveLength(1);
+  expect(candidates[0]).toMatch(
+    /^gozd-preview:\/\/[a-z0-9-]+\/gozd-browser-test\/repo\/docs\/a\.png 1x$/,
+  );
+
+  const sourceSrcset = container.querySelector("#picture-source")?.getAttribute("srcset") ?? "";
+  const sourceCandidates = sourceSrcset.split(", ");
+  expect(sourceCandidates).toHaveLength(2);
+  expect(sourceCandidates[0]).toMatch(/\/docs\/b\.png 1x$/);
+  expect(sourceCandidates[1]).toMatch(/\/docs\/b@2x\.png 2x$/);
+  for (const candidate of sourceCandidates) expect(candidate).toMatch(SERVED);
 });

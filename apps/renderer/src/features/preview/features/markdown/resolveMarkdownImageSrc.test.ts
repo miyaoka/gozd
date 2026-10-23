@@ -26,7 +26,7 @@ function outsideBaseFor(name: string) {
 }
 
 function resolve(src: string, base: ReturnType<typeof baseFor> | undefined) {
-  return resolveMarkdownImageSrc(src, base, normalizeAbsolute);
+  return resolveMarkdownImageSrc(src, base, normalizeAbsolute)?.url;
 }
 
 describe("resolveMarkdownImageSrc", () => {
@@ -91,6 +91,17 @@ describe("resolveMarkdownImageSrc", () => {
   test("protocol-relative は https を補う", () => {
     expect(resolve("//cdn.example/a.png", baseFor("README.md"))).toBe("https://cdn.example/a.png");
     expect(resolve("//cdn.example/a.png", undefined)).toBe("https://cdn.example/a.png");
+  });
+
+  test("配信 scheme で読む画像は、正規化した絶対パスを返す", () => {
+    expect(
+      resolveMarkdownImageSrc("../img/a.png", baseFor("docs/guide/a.md"), normalizeAbsolute)
+        ?.servedPath,
+    ).toBe(`${ROOT}/docs/img/a.png`);
+    expect(
+      resolveMarkdownImageSrc("https://e.example/a.png", baseFor("README.md"), normalizeAbsolute)
+        ?.servedPath,
+    ).toBeUndefined();
   });
 
   test("base が未確定なら相対 src は読ませない", () => {

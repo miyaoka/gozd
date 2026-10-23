@@ -55,6 +55,13 @@ export function markdownImageBase(
   };
 }
 
+/** 書き換え後の画像の URL */
+export interface ResolvedImageSrc {
+  url: string;
+  /** 配信 scheme で読む画像の絶対パス。外部 URL・data: では undefined */
+  servedPath?: string;
+}
+
 /**
  * 書き換え後の src を返す。読ませない src は undefined を返し、呼び出し側は src を外す
  * （残すと renderer の origin へ無意味な要求が飛ぶ）。
@@ -72,10 +79,13 @@ export function resolveMarkdownImageSrc(
   src: string,
   base: MarkdownImageBase | undefined,
   normalizeAbsolute: (absPath: string) => string,
-): string | undefined {
-  if (src === "") return src;
-  if (URL_SCHEME_RE.test(src)) return keepAllowedImageScheme(src);
-  if (src.startsWith("//")) return `https:${src}`;
+): ResolvedImageSrc | undefined {
+  if (src === "") return { url: src };
+  if (URL_SCHEME_RE.test(src)) {
+    const kept = keepAllowedImageScheme(src);
+    return kept === undefined ? undefined : { url: kept };
+  }
+  if (src.startsWith("//")) return { url: `https:${src}` };
   if (base === undefined) return undefined;
 
   const fromRoot = src.startsWith("/") && base.slashBase === "root";
@@ -85,7 +95,8 @@ export function resolveMarkdownImageSrc(
   if (!parsed.ok) return undefined;
   const decoded = tryCatch(() => decodeURIComponent(parsed.value.pathname));
   if (!decoded.ok) return undefined;
-  return normalizeAbsolute(decoded.value).startsWith(`${base.rootPath}/`)
-    ? parsed.value.href
+  const servedPath = normalizeAbsolute(decoded.value);
+  return servedPath.startsWith(`${base.rootPath}/`)
+    ? { url: parsed.value.href, servedPath }
     : undefined;
 }

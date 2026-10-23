@@ -11,10 +11,12 @@ marked で Markdown → HTML 変換し、DOMPurify でサニタイズして表�
 - 画像は HTML preview と同じ配信 scheme から読む。`target` の root を配信許可として登録し、
   `<img src>` をその URL に書き換える (`resolveMarkdownImageSrc`)。配信は working tree の
   実ファイルを読むため、過去の版を表示していても画像は今のものになる (リンクの解決と同じ基準)
+- 画像ファイルの変更は `useMarkdownImageWatch` で受け、画像の URL に版数を載せて描き直す。
+  URL が同じままだと、配信が `no-store` でもページ内の画像キャッシュが使われる
 </doc>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
 import { relDirOf } from "../../../filer";
 import { normalizeAbsolute, normalizeRelative, useWorktreeStore } from "../../../worktree";
@@ -29,6 +31,7 @@ import {
 } from "./resolveMarkdownImageSrc";
 import { resolveMarkdownLink } from "./resolveMarkdownLink";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
+import { useMarkdownImageWatch } from "./useMarkdownImageWatch";
 
 const props = defineProps<{
   content: string;
@@ -68,10 +71,43 @@ watch(
   { immediate: true },
 );
 
+/** 画像ファイルの変更で進める版数。画像の URL に載せて読み直させる */
+const imageEpoch = ref(0);
+/** 直近の描画が配信 scheme から読んだ画像の絶対パス。変更の監視対象 */
+const imagePaths = shallowRef<ReadonlySet<string>>(new Set());
+/**
+ * 描画中に書き換えた画像のパス。描画の完了で `imagePaths` に移す。描画が重なると前の描画の
+ * パスも混ざるが、監視が余分に張られるだけで次の描画で戻る
+ */
+let renderingPaths = new Set<string>();
+
 const resolveImageSrc = computed(() => {
   const base = imageBase.value;
-  return (src: string) => resolveMarkdownImageSrc(src, base, normalizeAbsolute);
+  const epoch = imageEpoch.value;
+  return (src: string) => {
+    const resolved = resolveMarkdownImageSrc(src, base, normalizeAbsolute);
+    if (resolved?.servedPath === undefined) return resolved?.url;
+    renderingPaths.add(resolved.servedPath);
+    if (epoch === 0) return resolved.url;
+    // 配信は pathname しか見ないため query は無害（HtmlPreview の再 load と同じ）
+    const url = new URL(resolved.url);
+    url.searchParams.set("e", String(epoch));
+    return url.href;
+  };
 });
+
+function onRendered() {
+  imagePaths.value = renderingPaths;
+  renderingPaths = new Set();
+}
+
+useMarkdownImageWatch(
+  () => props.target,
+  imagePaths,
+  () => {
+    imageEpoch.value++;
+  },
+);
 
 /**
  * MarkdownBody が外部送りと `preventDefault` を済ませた後の href を受け、worktree 相対として
@@ -120,6 +156,7 @@ function onLinkClick(href: string) {
     aria-label="Markdown contents"
     :content="content"
     :resolve-image-src="resolveImageSrc"
+    @rendered="onRendered"
     @link-click="onLinkClick"
     @beforeinput="blockEdit"
     @compositionstart="abortComposition"

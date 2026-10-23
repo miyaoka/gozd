@@ -21,7 +21,7 @@ export const rpcFsUnwatch = (req: FsUnwatchRequest) => rpc<FsUnwatchResponse>("/
 export const rpcFsUnwatchAll = (req: FsUnwatchAllRequest) =>
   rpc<FsUnwatchAllResponse>("/fs/unwatchAll", req);
 
-/** 絶対パスの存在確認。terminal のパスリンクと markdown preview の画像監視が使う */
+/** 絶対パスの存在確認（dir 外を許可）。複数 feature が使うためここに置く */
 export const rpcFsExistsAbsolute = (req: FsExistsAbsoluteRequest) =>
   rpc<FsExistsAbsoluteResponse>("/fs/existsAbsolute", req);
 

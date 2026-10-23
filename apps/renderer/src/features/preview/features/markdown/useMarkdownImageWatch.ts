@@ -26,8 +26,11 @@ export function useMarkdownImageWatch(
 ): void {
   const notification = useNotificationStore();
 
-  /** 単一ファイルの監視を張っている（張ろうとしている）画像の絶対パス */
-  const watched = new Set<string>();
+  /**
+   * 単一ファイルの監視を張っている（張ろうとしている）画像の絶対パス → その試行の識別子。
+   * 監視の応答を待つ間に外して張り直すことがあるため、失敗の後始末は自分の試行のときだけ行う
+   */
+  const watched = new Map<string, symbol>();
 
   onUnmounted(
     onMessage<FsChangeAbsolutePayload>("fsChangeAbsolute", ({ path }) => {
@@ -46,10 +49,13 @@ export function useMarkdownImageWatch(
   }
 
   function startWatch(path: string) {
-    watched.add(path);
+    const attempt = Symbol(path);
+    watched.set(path, attempt);
     void tryCatch(rpcFsWatchFileAbsolute({ absolutePath: path })).then((result) => {
       if (result.ok) return;
-      // 監視できなかったパスは集合から外し、次の描画でもう一度試す
+      // 外された・張り直された後の失敗は、今の監視とも表示中の画像とも関係しない
+      if (watched.get(path) !== attempt) return;
+      // 監視できなかったパスは外し、次の描画でもう一度試す
       watched.delete(path);
       void reportWatchFailure(path, result.error);
     });
@@ -71,7 +77,7 @@ export function useMarkdownImageWatch(
   watch(
     imagePaths,
     (paths) => {
-      for (const path of watched) {
+      for (const path of watched.keys()) {
         if (!paths.has(path)) stopWatch(path);
       }
       for (const path of paths) {
@@ -82,6 +88,6 @@ export function useMarkdownImageWatch(
   );
 
   onUnmounted(() => {
-    for (const path of watched) stopWatch(path);
+    for (const path of watched.keys()) stopWatch(path);
   });
 }

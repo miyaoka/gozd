@@ -23,12 +23,15 @@ let unwatchRequests: string[];
 let failingWatch: Map<string, { parentExists: boolean }>;
 /** 親 dir の存在確認に応答した回数 */
 let existsResponses: number;
+/** 応答を止めている監視の要求。失敗させる関数を持つ */
+let heldWatches: ((error: Error) => void)[] | undefined;
 
 function installRpcBridge() {
   watchRequests = [];
   unwatchRequests = [];
   failingWatch = new Map();
   existsResponses = 0;
+  heldWatches = undefined;
   const bridge: ElectronRpcBridge = {
     request: (path, body) => {
       if (path === "/preview/releaseServing") return Promise.resolve({});
@@ -39,6 +42,8 @@ function installRpcBridge() {
       if (path === "/fs/watchFileAbsolute") {
         const absolutePath = (body as { absolutePath: string }).absolutePath;
         watchRequests.push(absolutePath);
+        const held = heldWatches;
+        if (held !== undefined) return new Promise((_, reject) => held.push(reject));
         if (failingWatch.has(absolutePath)) return Promise.reject(new Error("watch failed"));
         return Promise.resolve({});
       }
@@ -161,4 +166,18 @@ test("mermaid を含む markdown でも、描画の重なりで画像の監視�
   dispatchMessage("fsChangeAbsolute", { path: imagePath });
 
   await expect.poll(() => reloadedSameImage(before, src())).toBe(true);
+});
+
+test("表示から外れた画像の監視が後から失敗しても、通知も後始末もしない", async () => {
+  const held: ((error: Error) => void)[] = [];
+  heldWatches = held;
+  const { screen } = await renderPreview(WORKTREE_TARGET);
+  await expect.poll(() => held.length).toBe(1);
+
+  await screen.unmount();
+  for (const reject of held) reject(new Error("watch failed"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(existsResponses).toBe(0);
+  expect(useNotificationStore().notifications.value).toEqual([]);
 });

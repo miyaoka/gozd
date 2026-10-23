@@ -153,9 +153,8 @@ export interface FsStatResponse {
  * 呼び出し側の切り詰めと受け側の拒否が同じ値を見る。 */
 export const FS_EXISTS_ABSOLUTE_MAX_PATHS = 32;
 
-/** fsExistsAbsolute: 絶対パスの存在確認（dir 外を許可）。ターミナルのパスリンクが、検出した
- * 候補を実在で選別するために使う。path traversal の責任は呼び出し側に移譲する。
- * 件数が FS_EXISTS_ABSOLUTE_MAX_PATHS を超える要求は main 側が拒否する。 */
+/** fsExistsAbsolute: 絶対パスの存在確認（dir 外を許可）。path traversal の責任は呼び出し側に
+ * 移譲する。件数が FS_EXISTS_ABSOLUTE_MAX_PATHS を超える要求は main 側が拒否する。 */
 export interface FsExistsAbsoluteRequest {
   absolutePaths: string[];
 }

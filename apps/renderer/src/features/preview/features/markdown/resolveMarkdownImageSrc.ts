@@ -38,6 +38,8 @@ function normalizeLikeUrlParser(url: string): string {
  */
 export function keepAllowedImageScheme(url: string): string | undefined {
   const normalized = normalizeLikeUrlParser(url);
+  // 空の URL はブラウザが文書自身の URL として読み、renderer の origin へ要求が飛ぶ
+  if (normalized === "") return undefined;
   if (!URL_SCHEME_RE.test(normalized)) return url;
   return ALLOWED_IMAGE_SCHEME_RE.test(normalized) ? normalized : undefined;
 }
@@ -100,7 +102,8 @@ export function resolveMarkdownImageSrc(
   normalizeAbsolute: (absPath: string) => string,
 ): ResolvedImageSrc | undefined {
   const normalized = normalizeLikeUrlParser(src);
-  if (normalized === "") return { url: src };
+  // 空の URL はブラウザが文書自身の URL として読み、renderer の origin へ要求が飛ぶ
+  if (normalized === "") return undefined;
   if (URL_SCHEME_RE.test(normalized)) {
     const kept = keepAllowedImageScheme(normalized);
     return kept === undefined ? undefined : { url: kept };

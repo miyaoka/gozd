@@ -155,6 +155,13 @@ describe("keepAllowedImageScheme", () => {
     }
   });
 
+  test("空白や制御文字だけの URL は読ませない", () => {
+    for (const url of ["", "  ", "\u0001\t"]) {
+      expect(keepAllowedImageScheme(url)).toBeUndefined();
+      expect(resolveMarkdownImageSrc(url, baseFor("README.md"), normalizeAbsolute)).toBeUndefined();
+    }
+  });
+
   test("scheme の無い URL はそのまま返す", () => {
     expect(keepAllowedImageScheme("docs/a.png")).toBe("docs/a.png");
   });

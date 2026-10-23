@@ -22,3 +22,12 @@ test("書き換え関数が無くても、制御文字を前に付けた配信 s
   const img = new DOMParser().parseFromString(html, "text/html").querySelector("img");
   expect(img?.getAttribute("srcset")).toBe("a.png 1x");
 });
+
+test("書き換え関数が無くても、括弧で descriptor に紛れ込ませた配信 scheme の候補は読ませない", () => {
+  const html = sanitizeMarkdownHtml(
+    '<img srcset="a.png ((x) , gozd-preview://other/etc/passwd 2x, b.png 2x">',
+    undefined,
+  );
+  const img = new DOMParser().parseFromString(html, "text/html").querySelector("img");
+  expect(img?.getAttribute("srcset")).toBe("b.png 2x");
+});

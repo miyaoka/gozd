@@ -28,6 +28,16 @@ describe("rewriteSrcset", () => {
     expect(rewriteSrcset("bad.png 1x, b.png 2x", rewrite)).toBe("R(b.png) 2x");
   });
 
+  test("括弧は入れ子にならない。閉じた後のカンマは候補の区切りになる", () => {
+    expect(rewriteSrcset("a.png ((x) , bad.png 2x", rewrite)).toBeUndefined();
+    expect(rewriteSrcset("a.png ((x) , b.png 2x", rewrite)).toBe("R(b.png) 2x");
+  });
+
+  test("文法に合わない descriptor の候補は落とし、descriptor の生の文字列を出力しない", () => {
+    expect(rewriteSrcset("a.png 2x junk, b.png 1.5x", rewrite)).toBe("R(b.png) 1.5x");
+    expect(rewriteSrcset("a.png 480w 300h", rewrite)).toBe("R(a.png) 480w 300h");
+  });
+
   test("候補が残らなければ undefined", () => {
     expect(rewriteSrcset("bad.png 1x, bad2.png 2x", rewrite)).toBeUndefined();
     expect(rewriteSrcset("  ", rewrite)).toBeUndefined();

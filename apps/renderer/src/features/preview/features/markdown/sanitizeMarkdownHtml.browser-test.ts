@@ -13,3 +13,12 @@ test("書き換え関数が無くても、srcset の候補の配信 scheme と�
   const img = new DOMParser().parseFromString(html, "text/html").querySelector("img");
   expect(img?.getAttribute("srcset")).toBe("a.png 1x, https://e.example/b.png 4x");
 });
+
+test("書き換え関数が無くても、制御文字を前に付けた配信 scheme の候補は落とす", () => {
+  const html = sanitizeMarkdownHtml(
+    '<img srcset="a.png 1x, &#1;gozd-preview://other/etc/passwd 2x">',
+    undefined,
+  );
+  const img = new DOMParser().parseFromString(html, "text/html").querySelector("img");
+  expect(img?.getAttribute("srcset")).toBe("a.png 1x");
+});

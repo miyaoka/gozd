@@ -12,6 +12,22 @@ import type { PreviewServingTarget } from "../../previewServingTarget";
 
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 const ALLOWED_IMAGE_SCHEME_RE = /^(?:https?|data):/i;
+/** C0 制御文字と空白の上限（U+0000〜U+0020） */
+const MAX_C0_OR_SPACE = 0x20;
+const TAB_OR_NEWLINE_RE = /[\t\n\r]/g;
+
+/**
+ * URL パーサが解析の前に行う正規化（WHATWG URL Standard の basic URL parser: 先頭と末尾の
+ * C0 制御文字と空白を除き、途中のタブと改行を除く）。scheme の判定はブラウザが読む形に対して
+ * 行う。生の文字列で判定すると `\x01gozd-preview:` や `gozd-pre\tview:` が scheme 無しに見える
+ */
+function normalizeLikeUrlParser(url: string): string {
+  let start = 0;
+  let end = url.length;
+  while (start < end && url.charCodeAt(start) <= MAX_C0_OR_SPACE) start++;
+  while (end > start && url.charCodeAt(end - 1) <= MAX_C0_OR_SPACE) end--;
+  return url.slice(start, end).replace(TAB_OR_NEWLINE_RE, "");
+}
 
 /**
  * scheme 付きの画像 URL は http(s) / data: だけを残し、それ以外（配信 scheme の直書き、file: 等）は
@@ -21,8 +37,9 @@ const ALLOWED_IMAGE_SCHEME_RE = /^(?:https?|data):/i;
  * scheme は素通りする。画像の URL は候補ごとにここを通す。
  */
 export function keepAllowedImageScheme(url: string): string | undefined {
-  if (!URL_SCHEME_RE.test(url)) return url;
-  return ALLOWED_IMAGE_SCHEME_RE.test(url) ? url : undefined;
+  const normalized = normalizeLikeUrlParser(url);
+  if (!URL_SCHEME_RE.test(normalized)) return url;
+  return ALLOWED_IMAGE_SCHEME_RE.test(normalized) ? normalized : undefined;
 }
 
 /** 解決の起点 */
@@ -73,6 +90,8 @@ export interface ResolvedImageSrc {
  *   解決先を左右させない
  * - root の外を指すものは読ませない。範囲は main の配信と同じく、pathname を decode して正規化した
  *   パスで判定する。URL 文字列のまま比べると `..%2F` のような encode された区切りが通る
+ * - 解決先が自分の preview の origin でなければ読ませない。パスが root 配下でも、別の preview の
+ *   配信 URL（別の host）に届くと、その preview の配信範囲を読める
  * - base が未確定（配信 URL の取得前・取得失敗）の相対 src も読ませない
  */
 export function resolveMarkdownImageSrc(
@@ -80,19 +99,25 @@ export function resolveMarkdownImageSrc(
   base: MarkdownImageBase | undefined,
   normalizeAbsolute: (absPath: string) => string,
 ): ResolvedImageSrc | undefined {
-  if (src === "") return { url: src };
-  if (URL_SCHEME_RE.test(src)) {
-    const kept = keepAllowedImageScheme(src);
+  const normalized = normalizeLikeUrlParser(src);
+  if (normalized === "") return { url: src };
+  if (URL_SCHEME_RE.test(normalized)) {
+    const kept = keepAllowedImageScheme(normalized);
     return kept === undefined ? undefined : { url: kept };
   }
-  if (src.startsWith("//")) return { url: `https:${src}` };
+  if (normalized.startsWith("//")) return { url: `https:${normalized}` };
   if (base === undefined) return undefined;
 
-  const fromRoot = src.startsWith("/") && base.slashBase === "root";
+  const fromRoot = normalized.startsWith("/") && base.slashBase === "root";
   const parsed = tryCatch(
-    () => new URL(fromRoot ? `.${src}` : src, fromRoot ? base.rootUrl : base.documentUrl),
+    () =>
+      new URL(fromRoot ? `.${normalized}` : normalized, fromRoot ? base.rootUrl : base.documentUrl),
   );
   if (!parsed.ok) return undefined;
+  const document = new URL(base.documentUrl);
+  if (parsed.value.protocol !== document.protocol || parsed.value.host !== document.host) {
+    return undefined;
+  }
   const decoded = tryCatch(() => decodeURIComponent(parsed.value.pathname));
   if (!decoded.ok) return undefined;
   const servedPath = normalizeAbsolute(decoded.value);

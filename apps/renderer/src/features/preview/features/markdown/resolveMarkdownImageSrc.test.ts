@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { normalizeAbsolute } from "../../../worktree";
-import { markdownImageBase, resolveMarkdownImageSrc } from "./resolveMarkdownImageSrc";
+import {
+  keepAllowedImageScheme,
+  markdownImageBase,
+  resolveMarkdownImageSrc,
+} from "./resolveMarkdownImageSrc";
 
 const ROOT = "/Users/me/repo";
 const ORIGIN = "gozd-preview://p1";
@@ -88,6 +92,36 @@ describe("resolveMarkdownImageSrc", () => {
     }
   });
 
+  test("URL パーサが除く制御文字・空白・タブを挟んでも、許可しない scheme は読ませない", () => {
+    for (const src of [
+      "\u0001gozd-preview://other/Users/me/repo/x.png",
+      " gozd-preview://other/Users/me/repo/x.png",
+      "gozd-pre\tview://other/Users/me/repo/x.png",
+      "file\n:///etc/passwd",
+    ]) {
+      expect(resolve(src, baseFor("README.md"))).toBeUndefined();
+      expect(resolveMarkdownImageSrc(src, undefined, normalizeAbsolute)).toBeUndefined();
+    }
+  });
+
+  test("制御文字を挟んだ許可済みの scheme は、正規化した URL で通す", () => {
+    expect(resolve("\u0001https://e.example/a.png", baseFor("README.md"))).toBe(
+      "https://e.example/a.png",
+    );
+  });
+
+  test("解決先が自分の preview の origin でなければ、パスが root 配下でも読ませない", () => {
+    // Electron は配信 scheme を standard として登録するため、http と同じくバックスラッシュを
+    // 区切りとして解析する。bun はそう解析しないので、http の base で同じ解析を再現する
+    const standardBase = markdownImageBase(`http://p1${ROOT}/README.md`, {
+      absPath: `${ROOT}/README.md`,
+      root: ROOT,
+      scope: "worktree",
+    });
+    expect(resolve("\\\\other/Users/me/repo/x.png", standardBase)).toBeUndefined();
+    expect(resolve("docs/a.png", standardBase)).toBe(`http://p1${ROOT}/docs/a.png`);
+  });
+
   test("protocol-relative は https を補う", () => {
     expect(resolve("//cdn.example/a.png", baseFor("README.md"))).toBe("https://cdn.example/a.png");
     expect(resolve("//cdn.example/a.png", undefined)).toBe("https://cdn.example/a.png");
@@ -106,5 +140,22 @@ describe("resolveMarkdownImageSrc", () => {
 
   test("base が未確定なら相対 src は読ませない", () => {
     expect(resolve("docs/a.png", undefined)).toBeUndefined();
+  });
+});
+
+describe("keepAllowedImageScheme", () => {
+  // 書き換え関数を渡さない利用側（session log）は、srcset の候補をこれだけで絞る
+  test("URL パーサが除く文字を挟んだ、許可しない scheme は読ませない", () => {
+    for (const url of [
+      "\u0001gozd-preview://other/x.png",
+      " file:///etc/passwd",
+      "gozd-pre\tview://other/x.png",
+    ]) {
+      expect(keepAllowedImageScheme(url)).toBeUndefined();
+    }
+  });
+
+  test("scheme の無い URL はそのまま返す", () => {
+    expect(keepAllowedImageScheme("docs/a.png")).toBe("docs/a.png");
   });
 });

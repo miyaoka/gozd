@@ -13,6 +13,11 @@ export interface PreviewServingTarget {
   absPath: string;
   /** 配信を許す root の絶対パス */
   root: string;
+  /**
+   * root の起点。`worktree` は worktree root、`directory` は worktree 外のファイルが居る dir。
+   * markdown の `/` 始まりの解釈がこれで分かれる（リンクの解決と同じ基準）
+   */
+  scope: "worktree" | "directory";
 }
 
 /**
@@ -56,5 +61,5 @@ export function previewServingTarget(
   // root が "/" になるとファイルシステム全体が配信可能になり、範囲を絞る意味が消える。
   // 該当するのは worktree 外かつ root 直下のファイルだけ
   if (root === undefined || root === "/") return undefined;
-  return { absPath, root };
+  return { absPath, root, scope: worktreeDir === undefined ? "directory" : "worktree" };
 }

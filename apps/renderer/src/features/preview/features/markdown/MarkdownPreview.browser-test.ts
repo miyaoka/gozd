@@ -5,7 +5,7 @@ import { render } from "vitest-browser-vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 
 /**
- * `<img src>` の書き換えを実ブラウザで確かめる。対象は bun では見えない、sanitizer の hook が
+ * 画像の URL の書き換えを実ブラウザで確かめる。対象は bun では見えない、sanitizer の hook が
  * 要素を DOM に入れる前に src を差し替えること。
  */
 const ROOT = "/gozd-browser-test/repo";
@@ -20,6 +20,10 @@ function installRpcBridge() {
   const bridge: ElectronRpcBridge = {
     request: (path, body) => {
       if (path === "/preview/releaseServing") return Promise.resolve({});
+      // 画像ごとの変更監視。このファイルは URL の書き換えだけを見るので応答だけ返す
+      if (path === "/fs/watchFileAbsolute" || path === "/fs/unwatchFileAbsolute") {
+        return Promise.resolve({});
+      }
       if (path !== "/preview/servingUrl") throw new Error(`unexpected RPC: ${path}`);
       servingUrlCalls++;
       const req = body as { absPath: string; previewId: string };
@@ -41,6 +45,8 @@ const CONTENT = [
   '<img alt="escape" src="../outside.png">',
   '<img alt="authored-scheme" src="gozd-preview://other/etc/passwd">',
   '<img alt="external" src="https://img.shields.io/badge/a-b-c">',
+  '<img alt="srcset" src="docs/a.png" srcset="docs/a.png 1x, gozd-preview://other/x.png 2x, ../outside.png 3x">',
+  '<picture><source id="picture-source" srcset="docs/b.png 1x, docs/b@2x.png 2x"><img alt="picture" src="docs/c.png"></picture>',
 ].join("\n\n");
 
 function srcOf(container: Element, alt: string): string | null {
@@ -59,7 +65,7 @@ async function renderPreviewScreen() {
   document.body.appendChild(container);
   const screen = await render(MarkdownPreview, {
     container,
-    props: { content: CONTENT, target: { absPath: ABS_PATH, root: ROOT } },
+    props: { content: CONTENT, target: { absPath: ABS_PATH, root: ROOT, scope: "worktree" } },
   });
   return { container, screen };
 }
@@ -96,8 +102,32 @@ test("同じ対象を別の object で渡し直しても、画像の src を外�
   await expect.poll(() => srcOf(container, "relative")).toMatch(/^gozd-preview:/);
   const before = srcOf(container, "relative");
 
-  await screen.rerender({ content: CONTENT, target: { absPath: ABS_PATH, root: ROOT } });
+  await screen.rerender({
+    content: CONTENT,
+    target: { absPath: ABS_PATH, root: ROOT, scope: "worktree" },
+  });
 
   expect(srcOf(container, "relative")).toBe(before);
   expect(servingUrlCalls).toBe(1);
+});
+
+const SERVED = /^gozd-preview:\/\/[a-z0-9-]+\/gozd-browser-test\/repo/;
+
+test("srcset の各候補を書き換え、範囲外と直書きの scheme の候補は落とす", async () => {
+  const container = await renderPreview();
+  await expect.poll(() => srcOf(container, "srcset")).toMatch(SERVED);
+
+  const srcset = container.querySelector('img[alt="srcset"]')?.getAttribute("srcset") ?? "";
+  const candidates = srcset.split(", ");
+  expect(candidates).toHaveLength(1);
+  expect(candidates[0]).toMatch(
+    /^gozd-preview:\/\/[a-z0-9-]+\/gozd-browser-test\/repo\/docs\/a\.png 1x$/,
+  );
+
+  const sourceSrcset = container.querySelector("#picture-source")?.getAttribute("srcset") ?? "";
+  const sourceCandidates = sourceSrcset.split(", ");
+  expect(sourceCandidates).toHaveLength(2);
+  expect(sourceCandidates[0]).toMatch(/\/docs\/b\.png 1x$/);
+  expect(sourceCandidates[1]).toMatch(/\/docs\/b@2x\.png 2x$/);
+  for (const candidate of sourceCandidates) expect(candidate).toMatch(SERVED);
 });

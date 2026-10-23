@@ -1,17 +1,36 @@
 import { describe, expect, test } from "bun:test";
 import { normalizeAbsolute } from "../../../worktree";
-import { markdownImageBase, resolveMarkdownImageSrc } from "./resolveMarkdownImageSrc";
+import {
+  keepAllowedImageScheme,
+  markdownImageBase,
+  resolveMarkdownImageSrc,
+} from "./resolveMarkdownImageSrc";
 
 const ROOT = "/Users/me/repo";
 const ORIGIN = "gozd-preview://p1";
 
 /** main の pathToPreviewUrl と同じ形の URL（root 配下の md 自身） */
 function baseFor(relPath: string) {
-  return markdownImageBase(`${ORIGIN}${ROOT}/${relPath}`, `${ROOT}/${relPath}`, ROOT);
+  return markdownImageBase(`${ORIGIN}${ROOT}/${relPath}`, {
+    absPath: `${ROOT}/${relPath}`,
+    root: ROOT,
+    scope: "worktree",
+  });
+}
+
+/** worktree 外の markdown。root はファイルが居る dir */
+const OUTSIDE_DIR = "/Users/me/notes";
+
+function outsideBaseFor(name: string) {
+  return markdownImageBase(`${ORIGIN}${OUTSIDE_DIR}/${name}`, {
+    absPath: `${OUTSIDE_DIR}/${name}`,
+    root: OUTSIDE_DIR,
+    scope: "directory",
+  });
 }
 
 function resolve(src: string, base: ReturnType<typeof baseFor> | undefined) {
-  return resolveMarkdownImageSrc(src, base, normalizeAbsolute);
+  return resolveMarkdownImageSrc(src, base, normalizeAbsolute)?.url;
 }
 
 describe("resolveMarkdownImageSrc", () => {
@@ -26,6 +45,19 @@ describe("resolveMarkdownImageSrc", () => {
 
   test("`/` 始まりは root 基準で解決する", () => {
     expect(resolve("/docs/a.png", baseFor("docs/guide/a.md"))).toBe(`${ORIGIN}${ROOT}/docs/a.png`);
+  });
+
+  test("worktree 外の markdown では `/` 始まりをファイルシステムの絶対パスとして解く", () => {
+    expect(resolve(`${OUTSIDE_DIR}/img/a.png`, outsideBaseFor("a.md"))).toBe(
+      `${ORIGIN}${OUTSIDE_DIR}/img/a.png`,
+    );
+    // root（ファイルが居る dir）の外を指す絶対パスは読ませない
+    expect(resolve("/etc/x.png", outsideBaseFor("a.md"))).toBeUndefined();
+    expect(resolve("/img/a.png", outsideBaseFor("a.md"))).toBeUndefined();
+  });
+
+  test("worktree 外の markdown でも相対 src はファイルの dir 基準で解く", () => {
+    expect(resolve("img/a.png", outsideBaseFor("a.md"))).toBe(`${ORIGIN}${OUTSIDE_DIR}/img/a.png`);
   });
 
   test("root の外を指す src は読ませない", () => {
@@ -54,12 +86,83 @@ describe("resolveMarkdownImageSrc", () => {
     }
   });
 
+  test("http(s) / data 以外の scheme は読ませない", () => {
+    for (const src of ["gozd-preview://other/etc/passwd", "file:///etc/passwd", "blob:x"]) {
+      expect(resolve(src, baseFor("README.md"))).toBeUndefined();
+    }
+  });
+
+  test("URL パーサが除く制御文字・空白・タブを挟んでも、許可しない scheme は読ませない", () => {
+    for (const src of [
+      "\u0001gozd-preview://other/Users/me/repo/x.png",
+      " gozd-preview://other/Users/me/repo/x.png",
+      "gozd-pre\tview://other/Users/me/repo/x.png",
+      "file\n:///etc/passwd",
+    ]) {
+      expect(resolve(src, baseFor("README.md"))).toBeUndefined();
+      expect(resolveMarkdownImageSrc(src, undefined, normalizeAbsolute)).toBeUndefined();
+    }
+  });
+
+  test("制御文字を挟んだ許可済みの scheme は、正規化した URL で通す", () => {
+    expect(resolve("\u0001https://e.example/a.png", baseFor("README.md"))).toBe(
+      "https://e.example/a.png",
+    );
+  });
+
+  test("解決先が自分の preview の origin でなければ、パスが root 配下でも読ませない", () => {
+    // Electron は配信 scheme を standard として登録するため、http と同じくバックスラッシュを
+    // 区切りとして解析する。bun はそう解析しないので、http の base で同じ解析を再現する
+    const standardBase = markdownImageBase(`http://p1${ROOT}/README.md`, {
+      absPath: `${ROOT}/README.md`,
+      root: ROOT,
+      scope: "worktree",
+    });
+    expect(resolve("\\\\other/Users/me/repo/x.png", standardBase)).toBeUndefined();
+    expect(resolve("docs/a.png", standardBase)).toBe(`http://p1${ROOT}/docs/a.png`);
+  });
+
   test("protocol-relative は https を補う", () => {
     expect(resolve("//cdn.example/a.png", baseFor("README.md"))).toBe("https://cdn.example/a.png");
     expect(resolve("//cdn.example/a.png", undefined)).toBe("https://cdn.example/a.png");
   });
 
+  test("配信 scheme で読む画像は、正規化した絶対パスを返す", () => {
+    expect(
+      resolveMarkdownImageSrc("../img/a.png", baseFor("docs/guide/a.md"), normalizeAbsolute)
+        ?.servedPath,
+    ).toBe(`${ROOT}/docs/img/a.png`);
+    expect(
+      resolveMarkdownImageSrc("https://e.example/a.png", baseFor("README.md"), normalizeAbsolute)
+        ?.servedPath,
+    ).toBeUndefined();
+  });
+
   test("base が未確定なら相対 src は読ませない", () => {
     expect(resolve("docs/a.png", undefined)).toBeUndefined();
+  });
+});
+
+describe("keepAllowedImageScheme", () => {
+  // 書き換え関数を渡さない利用側（session log）は、srcset の候補をこれだけで絞る
+  test("URL パーサが除く文字を挟んだ、許可しない scheme は読ませない", () => {
+    for (const url of [
+      "\u0001gozd-preview://other/x.png",
+      " file:///etc/passwd",
+      "gozd-pre\tview://other/x.png",
+    ]) {
+      expect(keepAllowedImageScheme(url)).toBeUndefined();
+    }
+  });
+
+  test("空白や制御文字だけの URL は読ませない", () => {
+    for (const url of ["", "  ", "\u0001\t"]) {
+      expect(keepAllowedImageScheme(url)).toBeUndefined();
+      expect(resolveMarkdownImageSrc(url, baseFor("README.md"), normalizeAbsolute)).toBeUndefined();
+    }
+  });
+
+  test("scheme の無い URL はそのまま返す", () => {
+    expect(keepAllowedImageScheme("docs/a.png")).toBe("docs/a.png");
   });
 });

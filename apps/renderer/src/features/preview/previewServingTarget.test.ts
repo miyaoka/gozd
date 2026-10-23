@@ -7,6 +7,7 @@ describe("previewServingTarget", () => {
     expect(previewServingTarget("/repo/docs/a.html", "/repo")).toEqual({
       absPath: "/repo/docs/a.html",
       root: "/repo",
+      scope: "worktree",
     });
   });
 
@@ -14,6 +15,7 @@ describe("previewServingTarget", () => {
     expect(previewServingTarget("/tmp/notes/a.html", undefined)).toEqual({
       absPath: "/tmp/notes/a.html",
       root: "/tmp/notes",
+      scope: "directory",
     });
   });
 

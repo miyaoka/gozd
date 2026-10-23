@@ -9,12 +9,14 @@ marked で Markdown → HTML 変換し、DOMPurify でサニタイズして表�
 - 内部リンクの遷移は `useMarkdownHistoryStore.navigate()` 経由で行い、back / forward 履歴に積む。
   filer / terminal などの外部経路で selection が変わると履歴は破棄される (詳細は `useMarkdownHistoryStore` を参照)
 - 画像は HTML preview と同じ配信 scheme から読む。`target` の root を配信許可として登録し、
-  `<img src>` をその URL に書き換える (`resolveMarkdownImageSrc`)。配信は working tree の
+  画像の URL (`src` と `srcset` の各候補) をその URL に書き換える (`resolveMarkdownImageSrc`)。配信は working tree の
   実ファイルを読むため、過去の版を表示していても画像は今のものになる (リンクの解決と同じ基準)
+- 画像ファイルの変更は `useMarkdownImageWatch` で受け、画像の URL に版数を載せて描き直す。
+  URL が同じままだと、配信が `no-store` でもページ内の画像キャッシュが使われる
 </doc>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
 import { relDirOf } from "../../../filer";
 import { normalizeAbsolute, normalizeRelative, useWorktreeStore } from "../../../worktree";
@@ -29,6 +31,7 @@ import {
 } from "./resolveMarkdownImageSrc";
 import { resolveMarkdownLink } from "./resolveMarkdownLink";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
+import { useMarkdownImageWatch } from "./useMarkdownImageWatch";
 
 const props = defineProps<{
   content: string;
@@ -49,11 +52,11 @@ const IMAGE_BASE_FAILED_MESSAGE = "Could not load images in markdown preview";
 // 値ごとのソースにする。target は選択のたびに作り直されるため、1 つの getter で配列を返すと
 // 同じファイルの再選択でも発火し、画像の src が外れて配信 URL を取り直す
 watch(
-  [() => props.target?.absPath, () => props.target?.root],
-  async ([absPath, root]) => {
+  [() => props.target?.absPath, () => props.target?.root, () => props.target?.scope],
+  async ([absPath, root, scope]) => {
     const mySeq = ++imageBaseSeq;
     imageBase.value = undefined;
-    if (absPath === undefined || root === undefined) return;
+    if (absPath === undefined || root === undefined || scope === undefined) return;
     const result = await serving.requestUrl(absPath, root);
     if (mySeq !== imageBaseSeq) return;
     if (!result.ok) {
@@ -63,14 +66,44 @@ watch(
       );
       return;
     }
-    imageBase.value = markdownImageBase(result.value.url, absPath, root);
+    imageBase.value = markdownImageBase(result.value.url, { absPath, root, scope });
   },
   { immediate: true },
 );
 
+/** 画像ファイルの変更で進める版数。画像の URL に載せて読み直させる */
+const imageEpoch = ref(0);
+/** 直近の描画が配信 scheme から読んだ画像の絶対パス。変更の監視対象 */
+const imagePaths = shallowRef<ReadonlySet<string>>(new Set());
+/**
+ * 描画中に書き換えた画像のパス。描画の完了で `imagePaths` に移す。MarkdownBody は最後に始まった
+ * 描画でだけ `rendered` を出すが、sanitize まで進んだ古い描画のパスはここに残る。監視が余分に
+ * 張られるだけで、次の描画で外れる
+ */
+let renderingPaths = new Set<string>();
+
 const resolveImageSrc = computed(() => {
   const base = imageBase.value;
-  return (src: string) => resolveMarkdownImageSrc(src, base, normalizeAbsolute);
+  const epoch = imageEpoch.value;
+  return (src: string) => {
+    const resolved = resolveMarkdownImageSrc(src, base, normalizeAbsolute);
+    if (resolved?.servedPath === undefined) return resolved?.url;
+    renderingPaths.add(resolved.servedPath);
+    if (epoch === 0) return resolved.url;
+    // 配信は pathname しか見ないため query は無害（HtmlPreview の再 load と同じ）
+    const url = new URL(resolved.url);
+    url.searchParams.set("e", String(epoch));
+    return url.href;
+  };
+});
+
+function onRendered() {
+  imagePaths.value = renderingPaths;
+  renderingPaths = new Set();
+}
+
+useMarkdownImageWatch(imagePaths, () => {
+  imageEpoch.value++;
 });
 
 /**
@@ -120,6 +153,7 @@ function onLinkClick(href: string) {
     aria-label="Markdown contents"
     :content="content"
     :resolve-image-src="resolveImageSrc"
+    @rendered="onRendered"
     @link-click="onLinkClick"
     @beforeinput="blockEdit"
     @compositionstart="abortComposition"

@@ -46,8 +46,10 @@ const imageBase = ref<MarkdownImageBase>();
 let imageBaseSeq = 0;
 const IMAGE_BASE_FAILED_MESSAGE = "Could not load images in markdown preview";
 
+// 値ごとのソースにする。target は選択のたびに作り直されるため、1 つの getter で配列を返すと
+// 同じファイルの再選択でも発火し、画像の src が外れて配信 URL を取り直す
 watch(
-  () => [props.target?.absPath, props.target?.root] as const,
+  [() => props.target?.absPath, () => props.target?.root],
   async ([absPath, root]) => {
     const mySeq = ++imageBaseSeq;
     imageBase.value = undefined;

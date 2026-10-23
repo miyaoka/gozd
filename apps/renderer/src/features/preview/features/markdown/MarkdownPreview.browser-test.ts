@@ -11,12 +11,17 @@ import MarkdownPreview from "./MarkdownPreview.vue";
 const ROOT = "/gozd-browser-test/repo";
 const ABS_PATH = `${ROOT}/README.md`;
 
+/** 配信 URL の要求回数。同じ対象の再選択で取り直していないかを見る */
+let servingUrlCalls = 0;
+
 /** main の pathToPreviewUrl と同じ形で返す。想定外の RPC は黙って空にせず落とす */
 function installRpcBridge() {
+  servingUrlCalls = 0;
   const bridge: ElectronRpcBridge = {
     request: (path, body) => {
       if (path === "/preview/releaseServing") return Promise.resolve({});
       if (path !== "/preview/servingUrl") throw new Error(`unexpected RPC: ${path}`);
+      servingUrlCalls++;
       const req = body as { absPath: string; previewId: string };
       return Promise.resolve({ url: `gozd-preview://${req.previewId}${req.absPath}` });
     },
@@ -45,13 +50,18 @@ function srcOf(container: Element, alt: string): string | null {
 }
 
 async function renderPreview(): Promise<Element> {
+  const { container } = await renderPreviewScreen();
+  return container;
+}
+
+async function renderPreviewScreen() {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  await render(MarkdownPreview, {
+  const screen = await render(MarkdownPreview, {
     container,
     props: { content: CONTENT, target: { absPath: ABS_PATH, root: ROOT } },
   });
-  return container;
+  return { container, screen };
 }
 
 test("相対 src を配信 scheme の URL に書き換え、範囲外と直書きの scheme は読ませない", async () => {
@@ -79,4 +89,15 @@ test("配信 URL の取得前は相対 src を DOM に入れない", async () =>
   await expect.poll(() => container.querySelector('img[alt="relative"]')).not.toBeNull();
   expect(srcOf(container, "relative")).toBeNull();
   expect(srcOf(container, "external")).toBe("https://img.shields.io/badge/a-b-c");
+});
+
+test("同じ対象を別の object で渡し直しても、画像の src を外さず配信 URL を取り直さない", async () => {
+  const { container, screen } = await renderPreviewScreen();
+  await expect.poll(() => srcOf(container, "relative")).toMatch(/^gozd-preview:/);
+  const before = srcOf(container, "relative");
+
+  await screen.rerender({ content: CONTENT, target: { absPath: ABS_PATH, root: ROOT } });
+
+  expect(srcOf(container, "relative")).toBe(before);
+  expect(servingUrlCalls).toBe(1);
 });

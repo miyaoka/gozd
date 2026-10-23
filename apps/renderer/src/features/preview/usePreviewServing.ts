@@ -1,6 +1,10 @@
 import { tryCatch } from "@gozd/shared";
 import { onBeforeUnmount } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { rpcPreviewServingUrl, rpcPreviewReleaseServing } from "./rpc";
+
+/** 固定 message + 詳細を cause に分離し、preview 違いでトーストが累積しないようにする */
+const RELEASE_FAILED_MESSAGE = "Could not release preview file access";
 
 /**
  * main の配信 scheme (`gozd-preview://`) から読む preview 面 1 つ分の配信許可。
@@ -11,6 +15,7 @@ import { rpcPreviewServingUrl, rpcPreviewReleaseServing } from "./rpc";
  */
 export function usePreviewServing() {
   const previewId = crypto.randomUUID();
+  const notification = useNotificationStore();
 
   /**
    * 要求の直列化。前回の要求が終わってから次を始める。
@@ -35,12 +40,13 @@ export function usePreviewServing() {
   onBeforeUnmount(() => {
     // 解放も同じキューに載せる。直列化しないと、in-flight の要求が解放の後に完了して
     // grant を再登録し、閉じた preview の配信許可がプロセスの生存期間ずっと残る。
-    // 解放できなくても UI 上は何も起きないので観察ログを残す
+    // 解放できなくても UI 上は何も起きないため、通知しないと配信許可が残ったことに気づけない
     pending = pending.then(() =>
       tryCatch(rpcPreviewReleaseServing({ previewId })).then((released) => {
         if (!released.ok) {
-          console.error(
-            `[usePreviewServing] failed to release preview root: ${String(released.error)}`,
+          notification.error(
+            RELEASE_FAILED_MESSAGE,
+            new Error(`previewId=${previewId}`, { cause: released.error }),
           );
         }
       }),

@@ -3,14 +3,15 @@
 import type { EmptyMessage } from "./common";
 
 /**
- * HTML preview の iframe に load させる URL を得る。main 側は同時に `root` 配下を配信可能として
+ * 配信 scheme での `absPath` の URL を得る。main 側は同時に `root` 配下を配信可能として
  * 登録する（VS Code の `localResourceRoots` と同型で、登録が無い path は配信しない）。
  *
- * srcdoc ではなく実 URL を load するのは、previewed HTML の相対リンク / 画像 / CSS を
- * document の base URL で解決させるため。srcdoc では base が親 (renderer) の URL になる。
+ * HTML preview は iframe にこの URL を load させ、previewed HTML の相対リンク / 画像 / CSS を
+ * document の base URL で解決させる（srcdoc では base が親 (renderer) の URL になる）。
+ * markdown preview はこの URL を基準に `<img src>` を書き換える。
  */
 export interface PreviewHtmlUrlRequest {
-  /** preview 対象 HTML の絶対パス */
+  /** preview 対象（HTML / markdown）の絶対パス */
   absPath: string;
   /** 配信を許す root の絶対パス。通常は対象ファイルが属する worktree root */
   root: string;
@@ -26,7 +27,7 @@ export interface PreviewHtmlUrlRequest {
 }
 
 export interface PreviewHtmlUrlResponse {
-  /** iframe の src に入れる URL */
+  /** `absPath` の配信 URL */
   url: string;
 }
 

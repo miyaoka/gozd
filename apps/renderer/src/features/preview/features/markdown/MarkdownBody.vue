@@ -26,6 +26,9 @@ navigation に委ねる経路を残さないのは、consumer によって委ね
 - `literalHtml` を渡すと本文中の HTML を要素にせず、書かれた文字のまま出す。HTML が書式ではなく
   書かれた文字そのものである本文 (会話の発言等) のための口で、`Array<string>` の `<string>` が
   sanitizer に消されたり、`<Button>` が button 要素になったりしない
+- `resolveImageSrc` を渡すと `<img src>` を sanitize の中で書き換える。DOM に入った時点で
+  ブラウザが src を読みに行くため、挿入後の書き換えでは renderer の origin への要求を防げない。
+  sanitizer の URI allowlist を通った値だけが渡るので、本文に直書きされた未知 scheme は届かない
 </doc>
 
 <script setup lang="ts">
@@ -37,12 +40,16 @@ import { useNotificationStore } from "../../../../shared/notification";
 import { isLinkActivation, openExternalOrNotify } from "../../../../shared/rpc";
 import { literalHtmlExtension } from "./literalHtml";
 
+type ImageSrcResolver = (src: string) => string | undefined;
+
 const props = defineProps<{
   content: string;
   /** 本文の 1 行目の先頭に出す印 */
   leadMark?: string;
   /** 本文中の HTML を要素にせず、書かれた文字のまま出す */
   literalHtml?: boolean;
+  /** `<img src>` の書き換え。undefined を返した img は src を外す */
+  resolveImageSrc?: ImageSrcResolver;
 }>();
 
 const emit = defineEmits<{
@@ -167,11 +174,39 @@ async function renderMermaidBlocks() {
   }
 }
 
+/**
+ * hook はインスタンス全体に掛かるため、既定の DOMPurify とは別のインスタンスを持つ。
+ * 書き換え関数は sanitize の呼び出し中だけ置く（hook に引数を渡す口が無いため）。
+ */
+const purify = DOMPurify(window);
+let activeImageResolver: ImageSrcResolver | undefined;
+
+purify.addHook("afterSanitizeAttributes", (node) => {
+  if (activeImageResolver === undefined || node.nodeName !== "IMG") return;
+  const src = node.getAttribute("src");
+  if (src === null) return;
+  const resolved = activeImageResolver(src);
+  if (resolved === src) return;
+  if (resolved === undefined) {
+    node.removeAttribute("src");
+    return;
+  }
+  node.setAttribute("src", resolved);
+});
+
+function sanitize(html: string, resolveImageSrc: ImageSrcResolver | undefined): string {
+  activeImageResolver = resolveImageSrc;
+  const result = tryCatch(() => purify.sanitize(html));
+  activeImageResolver = undefined;
+  if (!result.ok) throw result.error;
+  return result.value;
+}
+
 watch(
-  () => [props.content, props.literalHtml] as const,
-  async ([content, literalHtml]) => {
+  () => [props.content, props.literalHtml, props.resolveImageSrc] as const,
+  async ([content, literalHtml, resolveImageSrc]) => {
     const rawHtml = await (literalHtml ? markdownWithLiteralHtml : markdown).parse(content);
-    renderedHtml.value = DOMPurify.sanitize(rawHtml);
+    renderedHtml.value = sanitize(rawHtml, resolveImageSrc);
     // DOM 反映後に mermaid を描画し、その後 rendered を通知して高さ確定に依存する consumer のフックにする。
     await nextTick();
     await renderMermaidBlocks();

@@ -23,6 +23,7 @@ import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
 import { MarkdownPreview } from "./features/markdown";
 import HtmlPreview from "./HtmlPreview.vue";
+import type { HtmlPreviewTarget } from "./htmlPreviewTarget";
 import ImagePreview from "./ImagePreview.vue";
 import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "./previewConfig";
 import type { FileType } from "./previewFileType";
@@ -37,6 +38,8 @@ withDefaults(
     htmlRoot?: string;
     /** content 更新のカウンタ。増えると HTML preview が iframe を再 load する */
     htmlEpoch?: number;
+    /** markdown の画像の配信対象。markdown 以外では undefined */
+    markdownTarget?: HtmlPreviewTarget;
     fileType: FileType;
     activeMode: PreviewMode;
     previewEnabled: boolean;
@@ -137,6 +140,7 @@ const emit = defineEmits<{
     <MarkdownPreview
       v-else-if="fileType === 'markdown' && previewEnabled && displayContent"
       :content="displayContent"
+      :target="markdownTarget"
     />
 
     <!-- HTML preview モード（main の配信 scheme 経由で実 URL を load する） -->

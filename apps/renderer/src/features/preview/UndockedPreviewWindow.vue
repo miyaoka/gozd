@@ -130,6 +130,8 @@ const htmlTarget = computed(() =>
     ? htmlPath
     : undefined,
 );
+/** markdown は内容を渡して描画するため mode の gate を掛けない。画像だけ working tree から読む */
+const markdownTarget = fileType === "markdown" ? htmlPath : undefined;
 const isImageFile = fileType === "image" || fileType === "svg";
 
 /** current 側の中身。undock 時 snapshot を初期値に、source の実ファイル変更へ追従する */
@@ -462,6 +464,7 @@ function dockToPreview() {
         :html-abs-path="htmlTarget?.absPath"
         :html-root="htmlTarget?.root"
         :html-epoch="htmlEpoch"
+        :markdown-target="markdownTarget"
         :image-source="imageSource"
         :display-is-binary="displayIsBinary"
         :error="contentError"

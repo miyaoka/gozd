@@ -211,12 +211,21 @@ watch(displayContent, () => {
 });
 
 /**
- * HTML preview の配信対象 (絶対パス) と配信を許す root。
+ * 配信 scheme から読む対象 (絶対パス) と配信を許す root。
  *
  * worktree 相対 selection は worktree root を root にする。worktree 外の絶対パス selection は
  * そのファイルが居る dir を root にして、配信範囲を最小に保つ (VS Code の localResourceRoots が
  * 開いているものだけを列挙するのと同じ絞り方)。
  */
+const servingTarget = computed(() => {
+  const sel = worktreeStore.selection;
+  if (sel === undefined) return undefined;
+  if (sel.kind === "absolute") return htmlPreviewTarget(sel.absPath, undefined);
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return undefined;
+  return htmlPreviewTarget(joinAbsRel(dir, sel.relPath), dir);
+});
+
 const htmlTarget = computed(() => {
   if (fileType.value !== "html") return undefined;
   // 配信経路は working tree の実ファイルしか読めない。表示中 rev がそれと一致しないときは
@@ -230,13 +239,13 @@ const htmlTarget = computed(() => {
   ) {
     return undefined;
   }
-  const sel = worktreeStore.selection;
-  if (sel === undefined) return undefined;
-  if (sel.kind === "absolute") return htmlPreviewTarget(sel.absPath, undefined);
-  const dir = worktreeStore.dir;
-  if (dir === undefined) return undefined;
-  return htmlPreviewTarget(joinAbsRel(dir, sel.relPath), dir);
+  return servingTarget.value;
 });
+
+/** markdown は内容を渡して描画するため rev の gate を掛けない。画像だけ working tree から読む */
+const markdownTarget = computed(() =>
+  fileType.value === "markdown" ? servingTarget.value : undefined,
+);
 
 /**
  * 「本体 preview として開き直す」ボタンの対象 (undock 元の選択の焼き込み)。未選択 /
@@ -521,6 +530,7 @@ function onCodeScrolled() {
             :html-abs-path="htmlTarget?.absPath"
             :html-root="htmlTarget?.root"
             :html-epoch="htmlEpoch"
+            :markdown-target="markdownTarget"
             :image-source="imageSource"
             :display-is-binary="displayIsBinary"
             :loading="loading"

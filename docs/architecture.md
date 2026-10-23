@@ -121,12 +121,14 @@ renderer の再構築中に落ちた push は、mount 時の pull による再�
 ファイル内容へ到達できる経路は 2 つに限る。
 
 - first-party の renderer コードだけが呼べる RPC
-- HTML preview 専用の配信 scheme（[preview.md](preview.md)）
+- preview の配信 scheme（HTML preview と markdown preview の画像。[preview.md](preview.md)）
 
 後者は URL から読める口だが、配信範囲は preview が登録した root 配下に限られ、応答の CSP で
 script 実行と外部通信を落とす。描画されたコンテンツ（markdown 等）から RPC bridge を呼べないのは
-sanitizer が script を除去するため、配信 scheme を参照できないのは sanitizer の URI allowlist が
-未知 scheme を落とすため。**sanitizer の設定を緩めるときはこの 2 つの境界を再確認する**。
+sanitizer が script を除去するため。描画されたコンテンツが配信 scheme の URL を直接書けないのは
+sanitizer の URI allowlist が未知 scheme を落とすためで、markdown の画像が配信 scheme に届くのは
+sanitizer を通った相対 src を first-party コードが書き換えたものだけ。**sanitizer の設定を
+緩めるときはこの 2 つの境界を再確認する**。
 
 ### ソケットからの受付
 

@@ -191,10 +191,11 @@ describe("IME", () => {
       s.textContent,
       getComputedStyle(s).textDecorationLine,
       getComputedStyle(s).textDecorationThickness,
+      getComputedStyle(s).textDecorationSkipInk,
     ]);
     expect(spans).toEqual([
-      ["今日は", "underline", "2px"],
-      ["いい天気", "underline", "1px"],
+      ["今日は", "underline", "2px", "none"],
+      ["いい天気", "underline", "1px", "none"],
     ]);
   });
 });

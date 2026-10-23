@@ -38,6 +38,14 @@ describe("rewriteSrcset", () => {
     expect(rewriteSrcset("a.png 480w 300h", rewrite)).toBe("R(a.png) 480w 300h");
   });
 
+  test("書き換えた URL が区切り（末尾のカンマ・ASCII 空白）を含む候補は落とす", () => {
+    expect(rewriteSrcset("a.png 1x, b.png 2x", () => "x.png,")).toBeUndefined();
+    expect(rewriteSrcset("a.png 1x", () => "x .png")).toBeUndefined();
+    expect(rewriteSrcset("a.png 1x, b.png 2x", (url) => (url === "a.png" ? "x.png," : url))).toBe(
+      "b.png 2x",
+    );
+  });
+
   test("候補が残らなければ undefined", () => {
     expect(rewriteSrcset("bad.png 1x, bad2.png 2x", rewrite)).toBeUndefined();
     expect(rewriteSrcset("  ", rewrite)).toBeUndefined();

@@ -31,3 +31,12 @@ test("書き換え関数が無くても、括弧で descriptor に紛れ込ま�
   const img = new DOMParser().parseFromString(html, "text/html").querySelector("img");
   expect(img?.getAttribute("srcset")).toBe("b.png 2x");
 });
+
+test("正規化で末尾の制御文字が外れ、カンマで終わる URL になる候補は読ませない", () => {
+  const html = sanitizeMarkdownHtml(
+    '<img srcset="https://e.example/a.png,&#1; 1x, https://e.example/b.png 2x">',
+    undefined,
+  );
+  const img = new DOMParser().parseFromString(html, "text/html").querySelector("img");
+  expect(img?.getAttribute("srcset")).toBe("https://e.example/b.png 2x");
+});

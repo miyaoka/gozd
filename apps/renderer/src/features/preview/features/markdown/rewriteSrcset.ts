@@ -7,11 +7,14 @@
  * 括弧の外にあるカンマまで続く（括弧は入れ子にならない）。
  *
  * 出力する descriptor は文法に合うトークン（`<整数>w` / `<数>x` / `<整数>h`）だけを組み直したもので、
- * 合わない候補は落とす。解析の細部がブラウザとずれても、URL 以外の生の文字列を出力に残さなければ、
- * ブラウザが別の位置を URL として読むことはない。
+ * 合わない候補は落とす。書き換えた URL も、ブラウザが解析し直すときの区切り（ASCII 空白、末尾の
+ * カンマ）を含むなら落とす。こうすると出力は「URL 1 つ + 文法どおりの descriptor」の並びに限られ、
+ * 解析の細部がブラウザとずれても、ブラウザが別の位置を URL として読むことはない。
  */
 
 const DESCRIPTOR_RE = /^(?:\d+w|\d+h|(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?x)$/i;
+/** ブラウザが srcset を解析し直すとき、URL の区切りになる文字を含むか（ASCII 空白、末尾のカンマ） */
+const URL_BREAKS_CANDIDATE_RE = /[\t\n\f\r ]|,$/;
 
 export function rewriteSrcset(
   value: string,
@@ -45,7 +48,7 @@ export function rewriteSrcset(
     const tokens = descriptor === "" ? [] : descriptor.split(/\s+/);
     if (!tokens.every((token) => DESCRIPTOR_RE.test(token))) continue;
     const rewritten = rewrite(url);
-    if (rewritten === undefined) continue;
+    if (rewritten === undefined || URL_BREAKS_CANDIDATE_RE.test(rewritten)) continue;
     candidates.push([rewritten, ...tokens].join(" "));
   }
   return candidates.length === 0 ? undefined : candidates.join(", ");

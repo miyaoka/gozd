@@ -11,9 +11,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-// Claude Code のバックグラウンドジョブ（CLAUDE_JOB_DIR が立つ）は、会話を移す前の端末の
-// GOZD_PTY_ID を引き継いで動き続ける。その hook は今の端末の状態を表さず、gozd の再起動後は
-// 同じ番号の無関係な端末に届くため、送らずに成功で終える
+// バックグラウンドジョブの中では送らずに成功で終える（docs/architecture.md の「Claude Code hooks」）
 function skipInBackgroundJob(command: string): string {
   return `[ -n "$CLAUDE_JOB_DIR" ] || ${command}`;
 }

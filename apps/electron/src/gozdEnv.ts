@@ -86,8 +86,8 @@ export const bundledRendererIndex = join(bundledAppRoot, "views", "main", "index
 
 /** PTY 子プロセスに継承させない親プロセス由来のキー。
  * gozd app が内部フラグとして持つ env を子に漏らさない。
- * CLAUDE_JOB_DIR は Claude Code のバックグラウンドジョブの印で、hook はこれがあると何もしない。
- * gozd 自体がジョブの中から起動されたときに、端末の Claude の hook まで黙らせないよう剥がす */
+ * CLAUDE_JOB_DIR は、gozd がバックグラウンドジョブの中から起動されても端末の Claude の hook を
+ * 止めないために剥がす（docs/architecture.md の「Claude Code hooks」） */
 const STRIPPED_KEYS = [
   "CLAUDE_JOB_DIR",
   "GOZD_DEV_PROJECT_ROOT",

@@ -88,22 +88,19 @@ describe("ClaudeHooksSettings", () => {
       chmodSync(path, 0o755);
     }
     const hooks = claudeHooksSettings().hooks as Record<string, HookEntry[]>;
-    const run = (command: string, jobDir: string) =>
-      spawnSync("sh", ["-c", command], {
-        input: "{}",
-        env: {
-          PATH: `${dir}:/usr/bin:/bin`,
-          GOZD_CLI_PATH: join(dir, "gozd-cli"),
-          GOZD_PTY_ID: "1",
-          CLAUDE_JOB_DIR: jobDir,
-        },
-      });
+    const baseEnv = {
+      PATH: `${dir}:/usr/bin:/bin`,
+      GOZD_CLI_PATH: join(dir, "gozd-cli"),
+      GOZD_PTY_ID: "1",
+    };
+    const run = (command: string, env: Record<string, string>) =>
+      spawnSync("sh", ["-c", command], { input: "{}", env });
 
     for (const event of Object.keys(hooks)) {
       const command = commandFor(event);
-      expect(run(command, join(dir, "job")).status).toBe(0);
+      expect(run(command, { ...baseEnv, CLAUDE_JOB_DIR: join(dir, "job") }).status).toBe(0);
       expect(existsSync(marker)).toBe(false);
-      run(command, "");
+      run(command, baseEnv);
       expect(existsSync(marker)).toBe(true);
       rmSync(marker);
     }

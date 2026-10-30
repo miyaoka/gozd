@@ -1866,6 +1866,53 @@ describe("parseSessionLog", () => {
       expect(log.events).toEqual(expected);
     });
 
+    test("fork したセッションで compact 前の末尾が要約の下に写され、boundary の論理的な親が輪になる形", () => {
+      // 実ログ形 (`--fork-session` の写し): boundary が先頭に来て、compact 前の末尾 a1 は要約の
+      // 子として写される。boundary の logicalParentUuid は a1 を指したままなので、
+      // boundary → 要約 → a1 → boundary の輪になる。
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "system",
+            subtype: "compact_boundary",
+            uuid: "cb",
+            parentUuid: null,
+            logicalParentUuid: "a1",
+            timestamp: TS,
+          },
+          summaryRecord(SUMMARY),
+          {
+            type: "assistant",
+            uuid: "a1",
+            parentUuid: "sum",
+            timestamp: TS,
+            message: { role: "assistant", content: [{ type: "text", text: "compact 前の応答" }] },
+          },
+          { type: "attachment", uuid: "att1", parentUuid: "a1", timestamp: TS },
+          {
+            type: "user",
+            uuid: "u2",
+            parentUuid: "att1",
+            timestamp: TS,
+            message: { role: "user", content: "compact 後の依頼" },
+          },
+          {
+            type: "assistant",
+            uuid: "a2",
+            parentUuid: "u2",
+            timestamp: TS,
+            message: { role: "assistant", content: [{ type: "text", text: "compact 後の応答" }] },
+          },
+        ),
+      );
+      expect(log.events).toEqual([
+        { kind: "user", text: SUMMARY, ts: TS },
+        { kind: "assistant", text: "compact 前の応答", ts: TS },
+        { kind: "user", text: "compact 後の依頼", ts: TS },
+        { kind: "assistant", text: "compact 後の応答", ts: TS },
+      ]);
+    });
+
     test("要約の下で rewind すると compact 前の会話的親を分岐点にし、セッション先頭を刈らない", () => {
       // 要約と boundary を透過して会話的親 a1 に行き着く。boundary を ROOT のまま扱うと、u1 と
       // 同じ ROOT に並んで u1 が刈られる。

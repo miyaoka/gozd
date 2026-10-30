@@ -657,7 +657,7 @@ export type BranchSelection = Map<string, string>;
 interface LogNode {
   raw: RawLine;
   uuid: string; // raw.uuid ?? "" (uuid 無し = 木に参加しない古いログ / 注入レコード)
-  parentUuid: string; // treeParentUuid(raw)
+  parentUuid: string; // rewind 木の親。treeParentUuid(raw)。論理的な親で輪になるノードは ""
 }
 
 /**
@@ -671,6 +671,20 @@ function treeParentUuid(raw: RawLine): string {
   if (typeof raw.parentUuid === "string") return raw.parentUuid;
   if (typeof raw.logicalParentUuid === "string") return raw.logicalParentUuid;
   return "";
+}
+
+/** node の親を遡ると node 自身に戻るか (親の連鎖が輪になっているか)。 */
+function isOwnAncestor(node: LogNode, byUuid: Map<string, LogNode>): boolean {
+  let cur = node.parentUuid;
+  const seen = new Set<string>(); // node を通らない輪のガード (信頼境界外データ)
+  while (cur !== "" && !seen.has(cur)) {
+    if (cur === node.uuid) return true;
+    seen.add(cur);
+    const parent = byUuid.get(cur);
+    if (parent === undefined) return false;
+    cur = parent.parentUuid;
+  }
+  return false;
 }
 
 /**
@@ -841,10 +855,20 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   // uuid → LogNode と parentUuid → 子 LogNode[] (出現順)。前者は会話的親の遡上、後者は
   // サブツリー prune に使う。uuid を持つレコードのみ木に参加する。
   const byUuid = new Map<string, LogNode>();
+  for (const node of nodes) {
+    if (node.uuid !== "") byUuid.set(node.uuid, node);
+  }
+  // 論理的な親 (logicalParentUuid) で繋ぐと自分の子孫を親にしてしまうノードは、根に戻す。
+  // fork したセッションは compact 前の末尾を要約の下に写すため、boundary の論理的な親が
+  // boundary 自身の子孫になる。輪のまま残すと、会話的親の遡上が輪を回って compact 前後の発話を
+  // 同じ分岐点の兄弟とみなし、一方を刈るときに輪でつながった会話全体が刈られる。
+  for (const node of nodes) {
+    if (node.uuid === "" || typeof node.raw.parentUuid === "string") continue;
+    if (isOwnAncestor(node, byUuid)) node.parentUuid = "";
+  }
   const childrenByParent = new Map<string, LogNode[]>();
   for (const node of nodes) {
     if (node.uuid === "") continue;
-    byUuid.set(node.uuid, node);
     const arr = childrenByParent.get(node.parentUuid);
     if (arr === undefined) childrenByParent.set(node.parentUuid, [node]);
     else arr.push(node);

@@ -657,7 +657,7 @@ export type BranchSelection = Map<string, string>;
 interface LogNode {
   raw: RawLine;
   uuid: string; // raw.uuid ?? "" (uuid 無し = 木に参加しない古いログ / 注入レコード)
-  parentUuid: string; // treeParentUuid(raw)
+  parentUuid: string; // rewind 木の親。treeParentUuid(raw)。論理的な親で輪になるノードは ""
 }
 
 /**

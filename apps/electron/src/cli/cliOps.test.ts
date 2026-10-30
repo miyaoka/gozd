@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildHookMessage,
+  findBackgroundJobId,
   launchRequestDirFromSocketPath,
   parseNewWorktreeArgs,
   parseStdinJson,
@@ -160,6 +161,32 @@ describe("parseStdinJson", () => {
     expect(parseStdinJson("[1,2]")).toEqual({});
     expect(parseStdinJson('"text"')).toEqual({});
     expect(parseStdinJson('{"a":1}')).toEqual({ a: 1 });
+  });
+});
+
+describe("findBackgroundJobId", () => {
+  // `claude agents --json` の実出力（Claude Code 2.1.314）から必要なフィールドを残したもの
+  const agents = JSON.stringify([
+    { id: "7787291c", kind: "background", sessionId: "7787291c-6e19-4d25-92cc-9b4fb386156c" },
+    { kind: "interactive", sessionId: "a4ae77e7-c77f-4a61-9c5c-17c917c9e5d6" },
+  ]);
+
+  test("バックグラウンドで動くセッションはジョブ id を返す", () => {
+    expect(findBackgroundJobId(agents, "7787291c-6e19-4d25-92cc-9b4fb386156c")).toEqual({
+      ok: true,
+      value: "7787291c",
+    });
+  });
+
+  test("対話端末で動くセッションと一覧に無いセッションは undefined", () => {
+    expect(findBackgroundJobId(agents, "a4ae77e7-c77f-4a61-9c5c-17c917c9e5d6")).toEqual({
+      ok: true,
+      value: undefined,
+    });
+    expect(findBackgroundJobId(agents, "00000000-0000-0000-0000-000000000000")).toEqual({
+      ok: true,
+      value: undefined,
+    });
   });
 });
 

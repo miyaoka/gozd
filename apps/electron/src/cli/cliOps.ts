@@ -105,6 +105,27 @@ export function parseStdinJson(text: string): Record<string, unknown> {
   return {};
 }
 
+/**
+ * `claude agents --json` の出力から、sessionId をバックグラウンドで動かしているジョブの id を引く。
+ * 該当が無ければ undefined。出力が配列でなければ Claude Code の形式変更なのでエラーにする。
+ */
+export function findBackgroundJobId(
+  agentsJson: string,
+  sessionId: string,
+): Result<string | undefined, string> {
+  const parsed = tryCatch(() => JSON.parse(agentsJson) as unknown);
+  if (!parsed.ok) return { ok: false, error: `invalid JSON: ${parsed.error}` };
+  if (!Array.isArray(parsed.value)) return { ok: false, error: "expected a JSON array" };
+  for (const agent of parsed.value as unknown[]) {
+    if (agent === null || typeof agent !== "object") continue;
+    const { kind, sessionId: sid, id } = agent as Record<string, unknown>;
+    if (kind === "background" && sid === sessionId && typeof id === "string") {
+      return { ok: true, value: id };
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
 /** `gozd worktree new` が受け付ける、値を取るオプション。値は次の引数か `=` の右辺で渡す。 */
 const NEW_WORKTREE_FLAGS = ["--prompt", "--dir"] as const;
 type NewWorktreeFlag = (typeof NEW_WORKTREE_FLAGS)[number];

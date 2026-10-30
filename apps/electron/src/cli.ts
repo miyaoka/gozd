@@ -13,9 +13,11 @@
 //   gozd-cli repo list             … 登録済みの repo を JSON で返す
 //   gozd-cli session list          … 登録済みの全 repo のセッションを JSON で返す
 //   gozd-cli session open <id>     … セッションを開く（画面をそのセッションへ切り替える）
+//   gozd-cli claude-job <id>       … stdin の `claude agents --json` からバックグラウンドジョブ id を返す
+//                                    （zsh 初期化の内部用。usage には載せない）
 //   gozd-cli --help                … usage
 //
-// worktree / repo / session は後から足したサブコマンドで、この名前のディレクトリを開くには
+// open / hook 以外のサブコマンドは後から足したもので、その名前のディレクトリを開くには
 // `gozd ./repo` のようにパスとして渡す。これらを持たない旧版の CLI はこれらの先頭引数を
 // open のパスとみなす（未知の先頭引数 = パス扱いのため）。
 
@@ -25,6 +27,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   buildHookMessage,
+  findBackgroundJobId,
   parseNewWorktreeArgs,
   parsePtyId,
   parseStdinJson,
@@ -249,6 +252,29 @@ async function sessionCommand(argv: string[]): Promise<void> {
   process.exit(1);
 }
 
+/**
+ * `gozd claude-job <session-id>` — stdin の `claude agents --json` から、そのセッションを動かして
+ * いるバックグラウンドジョブの id を stdout に返す。無ければ何も出さない。zsh 初期化の再開経路
+ * 専用で、JSON を読める道具をユーザー環境に要求しないために CLI が解釈を受け持つ。
+ */
+function claudeJobCommand(sessionId: string | undefined): void {
+  if (sessionId === undefined || sessionId === "") {
+    process.stderr.write("usage: gozd claude-job <session-id>  (reads `claude agents --json`)\n");
+    process.exit(1);
+  }
+  const stdinText = tryCatch(() => readFileSync(0, "utf8"));
+  if (!stdinText.ok) {
+    process.stderr.write(`gozd claude-job: failed to read stdin: ${stdinText.error}\n`);
+    process.exit(1);
+  }
+  const found = findBackgroundJobId(stdinText.value, sessionId);
+  if (!found.ok) {
+    process.stderr.write(`gozd claude-job: ${found.error}\n`);
+    process.exit(1);
+  }
+  if (found.value !== undefined) process.stdout.write(`${found.value}\n`);
+}
+
 async function hookCommand(event: string): Promise<void> {
   // stdin から Claude Code が渡す JSON を読む（空でも可）
   const stdinText = tryCatch(() => readFileSync(0, "utf8"));
@@ -278,6 +304,10 @@ async function main(): Promise<void> {
   }
   if (first === "session") {
     await sessionCommand(process.argv.slice(3));
+    return;
+  }
+  if (first === "claude-job") {
+    claudeJobCommand(second);
     return;
   }
   if (first === "hook") {

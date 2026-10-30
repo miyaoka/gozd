@@ -47,14 +47,23 @@ claude() {
   command claude "${gozd_args[@]}" --settings "$GOZD_CLAUDE_SETTINGS_PATH" "$@"
 }
 
+# バックグラウンドのジョブを端末に attach する。attach は Claude Code の引数を受け取らない
+# ため、ラッパーを通さず直接呼ぶ。Claude はこの端末で起動しないので、端末とセッションの
+# 対応は前後で session-start / session-end を自分で送って作り、外す
+_gozd_attach_claude_job() {
+  local _id="$1" _job="$2"
+  print -r -- "{\"session_id\":\"$_id\"}" | "$GOZD_CLI_PATH" hook session-start
+  command claude attach "$_job"
+  local _exit=$?
+  print -r -- "{\"session_id\":\"$_id\"}" | "$GOZD_CLI_PATH" hook session-end
+  return $_exit
+}
+
 # 指定した Claude セッションを再開する。
 # native 側が PTY spawn 時に GOZD_RESUME_CLAUDE_SESSION=<sessionId> を env に注入する。
 # ユーザーが Claude を抜けると素のシェルプロンプトに戻るよう exec はしない。
 #
-# function 化する理由:
-# - local で sessionId を保持し関数終了時に自動破棄するため
-# - 関数の最後の文を `claude --resume` にすることで、$? が claude の終了コードに
-#   なる（unset を後置すると $? が unset の戻り値で上書きされる）
+# function 化する理由: local で sessionId を保持し関数終了時に自動破棄するため
 _gozd_resume_claude() {
   local _id="$GOZD_RESUME_CLAUDE_SESSION"
   unset GOZD_RESUME_CLAUDE_SESSION
@@ -75,9 +84,17 @@ _gozd_resume_claude() {
   # 実装不能 (claude が固有 exit code を分離出力していないため) なので denylist で
   # 表現する。
   case $_exit in
-    0|130|143) ;;
-    *) claude ;;
+    0|130|143) return $_exit ;;
   esac
+  # バックグラウンドのジョブ（agent view へ移した会話）として動いているセッションも、
+  # gozd の設定を付けた再開は Claude Code が拒否して非 0 で抜ける。ジョブなら attach で開く
+  local _job
+  _job=$(command claude agents --json | "$GOZD_CLI_PATH" claude-job "$_id")
+  if [[ -n "$_job" ]]; then
+    _gozd_attach_claude_job "$_id" "$_job"
+    return
+  fi
+  claude
 }
 [[ -n "$GOZD_RESUME_CLAUDE_SESSION" ]] && _gozd_resume_claude
 

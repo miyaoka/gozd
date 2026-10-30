@@ -115,7 +115,7 @@ describe("buildPtyEnv", () => {
     expect(env.GOZD_ELECTRON_RENDERER_URL).toBeUndefined();
   });
 
-  test("gozd が Claude Code のバックグラウンドジョブの中から起動されても、端末はジョブの印を持たない", () => {
+  test("gozd が Claude Code のバックグラウンドジョブの中から起動されても、端末の環境に CLAUDE_JOB_DIR が残らない", () => {
     setParentEnv("CLAUDE_JOB_DIR", "/Users/foo/.claude/jobs/7787291c");
     expect(buildPtyEnv({}, 1).CLAUDE_JOB_DIR).toBeUndefined();
   });

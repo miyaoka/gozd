@@ -80,7 +80,7 @@ describe("ClaudeHooksSettings", () => {
   test("Claude Code のバックグラウンドジョブの中では、どの hook も gozd に送らず成功で終える", () => {
     const dir = mkdtempSync(join(tmpdir(), "gozd-hooks-job-test-"));
     tempDirs.push(dir);
-    // 送信の両経路（CLI / nc）を、呼ばれたら印を書く偽物に差し替える
+    // 送信の両経路（CLI / nc）を、呼ばれたら目印のファイルに追記する偽物に差し替える
     const marker = join(dir, "sent");
     for (const name of ["gozd-cli", "nc"]) {
       const path = join(dir, name);

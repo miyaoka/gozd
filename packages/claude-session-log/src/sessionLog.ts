@@ -673,6 +673,20 @@ function treeParentUuid(raw: RawLine): string {
   return "";
 }
 
+/** node の親を遡ると node 自身に戻るか (親の連鎖が輪になっているか)。 */
+function isOwnAncestor(node: LogNode, byUuid: Map<string, LogNode>): boolean {
+  let cur = node.parentUuid;
+  const seen = new Set<string>(); // node を通らない輪のガード (信頼境界外データ)
+  while (cur !== "" && !seen.has(cur)) {
+    if (cur === node.uuid) return true;
+    seen.add(cur);
+    const parent = byUuid.get(cur);
+    if (parent === undefined) return false;
+    cur = parent.parentUuid;
+  }
+  return false;
+}
+
 /**
  * rewind 分岐の候補ノードか。「同一親に 2 つ以上並ぶと rewind 分岐」とみなせるのは、実発話 user
  * (text / image を持つ。tool_result / 注入 / meta を除く) と、text / thinking を持つ assistant
@@ -841,10 +855,20 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   // uuid → LogNode と parentUuid → 子 LogNode[] (出現順)。前者は会話的親の遡上、後者は
   // サブツリー prune に使う。uuid を持つレコードのみ木に参加する。
   const byUuid = new Map<string, LogNode>();
+  for (const node of nodes) {
+    if (node.uuid !== "") byUuid.set(node.uuid, node);
+  }
+  // 論理的な親 (logicalParentUuid) で繋ぐと自分の子孫を親にしてしまうノードは、根に戻す。
+  // fork したセッションは compact 前の末尾を要約の下に写すため、boundary の論理的な親が
+  // boundary 自身の子孫になる。輪のまま残すと、会話的親の遡上が輪を回って compact 前後の発話を
+  // 同じ分岐点の兄弟とみなし、一方を刈るときに輪でつながった会話全体が刈られる。
+  for (const node of nodes) {
+    if (node.uuid === "" || typeof node.raw.parentUuid === "string") continue;
+    if (isOwnAncestor(node, byUuid)) node.parentUuid = "";
+  }
   const childrenByParent = new Map<string, LogNode[]>();
   for (const node of nodes) {
     if (node.uuid === "") continue;
-    byUuid.set(node.uuid, node);
     const arr = childrenByParent.get(node.parentUuid);
     if (arr === undefined) childrenByParent.set(node.parentUuid, [node]);
     else arr.push(node);

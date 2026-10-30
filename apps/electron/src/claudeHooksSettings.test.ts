@@ -3,7 +3,8 @@
 
 import type { ClientMessage } from "@gozd/rpc";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeHooksSettings, writeClaudeHooksSettings } from "./claudeHooksSettings";
@@ -60,20 +61,49 @@ describe("ClaudeHooksSettings", () => {
   });
 
   test("CLI 経由のコマンドは GOZD_CLI_PATH を直接実行する", () => {
-    expect(commandFor("Stop")).toBe('"$GOZD_CLI_PATH" hook done');
-    expect(commandFor("PermissionRequest")).toBe('"$GOZD_CLI_PATH" hook needs-input');
-    expect(commandFor("StopFailure")).toBe('"$GOZD_CLI_PATH" hook stop-failure');
+    expect(commandFor("Stop")).toEndWith('"$GOZD_CLI_PATH" hook done');
+    expect(commandFor("PermissionRequest")).toEndWith('"$GOZD_CLI_PATH" hook needs-input');
+    expect(commandFor("StopFailure")).toEndWith('"$GOZD_CLI_PATH" hook stop-failure');
   });
 
   test("SessionStart / SessionEnd は CLI 経由（stdin の session_id を取得するため）", () => {
-    expect(commandFor("SessionStart")).toBe('"$GOZD_CLI_PATH" hook session-start');
-    expect(commandFor("SessionEnd")).toBe('"$GOZD_CLI_PATH" hook session-end');
+    expect(commandFor("SessionStart")).toEndWith('"$GOZD_CLI_PATH" hook session-start');
+    expect(commandFor("SessionEnd")).toEndWith('"$GOZD_CLI_PATH" hook session-end');
   });
 
   test("子エージェント lifecycle hook は CLI 経由（stdin の agent_id / teammate_name を取得するため）", () => {
-    expect(commandFor("SubagentStart")).toBe('"$GOZD_CLI_PATH" hook subagent-start');
-    expect(commandFor("SubagentStop")).toBe('"$GOZD_CLI_PATH" hook subagent-stop');
-    expect(commandFor("TeammateIdle")).toBe('"$GOZD_CLI_PATH" hook teammate-idle');
+    expect(commandFor("SubagentStart")).toEndWith('"$GOZD_CLI_PATH" hook subagent-start');
+    expect(commandFor("SubagentStop")).toEndWith('"$GOZD_CLI_PATH" hook subagent-stop');
+    expect(commandFor("TeammateIdle")).toEndWith('"$GOZD_CLI_PATH" hook teammate-idle');
+  });
+
+  test("Claude Code のバックグラウンドジョブの中では、どの hook も gozd に送らず成功で終える", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gozd-hooks-job-test-"));
+    tempDirs.push(dir);
+    // 送信の両経路（CLI / nc）を、呼ばれたら目印のファイルに追記する偽物に差し替える
+    const marker = join(dir, "sent");
+    for (const name of ["gozd-cli", "nc"]) {
+      const path = join(dir, name);
+      writeFileSync(path, `#!/bin/sh\necho "$0" >> "${marker}"\n`);
+      chmodSync(path, 0o755);
+    }
+    const hooks = claudeHooksSettings().hooks as Record<string, HookEntry[]>;
+    const baseEnv = {
+      PATH: `${dir}:/usr/bin:/bin`,
+      GOZD_CLI_PATH: join(dir, "gozd-cli"),
+      GOZD_PTY_ID: "1",
+    };
+    const run = (command: string, env: Record<string, string>) =>
+      spawnSync("sh", ["-c", command], { input: "{}", env });
+
+    for (const event of Object.keys(hooks)) {
+      const command = commandFor(event);
+      expect(run(command, { ...baseEnv, CLAUDE_JOB_DIR: join(dir, "job") }).status).toBe(0);
+      expect(existsSync(marker)).toBe(false);
+      run(command, baseEnv);
+      expect(existsSync(marker)).toBe(true);
+      rmSync(marker);
+    }
   });
 
   test("生成された nc コマンドの JSON は ClientMessage としてデコードできる", () => {

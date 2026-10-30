@@ -11,14 +11,21 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+// バックグラウンドジョブの中では送らずに成功で終える（docs/architecture.md の「Claude Code hooks」）
+function skipInBackgroundJob(command: string): string {
+  return `[ -n "$CLAUDE_JOB_DIR" ] || ${command}`;
+}
+
 function ncCommand(event: string): string {
   // ClientMessage の JSON: `{"hook":{"event":"<event>","ptyId":<id>}}`
   // GOZD_PTY_ID は PTY spawn 時の env overlay で各 PTY に注入される
-  return `echo '{"hook":{"event":"${event}","ptyId":'"$GOZD_PTY_ID"'}}' | nc -w 1 -U "$GOZD_SOCKET_PATH"`;
+  return skipInBackgroundJob(
+    `echo '{"hook":{"event":"${event}","ptyId":'"$GOZD_PTY_ID"'}}' | nc -w 1 -U "$GOZD_SOCKET_PATH"`,
+  );
 }
 
 function cliCommand(event: string): string {
-  return `"$GOZD_CLI_PATH" hook ${event}`;
+  return skipInBackgroundJob(`"$GOZD_CLI_PATH" hook ${event}`);
 }
 
 /** JSON にする前の構造を返す（テスト用に公開） */

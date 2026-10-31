@@ -31,7 +31,7 @@ git / GitHub 連携の更新契約。何がいつ更新されるか、どこま�
 | `gitStatusChange`  | 監視登録の成立、worktree の index / HEAD、共有の参照領域、作業ツリーの変更 | サイドバーのバッジ、ツリー、グラフ |
 | `branchChange`     | ローカルブランチ参照の変化                                                 | グラフ、サイドバー                 |
 | `remoteRefsChange` | リモート tracking 参照の変化（push / fetch 後）                            | グラフ、PR バッジの再取得          |
-| `worktreeChange`   | worktree の追加削除・移動・lock、branch 切替                               | サイドバーの worktree 一覧         |
+| `worktreeChange`   | worktree の追加削除・移動・lock、branch 切替、worktree の root の消失      | サイドバーの worktree 一覧         |
 | `fsWatchReady`     | 監視登録が成立した直後の再同期シグナル                                     | グラフ、サイドバーの worktree 一覧 |
 
 `remoteRefsChange` を `gitStatusChange` と別に持つのは、**current branch 以外の remote 参照が

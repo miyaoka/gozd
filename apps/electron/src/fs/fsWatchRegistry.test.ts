@@ -505,3 +505,30 @@ test("unwatchAll は全 entry の購読を解放して件数を返し、以降�
   }
   expect(fsChangeDirs).toEqual([]);
 });
+
+// worktree のディレクトリだけが外部で消えても common git dir の worktree 管理領域は動かない。
+// root 自身の event で一覧を取り直させないと、消えた worktree のカードが次の起動まで残る
+test("worktree の root が消えた event で worktreeChange を撃ち、root が残っていれば撃たない", async () => {
+  const repo = makeTempRepo();
+  const worktree = join(makeTempDir(), "wt");
+  runFixtureGit(["worktree", "add", "--detach", worktree], repo);
+  const { transport, subscriptions } = createFakeTransport();
+  const worktreeChanges: string[] = [];
+  const registry = createFsWatchRegistry(
+    { ...noopHandlers(), onWorktreeChange: (dir) => worktreeChanges.push(dir) },
+    { transport, statusFetcher: async () => cleanStatus() },
+  );
+
+  await registry.watch(worktree);
+  const root = realpathSync.native(worktree);
+  const subscription = subscriptions.find((candidate) => candidate.root === root);
+  // root 自身の属性の変更でも root の path が届く。一覧の取り直しは root が消えたときだけ
+  subscription?.onEvents([root]);
+  expect(worktreeChanges).toEqual([]);
+
+  rmSync(worktree, { recursive: true, force: true });
+  subscription?.onEvents([root]);
+  await registry.unwatchAll();
+
+  expect(worktreeChanges).toEqual([worktree]);
+});

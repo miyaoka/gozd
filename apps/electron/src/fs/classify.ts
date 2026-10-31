@@ -23,6 +23,7 @@
 //         worktreeChange（worktree 追加削除 + secondary の branch 切替。構造変化を表す path 信号で、
 //         digest を経由せず即発火する）。index や reflog は worktree 一覧を変えないため無視する
 //   (3) 作業ツリー配下（git dir 配下に該当しない場合）→ fsChange + gitStatusChange
+//       - dir 自身は、加えて rootChange 候補。dir が消えたかは dispatch 側が実在で確かめる
 //       - ただし入れ子の worktree（`.claude/worktrees/*` のように dir 配下に置かれた同じ repo の
 //         別 worktree）の内部は fsChange のみ。git は入れ子 worktree を 1 エントリとしか見ないため、
 //         内部の変更は外側の git status 出力を変えない。submodule は内部の変更が外側の status に
@@ -47,6 +48,9 @@ export interface Classification {
    * 共有 `reftable/*`（reftable）など、checkout 先が変わりうる ref store event で立つ。
    * 実際に動いたかは primary watcher が RefDigest.head を内容比較して判定する */
   hasHeadChange: boolean;
+  /** 監視中の dir 自身の event。dir の削除や移動で立つ候補で、実際に消えたかは dispatch 側が
+   * 実在で確かめる */
+  hasRootChange: boolean;
 }
 
 export interface ClassifyInput {
@@ -74,6 +78,7 @@ export function classify(input: ClassifyInput): Classification {
   let hasRemoteRefsChange = false;
   let hasWorktreeChange = false;
   let hasHeadChange = false;
+  let hasRootChange = false;
 
   // 通常 clone では perWorktreeGitDir == commonGitDir なので、両ルールを同じ path に
   // 適用して `HEAD` と `refs/heads/` を両方拾う必要がある。
@@ -154,6 +159,7 @@ export function classify(input: ClassifyInput): Classification {
     // ファイル変更のたびに git status が exit 128 で落ちて観察ログを汚すため fsChange のみ。
     if (path !== dir && !path.startsWith(dirWithSlash)) continue;
     hasFsChange = true;
+    if (path === dir) hasRootChange = true;
     fsRelDirs.add(relativeDir(path, dirWithSlash));
     // 入れ子 worktree root 自身（作成 / 削除）は外側の status の 1 エントリなので対象に残し、
     // その内部だけを外す
@@ -172,6 +178,7 @@ export function classify(input: ClassifyInput): Classification {
     hasRemoteRefsChange,
     hasWorktreeChange,
     hasHeadChange,
+    hasRootChange,
   };
 }
 

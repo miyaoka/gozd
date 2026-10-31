@@ -38,7 +38,7 @@
 //   間は push しない。
 
 import { tryCatch } from "@gozd/shared";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { withGitTier } from "../git/gitAdmission";
 import { gitDirs, gitStatusFull, refDigest, type RefDigest } from "../git/gitOps";
 import type { StatusFull } from "../git/porcelain";
@@ -493,6 +493,15 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
       nestedWorktreeDirs: nestedWorktreeDirsOf(dir, perWorktreeGitDir, commonGitDir),
       paths,
     });
+
+    // worktree のディレクトリだけが外部で消えても common git dir の `worktrees/<name>` は動かず、
+    // 一覧を取り直すきっかけが他に無い。native watcher は root の削除を root 自身の path で 1 回
+    // 通知した後にその購読を止めるため、この 1 回で一覧を取り直させる。消えた dir の fsChange と
+    // status は取りようがないので撃たない
+    if (result.hasRootChange && commonGitDir !== undefined && !existsSync(dir)) {
+      onWorktreeChange(originalDir);
+      return;
+    }
 
     if (result.hasFsChange) {
       for (const relDir of result.fsRelDirs) {

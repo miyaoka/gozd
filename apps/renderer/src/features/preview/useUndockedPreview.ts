@@ -15,7 +15,7 @@
  * 型定義だけ。undock 直後は in-app パネルで、promote で別 OS ウィンドウへ昇格する
  * (presentation の切り替えは UndockedWindow が担う。useUndockedLog と同じ機構)。
  */
-import type { WireBytes } from "@gozd/rpc";
+import type { WireBytes, WorktreeEntry } from "@gozd/rpc";
 import { createFloatingWindows, type FloatingWindowState } from "../floating-window";
 import type { PreviewMode } from "./previewMode";
 
@@ -54,8 +54,8 @@ interface UndockedPreviewData {
   repoName: string;
   /** RepoIcon 用の GitHub owner。空文字は identicon フォールバック。 */
   repoOwner: string;
-  /** ヘッダ上段の worktree 識別 (branch 名)。detached HEAD 等の未解決は空文字で省く。 */
-  branch: string;
+  /** ヘッダ上段の worktree 識別。worktree が解決できないときは undefined で省く。 */
+  worktree: Pick<WorktreeEntry, "path" | "branch" | "head" | "detached"> | undefined;
   /** ヘッダ下段の表示 + file icon 解決に使うファイル名。 */
   fileName: string;
   /** ヘッダ title 属性用のフルパス表記。 */

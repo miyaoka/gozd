@@ -11,7 +11,7 @@ import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted, watch } from "vue";
 import { logEvent } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
-import { useRepoStore } from "../../shared/repo";
+import { pathBaseName, useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { rpcFsSetFocusDir } from "./rpc";
 import { useGitStatusStore } from "./useGitStatusStore";
@@ -65,12 +65,7 @@ export function useGitStatusSync(options: GitStatusSyncOptions) {
     cleanup = onMessage<GitStatusChangePayload>("gitStatusChange", (payload) => {
       // payload.dir は source worktree。basename を repo 列に出す (findRepoOwning の O(repos) 探索を
       // push ごとに走らせないため、ここでは所有 repo 解決ではなく worktree 名だけ載せる)。
-      const wtName =
-        payload.dir
-          .split("/")
-          .filter((s) => s !== "")
-          .at(-1) ?? payload.dir;
-      logEvent("git-status", "change", wtName);
+      logEvent("git-status", "change", pathBaseName(payload.dir));
       repoStore.setWorktreeGitStatuses(payload.dir, {
         statuses: payload.entries,
         renameOldPaths: payload.renameOldPaths,

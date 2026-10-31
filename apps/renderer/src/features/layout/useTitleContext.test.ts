@@ -31,8 +31,9 @@ describe("formatTitleContext", () => {
     expect(formatTitleContext(repo, "/w/feat")).toBe("gozd · feat/x");
   });
 
-  test("branch が空の worktree は repoName のみ（空要素を join に混ぜない）", () => {
-    const detached = { repoName: "gozd", worktrees: [wt("/w/detached", "")] };
-    expect(formatTitleContext(detached, "/w/detached")).toBe("gozd");
+  test("branch を持たない worktree はディレクトリ名で出す", () => {
+    const detached = { repoName: "gozd", worktrees: [wt("/w/check-a", ""), wt("/w/check-b", "")] };
+    expect(formatTitleContext(detached, "/w/check-a")).toBe("gozd · check-a");
+    expect(formatTitleContext(detached, "/w/check-b")).toBe("gozd · check-b");
   });
 });

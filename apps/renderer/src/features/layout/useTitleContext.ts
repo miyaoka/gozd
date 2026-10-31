@@ -1,20 +1,20 @@
 import type { WorktreeEntry } from "@gozd/rpc";
 import { computed, type ComputedRef } from "vue";
-import { useRepoStore } from "../../shared/repo";
+import { useRepoStore, worktreeLabel } from "../../shared/repo";
 
 /**
- * タイトル文字列（"repo · worktree"）を導出する純関数。
- * active な repo が無い場合と、dir が repo の worktrees に見つからない場合は
- * worktree 部を落として repoName のみ（repo も無ければ空文字）に縮退する。
+ * タイトル文字列（"repo · worktree の名前"）を導出する純関数。
+ * dir が repo の worktrees に見つからない場合は repoName のみ（repo も無ければ空文字）に縮退する。
  */
 export function formatTitleContext(
   repo: { repoName: string; worktrees: WorktreeEntry[] } | undefined,
   dir: string | undefined,
 ): string {
   if (repo === undefined) return "";
-  const worktreeName =
-    dir === undefined ? "" : (repo.worktrees.find((entry) => entry.path === dir)?.branch ?? "");
-  return [repo.repoName, worktreeName].filter((part) => part !== "").join(" · ");
+  const worktree =
+    dir === undefined ? undefined : repo.worktrees.find((entry) => entry.path === dir);
+  if (worktree === undefined) return repo.repoName;
+  return `${repo.repoName} · ${worktreeLabel(worktree)}`;
 }
 
 /**

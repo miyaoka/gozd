@@ -283,15 +283,17 @@ function undockPreview(handoff?: UndockDragHandoff) {
   // モードタブを含めるのは、パネル側も同じタブを描くため (useFloatingWindows の doc 参照)
   const rect = box.getBoundingClientRect();
   const contentRect = content.getBoundingClientRect();
-  // ヘッダ上段の出自 (repo + worktree branch)。undocked window は worktree 切替を跨いで
+  // ヘッダ上段の出自 (repo + worktree の名前)。undocked window は worktree 切替を跨いで
   // 生存するため undock 時点の値を焼き込む (UndockedLogWindow のヘッダと同じ規律)。
   // worktree 外の絶対パス (session log 等) は repo 帰属が無いので解決しない (空文字で
-  // 上段ごと省かれる)。branch は WorktreeEntry のワイヤ契約どおり detached HEAD で空文字。
+  // 上段ごと省かれる)。worktree は reactive proxy を持ち込まないよう plain な値に写す。
   const repo = source.kind === "worktree" ? repoStore.findRepoOwning(source.dir) : undefined;
-  const branch =
-    source.kind === "worktree"
-      ? (repo?.worktrees.find((wt) => wt.path === source.dir)?.branch ?? "")
-      : "";
+  const found =
+    source.kind === "worktree" ? repo?.worktrees.find((wt) => wt.path === source.dir) : undefined;
+  const worktree =
+    found === undefined
+      ? undefined
+      : { path: found.path, branch: found.branch, head: found.head, detached: found.detached };
   undockPreviewWindow(
     {
       repoName: repo?.repoName ?? "",
@@ -299,7 +301,7 @@ function undockPreview(handoff?: UndockDragHandoff) {
       // 解決中 (undefined) は identicon ("") に倒す。live 消費者と違い `?? ""` を
       // 外してはいけない (外すと解決中に undock した window が恒久的に空白になる)
       repoOwner: repo?.githubIdentity?.owner ?? "",
-      branch,
+      worktree,
       fileName: path.split("/").pop() ?? path,
       displayPath: path,
       // モードタブは本体 availableModes の snapshot で再現する (window 側は git change

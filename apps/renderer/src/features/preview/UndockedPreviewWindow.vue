@@ -41,7 +41,7 @@ snapshot に固定する — 過去の内容で実ファイルを上書き保存
 
 ウィンドウの実体 (in-app パネル / 昇格後の OS ウィンドウ、その切り替えと昇格の rect 換算) は
 汎用シェル UndockedWindow に委譲する。
-ヘッダには undock 時点の出自 (repo / branch / ファイル名) を焼き込む — worktree 切替を
+ヘッダには undock 時点の出自 (repo / worktree の名前 / ファイル名) を焼き込む — worktree 切替を
 跨いで生存するウィンドウを識別するため。repo 未解決 (worktree 外の絶対パス等) は
 出自の段ごと省く。タイトルバー (document.title) はファイル名。
 
@@ -68,7 +68,7 @@ import {
 } from "../filer";
 import { UndockedWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
-import { joinAbsRel, useWorktreeStore } from "../worktree";
+import { joinAbsRel, useWorktreeStore, WorktreeLabel } from "../worktree";
 import PreviewContent from "./PreviewContent.vue";
 import { detectFileType } from "./previewFileType";
 import type { PreviewMode } from "./previewMode";
@@ -369,7 +369,7 @@ function dockToPreview() {
     @closed="close(preview.id)"
     @save-requested="saveEdit()"
   >
-    <!-- UndockedLogWindow と同じ 2 段構成 (上段: repo アイコン + repo 名 + branch / 下段:
+    <!-- UndockedLogWindow と同じ 2 段構成 (上段: repo アイコン + repo 名 + worktree の名前 / 下段:
          ファイル)。repo 未解決 (空文字) は上段ごと省く。 -->
     <template #header>
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -378,11 +378,8 @@ function dockToPreview() {
           <span class="shrink-0 truncate text-xs font-semibold tracking-wide">
             {{ preview.repoName }}
           </span>
-          <span
-            v-if="preview.branch !== ''"
-            class="min-w-0 flex-1 truncate text-xs text-foreground-low"
-          >
-            {{ preview.branch }}
+          <span v-if="preview.worktree" class="min-w-0 flex-1 text-xs text-foreground-low">
+            <WorktreeLabel :wt="preview.worktree" />
           </span>
         </div>
         <div class="flex min-w-0 items-center gap-2">

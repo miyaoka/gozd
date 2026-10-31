@@ -90,6 +90,8 @@ function close() {
 function acceptSelected() {
   const session = filteredSessions.value[selectedIndex.value];
   if (!session) return;
+  // 閉じることが再入の唯一の防壁。worktree の作成中に開いたままだと、キー入力とクリックが
+  // 届き続けて受理が重なる
   close();
   void accept(session);
 }

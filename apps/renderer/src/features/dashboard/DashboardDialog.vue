@@ -159,6 +159,7 @@ function close() {
 function acceptSelected() {
   const row = filteredRows.value[selectedIndex.value];
   if (!row) return;
+  // 閉じることが再入の唯一の防壁 (RevivePickerDialog と同じ)
   close();
   openSession(row.dir, row.sessionId);
 }

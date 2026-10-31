@@ -9,6 +9,7 @@ const model = defineModel<string>({ required: true });
 </script>
 
 <template>
+  <!-- 設定は変更のたびに保存されるため、打鍵ごと (v-model) ではなく確定 (change) で反映する -->
   <input
     type="text"
     :value="model"

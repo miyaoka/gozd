@@ -65,12 +65,14 @@ export function useSidebarData() {
     if (!result.ok) {
       // 一覧を取得できない状態が続く間の取り直しの失敗は、最初の 1 回だけ知らせる
       const alreadyUnavailable = repo.worktrees.some((wt) => wt.listUnavailable === true);
-      if (!alreadyUnavailable) {
+      if (alreadyUnavailable) {
+        notify.debug(`[useSidebarData] worktree list still unavailable: ${rootDir}`, result.error);
+      } else {
         notify.error(`Failed to fetch repo data: ${repo.repoName}`, result.error);
       }
       // 新しい取得が往復中なら、その一覧で確かめられるので待つ
       if (fetchGenByRoot.get(rootDir) !== gen) return;
-      repoStore.showRepoDirOnly(rootDir);
+      repoStore.showRepoDirOnly(rootDir, new Set(Object.keys(terminalStore.layoutsByDir)));
       openRepoDirOnListFailure(rootDir);
       return;
     }

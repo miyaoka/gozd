@@ -170,7 +170,7 @@ describe("openRepoDirOnListFailure", () => {
   test("一覧の取得に失敗したら、サイドバーを repo の dir だけにして、それを開く", () => {
     const { repoStore, worktreeStore, opened, messages } = setupCachedRepo();
     restoreActiveDir("/r1/wt-1");
-    repoStore.showRepoDirOnly("/r1");
+    repoStore.showRepoDirOnly("/r1", new Set());
     openRepoDirOnListFailure("/r1");
     expect(repoStore.repos["/r1"]?.worktrees.map((wt) => wt.path)).toEqual(["/r1"]);
     // 前回の worktree は確かめられないので、一度も選ばない
@@ -190,7 +190,7 @@ describe("openRepoDirOnListFailure", () => {
     const { repoStore, worktreeStore } = setupCachedRepo();
     restoreActiveDir("/r1/wt-1");
     worktreeStore.setOpen("/r1/wt-1");
-    repoStore.showRepoDirOnly("/r1");
+    repoStore.showRepoDirOnly("/r1", new Set());
     openRepoDirOnListFailure("/r1");
     expect(repoStore.repos["/r1"]?.worktrees.map((wt) => wt.path)).toEqual(["/r1", "/r1/wt-1"]);
     expect(repoStore.selectedDir).toBe("/r1/wt-1");
@@ -203,13 +203,13 @@ describe("showRepoDirOnly", () => {
   test("一覧で確かめた worktree を持つ repo は変えない", () => {
     const { repoStore, listed } = setupCachedRepo();
     listed(["/r1", "/r1/wt-1"]);
-    repoStore.showRepoDirOnly("/r1");
+    repoStore.showRepoDirOnly("/r1", new Set());
     expect(repoStore.repos["/r1"]?.worktrees.map((wt) => wt.path)).toEqual(["/r1", "/r1/wt-1"]);
   });
 
   test("repo の dir は未確認のまま置き、監視しない。一覧が届けば置き換わる", () => {
     const { repoStore, listed } = setupCachedRepo();
-    repoStore.showRepoDirOnly("/r1");
+    repoStore.showRepoDirOnly("/r1", new Set());
     // 通常の worktree と見分ける印が付く
     expect(repoStore.repos["/r1"]?.worktrees[0]?.listUnavailable).toBe(true);
     expect(repoStore.fsWatchTargetDirs.has("/r1")).toBe(false);
@@ -217,5 +217,21 @@ describe("showRepoDirOnly", () => {
     expect(repoStore.repos["/r1"]?.worktrees.map((wt) => wt.path)).toEqual(["/r1", "/r1/wt-2"]);
     expect(repoStore.repos["/r1"]?.worktrees[0]?.listUnavailable).toBeUndefined();
     expect(repoStore.fsWatchTargetDirs.has("/r1")).toBe(true);
+  });
+
+  test("端末を持つキャッシュの worktree は外さない", () => {
+    const { repoStore } = setupCachedRepo();
+    repoStore.showRepoDirOnly("/r1", new Set(["/r1/wt-1"]));
+    expect(repoStore.repos["/r1"]?.worktrees.map((wt) => wt.path)).toEqual(["/r1", "/r1/wt-1"]);
+  });
+
+  test("一度 repo の dir だけにした後は、続けて失敗しても残したものを外さない", () => {
+    const { repoStore, worktreeStore } = setupCachedRepo();
+    worktreeStore.setOpen("/r1/wt-1");
+    repoStore.showRepoDirOnly("/r1", new Set());
+    // 印付きの repo の dir を選んで取り直し、また失敗する
+    worktreeStore.setOpen("/r1");
+    repoStore.showRepoDirOnly("/r1", new Set());
+    expect(repoStore.repos["/r1"]?.worktrees.map((wt) => wt.path)).toEqual(["/r1", "/r1/wt-1"]);
   });
 });

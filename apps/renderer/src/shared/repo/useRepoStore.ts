@@ -583,28 +583,30 @@ export const useRepoStore = defineStore("repo", () => {
 
   /**
    * git の一覧の取得に失敗した repo を、repo の dir だけを選べる形にする。キャッシュの worktree は
-   * 未確認なので並べず、dir を worktree と同じ形で 1 件だけ置く。選べばその dir でターミナルが
-   * 開き、選択の変化で一覧が取り直される。
+   * 未確認なので並べず、dir を worktree と同じ形で置く。選べばその dir でターミナルが開き、
+   * 一覧が取り直される。
    * 一覧で確かめた worktree を 1 件でも持つ repo は変えない。その一覧が正本で、取得の失敗は
-   * 消えたことの証明にならない。
+   * 消えたことの証明にならない。一度この形にした repo も、続けて失敗しても変えない。
+   * `keepDirs` には外してはいけない dir（端末を持つ dir）を渡す。外すとその端末とセッションが
+   * サイドバーから届かなくなる。選択中の worktree も外さない（外すと選択がどの repo にも属さなく
+   * なり、`gozd <path>` で明示的に開いた対象も隠れる）。残したものは一覧が届けば
+   * `updateRepoData` が通常どおり確かめる。
    * `updateRepoData` を通さないのは、選択中のキャッシュの worktree が一覧から消えたと扱われ、
    * root への切り替えと通知が走るため。
    */
-  function showRepoDirOnly(rootDir: string) {
+  function showRepoDirOnly(rootDir: string, keepDirs: ReadonlySet<string>) {
     const current = repos.value[rootDir];
     if (current === undefined) return;
-    if (current.worktrees.some((wt) => wt.cached !== true)) return;
+    if (current.worktrees.some((wt) => wt.cached !== true || wt.listUnavailable === true)) return;
     const repoDir: RepoWorktree = {
       ...toRepoWorktree({ path: rootDir, head: "", branch: "", detached: false, isMain: true }),
       cached: true,
       listUnavailable: true,
     };
-    // 選択中の worktree は外さない。外すと選択がどの repo にも属さなくなり、`gozd <path>` で明示的に
-    // 開いた対象も隠れる。一覧が届けば `updateRepoData` が通常どおり確かめる
-    const selected = current.worktrees.filter(
-      (wt) => wt.path === selectedDir.value && wt.path !== rootDir,
+    const kept = current.worktrees.filter(
+      (wt) => wt.path !== rootDir && (wt.path === selectedDir.value || keepDirs.has(wt.path)),
     );
-    repos.value[rootDir] = { ...current, worktrees: [repoDir, ...selected] };
+    repos.value[rootDir] = { ...current, worktrees: [repoDir, ...kept] };
   }
 
   /**

@@ -136,6 +136,17 @@ describe("settleActiveDir", () => {
     expect(repoStore.selectedDir).toBe("/r1");
   });
 
+  test("一覧を待つ間にその repo を解除したら、残りの repo を選び、解除した dir を保存しない", () => {
+    const { repoStore, settle } = setupCachedRepo();
+    repoStore.addRepo({ rootDir: "/r2", repoName: "r2", isGitRepo: false, worktrees: [] });
+    restoreActiveDir("/r1/wt-1");
+    repoStore.removeRepo("/r1");
+    expect(repoStore.selectedDir).toBe("/r2");
+    expect(repoStore.buildAppStateSnapshot().activeDir).toBe("/r2");
+    settle();
+    expect(repoStore.selectedDir).toBe("/r2");
+  });
+
   test("一覧を待つ間に別の dir が開かれていたら、明示 open を優先して何もしない", () => {
     const { repoStore, worktreeStore, listed, settle, messages } = setupCachedRepo();
     restoreActiveDir("/r1/wt-1");

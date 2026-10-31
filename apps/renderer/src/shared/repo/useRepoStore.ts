@@ -642,18 +642,27 @@ export const useRepoStore = defineStore("repo", () => {
       }
     }
     delete sessionsByRoot.value[rootDir];
-    if (selectedDir.value !== undefined) {
-      const stillOwned = findRepoOwning(selectedDir.value);
-      if (stillOwned === undefined) {
-        // まずアクティブ repo list の先頭、そこが空ならプール先頭（他 repo list）に倒す
-        const [firstRoot = poolDirs.value[0]] = dirOrder.value;
-        selectedDir.value = firstRoot;
-        // プール先頭へ倒れた（= アクティブ list に無い repo を選択した）場合は、その repo を
-        // 含む list へアクティブも切り替える。切り替えないと「サイドバーは empty state なのに
-        // terminal / filer は別 list の repo を開いている」という表示のずれが残る
-        if (firstRoot !== undefined) activateRepoListContaining(firstRoot);
-      }
+    // 一覧を待つ前回の選択は、選択中の dir と同じく扱う。解除した repo に残すと、
+    // 何も選択されないまま、解除した repo の dir が前回の選択として保存され続ける
+    if (pendingActiveDir.value?.rootDir === rootDir) {
+      pendingActiveDir.value = undefined;
+      selectFallbackAfterRemoval();
+      return;
     }
+    if (selectedDir.value === undefined) return;
+    if (findRepoOwning(selectedDir.value) !== undefined) return;
+    selectFallbackAfterRemoval();
+  }
+
+  /** 選択していた repo を解除した後の選択先。まずアクティブ repo list の先頭、そこが空なら
+   * プール先頭（他 repo list）に倒す */
+  function selectFallbackAfterRemoval() {
+    const [firstRoot = poolDirs.value[0]] = dirOrder.value;
+    selectedDir.value = firstRoot;
+    // プール先頭へ倒れた（= アクティブ list に無い repo を選択した）場合は、その repo を
+    // 含む list へアクティブも切り替える。切り替えないと「サイドバーは empty state なのに
+    // terminal / filer は別 list の repo を開いている」という表示のずれが残る
+    if (firstRoot !== undefined) activateRepoListContaining(firstRoot);
   }
 
   function isCollapsed(rootDir: string): boolean {

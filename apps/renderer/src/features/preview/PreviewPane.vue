@@ -295,6 +295,7 @@ function undockPreview(handoff?: UndockDragHandoff) {
       // 解決中 (undefined) は identicon ("") に倒す。live 消費者と違い `?? ""` を
       // 外してはいけない (外すと解決中に undock した window が恒久的に空白になる)
       repoOwner: repo?.githubIdentity?.owner ?? "",
+      fromGitWorktree: repo?.isGitRepo === true,
       fileName: path.split("/").pop() ?? path,
       displayPath: path,
       // モードタブは本体 availableModes の snapshot で再現する (window 側は git change

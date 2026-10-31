@@ -47,7 +47,8 @@ snapshot に固定する — 過去の内容で実ファイルを上書き保存
 worktree の名前は焼き込まず、undock 元の path から現在の entry を引いて描く。detached の HEAD は
 commit のたびに進むため、焼き込むと hover の hash が古いまま残る。path で引くので、本体で
 選んでいる worktree が変わっても出自は変わらない。entry が引けない (worktree の削除、repo の解除) ときは
-焼き込み済みの path のディレクトリ名だけを出す。
+焼き込み済みの path のディレクトリ名だけを出す。worktree の段は git の worktree から undock したときだけ出す
+(非 git の project と窓口は worktree を持たない)。
 
 ヘッダの dock ボタンで undock 元の選択を本体 preview として開き直せる。開けたらウィンドウは
 閉じる (本体への昇格であり二重表示を残さない。undock 時に popover を閉じるのと対称)。undock 元
@@ -389,7 +390,7 @@ function dockToPreview() {
             {{ preview.repoName }}
           </span>
           <span
-            v-if="source.kind === 'worktree'"
+            v-if="preview.fromGitWorktree && source.kind === 'worktree'"
             class="min-w-0 flex-1 text-xs text-foreground-low"
           >
             <WorktreeLabel v-if="sourceWorktree" :wt="sourceWorktree" />

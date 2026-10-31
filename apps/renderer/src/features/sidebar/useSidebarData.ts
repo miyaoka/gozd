@@ -9,7 +9,7 @@ import { rpcClaudeSessionList } from "../session";
 import { useTerminalStore } from "../terminal";
 import { rpcGitGithubIdentity, rpcGitWorktreeList, useWorktreeStore } from "../worktree";
 import { rpcConciergeInfo } from "./features/concierge";
-import { restoreActiveDir } from "./restoreActiveDir";
+import { type PendingActiveDir, restoreActiveDir, settleActiveDir } from "./restoreActiveDir";
 import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
 import { useSidebarView } from "./useSidebarView";
 
@@ -31,6 +31,8 @@ export function useSidebarData() {
   /** repo ごとの fetch 世代カウンタ。並行 fetch で stale なレスポンスを破棄するため */
   const fetchGenByRoot = new Map<string, number>();
   const sessionFetchGenByRoot = new Map<string, number>();
+  /** 前回の active worktree のうち、所属 repo の git の一覧を待って開くもの */
+  let pendingActiveDir: PendingActiveDir | undefined;
 
   /** 1 つの repo のセッション一覧を取り直して repoStore を更新。git 管理外の project も対象 */
   async function fetchSessions(rootDir: string) {
@@ -64,6 +66,9 @@ export function useSidebarData() {
     const result = await tryCatch(rpcGitWorktreeList({ dir: rootDir }));
     if (!result.ok) {
       notify.error(`Failed to fetch repo data: ${repo.repoName}`, result.error);
+      // 一覧で確かめられない worktree は開かない。後の取得で成功しても、
+      // ユーザーが操作を始めた後に選択を奪わないよう復元はここで打ち切る
+      if (pendingActiveDir?.rootDir === rootDir) pendingActiveDir = undefined;
       return;
     }
     if (fetchGenByRoot.get(rootDir) !== gen) return;
@@ -76,6 +81,11 @@ export function useSidebarData() {
     repoStore.updateRepoData(rootDir, wtList, headGenSnapshot);
 
     for (const dir of stalePaths) terminalStore.remove(dir);
+
+    if (pendingActiveDir?.rootDir === rootDir) {
+      settleActiveDir(pendingActiveDir, (message) => notify.info(message));
+      pendingActiveDir = undefined;
+    }
   }
 
   /**
@@ -332,7 +342,7 @@ export function useSidebarData() {
     if (result.ok && result.value.state !== undefined) {
       repoStore.hydrateFromAppState(result.value.state);
       sidebarView.value = result.value.state.sidebarView;
-      restoreActiveDir(result.value.state.activeDir);
+      pendingActiveDir = restoreActiveDir(result.value.state.activeDir);
     }
     hydrated.value = true;
   }

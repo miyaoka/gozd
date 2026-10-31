@@ -1,5 +1,6 @@
 export { pathBaseName, worktreeLabel } from "./worktreeLabel";
 export {
+  activeWorktreeRemovedMessage,
   collectFsWatchTargetDirs,
   repoDirEntries,
   type RepoState,

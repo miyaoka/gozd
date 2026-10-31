@@ -102,6 +102,17 @@ export function collectFsWatchTargetDirs(
   return dirs;
 }
 
+/**
+ * 開いていた worktree が一覧から消え、repo の root に切り替えたことを知らせる文言。
+ * 複数 repo 同時開き時にどの repo の root に切り替わったか分かるよう repoName を含める。
+ * クォートを使うと repoName 内のクォート文字でメッセージが崩れるため使わない。
+ * 空文字列は hydrate 経路で混入し得るので汎用ラベルにフォールバックする。
+ */
+export function activeWorktreeRemovedMessage(repo: Pick<RepoState, "repoName">): string {
+  const repoLabel = repo.repoName !== "" ? repo.repoName : "the repo";
+  return `Active worktree was removed; switched to ${repoLabel} root.`;
+}
+
 const DEFAULT_REPO_LIST_NAME = "Default";
 
 /** 窓口の表示名 */
@@ -508,11 +519,7 @@ export const useRepoStore = defineStore("repo", () => {
     if (orphanedActiveDir) {
       // 外部 git worktree remove 経由だとユーザー操作なしに active dir が切り替わる。
       // feature 層が DI した notifier 経由でユーザーに通知する。未注入なら console.info。
-      // 複数 repo 同時開き時にどの repo の root に切り替わったか分かるよう repoName を含める。
-      // クォートを使うと repoName 内のクォート文字でメッセージが崩れるため使わない。
-      // 空文字列は hydrate 経路で混入し得るので汎用ラベルにフォールバックする。
-      const repoLabel = current.repoName !== "" ? current.repoName : "the repo";
-      notifyAutoFallback(`Active worktree was removed; switched to ${repoLabel} root.`);
+      notifyAutoFallback(activeWorktreeRemovedMessage(current));
       selectedDir.value = rootDir;
     }
   }

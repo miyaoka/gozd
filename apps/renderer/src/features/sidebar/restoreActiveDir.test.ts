@@ -42,8 +42,8 @@ function setupCachedRepo() {
         isGitRepo: true,
         collapsed: false,
         worktrees: [
-          { path: "/r1", branch: "main", isMain: true },
-          { path: "/r1/wt-1", branch: "feat", isMain: false },
+          { path: "/r1", branch: "main", detached: false, isMain: true },
+          { path: "/r1/wt-1", branch: "feat", detached: false, isMain: false },
         ],
       },
     ],
@@ -55,7 +55,13 @@ function setupCachedRepo() {
   const listed = (paths: string[]) =>
     repoStore.updateRepoData(
       "/r1",
-      paths.map((path) => ({ path, head: "", branch: "", isMain: path === "/r1" })),
+      paths.map((path) => ({
+        path,
+        head: "",
+        branch: "",
+        detached: false,
+        isMain: path === "/r1",
+      })),
     );
   const opened: string[] = [];
   repoStore.$onAction(({ name, args }) => {

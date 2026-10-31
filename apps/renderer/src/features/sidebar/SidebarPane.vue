@@ -150,7 +150,7 @@ async function onAddDir() {
   }
 }
 
-// --- 編集モード（repo list バーの Edit list ボタンでトグル） ---
+// --- 編集モード（repo list バーの Edit list ボタンで入り、編集ヘッダの Done で出る） ---
 //
 // 編集モード中:
 // - 全 section が強制 collapse され、drag で並び替え可能

@@ -55,7 +55,7 @@ useEventListener(
   { capture: true },
 );
 
-/** 固定 message + 詳細を cause に分離し、対象違いでトーストが累積しないようにする */
+/** 固定 message + 詳細を cause に分離し、可変の詳細はトーストの詳細パネルで読ませる */
 const URL_FAILED_MESSAGE = "Could not open HTML preview";
 
 const serving = usePreviewServing();

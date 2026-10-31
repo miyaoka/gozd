@@ -566,6 +566,7 @@ export const useRepoStore = defineStore("repo", () => {
 
   /**
    * 新規作成した worktree を repo の worktrees に追加。
+   * 渡す entry は作成 RPC が作成直後の git の一覧から取ったものなので、確認済み（`cached` なし）で載る。
    * 同一 path が既に存在する場合は no-op（store の最終防衛線として idempotent にする）。
    */
   function appendWorktree(rootDir: string, wt: WorktreeEntry) {

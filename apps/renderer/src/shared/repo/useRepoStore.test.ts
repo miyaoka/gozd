@@ -168,6 +168,32 @@ describe("fsWatchTargetDirs", () => {
     expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1"]));
   });
 
+  test("hydrate 前に一覧で登録済みの worktree は watch し、キャッシュにだけある worktree は外す", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] });
+    store.updateRepoData("/r1", [{ path: "/r1", head: "h", branch: "main", isMain: true }]);
+
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        {
+          rootDir: "/r1",
+          repoName: "r1",
+          isGitRepo: true,
+          collapsed: false,
+          worktrees: [
+            { path: "/r1", branch: "main", isMain: true },
+            { path: "/gone", branch: "", isMain: false },
+          ],
+        },
+      ],
+      repoLists: [],
+      activeRepoListId: "",
+    });
+
+    expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1"]));
+  });
+
   test("一覧の取得前に追加した worktree は watch し、キャッシュの worktree は外したまま", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();

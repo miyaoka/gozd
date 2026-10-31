@@ -317,7 +317,7 @@ export const useRepoStore = defineStore("repo", () => {
   const selectedIsGitRepo = computed(() => selectedRepo.value?.isGitRepo ?? false);
   const selectedRootDir = computed(() => selectedRepo.value?.rootDir);
 
-  /** `useFsWatchSync` が watch すべき dir 集合。`repos[*].worktrees` または非 git の rootDir。
+  /** `useFsWatchSync` が watch すべき dir 集合。対象の決め方は `collectFsWatchTargetDirs`。
    * repo list は表示のみの概念なので、非アクティブ repo list の repo も watch し続ける */
   const fsWatchTargetDirs = computed(() => {
     const dirs = collectFsWatchTargetDirs(poolDirs.value, repos.value);
@@ -444,10 +444,14 @@ export const useRepoStore = defineStore("repo", () => {
    * 世代を渡す。往復中に status が head を書いていた wt は、一覧の head（往復前に読んだ OID）を
    * 採用すると巻き戻るため、現値を保持する。
    * 渡されなかった場合は一覧の head をそのまま使う（hydrate / 初回登録など世代が無意味な経路）。
+   *
+   * 各 entry の `cached` はそのまま引き継ぐ。git の一覧は持たないので外れ、store の worktree を
+   * 渡し直す経路（追加・切り離し）は持ったまま残る。渡し直すときに `WorktreeEntry` へ射影すると
+   * 未確認の worktree が watch されるため、`cached` を落とさない。
    */
   function updateRepoData(
     rootDir: string,
-    worktrees: WorktreeEntry[],
+    worktrees: Array<WorktreeEntry & Pick<RepoWorktree, "cached">>,
     headGenSnapshot?: Map<string, number>,
   ) {
     const current = repos.value[rootDir];
@@ -467,9 +471,12 @@ export const useRepoStore = defineStore("repo", () => {
         headGenSnapshot !== undefined &&
         prior !== undefined &&
         headGenSnapshot.get(wt.path) !== (headGenByDir.get(wt.path) ?? 0);
-      // `cached` は `wt` の spread で運ぶ。git の一覧は持たないので外れ、store の worktree を
-      // 渡し直す経路（追加・切り離し）は持ったまま残る
-      return { ...wt, ...gitState, head: headObservedDuringFetch ? prior.head : wt.head };
+      return {
+        ...wt,
+        ...gitState,
+        head: headObservedDuringFetch ? prior.head : wt.head,
+        cached: wt.cached,
+      };
     });
     if (headGenSnapshot !== undefined) {
       // 一覧の head を書いた wt の世代を進める。fetch 開始前から往復中だった loadGitStatus が

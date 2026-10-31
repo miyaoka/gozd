@@ -24,7 +24,12 @@ export interface WorktreeGitState {
 }
 
 /** repoStore が保持する worktree。一覧の構造に、監視から届いた status を重ねたもの */
-export type RepoWorktree = WorktreeEntry & WorktreeGitState;
+export type RepoWorktree = WorktreeEntry &
+  WorktreeGitState & {
+    /** app-state のキャッシュから復元し、git の一覧でまだ確かめていない。
+     * キャッシュは前回の終了時の一覧で、その後に消えた worktree を含みうる */
+    cached?: true;
+  };
 
 /** status 未観測の worktree が持つ値。status が届くまでバッジは出ない */
 function emptyGitState(): WorktreeGitState {
@@ -78,6 +83,8 @@ export function repoDirEntries(repo: RepoState): RepoDirEntry[] {
  * `useFsWatchSync` が watch すべき dir 集合を計算する pure 関数。
  * - `useRepoStore` の computed `fsWatchTargetDirs` から呼ばれ、戻り値の `Set<string>` の
  *   `===` 比較で `watch` の再 run がトリガされる
+ * - キャッシュから復元しただけの worktree は、git の一覧で確かめるまで watch しない。
+ *   消えた dir の watch は失敗し、起動のたびにエラーを出す
  */
 export function collectFsWatchTargetDirs(
   dirOrder: readonly string[],
@@ -87,7 +94,8 @@ export function collectFsWatchTargetDirs(
   for (const rootDir of dirOrder) {
     const repo = repos[rootDir];
     if (repo === undefined) continue;
-    for (const { dir } of repoDirEntries(repo)) {
+    for (const { dir, worktree } of repoDirEntries(repo)) {
+      if (worktree?.cached === true) continue;
       dirs.add(dir);
     }
   }
@@ -459,6 +467,8 @@ export const useRepoStore = defineStore("repo", () => {
         headGenSnapshot !== undefined &&
         prior !== undefined &&
         headGenSnapshot.get(wt.path) !== (headGenByDir.get(wt.path) ?? 0);
+      // `cached` は `wt` の spread で運ぶ。git の一覧は持たないので外れ、store の worktree を
+      // 渡し直す経路（追加・切り離し）は持ったまま残る
       return { ...wt, ...gitState, head: headObservedDuringFetch ? prior.head : wt.head };
     });
     if (headGenSnapshot !== undefined) {
@@ -703,13 +713,15 @@ export const useRepoStore = defineStore("repo", () => {
         // そのまま使う。空で置き換えると、監視は登録済みのため status が届き直さない
         worktrees: r.worktrees.map(
           (wt) =>
-            repos.value[r.rootDir]?.worktrees.find((current) => current.path === wt.path) ??
-            toRepoWorktree({
-              path: wt.path,
-              branch: wt.branch,
-              isMain: wt.isMain,
-              head: "",
-            }),
+            repos.value[r.rootDir]?.worktrees.find((current) => current.path === wt.path) ?? {
+              ...toRepoWorktree({
+                path: wt.path,
+                branch: wt.branch,
+                isMain: wt.isMain,
+                head: "",
+              }),
+              cached: true,
+            },
         ),
         // githubIdentity は persist しない派生値（origin remote から都度解決）。
         // hydrate 前に gozdOpen → fetch 済みの repo は poolDirs が変わらず useSidebarData の

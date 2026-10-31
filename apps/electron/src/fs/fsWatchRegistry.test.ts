@@ -532,3 +532,37 @@ test("worktree の root が消えた event で worktreeChange を撃ち、root �
 
   expect(worktreeChanges).toEqual([worktree]);
 });
+
+// 大きな worktree の削除は event が複数のバッチに分かれ、root が届く前のバッチが status の取得を
+// 予約する。取り消さないと消えた dir に git status を走らせ、失敗ログを出す
+test("worktree の root が消えた event で、予約済みの status 取得を取り消す", async () => {
+  const repo = makeTempRepo();
+  const worktree = join(makeTempDir(), "wt");
+  runFixtureGit(["worktree", "add", "--detach", worktree], repo);
+  const { transport, subscriptions } = createFakeTransport();
+  const fetched = createSignal();
+  let fetches = 0;
+  const registry = createFsWatchRegistry(noopHandlers(), {
+    transport,
+    statusFetcher: async () => {
+      fetches++;
+      fetched.notify();
+      return cleanStatus();
+    },
+    statusDebounceMs: 0,
+  });
+
+  await registry.watch(worktree);
+  // 登録の成立による取得を先に済ませる
+  await fetched.until(() => fetches === 1);
+  const root = realpathSync.native(worktree);
+  const subscription = subscriptions.find((candidate) => candidate.root === root);
+  rmSync(worktree, { recursive: true, force: true });
+  if (subscription !== undefined) touchWorkingTree(subscription);
+  subscription?.onEvents([root]);
+  // 予約は 0ms のタイマーなので、取り消されていなければこの待ちの間に取得が走る
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await registry.unwatchAll();
+
+  expect(fetches).toBe(1);
+});

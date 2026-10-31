@@ -183,7 +183,7 @@ import {
   type FileChangeInfo,
 } from "./git/gitTree";
 import { validateRev } from "./git/gitValidate";
-import { resolveAndCreateWorktree, toWorktreeEntry } from "./git/worktreeCreate";
+import { resolveAndCreateWorktree } from "./git/worktreeCreate";
 import {
   createWorktree,
   pruneWorktrees,
@@ -191,7 +191,7 @@ import {
   WorktreeRemoveRefusedError,
   resolveReviveBranch,
 } from "./git/worktreeOps";
-import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
+import { fetchRemotes, gitStatusFull, toWorktreeEntry, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
 import {

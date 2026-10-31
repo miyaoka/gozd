@@ -1,5 +1,6 @@
 // git RPC op。parser は `porcelain.ts` に分離してある。
 
+import type { WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { statSync } from "node:fs";
 import { join } from "node:path";
@@ -14,6 +15,17 @@ import {
 /** `git worktree list --porcelain` 相当 */
 export async function worktreeList(dir: string): Promise<WorktreeInfo[]> {
   return parseWorktreePorcelain(await runGit(["worktree", "list", "--porcelain"], dir));
+}
+
+/** worktree 一覧の要素をワイヤの WorktreeEntry に写す */
+export function toWorktreeEntry(info: WorktreeInfo): WorktreeEntry {
+  return {
+    path: info.path,
+    head: info.head,
+    branch: info.branch ?? "",
+    detached: info.detached,
+    isMain: info.isMain,
+  };
 }
 
 /**

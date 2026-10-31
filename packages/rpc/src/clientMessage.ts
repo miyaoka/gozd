@@ -125,7 +125,7 @@ export interface CliRepo {
   worktrees: CliWorktree[];
 }
 
-/** branch は detached HEAD のとき空文字 */
+/** 各フィールドの意味は `WorktreeEntry` と同じ */
 export type CliWorktree = Pick<WorktreeEntry, "path" | "branch" | "isMain">;
 
 /** `gozd session list` が返す 1 セッション。 */

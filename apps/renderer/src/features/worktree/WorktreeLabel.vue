@@ -1,13 +1,7 @@
 <doc lang="md">
-worktree の表示名。branch を持つ worktree は branch 名だけを出す。
-
-detached HEAD の worktree は branch を持たないため、ディレクトリ名を出して名前の前に commit icon を
-添える。ディレクトリ名は branch 名と同じ字面で並ぶので、icon が無いと branch 名と読み違える。
-HEAD の hash は同じ commit から作った worktree どうしで一致し commit で変わるため、名前にせず
-hover で見せる。
-
-bare の entry も branch を持たないが、HEAD が commit を指す状態ではないので icon を付けず
-ディレクトリ名だけを出す。
+worktree の名前を描く。表し方 (branch 名、detached の印とディレクトリ名、bare) の契約は
+docs/workspace.md の「各 worktree」。HEAD の hash を名前にしないのは、同じ commit から作った
+worktree どうしで一致し commit で変わるため。
 
 文字の色と大きさは置かれた面が決める。
 </doc>

@@ -3,24 +3,13 @@
 // 置き場所・起点 ref・leaf 名の決定をここに閉じる。決定を呼び出し側に持たせると同じ規則の
 // 写しが増え、規則を変えるたびに全経路を追うことになる。
 
-import type { CreateWorktreeRequest, WorktreeEntry } from "@gozd/rpc";
+import type { CreateWorktreeRequest } from "@gozd/rpc";
 import { generateTimestamp } from "@gozd/shared";
 import { loadProjectConfig } from "../projectConfigStore";
 import { resolveMainRepoRoot } from "../projectKey";
 import { resolveStartPoint } from "./gitBranch";
 import type { WorktreeInfo } from "./porcelain";
 import { createWorktree } from "./worktreeOps";
-
-/** git の worktree 一覧の要素を WorktreeEntry に写す */
-export function toWorktreeEntry(info: WorktreeInfo): WorktreeEntry {
-  return {
-    path: info.path,
-    head: info.head,
-    branch: info.branch ?? "",
-    detached: info.detached,
-    isMain: info.isMain,
-  };
-}
 
 /** 起点 ref と leaf 名を解決して worktree を 1 つ作る。空文字の扱いは
  * `CreateWorktreeRequest` の契約を参照。 */

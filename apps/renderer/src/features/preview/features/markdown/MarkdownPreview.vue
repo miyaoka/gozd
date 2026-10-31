@@ -93,10 +93,8 @@ useMarkdownImageWatch(imagePaths, () => {
  * MarkdownBody が外部送りと `preventDefault` を済ませた後の href を受け、worktree 相対として
  * 解決する。左クリックと中クリックは同じ経路で届く。
  *
- * notification は **固定 message + 詳細を `cause` に分離** する。
- * `useNotificationStore` は同一 message を重複抑制するため、href 違いのリンクを連続
- * クリックしてもトーストが累積しない。href の生値は `cause` 側にだけ保持し、トースト
- * 詳細パネルで確認できる経路を残す。
+ * notification は **固定 message + 詳細を `cause` に分離** する。href の生値は `cause` 側に
+ * だけ保持し、トースト詳細パネルで確認できる経路を残す。
  */
 const ANCHOR_IGNORED_MESSAGE = "Heading anchors are not yet supported; opened the file only";
 const LINK_INVALID_MESSAGE = "Could not open link from markdown preview";

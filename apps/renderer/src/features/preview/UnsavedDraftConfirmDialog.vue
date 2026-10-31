@@ -21,8 +21,9 @@ watch(pending, (next) => {
   if (!dialog.open) dialog.showModal();
 });
 
-// 保存中は ESC / Cancel での取り下げを受け付けない。dialog だけ閉じても chooseSave は進行中で、
-// Cancel したように見えたあと保存完了で proceed (close・ファイル切替) が走るため
+// 保存中は取り下げ (Cancel ボタン・backdrop は requestDismiss、ESC は onNativeCancel) を受け付け
+// ない。dialog だけ閉じても chooseSave は進行中で、取り下げたように見えたあと保存完了で proceed
+// (close・ファイル切替) が走るため
 function requestDismiss() {
   if (saving.value) return;
   dialogRef.value?.close();

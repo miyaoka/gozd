@@ -8,8 +8,8 @@ import { useNotificationStore } from "../../shared/notification";
  * NotificationCenterPanel が `isOpen` を watch して `shared/surface` へ流す。通知データ自体は `shared/notification` が SSOT で、
  * 本 store は開閉と既読位置 (`lastSeenSeq`) だけを扱う。
  *
- * 未読は「seq が lastSeenSeq より新しい項目」。seq は重複抑制の再発生でも進むため、
- * 既存項目への再発生も未読に戻る。パネルが開いている間は watch が既読位置を最新 seq に
+ * 未読は「seq が lastSeenSeq より新しい項目」。seq は通知の追加ごとに進む。
+ * パネルが開いている間は watch が既読位置を最新 seq に
  * 追従させるので、開いた瞬間 + 開いている間の新着は即座に既読化される。
  */
 export const useNotificationCenterStore = defineStore("notificationCenter", () => {

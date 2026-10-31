@@ -194,6 +194,29 @@ describe("fsWatchTargetDirs", () => {
     expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1"]));
   });
 
+  test("キャッシュに残った path へ作り直した worktree は確認済みに置き換わる", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        {
+          rootDir: "/r1",
+          repoName: "r1",
+          isGitRepo: true,
+          collapsed: false,
+          worktrees: [{ path: "/r1/revived", branch: "", isMain: false }],
+        },
+      ],
+      repoLists: [],
+      activeRepoListId: "",
+    });
+
+    store.appendWorktree("/r1", { path: "/r1/revived", head: "h", branch: "b", isMain: false });
+
+    expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1/revived"]));
+    expect(store.repos["/r1"]?.worktrees.map((w) => w.path)).toEqual(["/r1/revived"]);
+  });
+
   test("作成直後の worktree は watch し、キャッシュの worktree は外したまま", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();

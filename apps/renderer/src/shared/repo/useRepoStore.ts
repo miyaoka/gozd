@@ -568,12 +568,22 @@ export const useRepoStore = defineStore("repo", () => {
    * 新規作成した worktree を repo の worktrees に追加。
    * `wt` には git の一覧で確かめた entry を渡す。`cached` は付かず、すぐ watch の対象になる。
    * 同一 path が既に存在する場合は no-op（store の最終防衛線として idempotent にする）。
+   * ただし既存が `cached` なら `wt` で置き換えて確認済みにする（キャッシュに残った path へ
+   * revive で作り直した場合）。
    */
   function appendWorktree(rootDir: string, wt: WorktreeEntry) {
     const current = repos.value[rootDir];
     if (current === undefined) return;
-    if (current.worktrees.some((w) => w.path === wt.path)) return;
-    updateRepoData(rootDir, [...current.worktrees, wt]);
+    const existing = current.worktrees.find((w) => w.path === wt.path);
+    if (existing === undefined) {
+      updateRepoData(rootDir, [...current.worktrees, wt]);
+      return;
+    }
+    if (existing.cached !== true) return;
+    updateRepoData(
+      rootDir,
+      current.worktrees.map((w) => (w === existing ? wt : w)),
+    );
   }
 
   /**

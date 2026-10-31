@@ -26,9 +26,11 @@ export interface WorktreeGitState {
 /** repoStore が保持する worktree。一覧の構造に、監視から届いた status を重ねたもの */
 export type RepoWorktree = WorktreeEntry &
   WorktreeGitState & {
-    /** app-state のキャッシュから復元し、git の一覧でまだ確かめていない。
-     * キャッシュは前回の終了時の一覧で、その後に消えた worktree を含みうる */
+    /** git の一覧でまだ確かめていない。app-state のキャッシュから復元した entry（前回の終了時の
+     * 一覧で、その後に消えた worktree を含みうる）と、`listUnavailable` の entry に付く */
     cached?: true;
+    /** git の一覧を取得できず、worktree の代わりに repo の dir を置いた entry（`showRepoDirOnly`） */
+    listUnavailable?: true;
   };
 
 /** status 未観測の worktree が持つ値。status が届くまでバッジは出ない */
@@ -100,6 +102,23 @@ export function collectFsWatchTargetDirs(
     }
   }
   return dirs;
+}
+
+/** 前回終了時に選択していた dir と、それを確かめる git の一覧の持ち主 */
+export interface PendingActiveDir {
+  rootDir: string;
+  dir: string;
+}
+
+/**
+ * 開いていた worktree が一覧から消え、repo の root に切り替えたことを知らせる文言。
+ * 複数 repo 同時開き時にどの repo の root に切り替わったか分かるよう repoName を含める。
+ * クォートを使うと repoName 内のクォート文字でメッセージが崩れるため使わない。
+ * 空文字列は hydrate 経路で混入し得るので汎用ラベルにフォールバックする。
+ */
+export function activeWorktreeRemovedMessage(repo: Pick<RepoState, "repoName">): string {
+  const repoLabel = repo.repoName !== "" ? repo.repoName : "the repo";
+  return `Active worktree was removed; switched to ${repoLabel} root.`;
 }
 
 const DEFAULT_REPO_LIST_NAME = "Default";
@@ -214,6 +233,8 @@ export const useRepoStore = defineStore("repo", () => {
    * - `updateRepoData()`: 配下 wt 削除時の rootDir fallback
    */
   const selectedDir = ref<string>();
+  /** 前回終了時の選択のうち、git の一覧で確かめてから開くもの。何かが選択されたら消える */
+  const pendingActiveDir = ref<PendingActiveDir>();
   /** 折りたたまれている repo の rootDir 集合 */
   const collapsedRoots = ref<Set<string>>(new Set());
   /**
@@ -508,11 +529,7 @@ export const useRepoStore = defineStore("repo", () => {
     if (orphanedActiveDir) {
       // 外部 git worktree remove 経由だとユーザー操作なしに active dir が切り替わる。
       // feature 層が DI した notifier 経由でユーザーに通知する。未注入なら console.info。
-      // 複数 repo 同時開き時にどの repo の root に切り替わったか分かるよう repoName を含める。
-      // クォートを使うと repoName 内のクォート文字でメッセージが崩れるため使わない。
-      // 空文字列は hydrate 経路で混入し得るので汎用ラベルにフォールバックする。
-      const repoLabel = current.repoName !== "" ? current.repoName : "the repo";
-      notifyAutoFallback(`Active worktree was removed; switched to ${repoLabel} root.`);
+      notifyAutoFallback(activeWorktreeRemovedMessage(current));
       selectedDir.value = rootDir;
     }
   }
@@ -565,6 +582,34 @@ export const useRepoStore = defineStore("repo", () => {
   }
 
   /**
+   * git の一覧の取得に失敗した repo を、repo の dir だけを選べる形にする。キャッシュの worktree は
+   * 未確認なので並べず、dir を worktree と同じ形で置く。選べばその dir でターミナルが開き、
+   * 一覧が取り直される。
+   * 一覧で確かめた worktree を 1 件でも持つ repo は変えない。その一覧が正本で、取得の失敗は
+   * 消えたことの証明にならない。一度この形にした repo も、続けて失敗しても変えない。
+   * `keepDirs` には外してはいけない dir（端末を持つ dir）を渡す。外すとその端末とセッションが
+   * サイドバーから届かなくなる。選択中の worktree も外さない（外すと選択がどの repo にも属さなく
+   * なり、`gozd <path>` で明示的に開いた対象も隠れる）。残したものは一覧が届けば
+   * `updateRepoData` が通常どおり確かめる。
+   * `updateRepoData` を通さないのは、選択中のキャッシュの worktree が一覧から消えたと扱われ、
+   * root への切り替えと通知が走るため。
+   */
+  function showRepoDirOnly(rootDir: string, keepDirs: ReadonlySet<string>) {
+    const current = repos.value[rootDir];
+    if (current === undefined) return;
+    if (current.worktrees.some((wt) => wt.cached !== true || wt.listUnavailable === true)) return;
+    const repoDir: RepoWorktree = {
+      ...toRepoWorktree({ path: rootDir, head: "", branch: "", detached: false, isMain: true }),
+      cached: true,
+      listUnavailable: true,
+    };
+    const kept = current.worktrees.filter(
+      (wt) => wt.path !== rootDir && (wt.path === selectedDir.value || keepDirs.has(wt.path)),
+    );
+    repos.value[rootDir] = { ...current, worktrees: [repoDir, ...kept] };
+  }
+
+  /**
    * 新規作成した worktree を repo の worktrees に追加。
    * `wt` には git の一覧で確かめた entry を渡す。`cached` は付かず、すぐ watch の対象になる。
    * 同一 path が既に存在する場合は no-op（store の最終防衛線として idempotent にする）。
@@ -598,6 +643,11 @@ export const useRepoStore = defineStore("repo", () => {
 
   function selectDir(dir: string) {
     selectedDir.value = dir;
+    pendingActiveDir.value = undefined;
+  }
+
+  function setPendingActiveDir(pending: PendingActiveDir) {
+    pendingActiveDir.value = pending;
   }
 
   /** repo を window から解除する（全 repo list + プールから除去）。
@@ -622,18 +672,27 @@ export const useRepoStore = defineStore("repo", () => {
       }
     }
     delete sessionsByRoot.value[rootDir];
-    if (selectedDir.value !== undefined) {
-      const stillOwned = findRepoOwning(selectedDir.value);
-      if (stillOwned === undefined) {
-        // まずアクティブ repo list の先頭、そこが空ならプール先頭（他 repo list）に倒す
-        const [firstRoot = poolDirs.value[0]] = dirOrder.value;
-        selectedDir.value = firstRoot;
-        // プール先頭へ倒れた（= アクティブ list に無い repo を選択した）場合は、その repo を
-        // 含む list へアクティブも切り替える。切り替えないと「サイドバーは empty state なのに
-        // terminal / filer は別 list の repo を開いている」という表示のずれが残る
-        if (firstRoot !== undefined) activateRepoListContaining(firstRoot);
-      }
+    // 一覧を待つ前回の選択は、選択中の dir と同じく扱う。解除した repo に残すと、
+    // 何も選択されないまま、解除した repo の dir が前回の選択として保存され続ける
+    if (pendingActiveDir.value?.rootDir === rootDir) {
+      pendingActiveDir.value = undefined;
+      selectFallbackAfterRemoval();
+      return;
     }
+    if (selectedDir.value === undefined) return;
+    if (findRepoOwning(selectedDir.value) !== undefined) return;
+    selectFallbackAfterRemoval();
+  }
+
+  /** 選択していた repo を解除した後の選択先。まずアクティブ repo list の先頭、そこが空なら
+   * プール先頭（他 repo list）に倒す */
+  function selectFallbackAfterRemoval() {
+    const [firstRoot = poolDirs.value[0]] = dirOrder.value;
+    selectedDir.value = firstRoot;
+    // プール先頭へ倒れた（= アクティブ list に無い repo を選択した）場合は、その repo を
+    // 含む list へアクティブも切り替える。切り替えないと「サイドバーは empty state なのに
+    // terminal / filer は別 list の repo を開いている」という表示のずれが残る
+    if (firstRoot !== undefined) activateRepoListContaining(firstRoot);
   }
 
   function isCollapsed(rootDir: string): boolean {
@@ -695,8 +754,9 @@ export const useRepoStore = defineStore("repo", () => {
       })),
       activeRepoListId: activeRepoListId.value,
       // 次回起動時の active worktree 復元用。未選択（undefined）は JSON.stringify で
-      // キーごと落ちるため、save 側の shallow merge で stale な値が残らない
-      activeDir: selectedDir.value,
+      // キーごと落ちるため、save 側の shallow merge で stale な値が残らない。
+      // 一覧で確かめるのを待つ前回の選択は、新しい選択が起きるまで前回の選択として残す
+      activeDir: selectedDir.value ?? pendingActiveDir.value?.dir,
     };
   }
 
@@ -824,7 +884,10 @@ export const useRepoStore = defineStore("repo", () => {
     setGithubIdentity,
     getObservationGen,
     appendWorktree,
+    showRepoDirOnly,
     selectDir,
+    pendingActiveDir,
+    setPendingActiveDir,
     removeRepo,
     isCollapsed,
     toggleCollapsed,

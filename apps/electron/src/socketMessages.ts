@@ -27,7 +27,8 @@ import {
   removeWorktreeForConcierge,
   resolveSessionOpenDir,
 } from "./concierge";
-import { resolveAndCreateWorktree, toWorktreeEntry } from "./git/worktreeCreate";
+import { toWorktreeEntry } from "./git/gitOps";
+import { resolveAndCreateWorktree } from "./git/worktreeCreate";
 import { buildGozdOpenPayload } from "./openTarget";
 import { asDict, lenientBoolean, lenientDict, lenientNumber, lenientString } from "./rawJson";
 import type { SocketMessageHandler } from "./socketServer";

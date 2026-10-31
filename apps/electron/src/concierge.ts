@@ -9,7 +9,7 @@ import { tryCatch } from "@gozd/shared";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { listClaudeSessions } from "./claude/claudeSessionList";
-import { worktreeList } from "./git/gitOps";
+import { toWorktreeEntry, worktreeList } from "./git/gitOps";
 import { removeWorktree } from "./git/worktreeOps";
 import { gozdDataRoot, resolveMainRepoRoot } from "./projectKey";
 
@@ -50,10 +50,10 @@ export async function listRegisteredRepos(
       rootDir: repo.rootDir,
       name: repo.repoName,
       isGitRepo: true,
-      worktrees: listed.value.map((wt) => ({
-        path: wt.path,
-        branch: wt.branch ?? "",
-        isMain: wt.isMain,
+      worktrees: listed.value.map(toWorktreeEntry).map(({ path, branch, isMain }) => ({
+        path,
+        branch,
+        isMain,
       })),
     });
   }

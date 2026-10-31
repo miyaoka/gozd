@@ -13,6 +13,7 @@ function wt(path: string, branch: string, isMain = false): RepoWorktree {
     path,
     head: "",
     branch,
+    detached: false,
     isMain,
     gitStatuses: {},
     renameOldPaths: {},

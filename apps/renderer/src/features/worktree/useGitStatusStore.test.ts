@@ -10,6 +10,7 @@ function wt(head: string): RepoWorktree {
     path: DIR,
     head,
     branch: "main",
+    detached: false,
     isMain: true,
     gitStatuses: {},
     renameOldPaths: {},

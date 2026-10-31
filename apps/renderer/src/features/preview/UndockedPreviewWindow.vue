@@ -41,9 +41,14 @@ snapshot に固定する — 過去の内容で実ファイルを上書き保存
 
 ウィンドウの実体 (in-app パネル / 昇格後の OS ウィンドウ、その切り替えと昇格の rect 換算) は
 汎用シェル UndockedWindow に委譲する。
-ヘッダには undock 時点の出自 (repo / branch / ファイル名) を焼き込む — worktree 切替を
+ヘッダには undock 時点の出自 (repo / ファイル名) を焼き込む — worktree 切替を
 跨いで生存するウィンドウを識別するため。repo 未解決 (worktree 外の絶対パス等) は
 出自の段ごと省く。タイトルバー (document.title) はファイル名。
+worktree の名前は焼き込まず、undock 元の path から現在の entry を引いて描く。detached の HEAD は
+commit のたびに進むため、焼き込むと hover の hash が古いまま残る。path で引くので、本体で
+選んでいる worktree が変わっても出自は変わらない。entry が引けない (worktree の削除、repo の解除) ときは
+焼き込み済みの path のディレクトリ名だけを出す。worktree の段は git の worktree から undock したときだけ出す
+(非 git の project と窓口は worktree を持たない)。
 
 ヘッダの dock ボタンで undock 元の選択を本体 preview として開き直せる。開けたらウィンドウは
 閉じる (本体への昇格であり二重表示を残さない。undock 時に popover を閉じるのと対称)。undock 元
@@ -57,7 +62,7 @@ import type { WireBytes, FsChangeAbsolutePayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { useRepoStore } from "../../shared/repo";
+import { pathBaseName, useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import {
   getFileIconUrl,
@@ -68,7 +73,7 @@ import {
 } from "../filer";
 import { UndockedWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
-import { joinAbsRel, useWorktreeStore } from "../worktree";
+import { joinAbsRel, useWorktreeStore, WorktreeLabel } from "../worktree";
 import PreviewContent from "./PreviewContent.vue";
 import { detectFileType } from "./previewFileType";
 import type { PreviewMode } from "./previewMode";
@@ -116,6 +121,12 @@ const source = props.preview.source;
 const sourceAbsPath =
   source.kind === "absolute" ? source.absPath : joinAbsRel(source.dir, source.relPath);
 const fileType = detectFileType(doc.filePath);
+/** ヘッダの worktree の名前。undock 元の path から現在の entry を引く (doc 参照) */
+const sourceWorktree = computed(() =>
+  source.kind === "worktree"
+    ? repoStore.findRepoOwning(source.dir)?.worktrees.find((wt) => wt.path === source.dir)
+    : undefined,
+);
 /** 配信 scheme から読む対象。worktree 起点なら worktree root を配信範囲にする */
 const servingTarget = previewServingTarget(
   sourceAbsPath,
@@ -369,7 +380,7 @@ function dockToPreview() {
     @closed="close(preview.id)"
     @save-requested="saveEdit()"
   >
-    <!-- UndockedLogWindow と同じ 2 段構成 (上段: repo アイコン + repo 名 + branch / 下段:
+    <!-- UndockedLogWindow と同じ 2 段構成 (上段: repo アイコン + repo 名 + worktree の名前 / 下段:
          ファイル)。repo 未解決 (空文字) は上段ごと省く。 -->
     <template #header>
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -379,10 +390,11 @@ function dockToPreview() {
             {{ preview.repoName }}
           </span>
           <span
-            v-if="preview.branch !== ''"
-            class="min-w-0 flex-1 truncate text-xs text-foreground-low"
+            v-if="preview.fromGitWorktree && source.kind === 'worktree'"
+            class="min-w-0 flex-1 text-xs text-foreground-low"
           >
-            {{ preview.branch }}
+            <WorktreeLabel v-if="sourceWorktree" :wt="sourceWorktree" />
+            <span v-else class="block truncate">{{ pathBaseName(source.dir) }}</span>
           </span>
         </div>
         <div class="flex min-w-0 items-center gap-2">

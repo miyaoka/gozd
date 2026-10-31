@@ -97,7 +97,10 @@ describe("loadAppStateFrom (reinit)", () => {
             repoName: "r1",
             isGitRepo: true,
             collapsed: false,
-            worktrees: [{ path: "/r1", branch: "main", isMain: true }],
+            worktrees: [
+              { path: "/r1", branch: "main", detached: false, isMain: true },
+              { path: "/r1/check", branch: "", detached: true, isMain: false },
+            ],
           },
         ],
         repoLists: [{ id: "p1", name: "Default", dirOrder: ["/r1"] }],
@@ -108,6 +111,7 @@ describe("loadAppStateFrom (reinit)", () => {
     const state = loadAppStateFrom(path);
     expect(state.repoLists[0]?.dirOrder).toEqual(["/r1"]);
     expect(state.activeDir).toBe("/r1");
+    expect(state.sidebarRepos[0]?.worktrees.map((wt) => wt.detached)).toEqual([false, true]);
   });
 });
 

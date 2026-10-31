@@ -14,14 +14,23 @@ describe("parseWorktreePorcelain", () => {
       "",
     ].join("\n");
     expect(parseWorktreePorcelain(text)).toEqual([
-      { path: "/repo", head: "aaaa", branch: "main", isMain: true },
-      { path: "/wt/feature", head: "bbbb", branch: "feature", isMain: false },
+      { path: "/repo", head: "aaaa", branch: "main", detached: false, isMain: true },
+      { path: "/wt/feature", head: "bbbb", branch: "feature", detached: false, isMain: false },
     ]);
   });
 
-  test("detached HEAD は branch undefined", () => {
+  test("detached HEAD は branch undefined で detached", () => {
     const text = ["worktree /repo", "HEAD aaaa", "detached", ""].join("\n");
-    expect(parseWorktreePorcelain(text)[0].branch).toBeUndefined();
+    const [entry] = parseWorktreePorcelain(text);
+    expect(entry.branch).toBeUndefined();
+    expect(entry.detached).toBe(true);
+  });
+
+  test("bare は branch undefined だが detached ではない", () => {
+    const text = ["worktree /repo.git", "bare", ""].join("\n");
+    const [entry] = parseWorktreePorcelain(text);
+    expect(entry.branch).toBeUndefined();
+    expect(entry.detached).toBe(false);
   });
 
   test("unborn branch の全 0 OID は空文字に正規化する", () => {

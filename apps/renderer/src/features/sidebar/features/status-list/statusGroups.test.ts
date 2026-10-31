@@ -25,7 +25,7 @@ function row(
     rootDir,
     repoName: rootDir.slice(1),
     owner: "",
-    branch: "main",
+    worktree: undefined,
   };
 }
 

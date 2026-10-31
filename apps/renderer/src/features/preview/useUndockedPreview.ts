@@ -54,8 +54,11 @@ interface UndockedPreviewData {
   repoName: string;
   /** RepoIcon 用の GitHub owner。空文字は identicon フォールバック。 */
   repoOwner: string;
-  /** ヘッダ上段の worktree 識別 (branch 名)。detached HEAD 等の未解決は空文字で省く。 */
-  branch: string;
+  /**
+   * undock 元が git の worktree か。ヘッダの worktree の段はこのときだけ出す。undock 後は
+   * repo を解除されて引けなくなりうるため、worktree が消えたのか元から無いのかを焼き込みで区別する。
+   */
+  fromGitWorktree: boolean;
   /** ヘッダ下段の表示 + file icon 解決に使うファイル名。 */
   fileName: string;
   /** ヘッダ title 属性用のフルパス表記。 */

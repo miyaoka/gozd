@@ -3,8 +3,8 @@
 「次にどこへ注意を向けるか」を選ぶ受信箱で、行の確定は該当 worktree を選択して
 セッションを focus / resume する (openSession)。
 
-タイトル・repo 名・ブランチ名・GitHub owner を横断して絞り込める (owner はカラムに
-表示しないが検索対象に含める)。
+絞り込みの対象は docs/session.md の「ダッシュボード」に加え、カラムに表示しない GitHub owner も
+含める。
 
 ## 並び順は開いている間凍結する
 
@@ -22,7 +22,7 @@
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../shared/command";
-import { useRepoStore } from "../../shared/repo";
+import { useRepoStore, worktreeLabel } from "../../shared/repo";
 import { fuzzyMatch, useListNavigation } from "../palette";
 import { collectPoolSessionRows, openSession, type PoolSessionRow } from "../session";
 import { useTerminalStore } from "../terminal";
@@ -78,7 +78,8 @@ const orderedRows = computed((): PoolSessionRow[] => {
 
 // owner (org) は UI 表示しないが絞り込み対象には含める
 function searchText(row: PoolSessionRow): string {
-  return `${row.title} ${row.repoName} ${row.branch} ${row.owner ?? ""}`;
+  const worktree = row.worktree === undefined ? "" : worktreeLabel(row.worktree);
+  return `${row.title} ${row.repoName} ${worktree} ${row.owner ?? ""}`;
 }
 
 // 絞り込み結果の score 順スナップショット。score の入力 (タイトル / owner) は live に

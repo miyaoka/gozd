@@ -220,7 +220,7 @@ ESC の連打は前面から順に閉じていくが、**これは規則では�
   昼夜の境界は場所に依存しない固定時刻で、天文的な日の出 / 日の入りではない。日付と曜日の
   表記はシステムのロケールに従う。現在時刻そのものはサイドバーの時計が担い、こちらは
   1 日の中での位置を示す
-- **ウィンドウタイトル**: アクティブな repo / worktree を `"repoName · branchName"` 形式で
+- **ウィンドウタイトル**: アクティブな repo / worktree を `"repo 名 · worktree の名前"` 形式で
   OS のウィンドウタイトルに反映し、OS 側のウィンドウ一覧で識別できるようにする
 - **channel の視覚区別**: 開発中のインスタンスはタイトルバーを専用の色で塗り、チップを表示する。
   配布版との取り違え防止
@@ -277,7 +277,12 @@ project の集合で、state に保存する。どの project の dir かの判�
 
 各 worktree:
 
-- ヘッダ: ブランチ名 + 変更ファイル数バッジ + upstream に対する ahead / behind
+- ヘッダ: worktree の名前 + 変更ファイル数バッジ + upstream に対する ahead / behind
+- worktree の名前は checkout 中のブランチ名。detached HEAD の worktree は checkout 中のブランチが
+  無いため、ディレクトリ名に detached であることを示す印を添えて、ブランチ名とも他の detached の
+  worktree とも見分けられるようにする。HEAD の commit は hover で見せる。bare の entry も checkout
+  中のブランチが無いが、detached ではないので印を付けずディレクトリ名だけを出す。worktree の名前を出す面はすべて
+  同じ表し方にする。文字だけの面（ウィンドウタイトル、削除の確認文）は印を付けない
 - 配下のセッション行: その worktree の Claude セッションを 1 セッション = 1 行で並べる。
   どのセッションを出すか、並びと表示は [session.md](session.md) の「サイドバー」
 - **出すセッション行がある worktree だけをカードにし**、無い worktree はヘッダ 1 行で出す。

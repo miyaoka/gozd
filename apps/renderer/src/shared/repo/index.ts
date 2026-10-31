@@ -1,4 +1,4 @@
-export { branchLabel } from "./branchLabel";
+export { pathBaseName, worktreeLabel } from "./worktreeLabel";
 export {
   collectFsWatchTargetDirs,
   repoDirEntries,

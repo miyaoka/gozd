@@ -19,10 +19,12 @@ click-to-front、ESC / Cmd+W はフォーカスがあるサーフェスを閉じ
 </doc>
 
 <script setup lang="ts">
+import type { WorktreeEntry } from "@gozd/rpc";
 import { computed, useTemplateRef } from "vue";
-import { useRepoStore } from "../../shared/repo";
+import { pathBaseName, useRepoStore } from "../../shared/repo";
 import { useSurface } from "../../shared/surface";
 import { activateDir, useTerminalStore } from "../terminal";
+import { WorktreeLabel } from "../worktree";
 import type { ServerAttributionKind } from "./rpc";
 import { useServerStore } from "./useServerStore";
 import IconLucideServer from "~icons/lucide/server";
@@ -42,35 +44,24 @@ interface ServerRow {
   worktreePath: string;
   ptyId: number;
   repoName: string;
-  worktreeName: string;
-  /** 行クリックで worktree を開けるか。worktree が解決できる場合のみ true。 */
-  openable: boolean;
+  /** 解決できた worktree。行クリックで開けるのはこれがあるときだけ */
+  worktree: WorktreeEntry | undefined;
   conflict: boolean;
 }
 
 /**
- * worktree path → 表示用の repo 名 / worktree 名 + 開けるか。`findRepoOwning` で worktree が
- * 解決できない (external で空 / orphaned で worktree 削除済み) 場合は openable=false にし、
- * 存在しない dir を `setOpen` する壊れた選択状態を防ぐ。
+ * worktree path → 表示用の repo 名 + worktree。`findRepoOwning` で worktree が解決できない
+ * (external で空 / orphaned で worktree 削除済み) 場合は worktree を持たせず、存在しない dir を
+ * `setOpen` する壊れた選択状態を防ぐ。
  */
 function resolveNames(worktreePath: string): {
   repoName: string;
-  worktreeName: string;
-  openable: boolean;
+  worktree: WorktreeEntry | undefined;
 } {
-  if (worktreePath === "") return { repoName: "", worktreeName: "", openable: false };
+  if (worktreePath === "") return { repoName: "", worktree: undefined };
   const repo = repoStore.findRepoOwning(worktreePath);
-  const wt = repo?.worktrees.find((w) => w.path === worktreePath);
-  const branch = wt?.branch ?? "";
-  const worktreeName =
-    branch !== "" ? branch.replace(/^refs\/heads\//, "") : basename(worktreePath);
-  return { repoName: repo?.repoName ?? "", worktreeName, openable: wt !== undefined };
-}
-
-function basename(path: string): string {
-  const parts = path.split("/").filter((p) => p !== "");
-  const [last = path] = parts.slice(-1);
-  return last;
+  const worktree = repo?.worktrees.find((w) => w.path === worktreePath);
+  return { repoName: repo?.repoName ?? "", worktree };
 }
 
 const ATTRIBUTION_LABEL: Record<ServerAttributionKind, string> = {
@@ -99,8 +90,7 @@ const rows = computed<ServerRow[]>(() => {
       worktreePath: server.worktreePath,
       ptyId: server.ptyId,
       repoName: names.repoName,
-      worktreeName: names.worktreeName,
-      openable: names.openable,
+      worktree: names.worktree,
       conflict: false,
     }));
   });
@@ -114,7 +104,7 @@ const rows = computed<ServerRow[]>(() => {
 
 function onRowClick(row: ServerRow): void {
   // worktree が解決できない行 (external / 削除済み orphaned) は開けない。
-  if (!row.openable) return;
+  if (row.worktree === undefined) return;
   activateDir(row.worktreePath);
   // live なら該当端末ペインへフォーカスする (ptyId は帰属先 PTY)。
   // focusPaneByPtyId には寄せない: この ptyId は main のポーリング snapshot 由来で、
@@ -174,7 +164,7 @@ const { raise } = useSurface(panelRef, {
         v-for="row in rows"
         :key="row.key"
         type="button"
-        :disabled="!row.openable"
+        :disabled="row.worktree === undefined"
         class="grid w-full grid-cols-[64px_1fr_1.4fr_72px] items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors not-disabled:cursor-pointer not-disabled:hover:bg-element-hover disabled:cursor-default"
         @click="onRowClick(row)"
       >
@@ -187,11 +177,15 @@ const { raise } = useSurface(panelRef, {
           {{ row.port }}
         </span>
         <span class="truncate text-foreground-low" :title="`pid ${row.pid}`">{{ row.name }}</span>
-        <span class="truncate text-foreground-low">
+        <!-- 狭いときは repo 名から切り、worktree 名を残す -->
+        <span class="flex min-w-0 items-center gap-1 overflow-hidden text-foreground-low">
           <template v-if="row.worktreePath !== ''">
-            <span class="text-foreground">{{ row.worktreeName }}</span>
-            <span v-if="row.repoName !== ''" class="text-foreground-low">
-              · {{ row.repoName }}</span
+            <span class="max-w-full shrink-0 text-foreground">
+              <WorktreeLabel v-if="row.worktree" :wt="row.worktree" />
+              <span v-else class="block truncate">{{ pathBaseName(row.worktreePath) }}</span>
+            </span>
+            <span v-if="row.repoName !== ''" class="min-w-0 truncate text-foreground-low"
+              >· {{ row.repoName }}</span
             >
           </template>
           <span v-else>—</span>

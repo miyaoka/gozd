@@ -116,6 +116,18 @@ describe("collectFsWatchTargetDirs", () => {
     );
   });
 
+  test("キャッシュから復元しただけの worktree は集めない", () => {
+    const repos: Record<string, RepoState> = {
+      "/r1": {
+        rootDir: "/r1",
+        repoName: "r1",
+        isGitRepo: true,
+        worktrees: [wt("/r1", "main", true), { ...wt("/gone", "feat"), cached: true }],
+      },
+    };
+    expect(collectFsWatchTargetDirs(["/r1"], repos)).toEqual(new Set(["/r1"]));
+  });
+
   test("dirOrder に載っているが repos から消えている rootDir は無視（hydrate 競合の最終防衛）", () => {
     const repos: Record<string, RepoState> = {
       "/alive": {
@@ -126,6 +138,105 @@ describe("collectFsWatchTargetDirs", () => {
       },
     };
     expect(collectFsWatchTargetDirs(["/ghost", "/alive"], repos)).toEqual(new Set(["/alive"]));
+  });
+});
+
+describe("fsWatchTargetDirs", () => {
+  test("キャッシュの worktree は git の一覧に残ったものだけが watch 対象に入る", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        {
+          rootDir: "/r1",
+          repoName: "r1",
+          isGitRepo: true,
+          collapsed: false,
+          worktrees: [
+            { path: "/r1", branch: "main", isMain: true },
+            { path: "/gone", branch: "", isMain: false },
+          ],
+        },
+      ],
+      repoLists: [],
+      activeRepoListId: "",
+    });
+    expect(store.fsWatchTargetDirs).toEqual(new Set());
+
+    store.updateRepoData("/r1", [{ path: "/r1", head: "h", branch: "main", isMain: true }]);
+
+    expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1"]));
+  });
+
+  test("hydrate 前に一覧で登録済みの worktree は watch し、キャッシュにだけある worktree は外す", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] });
+    store.updateRepoData("/r1", [{ path: "/r1", head: "h", branch: "main", isMain: true }]);
+
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        {
+          rootDir: "/r1",
+          repoName: "r1",
+          isGitRepo: true,
+          collapsed: false,
+          worktrees: [
+            { path: "/r1", branch: "main", isMain: true },
+            { path: "/gone", branch: "", isMain: false },
+          ],
+        },
+      ],
+      repoLists: [],
+      activeRepoListId: "",
+    });
+
+    expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1"]));
+  });
+
+  test("キャッシュに残った path へ作り直した worktree は確認済みに置き換わる", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        {
+          rootDir: "/r1",
+          repoName: "r1",
+          isGitRepo: true,
+          collapsed: false,
+          worktrees: [{ path: "/r1/revived", branch: "", isMain: false }],
+        },
+      ],
+      repoLists: [],
+      activeRepoListId: "",
+    });
+
+    store.appendWorktree("/r1", { path: "/r1/revived", head: "h", branch: "b", isMain: false });
+
+    expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1/revived"]));
+    expect(store.repos["/r1"]?.worktrees.map((w) => w.path)).toEqual(["/r1/revived"]);
+  });
+
+  test("作成直後の worktree は watch し、キャッシュの worktree は外したまま", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        {
+          rootDir: "/r1",
+          repoName: "r1",
+          isGitRepo: true,
+          collapsed: false,
+          worktrees: [{ path: "/gone", branch: "", isMain: false }],
+        },
+      ],
+      repoLists: [],
+      activeRepoListId: "",
+    });
+
+    store.appendWorktree("/r1", { path: "/r1/new", head: "h", branch: "new", isMain: false });
+
+    expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1/new"]));
   });
 });
 

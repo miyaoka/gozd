@@ -9,7 +9,7 @@ import { rpcClaudeSessionList } from "../session";
 import { useTerminalStore } from "../terminal";
 import { rpcGitGithubIdentity, rpcGitWorktreeList, useWorktreeStore } from "../worktree";
 import { rpcConciergeInfo } from "./features/concierge";
-import { restoreActiveDir, settleActiveDir } from "./restoreActiveDir";
+import { openActiveDirUnverified, restoreActiveDir, settleActiveDir } from "./restoreActiveDir";
 import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
 import { useSidebarView } from "./useSidebarView";
 
@@ -64,6 +64,7 @@ export function useSidebarData() {
     const result = await tryCatch(rpcGitWorktreeList({ dir: rootDir }));
     if (!result.ok) {
       notify.error(`Failed to fetch repo data: ${repo.repoName}`, result.error);
+      openActiveDirUnverified(rootDir);
       return;
     }
     if (fetchGenByRoot.get(rootDir) !== gen) return;

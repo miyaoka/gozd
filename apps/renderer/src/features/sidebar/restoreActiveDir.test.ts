@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
 import { type RepoWorktree, useRepoStore } from "../../shared/repo";
 import { useWorktreeStore } from "../worktree";
-import { restoreActiveDir, settleActiveDir } from "./restoreActiveDir";
+import { openActiveDirUnverified, restoreActiveDir, settleActiveDir } from "./restoreActiveDir";
 
 function wt(path: string, branch: string, isMain = false): RepoWorktree {
   return {
@@ -157,5 +157,33 @@ describe("settleActiveDir", () => {
     expect(repoStore.selectedDir).toBe("/r1");
     expect(worktreeStore.selectionVersion).toBe(1);
     expect(messages).toEqual([]);
+  });
+});
+
+describe("openActiveDirUnverified", () => {
+  test("一覧の取得に失敗したら、確かめないまま前回の worktree を開く", () => {
+    const { repoStore, worktreeStore, opened, messages } = setupCachedRepo();
+    restoreActiveDir("/r1/wt-1");
+    openActiveDirUnverified("/r1");
+    expect(opened).toEqual(["/r1/wt-1"]);
+    expect(worktreeStore.selectionVersion).toBe(1);
+    expect(repoStore.buildAppStateSnapshot().activeDir).toBe("/r1/wt-1");
+    expect(messages).toEqual([]);
+  });
+
+  test("別の repo の取得の失敗では開かない", () => {
+    const { opened } = setupCachedRepo();
+    restoreActiveDir("/r1/wt-1");
+    openActiveDirUnverified("/r2");
+    expect(opened).toEqual([]);
+  });
+
+  test("待つ間に別の dir が開かれていたら、明示 open を優先して何もしない", () => {
+    const { repoStore, worktreeStore } = setupCachedRepo();
+    restoreActiveDir("/r1/wt-1");
+    worktreeStore.setOpen("/r1");
+    openActiveDirUnverified("/r1");
+    expect(repoStore.selectedDir).toBe("/r1");
+    expect(worktreeStore.selectionVersion).toBe(1);
   });
 });

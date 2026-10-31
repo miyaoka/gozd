@@ -8,7 +8,7 @@ import { useWorktreeStore } from "../worktree";
  * キャッシュから復元しただけの worktree（`cached`）は、前回の終了後に消えていることがある。
  * 開くと消えた dir でターミナルの起動が失敗するため、すぐには開かず repoStore の
  * `pendingActiveDir` に置いて、所属 repo の git の一覧を待つ。一覧が届いたら
- * `settleActiveDir` が開く先を決める。git の一覧で確かめ済みの dir と、worktree を持たない
+ * `settleActiveDir` が開く先を決め、取得に失敗したら `openActiveDirUnverified` がそのまま開く。git の一覧で確かめ済みの dir と、worktree を持たない
  * dir（非 git project、窓口）はすぐに開く。
  *
  * 復元しないケース:
@@ -53,4 +53,17 @@ export function settleActiveDir(notify: (message: string) => void): void {
   }
   worktreeStore.setOpen(pending.rootDir);
   notify(activeWorktreeRemovedMessage(repo));
+}
+
+/**
+ * repo の git の一覧の取得に失敗した後に呼ぶ。`pendingActiveDir` がその repo のものなら、
+ * 確かめないまま前回の worktree を開く。取得の失敗は消えたことの証明にならないため、
+ * キャッシュを信じて開き、実際に消えていればターミナルの起動の失敗として見せる。
+ */
+export function openActiveDirUnverified(rootDir: string): void {
+  const repoStore = useRepoStore();
+  const worktreeStore = useWorktreeStore();
+  const pending = repoStore.pendingActiveDir;
+  if (pending === undefined || pending.rootDir !== rootDir) return;
+  worktreeStore.setOpen(pending.dir);
 }

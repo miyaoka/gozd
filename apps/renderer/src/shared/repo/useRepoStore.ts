@@ -102,6 +102,12 @@ export function collectFsWatchTargetDirs(
   return dirs;
 }
 
+/** 前回終了時に選択していた dir と、それを確かめる git の一覧の持ち主 */
+export interface PendingActiveDir {
+  rootDir: string;
+  dir: string;
+}
+
 /**
  * 開いていた worktree が一覧から消え、repo の root に切り替えたことを知らせる文言。
  * 複数 repo 同時開き時にどの repo の root に切り替わったか分かるよう repoName を含める。
@@ -225,6 +231,8 @@ export const useRepoStore = defineStore("repo", () => {
    * - `updateRepoData()`: 配下 wt 削除時の rootDir fallback
    */
   const selectedDir = ref<string>();
+  /** 前回終了時の選択のうち、git の一覧で確かめてから開くもの。何かが選択されたら消える */
+  const pendingActiveDir = ref<PendingActiveDir>();
   /** 折りたたまれている repo の rootDir 集合 */
   const collapsedRoots = ref<Set<string>>(new Set());
   /**
@@ -605,6 +613,11 @@ export const useRepoStore = defineStore("repo", () => {
 
   function selectDir(dir: string) {
     selectedDir.value = dir;
+    pendingActiveDir.value = undefined;
+  }
+
+  function setPendingActiveDir(pending: PendingActiveDir) {
+    pendingActiveDir.value = pending;
   }
 
   /** repo を window から解除する（全 repo list + プールから除去）。
@@ -702,8 +715,9 @@ export const useRepoStore = defineStore("repo", () => {
       })),
       activeRepoListId: activeRepoListId.value,
       // 次回起動時の active worktree 復元用。未選択（undefined）は JSON.stringify で
-      // キーごと落ちるため、save 側の shallow merge で stale な値が残らない
-      activeDir: selectedDir.value,
+      // キーごと落ちるため、save 側の shallow merge で stale な値が残らない。
+      // 一覧で確かめるのを待つ前回の選択は、新しい選択が起きるまで前回の選択として残す
+      activeDir: selectedDir.value ?? pendingActiveDir.value?.dir,
     };
   }
 
@@ -832,6 +846,8 @@ export const useRepoStore = defineStore("repo", () => {
     getObservationGen,
     appendWorktree,
     selectDir,
+    pendingActiveDir,
+    setPendingActiveDir,
     removeRepo,
     isCollapsed,
     toggleCollapsed,

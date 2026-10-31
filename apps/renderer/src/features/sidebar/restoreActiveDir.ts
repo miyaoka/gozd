@@ -1,22 +1,15 @@
 import { activeWorktreeRemovedMessage, useRepoStore } from "../../shared/repo";
 import { useWorktreeStore } from "../worktree";
 
-/** git の一覧で確かめてから開く、前回終了時の active worktree */
-export interface PendingActiveDir {
-  /** 一覧を待つ repo */
-  rootDir: string;
-  dir: string;
-}
-
 /**
  * 前回終了時の active worktree（app-state.json の activeDir）を復元し、TerminalPane の
  * dir watch 経由でターミナルを自動で開く。hydrate 直後に 1 回だけ呼ぶ。
  *
- * キャッシュから復元しただけの worktree は、前回の終了後に消えていることがある。開くと
- * 消えた dir でターミナルの起動が失敗するため、すぐには開かず、所属 repo の git の一覧を
- * 待つ対象として返す。一覧が届いたら `settleActiveDir` で開く先を決める。
- * キャッシュに無い dir（非 git project、窓口、hydrate 前に一覧を取得済みの worktree）は
- * すぐに開く。
+ * キャッシュから復元しただけの worktree（`cached`）は、前回の終了後に消えていることがある。
+ * 開くと消えた dir でターミナルの起動が失敗するため、すぐには開かず repoStore の
+ * `pendingActiveDir` に置いて、所属 repo の git の一覧を待つ。一覧が届いたら
+ * `settleActiveDir` が開く先を決める。git の一覧で確かめ済みの dir と、worktree を持たない
+ * dir（非 git project、窓口）はすぐに開く。
  *
  * 復元しないケース:
  * - 既に選択済み（cold start の launch request 由来の gozdOpen が hydrate と並走して
@@ -25,33 +18,35 @@ export interface PendingActiveDir {
  * - 保存された dir がどの repo にも属さない（worktree キャッシュごと消えた / 手で
  *   編集された state）
  */
-export function restoreActiveDir(activeDir: string | undefined): PendingActiveDir | undefined {
+export function restoreActiveDir(activeDir: string | undefined): void {
   const repoStore = useRepoStore();
   const worktreeStore = useWorktreeStore();
-  if (activeDir === undefined || activeDir === "") return undefined;
-  if (worktreeStore.dir !== undefined) return undefined;
+  if (activeDir === undefined || activeDir === "") return;
+  if (worktreeStore.dir !== undefined) return;
   const owning = repoStore.findRepoOwning(activeDir);
-  if (owning === undefined) return undefined;
+  if (owning === undefined) return;
   const worktree = owning.worktrees.find((wt) => wt.path === activeDir);
-  if (worktree?.cached === true) return { rootDir: owning.rootDir, dir: activeDir };
+  if (worktree?.cached === true) {
+    repoStore.setPendingActiveDir({ rootDir: owning.rootDir, dir: activeDir });
+    return;
+  }
   worktreeStore.setOpen(activeDir);
-  return undefined;
 }
 
 /**
- * `pending.rootDir` の git の一覧を反映した直後に呼ぶ。前回の worktree が一覧に載っていれば
- * 開き、載っていなければ repo の root を開いて `notify` で知らせる。
- * 一覧を待つ間に別の dir が開かれていたら、その明示 open を優先して何もしない。
+ * repo の git の一覧を反映した後に呼ぶ。`pendingActiveDir` の repo の一覧がすべて確かめ済みに
+ * なっていれば、前回の worktree が載っていれば開き、載っていなければ repo の root を開いて
+ * `notify` で知らせる。一覧がまだ届いていなければ何もせず待ち続ける。
+ * 待つ間に何かが選択されると `pendingActiveDir` は消えるため、明示 open が優先される。
  */
-export function settleActiveDir(
-  pending: PendingActiveDir,
-  notify: (message: string) => void,
-): void {
+export function settleActiveDir(notify: (message: string) => void): void {
   const repoStore = useRepoStore();
   const worktreeStore = useWorktreeStore();
-  if (worktreeStore.dir !== undefined) return;
+  const pending = repoStore.pendingActiveDir;
+  if (pending === undefined) return;
   const repo = repoStore.repoAt(pending.rootDir);
   if (repo === undefined) return;
+  if (repo.worktrees.some((wt) => wt.cached === true)) return;
   if (repo.worktrees.some((wt) => wt.path === pending.dir)) {
     worktreeStore.setOpen(pending.dir);
     return;

@@ -57,27 +57,35 @@ function setupCachedRepo() {
       "/r1",
       paths.map((path) => ({ path, head: "", branch: "", isMain: path === "/r1" })),
     );
-  return { repoStore, worktreeStore: useWorktreeStore(), listed };
+  const opened: string[] = [];
+  repoStore.$onAction(({ name, args }) => {
+    if (name === "selectDir") opened.push(args[0]);
+  });
+  const messages: string[] = [];
+  repoStore.setAutoFallbackNotifier((m) => messages.push(m));
+  const settle = () => settleActiveDir((m) => messages.push(m));
+  return { repoStore, worktreeStore: useWorktreeStore(), listed, settle, opened, messages };
 }
 
 describe("restoreActiveDir", () => {
   test("一覧で確かめ済みの dir はすぐ setOpen で復元する（選択イベントも発火）", () => {
     const { repoStore, worktreeStore } = setupRepo();
-    expect(restoreActiveDir("/r1/wt-1")).toBeUndefined();
+    restoreActiveDir("/r1/wt-1");
     expect(repoStore.selectedDir).toBe("/r1/wt-1");
     expect(worktreeStore.selectionVersion).toBe(1);
   });
 
-  test("キャッシュから復元しただけの dir は開かず、所属 repo の一覧を待つ", () => {
-    const { repoStore } = setupCachedRepo();
-    expect(restoreActiveDir("/r1/wt-1")).toEqual({ rootDir: "/r1", dir: "/r1/wt-1" });
-    expect(repoStore.selectedDir).toBeUndefined();
+  test("キャッシュから復元しただけの dir は開かず、待つ間も前回の選択として保存する", () => {
+    const { repoStore, opened } = setupCachedRepo();
+    restoreActiveDir("/r1/wt-1");
+    expect(opened).toEqual([]);
+    expect(repoStore.buildAppStateSnapshot().activeDir).toBe("/r1/wt-1");
   });
 
   test("既に選択済み（gozdOpen 先着）なら復元せず明示 open を優先する", () => {
     const { repoStore, worktreeStore } = setupRepo();
     worktreeStore.setOpen("/r1");
-    expect(restoreActiveDir("/r1/wt-1")).toBeUndefined();
+    restoreActiveDir("/r1/wt-1");
     expect(repoStore.selectedDir).toBe("/r1");
     // 復元による選択イベントの二重発火もない（setOpen 1 回分のまま）
     expect(worktreeStore.selectionVersion).toBe(1);
@@ -85,56 +93,56 @@ describe("restoreActiveDir", () => {
 
   test("どの repo にも属さない dir は復元しない", () => {
     const { repoStore } = setupRepo();
-    expect(restoreActiveDir("/gone/wt-x")).toBeUndefined();
+    restoreActiveDir("/gone/wt-x");
     expect(repoStore.selectedDir).toBeUndefined();
   });
 
   test("activeDir 未保存（undefined）は no-op", () => {
     const { repoStore } = setupRepo();
-    expect(restoreActiveDir(undefined)).toBeUndefined();
+    restoreActiveDir(undefined);
     expect(repoStore.selectedDir).toBeUndefined();
   });
 });
 
 describe("settleActiveDir", () => {
   test("一覧に載っていれば前回の worktree を開き、通知しない", () => {
-    const { repoStore, worktreeStore, listed } = setupCachedRepo();
-    const pending = restoreActiveDir("/r1/wt-1");
-    if (pending === undefined) throw new Error("pending expected");
+    const { repoStore, worktreeStore, listed, settle, messages } = setupCachedRepo();
+    restoreActiveDir("/r1/wt-1");
     listed(["/r1", "/r1/wt-1"]);
-    const messages: string[] = [];
-    settleActiveDir(pending, (m) => messages.push(m));
+    settle();
     expect(repoStore.selectedDir).toBe("/r1/wt-1");
     expect(worktreeStore.selectionVersion).toBe(1);
     expect(messages).toEqual([]);
   });
 
   test("一覧から消えていれば一度も開かずに root を開き、1 回だけ通知する", () => {
-    const { repoStore, listed } = setupCachedRepo();
-    const messages: string[] = [];
-    repoStore.setAutoFallbackNotifier((m) => messages.push(m));
-    const opened: string[] = [];
-    repoStore.$onAction(({ name, args }) => {
-      if (name === "selectDir") opened.push(args[0]);
-    });
-    const pending = restoreActiveDir("/r1/wt-1");
-    if (pending === undefined) throw new Error("pending expected");
+    const { repoStore, listed, settle, opened, messages } = setupCachedRepo();
+    restoreActiveDir("/r1/wt-1");
     listed(["/r1"]);
-    settleActiveDir(pending, (m) => messages.push(m));
+    settle();
     // 消えた dir を選ばないので、そこでターミナルを起動しない
     expect(opened).toEqual(["/r1"]);
     expect(repoStore.selectedDir).toBe("/r1");
     expect(messages).toEqual(["Active worktree was removed; switched to r1 root."]);
   });
 
-  test("一覧を待つ間に別の dir が開かれていたら、明示 open を優先して何もしない", () => {
-    const { repoStore, worktreeStore, listed } = setupCachedRepo();
-    const pending = restoreActiveDir("/r1/wt-1");
-    if (pending === undefined) throw new Error("pending expected");
-    worktreeStore.setOpen("/r1");
+  test("一覧がまだ反映されていなければ判定せず待ち続ける", () => {
+    const { repoStore, listed, settle, opened } = setupCachedRepo();
+    restoreActiveDir("/r1/wt-1");
+    settle();
+    expect(opened).toEqual([]);
     listed(["/r1"]);
-    const messages: string[] = [];
-    settleActiveDir(pending, (m) => messages.push(m));
+    settle();
+    expect(repoStore.selectedDir).toBe("/r1");
+  });
+
+  test("一覧を待つ間に別の dir が開かれていたら、明示 open を優先して何もしない", () => {
+    const { repoStore, worktreeStore, listed, settle, messages } = setupCachedRepo();
+    restoreActiveDir("/r1/wt-1");
+    worktreeStore.setOpen("/r1");
+    expect(repoStore.buildAppStateSnapshot().activeDir).toBe("/r1");
+    listed(["/r1", "/r1/wt-1"]);
+    settle();
     expect(repoStore.selectedDir).toBe("/r1");
     expect(worktreeStore.selectionVersion).toBe(1);
     expect(messages).toEqual([]);

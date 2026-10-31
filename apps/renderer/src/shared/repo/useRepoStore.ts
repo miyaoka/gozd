@@ -580,6 +580,26 @@ export const useRepoStore = defineStore("repo", () => {
   }
 
   /**
+   * git の一覧の取得に失敗した repo を、repo の dir だけを選べる形にする。キャッシュの worktree は
+   * 未確認なので並べず、dir を worktree と同じ形で 1 件だけ置く。選べばその dir でターミナルが
+   * 開き、選択の変化で一覧が取り直される。
+   * 一覧で確かめた worktree を 1 件でも持つ repo は変えない。その一覧が正本で、取得の失敗は
+   * 消えたことの証明にならない。
+   * `updateRepoData` を通さないのは、選択中のキャッシュの worktree が一覧から消えたと扱われ、
+   * root への切り替えと通知が走るため。
+   */
+  function showRepoDirOnly(rootDir: string) {
+    const current = repos.value[rootDir];
+    if (current === undefined) return;
+    if (current.worktrees.some((wt) => wt.cached !== true)) return;
+    const repoDir: RepoWorktree = {
+      ...toRepoWorktree({ path: rootDir, head: "", branch: "", detached: false, isMain: true }),
+      cached: true,
+    };
+    repos.value[rootDir] = { ...current, worktrees: [repoDir] };
+  }
+
+  /**
    * 新規作成した worktree を repo の worktrees に追加。
    * `wt` には git の一覧で確かめた entry を渡す。`cached` は付かず、すぐ watch の対象になる。
    * 同一 path が既に存在する場合は no-op（store の最終防衛線として idempotent にする）。
@@ -854,6 +874,7 @@ export const useRepoStore = defineStore("repo", () => {
     setGithubIdentity,
     getObservationGen,
     appendWorktree,
+    showRepoDirOnly,
     selectDir,
     pendingActiveDir,
     setPendingActiveDir,

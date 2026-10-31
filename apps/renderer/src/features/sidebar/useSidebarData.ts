@@ -9,7 +9,7 @@ import { rpcClaudeSessionList } from "../session";
 import { useTerminalStore } from "../terminal";
 import { rpcGitGithubIdentity, rpcGitWorktreeList, useWorktreeStore } from "../worktree";
 import { rpcConciergeInfo } from "./features/concierge";
-import { openActiveDirUnverified, restoreActiveDir, settleActiveDir } from "./restoreActiveDir";
+import { openRepoDirOnListFailure, restoreActiveDir, settleActiveDir } from "./restoreActiveDir";
 import { rpcAppStateLoad, rpcAppStateSave } from "./rpc";
 import { useSidebarView } from "./useSidebarView";
 
@@ -65,7 +65,9 @@ export function useSidebarData() {
     if (!result.ok) {
       notify.error(`Failed to fetch repo data: ${repo.repoName}`, result.error);
       // 新しい取得が往復中なら、その一覧で確かめられるので待つ
-      if (fetchGenByRoot.get(rootDir) === gen) openActiveDirUnverified(rootDir);
+      if (fetchGenByRoot.get(rootDir) !== gen) return;
+      repoStore.showRepoDirOnly(rootDir);
+      openRepoDirOnListFailure(rootDir);
       return;
     }
     if (fetchGenByRoot.get(rootDir) !== gen) return;

@@ -54,8 +54,8 @@ repo 名は **main リポジトリのディレクトリ名**から取る。workt
   SSOT はあくまで git。実際の一覧が届いたら上書きされる。キャッシュは前回から消えた worktree を
   含みうるため、キャッシュから復元しただけの worktree には、git の一覧で確かめるまでファイル監視を張らない。
   一度も一覧を確かめられないまま取得に失敗した project は、キャッシュの worktree を並べず、project の
-  root だけを worktree と同じ形で選べるようにする。一覧で確かめた worktree を持つ project は、取得の
-  失敗では変えない（取得の失敗は消えたことの証明にならない）
+  root だけを worktree と同じ形で選べるようにする。ただし選択中の worktree は残す。一覧で確かめた
+  worktree を持つ project は、取得の失敗では変えない（取得の失敗は消えたことの証明にならない）
 - 最後に選択していた worktree
 - サイドバーの表示（repo の階層 / 状態別）
 
@@ -289,7 +289,9 @@ project の集合で、state に保存する。どの project の dir かの判�
 - worktree の名前は checkout 中のブランチ名。detached HEAD の worktree は checkout 中のブランチが
   無いため、ディレクトリ名に detached であることを示す印を添えて、ブランチ名とも他の detached の
   worktree とも見分けられるようにする。HEAD の commit は hover で見せる。bare の entry も checkout
-  中のブランチが無いが、detached ではないので印を付けずディレクトリ名だけを出す。worktree の名前を出す面はすべて
+  中のブランチが無いが、detached ではないので印を付けずディレクトリ名だけを出す。一覧を取得できない
+  project に代わりに置く root も、ディレクトリ名に一覧を取得できないことを示す印を添え、通常の
+  worktree と見分けられるようにする。worktree の名前を出す面はすべて
   同じ表し方にする。文字だけの面（ウィンドウタイトル、削除の確認文）は印を付けない
 - 配下のセッション行: その worktree の Claude セッションを 1 セッション = 1 行で並べる。
   どのセッションを出すか、並びと表示は [session.md](session.md) の「サイドバー」

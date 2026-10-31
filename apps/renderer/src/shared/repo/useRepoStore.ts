@@ -26,9 +26,11 @@ export interface WorktreeGitState {
 /** repoStore が保持する worktree。一覧の構造に、監視から届いた status を重ねたもの */
 export type RepoWorktree = WorktreeEntry &
   WorktreeGitState & {
-    /** app-state のキャッシュから復元し、git の一覧でまだ確かめていない。
-     * キャッシュは前回の終了時の一覧で、その後に消えた worktree を含みうる */
+    /** git の一覧でまだ確かめていない。app-state のキャッシュから復元した entry（前回の終了時の
+     * 一覧で、その後に消えた worktree を含みうる）と、`listUnavailable` の entry に付く */
     cached?: true;
+    /** git の一覧を取得できず、worktree の代わりに repo の dir を置いた entry（`showRepoDirOnly`） */
+    listUnavailable?: true;
   };
 
 /** status 未観測の worktree が持つ値。status が届くまでバッジは出ない */
@@ -595,8 +597,14 @@ export const useRepoStore = defineStore("repo", () => {
     const repoDir: RepoWorktree = {
       ...toRepoWorktree({ path: rootDir, head: "", branch: "", detached: false, isMain: true }),
       cached: true,
+      listUnavailable: true,
     };
-    repos.value[rootDir] = { ...current, worktrees: [repoDir] };
+    // 選択中の worktree は外さない。外すと選択がどの repo にも属さなくなり、`gozd <path>` で明示的に
+    // 開いた対象も隠れる。一覧が届けば `updateRepoData` が通常どおり確かめる
+    const selected = current.worktrees.filter(
+      (wt) => wt.path === selectedDir.value && wt.path !== rootDir,
+    );
+    repos.value[rootDir] = { ...current, worktrees: [repoDir, ...selected] };
   }
 
   /**

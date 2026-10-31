@@ -63,7 +63,11 @@ export function useSidebarData() {
 
     const result = await tryCatch(rpcGitWorktreeList({ dir: rootDir }));
     if (!result.ok) {
-      notify.error(`Failed to fetch repo data: ${repo.repoName}`, result.error);
+      // 一覧を取得できない状態が続く間の取り直しの失敗は、最初の 1 回だけ知らせる
+      const alreadyUnavailable = repo.worktrees.some((wt) => wt.listUnavailable === true);
+      if (!alreadyUnavailable) {
+        notify.error(`Failed to fetch repo data: ${repo.repoName}`, result.error);
+      }
       // 新しい取得が往復中なら、その一覧で確かめられるので待つ
       if (fetchGenByRoot.get(rootDir) !== gen) return;
       repoStore.showRepoDirOnly(rootDir);
@@ -159,6 +163,16 @@ export function useSidebarData() {
     },
     { immediate: true },
   );
+
+  // 一覧を取得できない repo の dir は監視の push が届かないため、同じ dir の選び直しでも一覧を
+  // 取り直す。dir が変わる選択は上の watch が取り直す
+  watch([() => worktreeStore.selectionVersion, () => worktreeStore.dir], ([, dir], [, prevDir]) => {
+    if (dir === undefined || dir !== prevDir) return;
+    const owning = repoStore.findRepoOwning(dir);
+    if (owning === undefined) return;
+    if (!owning.worktrees.some((wt) => wt.path === dir && wt.listUnavailable === true)) return;
+    void fetchRepo(owning.rootDir);
+  });
 
   // 明示 refetch 要求: feature 層 (sidebar / picker 等) からの SSOT 取り直し signal。
   // worktree dir 切り替えに乗らない経路 (例: worktree の作成直後) で

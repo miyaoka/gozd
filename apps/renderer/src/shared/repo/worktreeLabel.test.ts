@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { branchLabel, isDetached } from "./branchLabel";
+import { branchLabel, isDetached } from "./worktreeLabel";
 
 describe("branchLabel", () => {
   test("branch を持つ worktree は branch 名をそのまま出す", () => {

@@ -1,4 +1,4 @@
-export { branchLabel, isDetached } from "./branchLabel";
+export { branchLabel, isDetached } from "./worktreeLabel";
 export {
   collectFsWatchTargetDirs,
   repoDirEntries,

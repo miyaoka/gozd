@@ -30,7 +30,9 @@
 //   `refDigest` を読み、前回値と差があるカテゴリだけ dispatch する。これが無いと commit の
 //   たびに remoteRefsChange が飛び、renderer の PR 取得が GitHub rate limit を食い潰す。
 // - **repo-scope event は primary watcher（main worktree）1 つに collapse**。同 repo を
-//   共有する N worktree の watcher が同じ common git dir event で同時発火するため。
+//   共有する N worktree の watcher が同じ common git dir event で同時発火するため。worktree の
+//   root の消失による worktreeChange は、消えた worktree 自身の購読にしか届かないので発火元の
+//   entry から撃つ。
 // - **working-tree 由来の git status は trailing-debounce**。checkout flood の N バッチを
 //   最新 1 回の status 取得に畳む（issue #809）。branch label は ref 系経路が即時駆動する。
 // - **内容不変の gitStatusChange は dedup**。gitignore 対象（ビルド成果物等）の書き込みは
@@ -38,7 +40,7 @@
 //   間は push しない。
 
 import { tryCatch } from "@gozd/shared";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { withGitTier } from "../git/gitAdmission";
 import { gitDirs, gitStatusFull, refDigest, type RefDigest } from "../git/gitOps";
 import type { StatusFull } from "../git/porcelain";
@@ -463,11 +465,7 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     // dedup キャッシュも掃除する。再 watch 後の最初の status を無条件 push させ、dir 削除後の
     // 別 repo 再配置などで stale 値が次の push を握り潰すのを防ぐ
     lastPushedStatusByDir.delete(dir);
-    const timer = statusDebounceTimers.get(dir);
-    if (timer !== undefined) clearTimeout(timer);
-    statusDebounceTimers.delete(dir);
-    // 取得中の git は止められないため in-flight 印は完了時に外れる。取り直しの印だけ消す
-    statusRerunDirs.delete(dir);
+    cancelPendingStatusRefresh(dir);
     // 同一 resolved dir を指していた他の userDir 逆引きも掃除する（symlink パスと非 symlink
     // パスで watch が重ねられた状態で片方しか unwatch されないと逆引きが leak するため）
     for (const [orig, resolved] of resolvedKeyByOriginalDir) {
@@ -476,6 +474,15 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     if (entry.commonGitDir !== undefined) {
       recomputePrimary(entry.commonGitDir);
     }
+  }
+
+  /** dir の status 取得のうち、まだ始まっていないものを取り消す */
+  function cancelPendingStatusRefresh(dir: string): void {
+    const timer = statusDebounceTimers.get(dir);
+    if (timer !== undefined) clearTimeout(timer);
+    statusDebounceTimers.delete(dir);
+    // 取得中の git は止められないため in-flight 印は完了時に外れる。取り直しの印だけ消す
+    statusRerunDirs.delete(dir);
   }
 
   /** 1 バッチの event paths を分類して push handler に配送する。await 後にも isActive を
@@ -493,6 +500,16 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
       nestedWorktreeDirs: nestedWorktreeDirsOf(dir, perWorktreeGitDir, commonGitDir),
       paths,
     });
+
+    // worktree のディレクトリだけが外部で消えても common git dir の `worktrees/<name>` は動かず、
+    // 一覧を取り直すきっかけが他に無い。native watcher は root の削除を root 自身の path で 1 回
+    // 通知した後にその購読を止めるため、この 1 回で一覧を取り直させる。消えた dir の fsChange と
+    // status は取りようがないので撃たず、削除の途中のバッチが予約した status 取得も取り消す
+    if (result.hasRootChange && commonGitDir !== undefined && !existsSync(dir)) {
+      cancelPendingStatusRefresh(dir);
+      onWorktreeChange(originalDir);
+      return;
+    }
 
     if (result.hasFsChange) {
       for (const relDir of result.fsRelDirs) {

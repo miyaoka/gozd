@@ -134,6 +134,12 @@ describe("classify (worktree 配置)", () => {
     expect(result.hasGitStatusChange).toBe(false);
   });
 
+  test("dir 自身の event は rootChange 候補、配下のファイルは候補にしない", () => {
+    const input = { dir, perWorktreeGitDir: perWt, commonGitDir: common, nestedWorktreeDirs: [] };
+    expect(classify({ ...input, paths: [dir] }).hasRootChange).toBe(true);
+    expect(classify({ ...input, paths: [`${dir}/a.txt`] }).hasRootChange).toBe(false);
+  });
+
   test("作業ツリー配下のファイルは fsChange + gitStatusChange", () => {
     const result = classify({
       dir,

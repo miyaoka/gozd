@@ -9,8 +9,10 @@ export interface WorktreeInfo {
    * bare は `HEAD` 行自体が出ないため空文字、unborn branch は全 0 OID で来るため空文字へ
    * 正規化する（`StatusFull.head` の `(initial)` と同じ表現に揃える） */
   head: string;
-  /** detached HEAD のとき undefined */
+  /** branch を持たないとき undefined（detached HEAD と bare） */
   branch: string | undefined;
+  /** detached HEAD か。bare は branch を持たないが detached ではない */
+  detached: boolean;
   isMain: boolean;
 }
 
@@ -50,7 +52,13 @@ export function parseWorktreePorcelain(text: string): WorktreeInfo[] {
     if (isPrunable) return;
     // 最初のエントリが main worktree
     const isMain = result.length === 0;
-    result.push({ path, head, branch: isDetached ? undefined : branch, isMain });
+    result.push({
+      path,
+      head,
+      branch: isDetached ? undefined : branch,
+      detached: isDetached,
+      isMain,
+    });
   };
 
   for (const line of text.split("\n")) {

@@ -1,4 +1,4 @@
-export { isDetached, pathBaseName, worktreeLabel } from "./worktreeLabel";
+export { pathBaseName, worktreeLabel } from "./worktreeLabel";
 export {
   collectFsWatchTargetDirs,
   repoDirEntries,

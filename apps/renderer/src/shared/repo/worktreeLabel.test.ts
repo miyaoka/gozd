@@ -10,4 +10,8 @@ describe("worktreeLabel", () => {
     expect(worktreeLabel({ branch: "", path: "/w/check-a" })).toBe("check-a");
     expect(worktreeLabel({ branch: "", path: "/w/check-b" })).toBe("check-b");
   });
+
+  test("bare の entry はディレクトリ名を出す", () => {
+    expect(worktreeLabel({ branch: "", path: "/w/repo.git" })).toBe("repo.git");
+  });
 });

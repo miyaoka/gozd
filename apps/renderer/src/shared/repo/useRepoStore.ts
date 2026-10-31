@@ -683,6 +683,7 @@ export const useRepoStore = defineStore("repo", () => {
           worktrees: (r?.worktrees ?? []).map((wt) => ({
             path: wt.path,
             branch: wt.branch,
+            detached: wt.detached,
             isMain: wt.isMain,
           })),
         };
@@ -711,7 +712,7 @@ export const useRepoStore = defineStore("repo", () => {
    * - どの repo list にも属さないプール repo → 先頭 repo list の末尾へ（union 不変条件）
    * - activeRepoListId が迷子 → 先頭 repo list
    *
-   * worktrees はキャッシュ（path/branch/isMain のみ）から実カードとして復元し、
+   * worktrees はキャッシュ（path/branch/detached/isMain のみ）から実カードとして復元し、
    * 起動直後の layout shift を消す。git status / upstream は欠けた状態で描画され、
    * 監視の push が届いたら同一 path のカードが key 維持で in-place 更新される（楽観描画）。
    * SSOT は git。
@@ -735,6 +736,7 @@ export const useRepoStore = defineStore("repo", () => {
               ...toRepoWorktree({
                 path: wt.path,
                 branch: wt.branch,
+                detached: wt.detached,
                 isMain: wt.isMain,
                 head: "",
               }),

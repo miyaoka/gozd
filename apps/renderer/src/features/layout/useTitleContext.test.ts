@@ -7,6 +7,7 @@ function wt(path: string, branch: string): WorktreeEntry {
     path,
     head: "",
     branch,
+    detached: false,
     isMain: false,
   };
 }

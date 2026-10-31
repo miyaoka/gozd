@@ -11,12 +11,13 @@ import { resolveStartPoint } from "./gitBranch";
 import type { WorktreeInfo } from "./porcelain";
 import { createWorktree } from "./worktreeOps";
 
-/** 作成直後の worktree を WorktreeEntry に写す */
+/** git の worktree 一覧の要素を WorktreeEntry に写す */
 export function toWorktreeEntry(info: WorktreeInfo): WorktreeEntry {
   return {
     path: info.path,
     head: info.head,
     branch: info.branch ?? "",
+    detached: info.detached,
     isMain: info.isMain,
   };
 }

@@ -14,6 +14,7 @@ function wt(path: string, branch: string, isMain = false): RepoWorktree {
     path,
     head: "",
     branch,
+    detached: false,
     isMain,
     gitStatuses: {},
     renameOldPaths: {},
@@ -153,8 +154,8 @@ describe("fsWatchTargetDirs", () => {
           isGitRepo: true,
           collapsed: false,
           worktrees: [
-            { path: "/r1", branch: "main", isMain: true },
-            { path: "/gone", branch: "", isMain: false },
+            { path: "/r1", branch: "main", detached: false, isMain: true },
+            { path: "/gone", branch: "", detached: false, isMain: false },
           ],
         },
       ],
@@ -163,7 +164,9 @@ describe("fsWatchTargetDirs", () => {
     });
     expect(store.fsWatchTargetDirs).toEqual(new Set());
 
-    store.updateRepoData("/r1", [{ path: "/r1", head: "h", branch: "main", isMain: true }]);
+    store.updateRepoData("/r1", [
+      { path: "/r1", head: "h", branch: "main", detached: false, isMain: true },
+    ]);
 
     expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1"]));
   });
@@ -172,7 +175,9 @@ describe("fsWatchTargetDirs", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();
     store.addRepo({ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] });
-    store.updateRepoData("/r1", [{ path: "/r1", head: "h", branch: "main", isMain: true }]);
+    store.updateRepoData("/r1", [
+      { path: "/r1", head: "h", branch: "main", detached: false, isMain: true },
+    ]);
 
     store.hydrateFromAppState({
       sidebarRepos: [
@@ -182,8 +187,8 @@ describe("fsWatchTargetDirs", () => {
           isGitRepo: true,
           collapsed: false,
           worktrees: [
-            { path: "/r1", branch: "main", isMain: true },
-            { path: "/gone", branch: "", isMain: false },
+            { path: "/r1", branch: "main", detached: false, isMain: true },
+            { path: "/gone", branch: "", detached: false, isMain: false },
           ],
         },
       ],
@@ -204,14 +209,20 @@ describe("fsWatchTargetDirs", () => {
           repoName: "r1",
           isGitRepo: true,
           collapsed: false,
-          worktrees: [{ path: "/r1/revived", branch: "", isMain: false }],
+          worktrees: [{ path: "/r1/revived", branch: "", detached: false, isMain: false }],
         },
       ],
       repoLists: [],
       activeRepoListId: "",
     });
 
-    store.appendWorktree("/r1", { path: "/r1/revived", head: "h", branch: "b", isMain: false });
+    store.appendWorktree("/r1", {
+      path: "/r1/revived",
+      head: "h",
+      branch: "b",
+      detached: false,
+      isMain: false,
+    });
 
     expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1/revived"]));
     expect(store.repos["/r1"]?.worktrees.map((w) => w.path)).toEqual(["/r1/revived"]);
@@ -227,14 +238,20 @@ describe("fsWatchTargetDirs", () => {
           repoName: "r1",
           isGitRepo: true,
           collapsed: false,
-          worktrees: [{ path: "/gone", branch: "", isMain: false }],
+          worktrees: [{ path: "/gone", branch: "", detached: false, isMain: false }],
         },
       ],
       repoLists: [],
       activeRepoListId: "",
     });
 
-    store.appendWorktree("/r1", { path: "/r1/new", head: "h", branch: "new", isMain: false });
+    store.appendWorktree("/r1", {
+      path: "/r1/new",
+      head: "h",
+      branch: "new",
+      detached: false,
+      isMain: false,
+    });
 
     expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1/new"]));
   });
@@ -357,7 +374,9 @@ describe("updateRepoData", () => {
     });
     store.setWorktreeGitStatuses("/r1/wt-1", { ...observed, head: "h" });
 
-    store.updateRepoData("/r1", [{ path: "/r1/wt-1", head: "h", branch: "feat", isMain: false }]);
+    store.updateRepoData("/r1", [
+      { path: "/r1/wt-1", head: "h", branch: "feat", detached: false, isMain: false },
+    ]);
 
     const target = store.repos["/r1"]?.worktrees[0];
     expect(target?.gitStatuses).toEqual({ "b.txt": "R." });
@@ -371,7 +390,9 @@ describe("updateRepoData", () => {
     const store = useRepoStore();
     store.addRepo({ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] });
 
-    store.updateRepoData("/r1", [{ path: "/r1/new", head: "h", branch: "new", isMain: false }]);
+    store.updateRepoData("/r1", [
+      { path: "/r1/new", head: "h", branch: "new", detached: false, isMain: false },
+    ]);
 
     const target = store.repos["/r1"]?.worktrees[0];
     expect(target?.gitStatuses).toEqual({});

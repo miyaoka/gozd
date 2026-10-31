@@ -144,7 +144,6 @@ import type {
   WindowCloseResponse,
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
-  WorktreeEntry,
   GitStatusChangePayload,
 } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
@@ -407,13 +406,7 @@ async function handleGitWorktreeList(body: unknown): Promise<unknown> {
   const worktrees = await worktreeList(req.dir);
   // 各 wt の git status は載せない。status は fs 監視が worktree ごとに取り、push で届ける
   // （一覧の取り直しに worktree 数ぶんの作業ツリー走査を連動させない）
-  const entries: WorktreeEntry[] = worktrees.map((wt) => ({
-    path: wt.path,
-    head: wt.head,
-    branch: wt.branch ?? "",
-    isMain: wt.isMain,
-  }));
-  return { worktrees: entries } satisfies GitWorktreeListResponse;
+  return { worktrees: worktrees.map(toWorktreeEntry) } satisfies GitWorktreeListResponse;
 }
 
 async function handleGitGithubIdentity(body: unknown): Promise<unknown> {

@@ -17,7 +17,10 @@ export interface WorktreeEntry {
    * 観測が優先される。RPC の往復前に読んだ値で、往復中に届いた観測を上書きしない）。
    * status 経路が書くのは、HEAD の移動を commit グラフの描画状態に依存せず観測するため。 */
   head: string;
+  /** checkout 中の branch 名。branch を持たない dir（detached HEAD と bare）は空文字 */
   branch: string;
+  /** detached HEAD か。bare は branch を持たないが detached ではない */
+  detached: boolean;
   isMain: boolean;
 }
 

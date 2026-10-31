@@ -140,6 +140,7 @@ export function normalizeAppState(raw: unknown): AppState {
         (wt, j) => ({
           path: strictString(wt.path, `sidebarRepos[${i}].worktrees[${j}].path`),
           branch: strictString(wt.branch, `sidebarRepos[${i}].worktrees[${j}].branch`),
+          detached: strictBoolean(wt.detached, `sidebarRepos[${i}].worktrees[${j}].detached`),
           isMain: strictBoolean(wt.isMain, `sidebarRepos[${i}].worktrees[${j}].isMain`),
         }),
       ),

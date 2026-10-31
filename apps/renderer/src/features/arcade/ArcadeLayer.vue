@@ -1,43 +1,3 @@
-<doc lang="md">
-ゲームジュース層の全画面オーバーレイ。UI 最前面 (pointer-events: none) に
-パーティクル canvas / ビネット / イベントフラッシュを重ねる。
-
-## 重ね順と操作透過
-
-- ルート div は `fixed inset-0` + `pointer-events-none`。すべて装飾でヒットテスト対象外
-- `<dialog>` / popover は top layer に乗るため、このオーバーレイより常に手前。
-  ダイアログ表示中にパーティクルが被らないのは仕様 (top layer は z-index で越えられない)
-
-## イベント反応
-
-- pointerdown (capture): クリック位置に火花 + ボタン系 target ならクリック音。
-  同時に AudioContext を unlock する (autoplay policy 対応)
-- claudeFx (terminal が hook を解釈して再発行する正規化イベント): done → 花火 + ファンファーレ /
-  needs-input → アラート音 + アンバーフラッシュ / running → エンゲージ音 / tool-done → チック音 /
-  session-start → 起動音 / stop-failure → エラー音 + レッドフラッシュ。pending done（裏で作業
-  継続中 = 真の完了ではない）は terminal 側で除去されるため、ここには届かず演出も出ない
-- 通知 store: error の発生 (lastEvent) でエラー音 + レッドフラッシュ
-
-## バーストの合流
-
-フラッシュを伴う演出 (success / warning / error) は `fxCoalescer` を通し、実行中の演出より
-優先度が高い発火だけを通す。並列 worktree からの done や複数の失敗通知は独立した非同期経路で
-束になって届き、畳まないと音圧の加算とフラッシュの点滅を招く (判定を kind の同一性ではなく
-優先度に置く理由は fxCoalescer.ts)。
-
-音だけの演出は畳まない。フラッシュを持たないため、重畳しても onset の反復による点滅は起きない。
-加えて tick は「ツールが 1 つ終わった」という計数情報そのもので、合流すると回数が失われる
-
-## パフォーマンス
-
-- canvas パーティクルはイベント発火時のみ rAF を回し、空になれば停止する (idle 時の rAF ゼロ)
-- **常時アニメーションを置かない**。全画面を常時 drift させる演出 (blur +
-  mix-blend-mode の環境光など) は、知覚できないほど遅い動きでも compositor に
-  毎フレーム全画面の blend + blur 再合成を強制し、背後の backdrop-filter パネルの
-  blur キャッシュも毎フレーム無効化するため、GPU プロセスの負荷が常時数十% に達する。
-  静的なビネットは合成負荷を持たないので使ってよい
-</doc>
-
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
 import { onMounted, onUnmounted, useTemplateRef, watch } from "vue";
@@ -135,6 +95,9 @@ onUnmounted(() => {
 </template>
 
 <style>
+/* 全画面の常時アニメーション (blur や mix-blend-mode の drift) を置かない。知覚できない遅さでも
+   compositor が毎フレーム全画面を再合成し、背後の backdrop-filter の blur キャッシュも無効化して
+   GPU プロセスの負荷が常時数十% に張り付く。静的なビネットは合成負荷を持たない */
 ._fx-vignette {
   background: radial-gradient(ellipse 120% 100% at 50% 45%, transparent 60%, var(--color-vignette));
 }

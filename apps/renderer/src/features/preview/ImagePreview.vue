@@ -1,15 +1,3 @@
-<doc lang="md">
-画像 / SVG のプレビュー。取得時点 / undock 時点の中身（バイナリ画像は bytes、SVG はテキスト）
-から Blob → ObjectURL を作り、アスペクト比を保ったまま中央に表示する。
-
-表示がファイルの再読込（URL fetch）に依存しないため、データ取得層の意味論
-（live の再取得 / snapshot の固定）がそのまま表示に反映される。ObjectURL は
-source 変化で作り直し、unmount で revoke する（useObjectUrl）。
-
-`<img>` 読み込み失敗（壊れた bytes / MIME 不一致）は `error` イベントで親へ通知する。
-silent broken-image アイコンに倒さず error 表示と挙動を揃える。
-</doc>
-
 <script setup lang="ts">
 import type { WireBytes } from "@gozd/rpc";
 import { useObjectUrl } from "@vueuse/core";

@@ -1,19 +1,3 @@
-<doc lang="md">
-worktree 内のファイルを名前で探して開くダイアログ。
-
-一覧が空のとき、取得結果が空だったのか絞り込みで消えたのかを書き分ける。
-
-## 絞り込みは全件を一度に走査する
-
-入力のたびに全件を同期で走査し、間引きも事前索引も持たない。**ここが扱える規模の上限を決めて
-いる**ため、大きな repo で入力が詰まるならこの前提から見直すことになる。
-
-## 支援技術への露出
-
-入力欄にフォーカスを置いたまま矢印キーで選択を動かす配線は `SearchDialog` と同型で、理由も
-そちらが持つ。
-</doc>
-
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";

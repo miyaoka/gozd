@@ -1,23 +1,3 @@
-<doc lang="md">
-全 repo 横断の Claude セッションを新しい順に並べる中央ダイアログ。並列セッションの
-「次にどこへ注意を向けるか」を選ぶ受信箱で、行の確定は該当 worktree を選択して
-セッションを focus / resume する (openSession)。
-
-絞り込みの対象は docs/session.md の「ダッシュボード」に加え、カラムに表示しない GitHub owner も
-含める。
-
-## 並び順は開いている間凍結する
-
-一覧の中身は hooks の状態変化でライブ再計算されるが、並びまで live にするとクリック
-直前に行が入れ替わり、意図しないセッションを確定する事故が起きる。開いたときに並び順
-(sessionId 列) を確定し、行の中身だけを live 更新する。開いている間に増えたセッション
-(起動直後は repo fetch の順次完了で行が流入する) は末尾に追記し、既存行の位置は
-動かさない。絞り込み中も同じ規律で、score 順は query 変更時にだけ確定する。
-
-受理はダイアログを閉じてから走らせる。閉じること自体が再入への唯一の防壁
-(RevivePickerDialog と同じ理由)。
-</doc>
-
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
@@ -56,7 +36,8 @@ const rows = computed((): PoolSessionRow[] =>
     : [],
 );
 
-// 開いている間の並び順の凍結 (doc ブロック参照)。sessionId 列が並びの SSOT
+// 開いている間は並び順を凍結する。live に並べ替えるとクリック直前に行が入れ替わり、
+// 意図しないセッションを確定する。sessionId 列が並びの SSOT
 const frozenOrder = ref<string[]>([]);
 
 // open 後に流入したセッション (起動直後の repo fetch 順次完了など) は末尾に追記する。

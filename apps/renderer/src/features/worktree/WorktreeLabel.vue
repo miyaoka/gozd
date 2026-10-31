@@ -1,11 +1,3 @@
-<doc lang="md">
-worktree の名前を描く。表し方 (branch 名、detached の印とディレクトリ名、bare、一覧を取得できない
-repo の dir の印とディレクトリ名) の契約は docs/workspace.md の「各 worktree」。HEAD の hash を名前に
-しないのは、同じ commit から作った worktree どうしで一致し commit で変わるため。
-
-文字の色と大きさは置かれた面が決める。
-</doc>
-
 <script setup lang="ts">
 import type { WorktreeEntry } from "@gozd/rpc";
 import { computed } from "vue";

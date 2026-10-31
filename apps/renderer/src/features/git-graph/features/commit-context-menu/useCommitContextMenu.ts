@@ -1,6 +1,6 @@
 /**
  * git-graph の commit 行の右クリックメニュー (module singleton)。popover の open / context 購読を
- * 担い、CommitContextMenu.vue が描画する。menu アクションは CommitContextMenu.vue の doc を参照。
+ * 担い、CommitContextMenu.vue が描画する。
  *
  * `dir` / `hash` は右クリック時点で snapshot して context に焼き付ける。後で worktree 切替 /
  * commit 選択 / git log 再取得が走っても、その右クリックで指した当時の値を一貫して使う

@@ -1,10 +1,3 @@
-<doc lang="md">
-文字列配列設定用テキストエリア。1 行を 1 要素として編集する。
-
-前後の空白と空行は要素にしない。編集中に生まれる空行や、貼り付けに紛れた字下げがそのまま
-設定値になると、見た目には無いはずの要素が保存される。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import type { StringArraySetting } from "../types";

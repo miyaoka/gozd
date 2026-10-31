@@ -1,22 +1,3 @@
-<doc lang="md">
-変更ファイル全件の diff を縦に並べて表示するビュー。GitHub PR の Files changed タブ相当。
-
-## 動作
-
-- `useChangesStore.orderedFileChanges` を購読し、各ファイルを `ChangesSummaryItem` で描画。
-  件数表示・空判定も同じ computed を SSOT として揃え、ChangesPane と挙動を一致させる
-- 並び順は ChangesPane のツリー描画順 (フォルダ先 → ファイル、各群 localeCompare、chain 圧縮込みの
-  深さ優先) と一致する。SSOT は `useChangesStore` の `tree` / `orderedFileChanges` computed であり、
-  本コンポーネントは購読するだけで sort も tree 構築も行わない
-- ChangesPane の折りたたみ状態 (`collapsedFolders`) には依存しない。collapsed は描画上の UI 状態で
-  あって `tree` 自体には影響しないため、View all は常に全件を展開した順序で並ぶ (View all の意味論)
-- ヘッダーで split / unified の global 切替と word wrap トグルを提供
-- ファイル単位の split/unified トグルは externalViewMode prop で非表示にし、ここに統合する
-- ファイル fetch 失敗は `fetch-failed` emit を debounce で集約し、N 件の失敗を 1 つの
-  `notification.error` toast にまとめる (`useNotificationStore.error` 内部で `console.error` も
-  走るため stack が devtools に残る)。per-item の `error.value` は引き続き赤テキストで表示
-</doc>
-
 <script setup lang="ts">
 import { onUnmounted, ref } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";

@@ -1,18 +1,3 @@
-<doc lang="md">
-Notification center パネル。auto-dismiss で消えた toast も含む全通知の受け皿
-（VS Code の notification center と同役割）。toast は一時表示、center は永続記録という
-分業で、auto-dismiss が silent drop にならないことを構造的に保証する。
-
-## 設計判断
-
-- EventLogPanel / ServerListPanel と同じ右ドック popover 流儀。top layer のサーフェス 1 枚と
-  して `shared/surface` に載る (click-to-front / ESC・Cmd+W でフォーカスがあるものを閉じる)。
-  開閉 SSOT は useNotificationCenterStore (DOM へのミラーは本 component の watch)、通知データの
-  SSOT は shared/notification
-- 表示順は seq 降順（新着順）。重複抑制で集約された項目は再発生のたびに seq が進むため、
-  再発生した通知が自動的に先頭へ浮上する
-</doc>
-
 <script setup lang="ts">
 import { computed, useTemplateRef } from "vue";
 import { useNotificationStore } from "../../shared/notification";

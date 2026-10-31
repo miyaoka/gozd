@@ -1,54 +1,3 @@
-<doc lang="md">
-undock されたコンテンツ 1 件をアプリ画面内のパネルとして描く汎用シェル (in-app
-presentation)。UndockedWindow から使われ、consumer が直接触ることはない。
-
-ドラッグ移動 / 8 方位リサイズ / drag handoff / ビューポート内クランプ / 初期サイズ換算を
-担い、ヘッダ内容と本文は slot で受ける。本文 slot は `min-h-0 flex-1` の scroll container を
-差し込む側が持つ契約 (背景・overflow 方針は中身の関心のため)。
-
-ヘッダ枠は両 presentation 共通の UndockedWindowHeader が持ち、シェルは自分のウィンドウ操作
-ボタン (promote / close) を trailing slot に足すだけ。actions slot に置くボタンは
-`@pointerdown.stop` でヘッダのドラッグ開始から除外する (シェルのボタンと同じ規律)。
-
-promote ボタンは「このパネルを別 OS ウィンドウへ昇格させる」要求で、実測した自分の
-コンテンツ rect をスクリーン座標へ換算した `ChildWindowInit` を載せて emit する。昇格の
-実行主体はシェルではない (state の書き換えは store、中身の描画は consumer) が、rect を
-測れるのは自分だけなので測定はここが担う。
-
-Cmd+S の宛先はフォーカスで決める: root を `tabindex="-1"` で focusable にし、focusin /
-focusout を floatingWindowCommands の activate / deactivate に変換する。これで
-`floatingWindowFocused` の when 条件で Cmd+S がこのパネル宛に解決され、他サーフェスの save を
-誤射しない (child window と同じ規律)。close もフォーカスで決まるが、宛先解決はサーフェス共通の
-`surface.closeFocused` が持つため、パネル側は `useSurface` に close 要求を登録するだけ。
-
-- ドラッグ移動は pointer capture ではなく window レベルの listener で追従する。capture に
-  しないのは drag handoff のため: undock 元ヘッダのドラッグで undock する経路では、掴んでいた
-  要素が undock と同時に消えて capture が死ぬ。window listener なら dragState を立てるだけで
-  同じ pointer のドラッグを途切れず継続できる (`handoff` prop はこの引き継ぎで、あれば
-  pointerdown なしでドラッグ中状態から始まる)。リサイズは handoff が存在しないため
-  capture 方式でよい
-- x / y prop は「ユーザーが望んだ位置」で、描画時に CSS でビューポート内へ射影する。
-  state を書き換えないため、アプリウィンドウを縮めてパネルが押し戻されても、戻せば
-  元の位置に復帰する。ビューポート変化への追従は CSS が担い、resize listener を持たない
-- 描画位置が射影クランプで保存座標からずれ得るため、ドラッグ / リサイズの基準は
-  保存座標ではなく実測 rect から取る (保存座標基準だと、押し戻された状態で掴んだ瞬間に
-  パネルが保存座標側へ跳ねる)
-- サイズの不変量は本文 (スクロール面) サイズで、総サイズはヘッダ実測を足して mount 時に
-  換算する (本文サイズを不変量にする理由は useFloatingWindows の doc 参照)。mount 後の
-  サイズ SSOT はリサイズハンドラが書く inline style で、Vue は以後このプロパティに触らない
-- 既知の境界例外: 左/上辺リサイズで逆算した x / y が描画時のビューポート射影クランプに
-  当たると、アンカーのはずの下端 / 右端が滑りうる (実質不可視の範囲に限られる)。射影まで
-  含めたサイズ再導出は算術の複雑化に見合わないため受容する
-- root 自身が `popover="manual"` のサーフェス 1 枚。undock 元のドックパネル (preview 等) と
-  同じ top layer に並び、`shared/surface` の click-to-front 規則で重ね順が決まる。z-index は
-  持たない — top layer の順序は show 呼び出し順が SSOT で z-index では越えられないため、
-  パネル間もパネルとドックパネルの間も同じ 1 つの規則で並ぶ
-- 前面化はクリック経路 (`useSurface`) だけを持つ。pointerdown の**キャプチャ**フェーズで同期に
-  呼ぶのは、リサイズハンドルが既に取った pointer capture より後に display 切り替えを走らせないため
-- UA の `[popover]` 既定値のうち、位置 (`inset`) / `margin` / `padding` / 文字色は自前の値で
-  打ち消す。サイズと配置は inline style と Tailwind class が持つ
-</doc>
-
 <script setup lang="ts">
 import { TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useEventListener } from "@vueuse/core";
@@ -84,11 +33,11 @@ const emit = defineEmits<{
   closeRequested: [];
   /** cmd+s (floatingWindow.save) の要求。保存の可否・実処理は consumer の知識。 */
   saveRequested: [];
-  /** 別 OS ウィンドウへの昇格要求 (doc 参照)。init は実測コンテンツ rect のスクリーン座標換算。 */
+  /** 別 OS ウィンドウへの昇格要求。init は実測コンテンツ rect のスクリーン座標換算。 */
   promote: [init: ChildWindowInit];
 }>();
 
-// ==== キー入力の宛先 (doc 参照) ====
+// ==== キー入力の宛先 ====
 const focusHandle: FloatingWindowHandle = {
   requestSave: () => emit("saveRequested"),
 };
@@ -275,7 +224,7 @@ function onHeaderPointerDown(event: PointerEvent) {
   };
 }
 
-// move / up は window で受ける (doc 参照: handoff のため capture 方式にしない)。
+// move / up は window で受ける (handoff のため capture 方式にしない)。
 // 常時登録しつつ dragState の有無でゲートする。
 useEventListener(window, "pointermove", (event: PointerEvent) => {
   if (dragState === undefined || event.pointerId !== dragState.pointerId) return;

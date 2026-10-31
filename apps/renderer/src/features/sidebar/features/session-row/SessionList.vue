@@ -1,27 +1,3 @@
-<doc lang="md">
-1 つの作業ディレクトリ（worktree / 非 git project の root）の Claude セッション行を並べる。
-gozd はセッションを管理する記録を持たず、端末とセッションの対応と Claude のセッションログから
-行を組み立てる（`buildSessionRows`）。
-
-端末の開いていないセッションを出すかは利用側が `visibleSessionRows` で決め、ここは渡された行を
-すべて並べる。
-
-## 並び順
-
-端末が開いているセッションを上に、開いていないセッションを下に並べ、見出しで区切らない。
-それぞれ最終活動の新しい順。端末を閉じたセッションは、ログの最終更新が最も新しいため
-下の先頭に移り、閉じても見失わない。
-
-端末の開いていないセッションは過去のもの全てが対象になるため、直近の数件だけを出す。
-「Show more」は一定件数ずつ広げ、全件を一度に開かない（件数に上限が無く、一度に開くと
-サイドバーが 1 つの worktree で埋まる）。広げた後は「Show less」で初期の件数へ畳める。選択を外すと初期の件数へ戻る。
-
-## ハイライト
-
-fill (青 capsule) は focus がある 1 行だけ。active でないカードでは出さない（各 dir の
-focusedLeafId は履歴として残るため、active 条件を噛ませないと過去訪問した全 dir で点く）。
-</doc>
-
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import type { DirSessionRows, SessionRow as SessionRowData } from "../../../session";

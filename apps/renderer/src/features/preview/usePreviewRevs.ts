@@ -175,7 +175,7 @@ export function usePreviewRevs(content: PreviewContent) {
       // になるため、popover も同時に閉じる必要がある。
       () => summaryStore.enabled,
       // タイピングで行が増減すると popover の blame 行と表示行が乖離する。
-      // blame は保存済み working tree に対して走る (CodePreview doc 参照) ため、draft の
+      // blame は保存済み working tree に対して走るため、draft の
       // 変更を検知したら popover を閉じて乖離状態を残さない。
       () => editStore.draftContent,
     ],

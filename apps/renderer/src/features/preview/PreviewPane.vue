@@ -1,37 +1,3 @@
-<doc lang="md">
-ファイルプレビューの統合コンテナ。選択ファイルの種別・モードに応じて preview leaf を切り替える。
-
-## レイヤー構成（責務の置き場所）
-
-- データ取得と表示状態の状態機械: `usePreviewContent`（uncommitted / commit / PR diff の 3 取得経路、
-  非同期レース防止、fsChange 再取得、表示モード導出。契約の詳細は同 composable の docstring）
-- blame / file history の rev 導出と popover 連携: `usePreviewRevs`
-- 編集の可否判定・編集セッション同期と Save / Discard 操作: `usePreviewEdit`
-- ヘッダ / モード切替ツールバーの表示ロジック: `PreviewHeader` / `PreviewToolbar`
-- 本文の leaf 切替 (v-else-if 連鎖): `PreviewContent`（undocked window と共有する表示 SSOT）
-- 独立ウィンドウへの切り離し: ヘッダの undock ボタン、またはヘッダのドラッグ (しきい値
-  超過) で raw source をスナップショット化して `useUndockedPreview` /
-  UndockedPreviewLayer へ undock する。undock 先はアプリ画面内のパネルで、pane の実測 rect の
-  位置にその場で現れる (視覚的連続性)。ドラッグ経路は掴んだ pointer を `UndockDragHandoff` で
-  引き継ぎ、pane を掴んだままパネルごと引き剥がす操作感を保つ。undock 後は popover を閉じる
-  (二重表示を残さない)。パネルは自分のヘッダの promote ボタンで別 OS ウィンドウへ昇格できる
-  (機構は floating-window の UndockedWindow。session-log の undock と共通)。パネルにフォーカスが
-  ある間の Cmd+W / Cmd+S はパネル宛に解決され、本体 popover の close / save とは混ざらない
-
-本コンポーネントに残るのは上記レイヤー間の配線だけ。
-
-## プレビュー種別
-
-拡張子 → 種別の対応表の SSOT は `previewFileType.ts`（docs/preview.md のファイル種別表と対応）。
-leaf コンポーネントの内訳 (`PreviewContent` 配下):
-
-- コード → CodePreview（Monaco + Shiki TextMate ハイライト。編集可能ファイルは常時編集状態）
-- 差分 → DiffPreview（`git diff --no-index` で取得した hunk 配列を描画）
-- 画像 / SVG → ImagePreview（取得済み content から Blob → ObjectURL）
-- Markdown → MarkdownPreview（marked + DOMPurify）
-- HTML → HtmlPreview（`gozd-preview://` の実 URL を `<iframe>` に load してネイティブ描画）
-</doc>
-
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
@@ -419,8 +385,8 @@ const openableAbsPath = computed<string | undefined>(() =>
 
 /**
  * CodePreview (Monaco) のスクロールで blame popover を閉じる。blame anchor は
- * クリック時の位置に固定した自前要素のため、スクロールすると行とずれた位置を指し続ける
- * (CodePreview の doc 参照)。file history popover はヘッダ anchored なので閉じない。
+ * クリック時の位置に固定した自前要素のため、スクロールすると行とずれた位置を指し続ける。
+ * file history popover はヘッダ anchored なので閉じない。
  */
 function onCodeScrolled() {
   if (blamePopover.context.value !== undefined) {

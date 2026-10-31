@@ -1,8 +1,3 @@
-<doc lang="md">
-enum 設定用セレクトボックス。
-options が関数の場合は呼び出して取得する。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import type { EnumSetting } from "../types";

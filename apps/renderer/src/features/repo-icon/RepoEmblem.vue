@@ -1,12 +1,3 @@
-<doc lang="md">
-repo 名から決定論的に生成する identicon (GitHub アバター方式の左右対称 5x5 グリッド)。
-repo 固有の OKLCH 色 + ネオングローで描く。色だけでは判別しづらい repo も、
-グリッドの形で識別できる。
-
-色・グリッドパターンはどちらも djb2 hash 由来の動的計算値 (gozd-ui の inline binding 例外 (c))。
-同じ repo 名は常に同じ紋章になり、ユーザーは色と形の両方で repo を空間記憶できる。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { REPO_ICON_SIZE_CLASS, type RepoIconSize } from "./repoIconSize";

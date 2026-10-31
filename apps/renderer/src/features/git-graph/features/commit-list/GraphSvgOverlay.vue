@@ -1,8 +1,3 @@
-<doc lang="md">
-commit graph のレーン / ドットを描く SVG overlay。commit 行の上に absolute で重ね、同じ行 index
-座標系で dot を各行に合わせる。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { useGitGraphStore } from "../../useGitGraphStore";

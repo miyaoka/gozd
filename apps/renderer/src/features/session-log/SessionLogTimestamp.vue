@@ -1,10 +1,3 @@
-<doc lang="md">
-チャット吹き出し脇の時刻ラベル。`ts` を `formatSessionTime` で日付 / 時刻へ分解し、
-日付があれば時刻の上に改行して 2 行で出す (resume で日をまたいだ際、日付と時刻が 1 行で
-詰まって読みにくくなるのを避ける)。今日のエントリは日付が空文字なので時刻 1 行になる。
-秒は出さない (会話の時刻表示は分までで足りる)。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { formatSessionTime } from "./sessionLogView";

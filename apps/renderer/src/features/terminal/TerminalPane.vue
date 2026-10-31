@@ -1,13 +1,3 @@
-<doc lang="md">
-端末群を並べる面。表示モードに応じて配置を組み立て、分割の境界にリサイズハンドルを重ねる。
-配置そのものの規約は docs/terminal.md が SSOT。
-
-端末に焦点があるかどうかの真値は、焦点を受け取る端末自身が更新する。**この面が担うのはその
-補正だけ** — 焦点の出入りとして観測されない経路（ウィンドウの表示状態が変わる、選択中の
-worktree が変わる）で値が腐るため、実際の焦点位置から引き直す。腐ったまま放置すると、端末宛の
-キー割り当てが黙って外れる。
-</doc>
-
 <script setup lang="ts">
 import { useElementSize, useEventListener } from "@vueuse/core";
 import { computed, onUnmounted, useTemplateRef, watch } from "vue";

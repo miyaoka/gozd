@@ -1,18 +1,3 @@
-<doc lang="md">
-Git Graph のヘッダーツールバー。表示オプション (first-parent / branch scope / sort order) の
-トグルと詳細ペイン開閉を扱う。状態はすべて v-model で親が所有する。
-
-## branch scope の segmented control
-
-始点 ref 範囲は current / default / all の 3 排他値。トグル (2 状態 / aria-pressed) では表せないため
-segmented control にする。track (凹んだ `bg-element` コンテナ) の中で選択セグメントだけを thumb として
-塗り、3 ボタンが 1 つの塊に見える形にする (iOS / Primer 等 2026 の主流パターン)。選択色は同ツールバーの
-ToggleChip の "on" 状態 (`bg-primary-subtle`) と揃え、ツールバー内で「選択 = primary tint」を一貫させる。
-`role="group"` + group label でグループを、`aria-pressed` で選択状態を SR に伝える (SidebarPane の
-viewMode と同じ排他選択 idiom)。all はローカル / リモート全ブランチを walk するため、遠い分岐が多い
-repo では列幅と描画コストが増える (取得はローカル walk のみでネットワークは発生しない)。
-</doc>
-
 <script setup lang="ts">
 import type { BranchScope, SortMode } from "@gozd/rpc";
 import ToggleChip from "./ToggleChip.vue";

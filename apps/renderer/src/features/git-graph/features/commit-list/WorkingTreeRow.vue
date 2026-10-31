@@ -1,9 +1,3 @@
-<doc lang="md">
-commit graph の Working Tree 固定行。master grid の subgrid として commit 行と同じ列トラックを
-共有し (`grid-cols-subgrid`)、sticky で最上部に留まる。列整合は subgrid が保証する
-(scroll bar の有無やセル内容差に影響されない)。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { ageColor, formatCompactTime } from "../../../../shared/time";

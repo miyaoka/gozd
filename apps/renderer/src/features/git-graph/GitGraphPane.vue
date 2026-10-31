@@ -1,19 +1,3 @@
-<doc lang="md">
-Git commit graph pane。active worktree の commit graph を表示する。walk の始点 ref 範囲は
-toolbar の branch scope (current / default / all) で切替可能。git log の取得と各部の合成を担う
-コンテナで、描画自体は持たない。
-
-## HEAD スクロールが間接経路な理由
-
-「HEAD 行へスクロール」は data 取得側が要求を出すだけで、実スクロールは scroll DOM を持つ描画側が行う。
-両者を直接呼び合わせると data と DOM の所有が絡むため、store の signal 1 本で疎結合にしている。
-
-## 履歴の途切れ表示
-
-全ブランチ表示で HEAD が新しい順 maxCount ウィンドウから押し出される場合、native (`GitOps.log`) が
-HEAD-only walk を末尾 append し境界に `truncatedAbove` を立てる。renderer はその境界に gap 行を挿入する。
-</doc>
-
 <script setup lang="ts">
 import {
   BranchScope,

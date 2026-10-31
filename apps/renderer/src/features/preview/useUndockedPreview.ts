@@ -4,7 +4,7 @@
  * undocked window はファイル選択 / worktree 切り替えと独立して存在し続ける (useUndockedLog と
  * 同じ独立性の設計)。global selection には乗らないが、current 側の中身は window ごとに
  * source の実ファイルへ追従し、編集もできる (per-window の draft / save。実装は
- * UndockedPreviewWindow の doc 参照)。`usePreviewContent` (global selection に結合した
+ * UndockedPreviewWindow)。`usePreviewContent` (global selection に結合した
  * 状態機械) を多重化するのではなく、window ローカルの軽量な fetch / edit を持つ。
  * original (比較元 rev) 側は undock 時点に固定で、git 文脈 (rev 追従・blame) が必要になったら
  * undock 元の選択を焼き込んだ `source` から本体 preview として開き直す

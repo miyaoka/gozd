@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { docBlockPlugin } from "@miyaoka/vite-plugin-doc-block";
 import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
 import { playwright } from "@vitest/browser-playwright";
@@ -33,7 +32,7 @@ export default defineConfig((): ViteUserConfig => {
   return {
     // Icons の scale: 1 は icon svg を 1em 基準にする (default は 1.2em)。
     // font-size でサイズ指定している icon (text-xs 等) は 1em 基準が前提
-    plugins: [docBlockPlugin(), tailwindcss(), vue(), Icons({ compiler: "vue3", scale: 1 })],
+    plugins: [tailwindcss(), vue(), Icons({ compiler: "vue3", scale: 1 })],
     base: "./",
     resolve: {
       alias: {

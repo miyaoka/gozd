@@ -1,34 +1,3 @@
-<doc lang="md">
-Monaco Editor によるコード表示・編集。ハイライトは Shiki の TextMate grammar を
-`@shikijs/monaco` 経由で Monaco に接ぎ込む (`monacoSetup.ts`)。
-
-`editable` prop で読み取り専用 (Original タブ / commit・PR diff モード / 絶対パス) と
-編集可能 (Current タブの worktree 実ファイル。明示的な edit mode は無く常時編集) を切り替える。
-単一コンポーネント + `updateOptions` の切替なので、タブ切替でエディタが remount されず
-スクロール位置や undo 履歴が保たれる。
-
-- 編集内容の SSOT は `usePreviewEditStore.draftContent`。編集のたびに `update:content` を
-  emit し、親 (PreviewPane) が `updateDraft` に流す。content prop との round-trip
-  (同値で戻ってくる) は watch 側で無視し、スクロールリセットや decoration クリアを起こさない
-- 保存は Cmd+S コマンド / Save ボタン (`usePreviewEdit`)。エディタ自身は保存を持たない
-- mount 時に focus を奪わない。preview はファイラー操作の途中で開くため、自動 focus すると
-  ファイラーのキーボードナビゲーションを壊す
-
-## blame anchor の契約
-
-blame popover の起動 (gutter クリック / context menu・command palette の "Show Blame for
-Line" action) は `monacoSetup.ts` の `wireGutterBlame` に委譲する (クリック判定・popover
-light dismiss との位相・anchor 配置・keyboard 経路の設計判断は同 docstring 参照)。
-anchor は Monaco 内部の DOM ではなく、コンポーネントが所有する不可視要素を対象行の
-gutter セル位置に重ねて使う。anchor の位置は起動時に固定されるため、スクロールすると
-行とずれる。ずれた位置を指す popover を残さないよう、スクロールで `scrolled` を emit し
-親 (PreviewPane) が blame popover を閉じる。
-
-## fallback
-
-Monaco (重量 chunk) のロード完了までは行番号なしのプレーンテキストを表示する。
-</doc>
-
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import type * as Monaco from "monaco-editor";

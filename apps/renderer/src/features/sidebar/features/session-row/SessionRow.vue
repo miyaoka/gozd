@@ -1,33 +1,3 @@
-<doc lang="md">
-1 Claude セッションを表すサイドバーの行。Claude state アイコンと相対時刻、タイトル、bubble、
-hover で表示される ⋮ メニューボタンを表示する。
-
-## 左端カラム（アイコン / 相対時刻）
-
-左端は固定幅のカラム。端末が開いているセッションは Claude state アイコンを、開いていない
-セッションは最終更新からの相対時刻を出す。
-
-端末が開いているセッションの相対時刻は、利用側が求めたときだけアイコンの下に出す
-（状態別の一覧）。基準は開いていないセッションと同じく最終更新。実行中は常に「今」なので
-出さない。
-
-アイコンは WCAG 1.4.1 準拠で色 + 形 + aria-label の 3 軸で状態を表現する。アニメーションは
-spin / pulse のみ（bounce は notification spam に見えるため不採用）。相対時刻の色は
-ダッシュボードと同じ age-* の鮮度スケール。
-
-## 吹き出し (bubble)
-
-done / asking のメッセージは行の上に absolute overlay の漫画吹き出し（角丸 + 下向き尻尾）で出す。
-in-flow で行の下に置くと status 変化のたびに後続行が上下に動くため、layout に影響しない
-overlay にする。
-
-- 被さる先は DOM 上の前要素（前の行 / wt header）。positioned 要素は DOM 順で後が上に
-  描画されるため z-index なしで手前に出る
-- `pointer-events-none` で下の行のクリックを遮らない（代償として hover tooltip は持てない）
-- 尻尾は rotate-45 の正方形に border-r/b のみ付ける技法。ひし形の上半分が吹き出し本体の下辺
-  border を覆い、境界が繋がって見える
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { RepoIcon } from "../../../repo-icon";

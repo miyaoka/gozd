@@ -1,35 +1,3 @@
-<doc lang="md">
-Markdown 文字列を marked で HTML 変換し DOMPurify でサニタイズして描画するコンポーネント。
-
-## リンククリックの契約
-
-`#fragment` 単独を除き、リンククリックは**必ず `preventDefault` する**。ブラウザ既定の
-navigation に委ねる経路を残さないのは、consumer によって委ねた先が消えるため
-（contenteditable host では既定挙動が起きず、main の防壁も UI 面を守る側なので外部送りしない）。
-
-その上で「OS へ渡してよい URL」は本コンポーネントが `openExternalOrNotify` で開き、それ以外の href は
-`linkClick` で上位に委譲する。外部送りを consumer 任せにすると、購読しない consumer
-（SessionLogMessageBody 等）でリンクが黙って死ぬ。VS Code の webview host が全リンククリックを
-`preventDefault` して host へ転送するのと同じ位置づけ。
-
-- YAML frontmatter は ```yaml コードブロックに変換して描画する
-- ` ```mermaid ` コードブロックは mermaid ライブラリで SVG にレンダリングする。mermaid は
-  重量級なため dynamic import で読み込む。build では別 chunk として分割され、mermaid ブロックが
-  現れるまでロード・評価・`initialize()` のいずれも実行されない (起動時のロード/評価コストを避ける)
-- padding / 文字サイズは consumer ごとに異なるため持たせず、class フォールスルーで外から渡す
-  (preview は `p-6`、session log dialog は `px-3 py-2` 等)
-- 相対リンク解決 / 履歴ナビゲーションが必要な consumer は `linkClick` を購読して処理する
-  (MarkdownPreview 参照)。購読しない consumer では内部リンクが無効になるだけで、外部リンクは
-  本コンポーネントが開く
-- `leadMark` を渡すと本文の 1 行目の先頭に印を出す。印は本文の文字列に含めない (コピーに
-  混ざらず、行頭の markdown 構文にも干渉しない)
-- `literalHtml` を渡すと本文中の HTML を要素にせず、書かれた文字のまま出す。HTML が書式ではなく
-  書かれた文字そのものである本文 (会話の発言等) のための口で、`Array<string>` の `<string>` が
-  sanitizer に消されたり、`<Button>` が button 要素になったりしない
-- `resolveImageSrc` を渡すと画像の URL (`src` と `srcset` の各候補) を sanitize の中で書き換える
-  (`sanitizeMarkdownHtml`)
-</doc>
-
 <script setup lang="ts">
 import { isExternalUrl, tryCatch } from "@gozd/shared";
 import { Marked, type MarkedExtension } from "marked";

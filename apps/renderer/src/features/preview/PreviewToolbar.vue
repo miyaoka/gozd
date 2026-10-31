@@ -1,14 +1,3 @@
-<doc lang="md">
-Preview のモード切替タブ (Original / Diff / Current) と Preview / Wrap トグルのツールバー。
-タブラベル・アイコン・Preview トグル表示可否の計算をここに閉じ込め、PreviewPane の
-テンプレートを単純参照に保つ。
-
-- Original タブは `Original (<hash>)` 形式で実際に from として読んでいる ref を可視化する。
-  `originalHashLabel` が undefined (commit 選択の不整合等) のときは hash 表記なしの "Original" に
-  倒し、実際には参照していない HEAD などの虚偽情報をラベルに出さない
-- Preview トグルは rendered 表示を持つファイル種別のみ、かつ diff モード以外で表示する
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import type { FunctionalComponent, SVGAttributes } from "vue";

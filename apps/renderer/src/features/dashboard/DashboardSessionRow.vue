@@ -1,20 +1,3 @@
-<doc lang="md">
-ダッシュボードの 1 行分のセル群。状態 glyph・タイトル・repo (アイコン付き)・worktree の名前・
-相対時刻を並べる (grid のカラム定義は DashboardDialog 側の container が持つ。
-revive picker と同じ分業)。
-
-## 状態列は全行が glyph を持つ
-
-空白のセルは「状態なし」ではなく情報の欠落に見える (Carbon status indicator パターン /
-VS Code agent view はどの状態にも glyph を割り当てる)。live な Claude 状態は
-CLAUDE_STATE_VISUAL (色つき = high/medium attention)、Claude が動いていないセッションは
-muted 単色の glyph で low attention に落とす。
-
-## 相対時刻
-
-開いている間 tick しない。数秒で閉じる transient な面であり、開き直しで再計算される。
-</doc>
-
 <script setup lang="ts">
 import { computed, type FunctionalComponent, type SVGAttributes } from "vue";
 import { formatRelativeAge } from "../../shared/time";

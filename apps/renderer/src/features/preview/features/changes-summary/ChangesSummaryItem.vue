@@ -1,35 +1,3 @@
-<doc lang="md">
-Summary view の 1 ファイル分のブロック。
-
-## データ取得
-
-- uncommitted: `rpcGitShowFile` (HEAD) と `rpcFsReadFile` を並列で取得
-- commit / range: `rpcGitShowCommitFile` で from / to を一括取得 (newer が Working Tree なら fs から to を取る)
-
-`usePreviewContent` の fetchContent / fetchCommitContent と同じ方針。差分は「単一ファイル選択を per-item に複製」した点だけ。
-
-## 遅延フェッチ
-
-`useIntersectionObserver` でビューポート進入を観測し、`hasBeenVisible` が true に
-なってから初めて fetch を発火する。N=100 のような大きな PR でも、初描画時に同時並列
-発射されるのは「画面に見える数件」だけになり、main 側 git プロセスの瞬間ピークを抑える。
-一度 visible になったら hasBeenVisible は true で固定し、scroll-out / scroll-back では
-再 fetch しない (props 変化があれば再 fetch)。
-
-## fsChange 購読 (per-item)
-
-`onMessage("fsChange", ...)` を各 item で個別に登録する。N=100 件 mount なら N 個の
-listener が **ChangesSummaryItem コンポーネントの mount 中** ずっと存在し、1 イベントで
-N 個の callback が走る (filter で大半は早期 return)。summary view を閉じる
-(`summaryStore.enabled=false` で `<ChangesSummaryView v-if>` が false になる) と全 item
-が unmount され、`onUnmounted(unsubscribeFsChange)` で listener も全て解除される。
-
-これは SSOT 違反気味（同じ filter ロジックの N 重複）だが、現状 N≦100 程度では実害は
-無いと判断して per-item 購読を採用する。SSOT 化の代替案は `useChangesStore` で 1 回購読
-し dirty path Map を管理する形だが、IntersectionObserver による lazy fetch との噛み合
-わせ調整が必要で複雑度が増す。N が想定を超えた時点で本構造を見直す。
-</doc>
-
 <script setup lang="ts">
 import type { FsChangePayload, GitFileChange } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";

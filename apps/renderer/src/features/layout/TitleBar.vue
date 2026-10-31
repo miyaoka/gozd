@@ -1,26 +1,3 @@
-<doc lang="md">
-ウィンドウ上端のカスタムタイトルバー。main が `titleBarStyle: "hiddenInset"` でネイティブ
-バーの描画を消しているため、ドラッグ領域とタイトル表示を renderer が担う。
-
-## 設計判断
-
-- 帯全体を `-webkit-app-region: drag` にする。macOS の信号機ボタンは web コンテンツの
-  上に合成される浮いた部品なので、左端に逃げ幅（pad）だけ確保すれば背景は帯の色が
-  そのまま透ける
-- 非 stable channel では帯を channel-dev-subtle で塗り channel チップ（"dev" =
-  `pnpm dev` 起動 / "local" = 無指定 build:app の packaged）を出す。mise 配布の
-  stable との取り違え防止が目的
-- fullscreen では macOS が信号機ボタンを消すため、main からの `windowFullscreenChange`
-  push を受けて pad を畳む。pull hydrate は持たない（fullscreen 中の renderer リロードで
-  ずれても pad が残るだけで、次の遷移で自己回復する）
-- 中央は絶対配置でウィンドウ中央に置く。flex 中央だと左の pad / チップの幅で
-  視覚中心がずれ、ドラッグでウィンドウを動かすたびに目線が揺れる
-- 中央に出すのは repo / worktree 名ではなく 1 日の進捗バー。repo と branch は
-  サイドバーと各ペインが常時見せているため帯に重ねて出す価値が薄く、代わりに
-  1 日のどこにいるかという別種の情報を置く。OS のウィンドウ一覧向けのネイティブ
-  タイトルは別経路（`useTitleContextSync`）が repo / branch を出し続ける
-</doc>
-
 <script setup lang="ts">
 import type { WindowFullscreenChangePayload } from "@gozd/rpc";
 import { onUnmounted, ref } from "vue";

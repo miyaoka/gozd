@@ -1,62 +1,3 @@
-<doc lang="md">
-undock されたファイルプレビュー 1 件のウィンドウ。
-
-「view の切り離し」なので UI は本体 preview と同一部品で組み、縮小版・独自 UI を作らない。
-本体との違いはデータ源 — 本体は global selection に結合した live な取得層、こちらは
-undock 元の source (実ファイル参照) + window ローカルの view / 編集状態 (初期値は undock 時点の
-本体の状態)。blame / 行番号 reveal は選択文脈に紐づく機能のため capability を無効のまま使う。
-
-## current 側の live 追従と編集
-
-current 側は undock 時 snapshot を初期値に、以後は source の実ファイルに追従する。ただし
-`currentIsWorkingTree=false` の undock (過去 rev の歴史表示。commit / 範囲選択で newer が
-実 hash) は current が実ファイルの内容ではないため、live 追従も編集もせず undock 時
-snapshot に固定する — 過去の内容で実ファイルを上書き保存する事故を構造的に防ぐ:
-
-- source の kind を問わず絶対パスに解決 (worktree は `joinAbsRel`) して自前の単一ファイル
-  watch (`rpcFsWatchFileAbsolute`。mount で watch / unmount で解除) + `fsChangeAbsolute`
-  購読で再取得する。fsChange (fsWatchSync) に相乗りしないのは、undocked window は repo /
-  worktree を閉じても生存する契約のため — sidebar の watch 集合に依存すると閉じた瞬間に
-  snapshot へ degrade してしまう。読み書きも同じ絶対パスで統一する
-  (`rpcFsReadFileAbsolute` / `rpcFsWriteFileAbsolute`)
-- original (比較元 rev) 側は undock 時点に固定のまま。live な git 文脈 (rev 解決・blame) は
-  ヘッダの dock ボタンで本体 preview に昇格して得る
-- 編集は window ローカルの draft / save (本体の editStore とは独立した per-window
-  セッション)。undock 時の本体の未保存 draft は initialDraft としてここへ「移動」する
-  (本体セッションは undock 時に畳まれ、未保存編集の所有者はウィンドウに一意化される)。
-  dirty の間は外部変更で上書きしないが、イベントは保留して編集終了
-  (Discard / Save) 時に再取得する (捨てると Discard 後に stale が残る)。Original
-  タブは履歴表示のため編集対象外
-- close (close ボタン / cmd+w / ネイティブ close / dock ボタン) は window draft の破棄境界。
-  dirty なら Save / Don't Save / Cancel の確認を挟む (昇格後はネイティブ close を
-  blockClose = beforeunload veto で止めてから確認へ変換する)。確認ダイアログは per-window の
-  `createUnsavedDraftConfirm()` instance を本文 slot 内に mount するため、in-app パネルなら
-  main window、昇格後なら child window という「今自分がいる document」の top layer に出る
-  (main の shared singleton を使うと昇格後にダイアログだけ main window に出てしまう)
-- cmd+s は keybinding 系 (in-app パネルは `floatingWindow.save`、昇格後は `childWindow.save`。
-  どちらも UndockedWindow の saveRequested emit) 経由で window ローカルの saveEdit に届く。
-  宛先はフォーカスで決まるため、popover 側の preview.save を誤射しない
-- 再取得が notFound / 失敗のときは直前の内容を維持する (undock 後のファイル削除・worktree
-  消失でもウィンドウは生存する既存契約)
-
-ウィンドウの実体 (in-app パネル / 昇格後の OS ウィンドウ、その切り替えと昇格の rect 換算) は
-汎用シェル UndockedWindow に委譲する。
-ヘッダには undock 時点の出自 (repo / ファイル名) を焼き込む — worktree 切替を
-跨いで生存するウィンドウを識別するため。repo 未解決 (worktree 外の絶対パス等) は
-出自の段ごと省く。タイトルバー (document.title) はファイル名。
-worktree の名前は焼き込まず、undock 元の path から現在の entry を引いて描く。detached の HEAD は
-commit のたびに進むため、焼き込むと hover の hash が古いまま残る。path で引くので、本体で
-選んでいる worktree が変わっても出自は変わらない。entry が引けない (worktree の削除、repo の解除) ときは
-焼き込み済みの path のディレクトリ名だけを出す。worktree の段は git の worktree から undock したときだけ出す
-(非 git の project と窓口は worktree を持たない)。
-
-ヘッダの dock ボタンで undock 元の選択を本体 preview として開き直せる。開けたらウィンドウは
-閉じる (本体への昇格であり二重表示を残さない。undock 時に popover を閉じるのと対称)。undock 元
-worktree が閉じられている場合はエラートーストで可視化し、ウィンドウは残す。
-
-画像描画失敗は error 表示に切り替え、view 操作・内容更新でリセットする。
-</doc>
-
 <script setup lang="ts">
 import type { WireBytes, FsChangeAbsolutePayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
@@ -95,7 +36,7 @@ const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
 const previewStore = usePreviewStore();
 const notification = useNotificationStore();
-// 破棄確認はこの window 内に出す per-window instance (doc 参照)
+// 破棄確認はこの window 内に出す per-window instance
 const draftConfirm = createUnsavedDraftConfirm();
 
 // preview ヘッダのドラッグから undock された場合の引き継ぎ。one-shot 消費 (UndockedLogWindow と同じ)。
@@ -121,7 +62,7 @@ const source = props.preview.source;
 const sourceAbsPath =
   source.kind === "absolute" ? source.absPath : joinAbsRel(source.dir, source.relPath);
 const fileType = detectFileType(doc.filePath);
-/** ヘッダの worktree の名前。undock 元の path から現在の entry を引く (doc 参照) */
+/** ヘッダの worktree の名前。undock 元の path から現在の entry を引く */
 const sourceWorktree = computed(() =>
   source.kind === "worktree"
     ? repoStore.findRepoOwning(source.dir)?.worktrees.find((wt) => wt.path === source.dir)
@@ -275,7 +216,8 @@ watch(isDirty, (dirty) => {
 });
 
 // window が生きている間だけ main に単一ファイル watch を張る (sourceAbsPath は不変)。
-// fsChange (fsWatchSync) に相乗りしない理由は doc 参照。
+// fsChange (fsWatchSync) に相乗りしないのは、undocked window が repo / worktree を閉じても
+// 生存するため。sidebar の watch 集合に依存すると、閉じた瞬間に live 追従が黙って止まる。
 // current 側が working tree でない undock (過去 rev の歴史表示) は追従対象がそもそも無いため
 // watch も購読も張らず、undock 時 snapshot に固定する。
 if (props.preview.currentIsWorkingTree) {
@@ -327,13 +269,13 @@ function withWindowDraftGuard(action: () => void) {
 
 /** close 要求 (in-app パネルの close ボタン / cmd+w、昇格後はネイティブ close の
  * beforeunload veto 経由)。確認を挟み、通過したら state を消してシェルにウィンドウを閉じさせる。
- * 「既に閉じた」通知 (UndockedWindow の closed) は確認を挟まず state を消すだけ (シェルの doc 参照) */
+ * 「既に閉じた」通知 (UndockedWindow の closed) は確認を挟まず state を消すだけ */
 function guardedClose() {
   withWindowDraftGuard(() => close(props.preview.id));
 }
 
 /**
- * undock 元の選択を本体 preview として開き直す (doc 参照)。worktree 由来は
+ * undock 元の選択を本体 preview として開き直す。worktree 由来は
  * setOpen → forceSelect の順で呼ぶ: usePreviewStore の dir watch (flush: 'sync') が
  * setOpen の dir 切替と同期で close を消化し、続く forceSelect の open が最終状態として
  * 残る (useGozdOpenHandler と同じシーケンス)。
@@ -486,7 +428,7 @@ function dockToPreview() {
       />
     </div>
 
-    <!-- 破棄確認はこの window の top layer に出す (per-window instance。doc 参照) -->
+    <!-- 破棄確認はこの window の top layer に出す (per-window instance) -->
     <UnsavedDraftConfirmDialog :confirm="draftConfirm" />
   </UndockedWindow>
 </template>

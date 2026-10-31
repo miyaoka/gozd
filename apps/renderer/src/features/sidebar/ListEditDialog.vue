@@ -1,14 +1,3 @@
-<doc lang="md">
-repo list 名の編集 dialog。`useListEditing` の context (`listId`) が定義されたら開く。
-
-rename の唯一の経路（list 行の ⋮ メニュー → Rename）。インライン編集は持たない。
-
-## 設計判断
-
-- list は `useRepoStore` から listId で引き直す。open 中に他経路で削除されたら自動 close
-- 空 / whitespace-only は Save を disable する。list 名は表示の識別子なので空を許さない
-</doc>
-
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";

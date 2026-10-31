@@ -1,71 +1,3 @@
-<doc lang="md">
-1 つの repo を表すサイドバーセクション。repo の識別を示すヘッダと、配下の worktree 列 (WtCard) を持つ。
-非 git project は worktree 列を持たず、ヘッダの下にその dir のセッション行を直接並べる。
-
-## 背景 fetch の可視スコープ報告
-
-section の viewport 可視 (`useElementVisibility`) と「展開表示中」(`bodyVisible`) の AND を
-`repoStore.setRepoOnScreen` に報告する。背景 `git fetch` は「画面に写っていて ahead/behind を
-見せる repo」だけを対象にするため (`useRemoteFetchSync`)、畳んだ / スクロール外の repo は
-報告しない。active repo は fetch 側が別途 union に加えるので、ここでは純粋に可視性だけを報告する。
-
-## 並び順
-
-main worktree を先頭に固定し、以降は git が返した順のまま並べ、末尾に新規作成の導線を置く。
-
-state による並び替えは行わない。Claude 起動 / 状態遷移で wt の位置が動くと
-「どこに何があるか」を覚えていられないため、位置は静的に保ち、状態は state
-アイコンで識別する。
-
-Claude セッションの有無で wt を絞らない。稼働を横断して見る面はセッション単位の
-ダッシュボード（docs/session.md）と端末単位の view mode（docs/terminal.md）が受け持ち、この
-section は「どこで作業するか」の地図として常に全 worktree を出す。
-
-## 操作
-
-- header 全体クリック: git repo は折りたたみトグル (永続)、非 git project は rootDir を
-  active dir に選択 (ファイラー表示の唯一の経路)。非 git は worktree 列を持たず畳む対象が
-  無いため chevron も出さない。編集モード中はどちらも無効
-- 編集モードのヘッダは通常モードと完全に別描画: grip（drag handle）+ 非インタラクティブな
-  名前表示 + ✕ のみで、_fx-shine の hover 演出もクリックも持たない。grip を分離するのは
-  ListRow と同じ理由（mouse は handle 上の pointerdown を即 drag 開始で扱う）に加え、
-  通常時との見分けを付けるため。✕ は他 repo list にも属する repo なら「アクティブ repo list
-  から外す」、最後の所属なら「window から解除」（`removesFromWindow` prop でラベルを
-  出し分け、分岐の実体は SidebarPane）
-
-## レイアウト（行 = full-bleed）
-
-VS Code の pane header / tree row と同じ原則で、header は panel 幅いっぱいの
-1 コントロールにする（section は padding を持たず、padding は header 内の button と
-コンテンツ列が各自持つ）。focus ring / hover は常に行全体に付き、collapsed 時は
-panel = header だけになるため「パネル全体がフォーカスされている」表示になる。
-テキストを shrink-wrap する input 風の focus 箱を作らない。
-
-## owner 表示
-
-repo 名の 2 行目に GitHub owner を出すのは展開時のみ。折りたたみ時に出さないのは意図的で、
-常時 2 行はテキスト情報が煩雑になる一方、owner の区別は主に RepoIcon のアバターが担える。
-アイコンだけでは owner 名の正確な文字列が分からないため、展開時のみテキストで補完する
-という役割分担。
-
-## ハイライト
-
-active worktree を所有する repo は section 枠を薄い primary 線 + 浮き上がる影で示す
-(`._fx-panel[data-active]`)。塗り / グローは持たせない。active worktree 側は、カードなら
-border-primary + 外周グロー、ヘッダ 1 行ならヘッダの fill で示す。repo は枠線だけ、wt は
-グローか fill という別の表現で主従が分かれ、wt ハイライトが repo 枠に埋もれない。
-
-## 開閉アニメーション
-
-wt 列の開閉は `<Transition>` で height 0 ↔ auto を CSS transition する
-（`interpolate-size: allow-keywords` で auto が補間可能になる。Chromium 129+）。
-transition root は padding を持たず height だけを補間し、padding は内側の div が持つ
-（root が padding を持つと border-box でも h-0 時に padding 分の高さが残る）。
-`overflow-hidden` は enter/leave の active class にだけ載せる。定常状態で clip すると
-active wt カードの外周ブルーム（`_fx-quest-active` の box-shadow）が消えるため
-（WtCard の「カード境界に overflow-hidden を使わない」規律と同根）。
-</doc>
-
 <script setup lang="ts">
 import { useSortable } from "@dnd-kit/vue/sortable";
 import type { WorktreeEntry } from "@gozd/rpc";
@@ -191,7 +123,7 @@ watch(onScreen, (visible) => repoStore.setRepoOnScreen(props.rootDir, visible), 
 onUnmounted(() => repoStore.setRepoOnScreen(props.rootDir, false));
 
 // owner 2 行目は展開時のみ表示（collapsed 時はヘッダを 1 行に保って一覧密度を優先する）。
-// owner は 3 値（undefined = 解決中 / "" = GitHub owner なし。RepoIcon の <doc> 参照）で、
+// owner は 3 値（undefined = 解決中 / "" = GitHub owner なし）で、
 // どちらも空の 2 行目を出さない
 const ownerVisible = computed(
   () => bodyVisible.value && githubOwner.value !== undefined && githubOwner.value !== "",
@@ -242,14 +174,14 @@ function onHeaderClick() {
     class="_fx-panel flex flex-col rounded-lg"
   >
     <!-- 角丸は状態で変えず panel と同じ rounded-lg 固定。展開時に上下で radius が混在すると
-         タブ状の歪な形に見えるため（full-bleed の設計原則は <doc> のレイアウト節を参照）。 -->
+         タブ状の歪な形に見えるため。 -->
     <!-- header の中身は通常 / 編集で完全に分岐する（同一要素の使い回しをしない）。
          編集ヘッダは grip + 静的な名前 + ✕ だけで、_fx-shine の hover 演出もクリックも持たない。 -->
     <header
       class="group/repo relative flex items-center rounded-lg text-foreground"
       :class="!editMode && '_fx-shine'"
     >
-      <!-- grip（drag handle）。ListRow と同じ分離理由は <doc> 参照。v-if ではなく v-show で
+      <!-- grip（drag handle）。v-if ではなく v-show で
            両モードとも mount し続ける: 通常モードで handle ref が null になると、dnd-kit の
            Accessibility plugin が activator を element (section) に fallback して
            role="button" / tabindex="0" を注入し、section 内の任意クリックが ArcadeLayer の

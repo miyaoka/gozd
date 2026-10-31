@@ -1,13 +1,3 @@
-<doc lang="md">
-repo セクションヘッダの ⋮ ポップオーバーメニュー。repo スコープのアクション
-(Revive session / Project settings) を command registry 経由で rootDir 付き dispatch する。
-state は `useRepoMenu` (module singleton) 経由で SidebarPane と共有する。
-command はコマンドパレットからも起動でき (その場合 active repo が対象)、サイドバーからは
-明示 rootDir を渡す — VSCode の SCM コマンド (clicked resource 優先 / 無ければ picker) と同型。
-palette / command registry を直接 import せず command bus 経由にすることで sidebar→palette の
-import 循環を避ける。
-</doc>
-
 <script setup lang="ts">
 import { useCommandRegistry } from "../../shared/command";
 import { useRepoMenu } from "./useRepoMenu";

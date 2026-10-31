@@ -1,9 +1,3 @@
-<doc lang="md">
-commit graph の 1 コミット行。選択ハイライトは `useGitGraphStore` から導出する。
-contextmenu は preventDefault し anchor / 座標をその場で snapshot して emit する
-(pointerup 待機中に e.currentTarget が null 化するため)。
-</doc>
-
 <script setup lang="ts">
 import type { GitCommit, GitPullRequestBadge } from "@gozd/rpc";
 import { computed } from "vue";

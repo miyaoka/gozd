@@ -1,11 +1,3 @@
-<doc lang="md">
-コミット履歴の一覧を描画する presentational コンポーネント。
-
-行 history (BlamePopover) とファイル history (FileHistoryPopover) で共有する。
-描画のみを担い、commit クリックは `select` emit で親へ委譲する (git-graph 選択等の
-副作用は親側に置く)。
-</doc>
-
 <script setup lang="ts">
 import type { GitCommit } from "@gozd/rpc";
 import { formatAbsoluteTime, formatRelativeTime } from "../../../../shared/time";

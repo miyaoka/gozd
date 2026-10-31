@@ -1,20 +1,3 @@
-<doc lang="md">
-marked で Markdown → HTML 変換し、DOMPurify でサニタイズして表示する。
-
-- YAML frontmatter はコードブロックとして描画
-- 相対パスリンクのクリックは worktree 相対パスとして解決し、プレビュー対象を切り替える
-- 外部 URL (http(s) / mailto:) は MarkdownBody が開く。ここに来る href は内部リンクだけ
-- 行番号フラグメント (`./foo.ts#L42`) は lineNumber として `selectPath` に渡す
-- 解決ロジックは `resolveMarkdownLink` に分離 (純粋関数 + ユニットテスト)
-- 内部リンクの遷移は `useMarkdownHistoryStore.navigate()` 経由で行い、back / forward 履歴に積む。
-  filer / terminal などの外部経路で selection が変わると履歴は破棄される (詳細は `useMarkdownHistoryStore` を参照)
-- 画像は HTML preview と同じ配信 scheme から読む。`target` の root を配信許可として登録し、
-  画像の URL (`src` と `srcset` の各候補) をその URL に書き換える (`resolveMarkdownImageSrc`)。配信は working tree の
-  実ファイルを読むため、過去の版を表示していても画像は今のものになる (リンクの解決と同じ基準)
-- 画像ファイルの変更は `useMarkdownImageWatch` で受け、画像の URL に版数を載せて描き直す。
-  URL が同じままだと、配信が `no-store` でもページ内の画像キャッシュが使われる
-</doc>
-
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";

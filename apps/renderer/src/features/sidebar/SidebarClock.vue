@@ -1,13 +1,3 @@
-<doc lang="md">
-サイドバートップに常駐する現在時刻表示。
-
-クラシック Mac メニューバーの時計を踏襲し、左にアナログ時計、右に HH:MM の
-24 時間表記デジタル時計を並べる。秒針 / 秒表示は持たず分単位で更新する。
-
-更新は `useMinuteClock`（分境界に同期する共有 composable）に委ねる。1 秒ごとの polling を
-避け、表示が変わらない時間は wakeup しない。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { useMinuteClock } from "../../shared/time";

@@ -1,11 +1,3 @@
-<doc lang="md">
-セッション行の ⋮ ポップオーバーメニュー。Show session log を表示する。
-state は `useSessionMenu` (module singleton) 経由で SidebarPane と共有する。
-
-gozd はセッションを管理する記録を持たないため、行を消す操作は無い。端末の開いていない
-セッションは直近のものだけが見え、古いものは「Show more」の奥に下がる。
-</doc>
-
 <script setup lang="ts">
 import { useSessionLogViewer } from "../session-log";
 import { useSessionMenu } from "./useSessionMenu";

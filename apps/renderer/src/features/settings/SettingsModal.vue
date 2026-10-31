@@ -1,24 +1,3 @@
-<doc lang="md">
-設定モーダル。Cmd+, で開く統一設定画面。
-
-## 構成
-
-- 左タブ: Global / Project 切り替え
-- 右コンテンツ: スキーマ駆動のセクション・ウィジェット一覧
-- 値変更時に即座に RPC で保存
-- ヘッダーの JSON ボタン: アクティブタブの設定ファイルを preview で開く（ensureFile RPC で
-  実体化してから forceSelect）。modal は閉じない。popover は dialog より後に top layer に
-  入るため modal の上に見え、modal を閉じると操作可能になる
-
-## Project タブの対象
-
-Project 設定はデフォルトでアクティブ worktree が属するプロジェクトを対象にする
-（`worktreeStore.dir` から `resolveProjectKey` で解決）。ただし repo メニューから開いた場合は
-`targetProjectDir`（その repo の rootDir）で対象を固定する（clicked resource 優先）。対象が
-定まらないと保存経路が dir 不在で握りつぶすため、Project タブを無効化する（対象名も UI に
-明示して複数 repo 時の曖昧さを消す）。
-</doc>
-
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { computed, ref, watch } from "vue";

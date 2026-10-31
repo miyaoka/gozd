@@ -1,14 +1,3 @@
-<doc lang="md">
-worktree が失われた Claude セッションを選び、worktree を作り直して会話を再開する
-ダイアログ。タイトルとブランチを横断して絞り込める。
-
-一覧が空のとき、取得結果が空だったのか絞り込みで消えたのかを書き分ける。
-
-受理はダイアログを閉じてから走らせる。**閉じること自体が再入への唯一の防壁**で、走っている
-受理を覚えておく仕組みは持たない。worktree の作成は時間がかかるため、開いたままだとその間の
-キー入力とクリックが届き続ける。
-</doc>
-
 <script setup lang="ts">
 import type { ReviveSessionInfo } from "@gozd/rpc";
 import { useEventListener } from "@vueuse/core";

@@ -146,7 +146,7 @@ const HAS_ORIGIN_REF: Record<DisplayRef["type"], boolean> = {
  * 入るため、**この述語は push の有無を答えない**。
  *
  * これは **その行が PR head の位置か**の代理判定で、ref バッジの描画が読む。何をどう描き分けるかは
- * `RefBadge.vue` の `<doc>` が持つ。
+ * `RefBadge.vue` が持つ。
  *
  * **origin ref が PR head を指しているかまでは見ない。**origin ref も PR の取得結果もそれぞれ
  * 取得時点のスナップショットなので、branch の指す先が動いた直後は両者がずれ、その間は別 commit

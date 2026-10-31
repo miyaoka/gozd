@@ -1,19 +1,3 @@
-<doc lang="md">
-Popover API (`popover="manual"`) によるトースト通知。
-
-## 動作
-
-- toast 表示中の通知（store の `toasts` view）が存在する間 popover を open にし、空になったら hide する
-- 全 type とも type 別の寿命で自動消去（store 側で管理）。見逃しは notification center で回収する
-- 同時表示は最新 3 件まで（store の `toasts` view が絞る）。枠が空くと古い側が繰り上がるが、
-  寿命は生成時から進むため残り時間ぶんだけ表示される。枠が空かないまま寿命が尽きた通知は
-  center にのみ残る
-- window blur 中は全 toast の自動消去を保留し、focus 復帰でフル時間から再開する（VS Code の
-  purge ガードと同じ。見ていない間にカウントダウンが進んで戻ったら消えていた、を防ぐ）
-- dismiss は toast を畳むだけで、通知自体は notification center に残る
-- 複数通知は下から上へスタック表示
-</doc>
-
 <script setup lang="ts">
 import { useEventListener, useWindowFocus } from "@vueuse/core";
 import { onBeforeUnmount, useTemplateRef, watch } from "vue";

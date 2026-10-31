@@ -10,9 +10,14 @@ upstream ahead-behind / ⋮) と、Claude セッション行 (SessionList) を�
 worktree のセッション群ゾーンとして構造で分離する。ヘッダ 1 行のときは境界を持たず、選択中で
 あることはヘッダの fill が示す。
 
-ヘッダには icon を置かず branch 名のみで identity を示す。gutter に出る icon をセッション行の
+ヘッダには状態の icon を置かず branch 名のみで identity を示す。gutter に出る icon をセッション行の
 claude state icon だけに限定することで、worktree identity (branch 名) とセッションの状態 (icon)
 が別レイヤーに分かれ、複数種の icon が同一 gutter に並列して見分けづらくなる問題を解消する。
+
+例外は detached HEAD の worktree で、branch 名の代わりにディレクトリ名を出し、名前の前に commit
+icon を添える。ディレクトリ名は branch 名と同じ字面で並ぶため、icon が無いと branch 名と読み
+違える。HEAD の hash は同じ commit から作った worktree どうしで一致し commit で変わるため、
+見出しには出さず hover で見せる。
 
 カード境界は `overflow-hidden` を使わない。active カードの `_fx-quest-active` が持つ
 外周ブルーム (`box-shadow`) がクリップされて消えるため。内パディング `p-0.5` で内部 row
@@ -37,7 +42,11 @@ server port バッジは、その worktree の端末で LISTEN 中の dev server
 <script setup lang="ts">
 import type { WorktreeEntry } from "@gozd/rpc";
 import { computed } from "vue";
-import { type RepoWorktree, branchLabel as resolveBranchLabel } from "../../../../shared/repo";
+import {
+  type RepoWorktree,
+  branchLabel as resolveBranchLabel,
+  isDetached,
+} from "../../../../shared/repo";
 import { useServerStore } from "../../../server";
 import type { DirSessionRows, SessionRow } from "../../../session";
 import type { ClaudeState } from "../../../terminal";
@@ -48,6 +57,7 @@ import { hasSessionRows, SessionList } from "../session-row";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideArrowUp from "~icons/lucide/arrow-up";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
+import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
 import IconLucideServer from "~icons/lucide/server";
 
 const props = defineProps<{
@@ -89,7 +99,14 @@ const auraClass = computed<string | undefined>(() => {
   return top === undefined ? undefined : AURA_CLASS[top];
 });
 
-const branchLabel = computed(() => resolveBranchLabel(props.wt.branch));
+const branchLabel = computed(() => resolveBranchLabel(props.wt));
+
+const detached = computed(() => isDetached(props.wt.branch));
+
+/** detached の HEAD hash。未観測 (空文字) の間は tooltip を出さない */
+const detachedTitle = computed(() =>
+  detached.value && props.wt.head !== "" ? `Detached HEAD at ${props.wt.head}` : undefined,
+);
 
 const statusIcons = computed(() => {
   if (!props.wt.gitStatuses) return [];
@@ -150,7 +167,18 @@ function onHeaderClick() {
         class="_fx-shine flex w-full items-center gap-2 rounded-md px-2 py-0.5 text-left text-foreground-low transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary-subtle data-[active=true]:hover:bg-primary-subtle-hover"
         @click="onHeaderClick"
       >
-        <span class="flex-1 truncate text-left text-xs font-medium">{{ branchLabel }}</span>
+        <span
+          class="flex min-w-0 flex-1 items-center gap-1 text-left text-xs font-medium"
+          :title="detachedTitle"
+        >
+          <IconLucideGitCommitHorizontal
+            v-if="detached"
+            class="size-3 shrink-0"
+            role="img"
+            aria-label="Detached HEAD"
+          />
+          <span class="truncate">{{ branchLabel }}</span>
+        </span>
         <span
           v-if="livePorts.length > 0"
           class="flex items-center gap-0.5 text-[10px] text-success-text tabular-nums"

@@ -85,7 +85,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
     const result = await tryCatch(
       rpcGitWorktreeRemove({ dir: rootDir, path: wt.path, force: false }),
     );
-    const label = branchLabel(wt.branch);
+    const label = branchLabel(wt);
     // 拒否以外の失敗（git の拒否を含む）も強制削除でしか消せないことがある（実体の無い lock 済み
     // worktree 等）。原因は通知の詳細に残し、確認文は短く保つ
     if (!result.ok) {
@@ -104,7 +104,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   /** summary で強制削除の前提を示し、確認の上 --force で消す */
   function confirmForceRemove(rootDir: string, wt: WorktreeEntry, summary: string) {
-    const label = branchLabel(wt.branch);
+    const label = branchLabel(wt);
     showConfirm(`${summary} Force remove?`, async () => {
       const result = await tryCatch(
         rpcGitWorktreeRemove({ dir: rootDir, path: wt.path, force: true }),

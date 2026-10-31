@@ -95,6 +95,7 @@ describe("collectPoolSessionRows", () => {
     const note = rows.find((r) => r.sessionId === "note");
     expect(note?.dir).toBe("/note");
     expect(note?.branch).toBe("");
+    expect(note?.detached).toBe(false);
   });
 
   test("poolDirs に載っているが repos から消えた rootDir は無視する", () => {
@@ -107,9 +108,12 @@ describe("collectPoolSessionRows", () => {
     expect(live?.repoName).toBe("a");
     expect(live?.owner).toBe("octo");
     expect(live?.dir).toBe("/repo-a");
-    // detached HEAD (空 branch) はラベルに倒す
+    expect(live?.branch).toBe("main");
+    expect(live?.detached).toBe(false);
+    // detached HEAD (空 branch) は worktree のディレクトリ名で出す
     const detached = rows.find((r) => r.sessionId === "new");
-    expect(detached?.branch).toBe("(detached)");
+    expect(detached?.branch).toBe("wt");
+    expect(detached?.detached).toBe(true);
     expect(detached?.owner).toBeUndefined();
   });
 });

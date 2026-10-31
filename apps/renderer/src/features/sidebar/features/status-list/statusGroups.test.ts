@@ -26,6 +26,7 @@ function row(
     repoName: rootDir.slice(1),
     owner: "",
     branch: "main",
+    detached: false,
   };
 }
 

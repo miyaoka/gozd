@@ -22,6 +22,7 @@ import { RepoIcon } from "../repo-icon";
 import type { PoolSessionRow } from "../session";
 import { CLAUDE_STATE_VISUAL, displayClaudeState } from "../terminal";
 import IconLucideCircle from "~icons/lucide/circle";
+import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
 
 const props = defineProps<{
   row: PoolSessionRow;
@@ -79,7 +80,16 @@ const age = computed(() => {
     <RepoIcon :name="row.repoName" :owner="row.owner" />
     <span class="truncate text-foreground-low">{{ row.repoName }}</span>
   </span>
-  <span class="truncate text-primary-text">{{ row.branch }}</span>
+  <span class="flex items-center gap-1 truncate text-primary-text">
+    <!-- detached はディレクトリ名を出すため、branch 名と読み違えないよう icon で示す (WtCard と同じ) -->
+    <IconLucideGitCommitHorizontal
+      v-if="row.detached"
+      class="size-3 shrink-0"
+      role="img"
+      aria-label="Detached HEAD"
+    />
+    <span class="truncate">{{ row.branch }}</span>
+  </span>
   <span v-if="age" class="truncate text-right tabular-nums" :class="age.color">{{ age.text }}</span>
   <span v-else></span>
 </template>

@@ -94,7 +94,7 @@ useMarkdownImageWatch(imagePaths, () => {
  * 解決する。左クリックと中クリックは同じ経路で届く。
  *
  * notification は **固定 message + 詳細を `cause` に分離** する。href の生値は `cause` 側に
- * だけ保持し、トースト詳細パネルで確認できる経路を残す。
+ * だけ保持し、notification center (トーストの Details から開く) で確認できる経路を残す。
  */
 const ANCHOR_IGNORED_MESSAGE = "Heading anchors are not yet supported; opened the file only";
 const LINK_INVALID_MESSAGE = "Could not open link from markdown preview";

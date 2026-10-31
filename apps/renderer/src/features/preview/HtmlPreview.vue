@@ -55,7 +55,7 @@ useEventListener(
   { capture: true },
 );
 
-/** 固定 message + 詳細を cause に分離し、可変の詳細はトーストの詳細パネルで読ませる */
+/** 固定 message + 詳細を cause に分離し、可変の詳細は notification center (トーストの Details から開く) で読ませる */
 const URL_FAILED_MESSAGE = "Could not open HTML preview";
 
 const serving = usePreviewServing();

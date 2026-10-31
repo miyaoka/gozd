@@ -12,6 +12,10 @@ function wt(path: string, branch: string): WorktreeEntry {
   };
 }
 
+function detachedWt(path: string): WorktreeEntry {
+  return { path, head: "3f2a9c1e", branch: "", detached: true, isMain: false };
+}
+
 describe("formatTitleContext", () => {
   const repo = { repoName: "gozd", worktrees: [wt("/w/main", "main"), wt("/w/feat", "feat/x")] };
 
@@ -31,8 +35,11 @@ describe("formatTitleContext", () => {
     expect(formatTitleContext(repo, "/w/feat")).toBe("gozd · feat/x");
   });
 
-  test("branch を持たない worktree はディレクトリ名で出す", () => {
-    const detached = { repoName: "gozd", worktrees: [wt("/w/check-a", ""), wt("/w/check-b", "")] };
+  test("detached の worktree はディレクトリ名で出す", () => {
+    const detached = {
+      repoName: "gozd",
+      worktrees: [detachedWt("/w/check-a"), detachedWt("/w/check-b")],
+    };
     expect(formatTitleContext(detached, "/w/check-a")).toBe("gozd · check-a");
     expect(formatTitleContext(detached, "/w/check-b")).toBe("gozd · check-b");
   });

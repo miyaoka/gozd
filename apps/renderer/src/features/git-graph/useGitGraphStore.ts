@@ -51,7 +51,7 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
    *
    * 戻り値:
    * - 通常: branch 名 (例: `feat/foo`)
-   * - detached HEAD / dir 不在 / 未取得時: undefined
+   * - branch を持たない dir (detached HEAD / bare) / dir 不在 / 未取得時: undefined
    *
    * branch rename は `branchChange` push 起点の worktree list 再 fetch で追従する。rename 直後の
    * 短い window で stale な値を返しうる (next refetch まで)。PR diff toggle の auto-off 経路が

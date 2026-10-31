@@ -41,9 +41,12 @@ snapshot に固定する — 過去の内容で実ファイルを上書き保存
 
 ウィンドウの実体 (in-app パネル / 昇格後の OS ウィンドウ、その切り替えと昇格の rect 換算) は
 汎用シェル UndockedWindow に委譲する。
-ヘッダには undock 時点の出自 (repo / worktree の名前 / ファイル名) を焼き込む — worktree 切替を
+ヘッダには undock 時点の出自 (repo / ファイル名) を焼き込む — worktree 切替を
 跨いで生存するウィンドウを識別するため。repo 未解決 (worktree 外の絶対パス等) は
 出自の段ごと省く。タイトルバー (document.title) はファイル名。
+worktree の名前は焼き込まず、undock 元の path から現在の entry を引いて描く。detached の HEAD は
+commit のたびに進むため、焼き込むと hover の hash が古いまま残る。path で引くので、本体で
+選んでいる worktree が変わっても出自は変わらない。
 
 ヘッダの dock ボタンで undock 元の選択を本体 preview として開き直せる。開けたらウィンドウは
 閉じる (本体への昇格であり二重表示を残さない。undock 時に popover を閉じるのと対称)。undock 元
@@ -116,6 +119,12 @@ const source = props.preview.source;
 const sourceAbsPath =
   source.kind === "absolute" ? source.absPath : joinAbsRel(source.dir, source.relPath);
 const fileType = detectFileType(doc.filePath);
+/** ヘッダの worktree の名前。undock 元の path から現在の entry を引く (doc 参照) */
+const sourceWorktree = computed(() =>
+  source.kind === "worktree"
+    ? repoStore.findRepoOwning(source.dir)?.worktrees.find((wt) => wt.path === source.dir)
+    : undefined,
+);
 /** 配信 scheme から読む対象。worktree 起点なら worktree root を配信範囲にする */
 const servingTarget = previewServingTarget(
   sourceAbsPath,
@@ -378,8 +387,8 @@ function dockToPreview() {
           <span class="shrink-0 truncate text-xs font-semibold tracking-wide">
             {{ preview.repoName }}
           </span>
-          <span v-if="preview.worktree" class="min-w-0 flex-1 text-xs text-foreground-low">
-            <WorktreeLabel :wt="preview.worktree" />
+          <span v-if="sourceWorktree" class="min-w-0 flex-1 text-xs text-foreground-low">
+            <WorktreeLabel :wt="sourceWorktree" />
           </span>
         </div>
         <div class="flex min-w-0 items-center gap-2">

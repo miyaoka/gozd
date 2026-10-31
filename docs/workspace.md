@@ -277,7 +277,11 @@ project の集合で、state に保存する。どの project の dir かの判�
 
 各 worktree:
 
-- ヘッダ: ブランチ名 + 変更ファイル数バッジ + upstream に対する ahead / behind
+- ヘッダ: worktree の名前 + 変更ファイル数バッジ + upstream に対する ahead / behind
+- worktree の名前はブランチ名。detached HEAD の worktree はブランチを持たないため、ディレクトリ名に
+  detached であることを示す印を添えて、ブランチ名とも他の detached の worktree とも見分けられる
+  ようにする。HEAD の commit は hover で見せる。worktree の名前を出す他の面（セッションの一覧、
+  サーバー一覧）も同じ表し方にする
 - 配下のセッション行: その worktree の Claude セッションを 1 セッション = 1 行で並べる。
   どのセッションを出すか、並びと表示は [session.md](session.md) の「サイドバー」
 - **出すセッション行がある worktree だけをカードにし**、無い worktree はヘッダ 1 行で出す。

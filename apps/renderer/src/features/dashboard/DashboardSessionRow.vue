@@ -1,5 +1,5 @@
 <doc lang="md">
-ダッシュボードの 1 行分のセル群。状態 glyph・タイトル・repo (アイコン付き)・ブランチ・
+ダッシュボードの 1 行分のセル群。状態 glyph・タイトル・repo (アイコン付き)・worktree の名前・
 相対時刻を並べる (grid のカラム定義は DashboardDialog 側の container が持つ。
 revive picker と同じ分業)。
 
@@ -21,8 +21,8 @@ import { formatRelativeAge } from "../../shared/time";
 import { RepoIcon } from "../repo-icon";
 import type { PoolSessionRow } from "../session";
 import { CLAUDE_STATE_VISUAL, displayClaudeState } from "../terminal";
+import { WorktreeLabel } from "../worktree";
 import IconLucideCircle from "~icons/lucide/circle";
-import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
 
 const props = defineProps<{
   row: PoolSessionRow;
@@ -80,15 +80,8 @@ const age = computed(() => {
     <RepoIcon :name="row.repoName" :owner="row.owner" />
     <span class="truncate text-foreground-low">{{ row.repoName }}</span>
   </span>
-  <span class="flex items-center gap-1 truncate text-primary-text">
-    <!-- detached はディレクトリ名を出すため、branch 名と読み違えないよう icon で示す (WtCard と同じ) -->
-    <IconLucideGitCommitHorizontal
-      v-if="row.detached"
-      class="size-3 shrink-0"
-      role="img"
-      aria-label="Detached HEAD"
-    />
-    <span class="truncate">{{ row.branch }}</span>
+  <span class="min-w-0 text-primary-text">
+    <WorktreeLabel v-if="row.worktree" :wt="row.worktree" />
   </span>
   <span v-if="age" class="truncate text-right tabular-nums" :class="age.color">{{ age.text }}</span>
   <span v-else></span>

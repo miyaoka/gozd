@@ -5,15 +5,12 @@ export function isDetached(branch: string): boolean {
   return branch === "";
 }
 
-/**
- * worktree の表示名。detached は branch を持たず、HEAD の hash も同じ commit から作った
- * worktree どうしで一致するため、repo 内で一意な path の末尾ディレクトリ名で見分ける。
- */
-export function branchLabel(wt: Pick<WorktreeEntry, "branch" | "path">): string {
-  if (!isDetached(wt.branch)) return wt.branch;
-  const [last = wt.path] = wt.path
-    .split("/")
-    .filter((part) => part !== "")
-    .slice(-1);
-  return last;
+/** path の末尾のディレクトリ名 */
+export function pathBaseName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/** worktree の表示名。branch を持てば branch 名、detached なら末尾のディレクトリ名 */
+export function worktreeLabel(wt: Pick<WorktreeEntry, "branch" | "path">): string {
+  return isDetached(wt.branch) ? pathBaseName(wt.path) : wt.branch;
 }

@@ -90,30 +90,26 @@ describe("collectPoolSessionRows", () => {
     expect(rows.some((r) => r.sessionId === "gone")).toBe(false);
   });
 
-  test("非 git project のセッションはブランチを持たない行になる", () => {
+  test("非 git project のセッションは worktree を持たない行になる", () => {
     const rows = collectPoolSessionRows(POOL_DIRS, repos, sessionsOf, LIVE);
     const note = rows.find((r) => r.sessionId === "note");
     expect(note?.dir).toBe("/note");
-    expect(note?.branch).toBe("");
-    expect(note?.detached).toBe(false);
+    expect(note?.worktree).toBeUndefined();
   });
 
   test("poolDirs に載っているが repos から消えた rootDir は無視する", () => {
     expect(collectPoolSessionRows(["/ghost"], repos, sessionsOf, LIVE)).toEqual([]);
   });
 
-  test("行は repo 名・owner・branch ラベル・ジャンプ先 dir を持つ", () => {
+  test("行は repo 名・owner・worktree・ジャンプ先 dir を持つ", () => {
     const rows = collectPoolSessionRows(POOL_DIRS, repos, sessionsOf, LIVE);
     const live = rows.find((r) => r.sessionId === "live");
     expect(live?.repoName).toBe("a");
     expect(live?.owner).toBe("octo");
     expect(live?.dir).toBe("/repo-a");
-    expect(live?.branch).toBe("main");
-    expect(live?.detached).toBe(false);
-    // detached HEAD (空 branch) は worktree のディレクトリ名で出す
+    expect(live?.worktree?.path).toBe("/repo-a");
     const detached = rows.find((r) => r.sessionId === "new");
-    expect(detached?.branch).toBe("wt");
-    expect(detached?.detached).toBe(true);
+    expect(detached?.worktree?.path).toBe("/repo-b/wt");
     expect(detached?.owner).toBeUndefined();
   });
 });

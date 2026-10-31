@@ -1,6 +1,6 @@
-import type { ClaudeSessionSummary } from "@gozd/rpc";
+import type { ClaudeSessionSummary, WorktreeEntry } from "@gozd/rpc";
 import type { RepoState } from "../../shared/repo";
-import { branchLabel, isDetached, repoDirEntries } from "../../shared/repo";
+import { repoDirEntries } from "../../shared/repo";
 import type { LiveSession } from "../terminal";
 import { buildSessionRows, compareRecentFirst, type SessionRow } from "./sessionRows";
 
@@ -11,10 +11,8 @@ export interface PoolSessionRow extends SessionRow {
   repoName: string;
   /** GitHub owner。undefined は解決中、空文字は owner なし (RepoIcon の 3 値契約) */
   owner: string | undefined;
-  /** worktree のブランチ表示。detached はディレクトリ名、非 git project は空文字 */
-  branch: string;
-  /** worktree が detached HEAD か。ブランチ表示がディレクトリ名であることを示す */
-  detached: boolean;
+  /** セッションの worktree。非 git project は undefined */
+  worktree: WorktreeEntry | undefined;
 }
 
 /**
@@ -42,8 +40,7 @@ export function collectPoolSessionRows(
         rootDir,
         repoName: repo.repoName,
         owner: repo.githubIdentity?.owner,
-        branch: worktree === undefined ? "" : branchLabel(worktree),
-        detached: worktree !== undefined && isDetached(worktree.branch),
+        worktree,
       });
     }
   }

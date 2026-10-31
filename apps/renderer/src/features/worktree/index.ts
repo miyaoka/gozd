@@ -18,6 +18,7 @@ export {
 } from "./rpc";
 export { useRemoteFetchStore } from "./useRemoteFetchStore";
 export { default as StatusIcons } from "./StatusIcons.vue";
+export { default as WorktreeLabel } from "./WorktreeLabel.vue";
 export { useWorktreeStore } from "./useWorktreeStore";
 export type { Selection } from "./useWorktreeStore";
 export { useGitStatusStore } from "./useGitStatusStore";

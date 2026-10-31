@@ -150,11 +150,12 @@ async function onAddDir() {
   }
 }
 
-// --- 編集モード（top-right ボタンでトグル） ---
+// --- 編集モード（repo list バーの Edit list ボタンでトグル） ---
 //
 // 編集モード中:
 // - 全 section が強制 collapse され、drag で並び替え可能
-// - 各 section に ✕ ボタンが表示され、クリックで repo を window から解除（確認ダイアログ）
+// - 各 section に ✕ ボタンが表示され、クリックで repo をアクティブ repo list から外す。
+//   他の list に属さない repo は確認ダイアログを経て gozd から解除する
 // - リスト末尾に `Open directory…` ボタンが出現
 // 通常モード:
 // - 各 section の永続 collapse 状態が反映される

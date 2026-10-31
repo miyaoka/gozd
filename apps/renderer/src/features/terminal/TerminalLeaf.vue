@@ -35,7 +35,7 @@ const effectiveFitSuspended = computed(() => terminalStore.dragSuspendCount > 0)
 function handleTerminalFocus() {
   contextKeys.set("terminalFocus", true);
   terminalStore.focusPane(props.leafId);
-  // 同 dir でも setOpen を呼ぶことで selectionVersion が発火し、useTerminalStore の
+  // 同 dir でも setOpen を呼ぶことで selectionVersion が発火し、useSidebarData の
   // watch が done を消化する。viewMode="claude" でも選択 wt が追従する。
   worktreeStore.setOpen(props.dir);
 }
@@ -47,7 +47,7 @@ function handleTerminalBlur() {
 
 <template>
   <div class="min-h-0 min-w-0" :data-leaf-id="leafId">
-    <!-- container-type: size は TerminalSessionPreview のスクロール面 (max-h-[40cqh]) が
+    <!-- container-type: size は TerminalSessionPreview のスクロール面 (max-h-[calc(50cqh-2rem)]) が
          leaf 高さを参照するための query container 指定。size-full で寸法が親から確定して
          いるため size containment による高さ collapse は起きない -->
     <div

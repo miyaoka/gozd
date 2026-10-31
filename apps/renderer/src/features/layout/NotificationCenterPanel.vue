@@ -11,7 +11,7 @@ import IconLucideX from "~icons/lucide/x";
 const store = useNotificationCenterStore();
 const { notifications, remove, clear } = useNotificationStore();
 
-/** 新着順。seq は発生 (再発生含む) ごとに進む単調増加値。 */
+/** 新着順。seq は発生ごとに進む単調増加値。 */
 const sorted = computed(() => [...notifications.value].sort((a, b) => b.seq - a.seq));
 
 const panelRef = useTemplateRef<HTMLElement>("panel");

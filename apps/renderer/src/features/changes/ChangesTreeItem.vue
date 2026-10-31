@@ -18,8 +18,7 @@ const emit = defineEmits<{
   select: [relPath: string];
   toggleFolder: [fullPath: string];
   /**
-   * 右クリック payload を NavigatorPane まで bubble する。file leaf のみ発火する
-   * (folder 行は OS 標準の右クリック menu に倒すため preventDefault せず no-op)。
+   * 右クリック payload を NavigatorPane まで bubble する。file 行と folder 行の両方で発火する。
    * hash 解決は navigator が `useGitGraphStore.contextMenuHash` SSOT で行う。
    */
   contextMenu: [payload: FileContextMenuPayload];

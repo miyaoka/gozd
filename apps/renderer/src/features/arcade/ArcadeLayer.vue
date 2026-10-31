@@ -59,7 +59,7 @@ const disposeHook = onMessage<ClaudeFxEvent>("claudeFx", (fx) => {
 onUnmounted(disposeHook);
 
 // 通知の発生イベントを購読し、error ならエラー演出。notification store の lastEvent は
-// toast の重複抑制と独立に毎回更新されるため、同一メッセージの error 再発生も取りこぼさない。
+// toast の表示有無と独立に通知の追加のたびに更新されるため、同一メッセージの error 再発生も取りこぼさない。
 const { lastEvent } = useNotificationStore();
 watch(lastEvent, (event) => {
   if (event?.type !== "error") return;

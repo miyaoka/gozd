@@ -194,7 +194,7 @@ describe("fsWatchTargetDirs", () => {
     expect(store.fsWatchTargetDirs).toEqual(new Set(["/r1"]));
   });
 
-  test("一覧の取得前に追加した worktree は watch し、キャッシュの worktree は外したまま", () => {
+  test("作成直後の worktree は watch し、キャッシュの worktree は外したまま", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();
     store.hydrateFromAppState({

@@ -64,7 +64,8 @@ export function useSidebarData() {
     const result = await tryCatch(rpcGitWorktreeList({ dir: rootDir }));
     if (!result.ok) {
       notify.error(`Failed to fetch repo data: ${repo.repoName}`, result.error);
-      openActiveDirUnverified(rootDir);
+      // 新しい取得が往復中なら、その一覧で確かめられるので待つ
+      if (fetchGenByRoot.get(rootDir) === gen) openActiveDirUnverified(rootDir);
       return;
     }
     if (fetchGenByRoot.get(rootDir) !== gen) return;

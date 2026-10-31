@@ -177,13 +177,14 @@ const { raise } = useSurface(panelRef, {
           {{ row.port }}
         </span>
         <span class="truncate text-foreground-low" :title="`pid ${row.pid}`">{{ row.name }}</span>
-        <span class="flex min-w-0 items-center gap-1 text-foreground-low">
+        <!-- 狭いときは repo 名から切り、worktree 名を残す -->
+        <span class="flex min-w-0 items-center gap-1 overflow-hidden text-foreground-low">
           <template v-if="row.worktreePath !== ''">
-            <span class="min-w-0 shrink text-foreground">
+            <span class="max-w-full shrink-0 text-foreground">
               <WorktreeLabel v-if="row.worktree" :wt="row.worktree" />
               <span v-else class="block truncate">{{ pathBaseName(row.worktreePath) }}</span>
             </span>
-            <span v-if="row.repoName !== ''" class="shrink-0 text-foreground-low"
+            <span v-if="row.repoName !== ''" class="min-w-0 truncate text-foreground-low"
               >· {{ row.repoName }}</span
             >
           </template>

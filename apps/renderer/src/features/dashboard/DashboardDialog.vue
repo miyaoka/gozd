@@ -3,8 +3,8 @@
 「次にどこへ注意を向けるか」を選ぶ受信箱で、行の確定は該当 worktree を選択して
 セッションを focus / resume する (openSession)。
 
-タイトル・repo 名・worktree の名前・GitHub owner を横断して絞り込める (owner はカラムに
-表示しないが検索対象に含める)。
+絞り込みの対象は docs/session.md の「ダッシュボード」に加え、カラムに表示しない GitHub owner も
+含める。
 
 ## 並び順は開いている間凍結する
 

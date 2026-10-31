@@ -1,8 +1,3 @@
-<doc lang="md">
-split tree の branch ノード間に配置する ratio ベースのリサイズハンドル。
-見た目は既存の ResizeHandle と統一する。
-</doc>
-
 <script setup lang="ts">
 import { computed, useTemplateRef } from "vue";
 import type { Axis, SplitNode } from "./splitTree";

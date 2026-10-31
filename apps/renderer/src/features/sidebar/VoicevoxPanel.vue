@@ -1,10 +1,3 @@
-<doc lang="md">
-読み上げの有効・無効の切り替えと、話速・音量の調整をサイドバーから行うパネル。
-
-有効かどうかで出す操作そのものを入れ替え、無効なときは有効化の導線だけを残す。無効なまま
-調整だけできても結果を確かめられず、操作が効いていないように見えるため。
-</doc>
-
 <script setup lang="ts">
 import { useVoicevoxStore, VoicevoxSpeakerSelect } from "../voicevox";
 import IconLucideGauge from "~icons/lucide/gauge";

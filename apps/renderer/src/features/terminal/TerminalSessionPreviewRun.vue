@@ -1,10 +1,3 @@
-<doc lang="md">
-セッションプレビュー (TerminalSessionPreview) の 1 run (同じ話者の連続発言) を描く。どの行をどの順に
-出すかは `runRows` (`terminalSessionPreviewMessages.ts`) が決め、ここは開閉状態と、開いた発言を
-トグルのどちら側に出すか (`revealSide`) を受け取って描くだけで状態を持たない。どちら側に出すかと、
-押したトグルをポインタの下に留めるスクロール補正は、overlay の配置を知る親が決める。
-</doc>
-
 <script setup lang="ts">
 import { computed, type FunctionalComponent, type SVGAttributes } from "vue";
 import { SessionLogSpeechText, SPEAKER_SURFACE_CLASS, type Speech } from "../session-log";

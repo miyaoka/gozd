@@ -1,17 +1,3 @@
-<doc lang="md">
-preview ヘッダにファイルの最終コミット日を表示し、クリックでファイル history popover を開く。
-
-`git log -1 -- <path>` (rpcGitLogFile maxCount=1) で表示中 rev 時点の最新コミットを取得し、
-相対日付として描画する。クリックで `useFileHistoryPopover().open()` を呼ぶ。
-
-## リアクティブ更新
-
-- props (`dir` / `relPath` / `rev`) 変化で再 fetch (ファイル切替 / タブ・commit 選択切替に追従)
-- HEAD 追従 rev (`""` / `"HEAD"`) のときは active dir の `gitStatusChange` (head 変化) でも
-  再 fetch し、terminal でコミット後にヘッダ日付が古びないようにする
-- race は version counter で破棄する
-</doc>
-
 <script setup lang="ts">
 import type { GitCommit, GitStatusChangePayload } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";

@@ -379,7 +379,6 @@ native アプリ志向の UI なので、chrome (ボタン / ラベル / ツリ�
 - 矢印キー navigation の container に WAI-ARIA role が付いているか
 - focus を受け取る要素に focus ring 表現があるか
 - 固定値の inline style (`:style="{ marginTop: '2px' }"` 等) を使っていないか
-- 新規 SFC に `<doc lang="md">` ブロックを書いたか
 - 新規 SFC のテキストが英語か
 
 ## 参照

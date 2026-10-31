@@ -1,9 +1,3 @@
-<doc lang="md">
-worktree の ⋮ ポップオーバーメニュー。Remove worktree アクションを表示する。
-state は `useWorktreeMenu` (module singleton) 経由で SidebarPane と共有する。
-main worktree は remove 不可のため、メニュー自体を開かない（WtCard 側の出し分けと対）。
-</doc>
-
 <script setup lang="ts">
 import type { WorktreeEntry } from "@gozd/rpc";
 import { useWorktreeMenu } from "./useWorktreeMenu";

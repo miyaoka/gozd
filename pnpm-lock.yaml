@@ -214,9 +214,6 @@ importers:
       '@miyaoka/eslint-plugin-barrel-import':
         specifier: 0.1.0
         version: 0.1.0(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))
-      '@miyaoka/vite-plugin-doc-block':
-        specifier: 0.0.3
-        version: 0.0.3(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))(vue@3.5.44(@typescript/typescript6@6.0.2))
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.3(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
@@ -893,12 +890,6 @@ packages:
     peerDependenciesMeta:
       eslint:
         optional: true
-
-  '@miyaoka/vite-plugin-doc-block@0.0.3':
-    resolution: {integrity: sha512-QR2NIMgyeUWXBnC9dDvaMbj6UgItoBnqZx/eMB+0mT09Cyc3Wj7MHz+CPrFxJ7RJ0axcNLyAM5yZHNstJ2OU1A==}
-    peerDependencies:
-      vite: ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0
-      vue: ^3.0.0
 
   '@modelcontextprotocol/sdk@1.32.1':
     resolution: {integrity: sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulUBi2OZk+KJAi2uPXzxichPkdw==}
@@ -5791,11 +5782,6 @@ snapshots:
   '@miyaoka/eslint-plugin-barrel-import@0.1.0(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))':
     optionalDependencies:
       eslint: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-
-  '@miyaoka/vite-plugin-doc-block@0.0.3(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))(vue@3.5.44(@typescript/typescript6@6.0.2))':
-    dependencies:
-      vite: 8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
-      vue: 3.5.44(@typescript/typescript6@6.0.2)
 
   '@modelcontextprotocol/sdk@1.32.1(supports-color@10.2.2)(zod@4.6.7)':
     dependencies:

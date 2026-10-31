@@ -1,7 +1,3 @@
-<doc lang="md">
-個別の設定項目。widget 種別に応じて適切なウィジェットコンポーネントを描画する。
-</doc>
-
 <script setup lang="ts">
 import type { SettingDefinition } from "./types";
 import BooleanWidget from "./widgets/BooleanWidget.vue";

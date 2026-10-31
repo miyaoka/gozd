@@ -1,128 +1,3 @@
-<doc lang="md">
-hunk 単位の diff ビュー。unified / split の 2 モードを切り替える。
-
-## 設計
-
-diff 計算は SSOT を git に置き、renderer は `rpcGitDiffHunks` で取得した `hunks` と
-`oldTotalLines` / `newTotalLines` を描画するだけ。全文 jsdiff を JS で回すと
-大ファイル (`pnpm-lock.yaml` 等) で Myers LCS が O(N×M) で固まるため、
-git の C 実装 (xdiff) に処理を委ねる。
-
-## 描画
-
-watch で取得した hunks を unified / split 両方の base items に一度に展開し、
-state.success に保持する。view mode の切り替えで再 fetch は走らない。
-
-### section 分割と選択スコープ
-
-`renderRows` / `splitRenderRows` を hunk-bar 境界で section (連続する非 hunk-bar 行 1 群)
-に分割し、各 section を `contenteditable=true` の editing host にする。hunk-bar は
-section の外に sibling として置くため Cmd+A の scope に入らず、unchanged lines のラベルは
-clipboard に乗らない。行番号は `::before { content: attr(data-line-no) }` の generated
-content なので構造的に clipboard 対象外。
-
-### unified
-
-各 section が `_unified-section` 1 つの contenteditable コンテナ。section 内で各行を
-`display: block` の `_diff-line` として並べ、line-no を `inline-block`、本文を `inline`
-の hanging indent (`padding-left` + 負 `text-indent`) で配置する。flex / grid を経由しないので
-子要素の blockification が起きず、contenteditable コピー時に「1 行 = 1 改行」になる。
-
-### split (default)
-
-各 section が `_split-section` の `1fr 1fr` grid で 2 半身 (left / right) を並べ、
-半身それぞれが独立した contenteditable host (sibling)。Cmd+A の scope は focus が居る
-半身 1 つだけに閉じる。半身内は per-row の `_split-row` を 1 つ 1 block として並べ、
-hanging indent (`padding-left` + 負 `text-indent`) で line-no と本文を配置する。
-行揃えは CSS subgrid で実現する: `_split-section` に `grid-template-rows: repeat(N, auto)`
-を style binding で渡し、両半身が `grid-template-rows: subgrid` で同じ row track を
-継承する。これで word-wrap で左右の折返し行数が違っても、行ごとに高い方に track が伸びて
-左 row j と右 row j が同じ親 track に置かれ、左右の行が縦に揃う。
-modified hunk 内では連続する removed run と added run を貪欲ペアリングし、片側だけが
-存在する行は反対側の `_split-row` を空 (`_split-filler` で灰色背景) にして残す。
-
-### hunk-bar
-
-hunk 間 / ファイル先頭・末尾の連続 unchanged 範囲は `{ type: "hunk-bar", oldStart, newStart, lines }` で
-省略表示。1-based 絶対座標と省略行数を持つ。`oldGap === newGap` が unified diff の invariant なので
-`lines` を 1 本に統合してある。invariant が破れた場合は throw し watch 経由で error UI + トーストに倒す。
-
-### バー展開
-
-クリックで `rpcGitDiffExpandLines` を呼び、main 側 `countDiffLines` と同じ line counting 規約で
-切り出した行ペアを取得して `expansions` Map にキャッシュする。renderer 側で `text.split("\n")` を
-回すと CRLF / 末尾改行で main 側と末尾 1 行ずれる (実際の総行数は `oldTotalLines` / `newTotalLines`
-の値で、JS の `split("\n").length` とは末尾改行 1 行分異なる) ため、行配列の SSOT も main に置く。
-
-## シンタックスハイライト
-
-Shiki の `codeToTokens` で original / current それぞれのトークン配列を取得し、
-diff の各行に対応するトークンをマッピングして色付き表示する。
-unified では removed 行は original のトークン、added / unchanged 行は current のトークンを使用。
-split では左セルが original、右セルが current のトークンを使用する。
-
-## 行内 (文字単位) ハイライト
-
-行単位 diff の SSOT は git のまま、変更ブロック (removed run × added run) の内側だけを
-`intraLineDiff.ts` (monaco-editor deep import の VSCode `DefaultLinesDiffComputer`) で
-文字単位に再計算する。表示専用の追加レイヤーなので git の hunk 構造とは矛盾しない。
-
-トーン設計は VSCode の line/char decoration 二層と同型。行背景は従来の diff 色
-(subtle、step 3)、行内変更範囲は 1 段明るい subtle-emphasis (step 5) を重ねる。
-変更フラグメントが浮き、同一部分が行背景のトーンに沈んで見える。
-沈む側 (step 2 以下) でトーン差を作る案は、dark パレットの低 step 圧縮 (ΔL 0.03) で
-人間に判別できず不採用。コントラストは明るい側でしか成立しない。
-
-純粋な追加 / 削除行は VSCode では行全体が char 強度になるが、gozd は従来の subtle を
-維持する (大きな追加ブロックが明るい壁になるのを避ける。GitHub と同じ判断)。
-degrade した run (予算切れ / timeout) も従来の行単位表示のまま。
-
-計算はメインスレッド同期実行のため、1 ファイル全 run 合算の予算
-(`INTRA_LINE_DIFF_BUDGET_MS`) で打ち切る。予算切れ / run 単体の timeout は
-行単位表示への degrade (VSCode と同じ戦略) で、エラーにはしない。
-
-描画は DiffLineContent が「トークン境界 × 変更範囲境界」の両方で segment を切って合成する。
-強調は inline span の background なので、contenteditable コピーの clipboard 正規化
-(1 行 = 1 改行) には影響しない。
-
-## 入力契約
-
-`original` / `current` は UTF-8 として解釈可能なテキストである必要がある。バイナリは
-content の型 narrow（`currentText` / `originalText` がバイナリ (bytes) で `undefined` に
-倒れる）により diff leaf の描画条件を満たさず、本コンポーネントに渡らない前提。
-万一すり抜けた場合は main 側で `Binary files ... differ` を検知して error にトーストする。
-
-> [!NOTE]
-> 複数行コメントやテンプレートリテラルの開始/終了が変更に含まれる場合、
-> unchanged 行でも original と current でトークン結果が異なりうる。
-> unified では unchanged を常に current のトークンで描画するため、
-> 旧側の文脈との不整合が生じる場合がある。split では左右で別トークンを使うため整合する。
-
-## 編集パス (`editable` prop)
-
-編集可能ファイル (worktree 実ファイルの uncommitted diff) は VS Code の diff editor と同じく
-**常時編集状態** で表示する。上記の自前 hunk 描画 (contenteditable + Shiki トークン) とは
-完全に別の描画パスで、Monaco の `createDiffEditor` を丸ごとマウントし original (readonly) /
-modified (編集可) を比較する。自前 hunk 描画は commit / PR diff / summary 等の読み取り専用
-文脈で使われ続ける。
-
-- 編集内容の SSOT は `usePreviewEditStore.draftContent`。親 (PreviewPane) は `current` prop に
-  draft を渡し、modified 側の変更を `update:current` で受けて `updateDraft` に流す。
-  discard / 外部変更 / save 後の再取得はすべて props → model の同期 watch 1 経路で反映される
-  (等値チェックで自分の編集の round-trip を無視する。CodePreview と同じ設計)
-- diff 計算は Monaco 自身の内蔵アルゴリズムに委ねる (read-only 表示は git 由来の SSOT を保つ
-  設計のままだが、編集パスだけは Monaco の diff 計算に委譲するトレードオフを取る)。
-  `hideUnchangedRegions` で unchanged 領域の折り畳みも Monaco 標準機能に任せる
-- Split / Unified トグルは Monaco の `renderSideBySide` (side-by-side / inline) にマップし、
-  編集中も両方の view を使える
-
-`monaco-editor` は全言語入りの重量パッケージのため、`editable` が true になったタイミングで
-`import("./monacoSetup")` して遅延ロードする。read-only 表示のみの利用者
-(ChangesSummaryView 等) はロードしない。例外は行内ハイライト用の diff computer サブツリー
-(intraLineDiff.ts の deep import) で、これは monaco 本体 (エディタ UI / worker / 言語サービス)
-を含まない純計算部のみを read-only 側の eager バンドルに載せる。
-</doc>
-
 <script setup lang="ts">
 import type { DiffExpandedLine } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
@@ -176,7 +51,7 @@ const props = withDefaults(
     blameEnabled?: boolean;
     /**
      * true のとき Monaco diff editor で描画し、modified (current 側) を編集可能にする。
-     * original は常に read-only。詳細は doc の「編集パス」を参照。
+     * original は常に read-only。
      */
     editable?: boolean;
   }>(),
@@ -467,7 +342,6 @@ async function toggleBar(bar: DiffBarItem): Promise<void> {
 /**
  * 編集パス。Monaco の `createDiffEditor` を丸ごとマウントし、read-only 表示 (自前 hunk 描画) とは
  * 完全に別の描画パスにする。original は readonly、modified (= current 側) のみ編集可能。
- * 設計判断は doc の「編集パス」を参照。
  */
 const monacoContainerRef = ref<HTMLElement>();
 /** blame popover の anchor (自前所有の固定要素。monacoSetup の wireGutterBlame が位置決め) */

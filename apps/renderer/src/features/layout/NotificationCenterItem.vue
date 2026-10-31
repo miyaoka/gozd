@@ -1,18 +1,3 @@
-<doc lang="md">
-Notification center の 1 行。toast (NotificationToastItem) と同じ通知を表示するが、
-一覧の中の行として時刻を持ち、dismiss ではなく center からの削除を emit する。
-
-## 動作
-
-- `cause` がある通知のみ行頭に disclosure ボタン (閉 = ►、開 = ▼。DevTools と同じ文法) を
-  出し、詳細 (cause chain) をその字下げ配下に展開する。開閉ターゲットは 24px
-  (WCAG 2.5.8 の最小ターゲットサイズ)。本文は選択可能なテキストで、click toggle と
-  select-text を同一要素に同居させない
-- toast の Details ボタンから遷移した項目 (store の `revealId`) は mount / 変更時に
-  自動展開して可視位置へスクロールする
-- 詳細パネルには Copy ボタンを併設し、message + 詳細をクリップボードへコピーする
-</doc>
-
 <script setup lang="ts">
 import {
   computed,

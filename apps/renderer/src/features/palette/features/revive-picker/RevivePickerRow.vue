@@ -1,9 +1,3 @@
-<doc lang="md">
-revive picker の1行分。セッションの title・branch・ログサイズ・最終日時を並べる
-(色分けは最終日時のみ = PR 行と同じ相対日時カラー)。title が空 (aiTitle を拾えなかった)
-場合は branch を表示名にフォールバックする。
-</doc>
-
 <script setup lang="ts">
 import type { ReviveSessionInfo } from "@gozd/rpc";
 import { computed } from "vue";

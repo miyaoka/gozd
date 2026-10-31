@@ -1,18 +1,3 @@
-<doc lang="md">
-repo の識別アイコン。owner は 3 値で描き分ける:
-
-- `undefined`（解決中）: 枠だけ確保した空プレースホルダー。identicon を出すと解決直後に
-  avatar へ描き替わってちらつくため、確定するまで何も描かない
-- `""`（解決済み・GitHub owner なし = 非 github.com remote / remote 未設定 / 非 git）:
-  identicon (RepoEmblem)
-- owner あり: アバター単体。画像ロード失敗 (オフライン等) は identicon にフォールバック
-
-アバター URL は `https://github.com/<owner>.png` (GitHub 公式の redirect エンドポイント、
-org / 個人ユーザー共通)。owner さえあれば追加の API 呼び出しなしで解決できる。
-`<img>` は passive content なので gozd の CORS 防御規律 (fetch の bytes 回収遮断) と
-衝突せずに表示できる。
-</doc>
-
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import RepoEmblem from "./RepoEmblem.vue";

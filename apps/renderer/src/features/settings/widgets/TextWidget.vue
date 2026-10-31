@@ -1,9 +1,3 @@
-<doc lang="md">
-複数行文字列設定用テキストエリア。改行を含む 1 つの文字列として扱い、行に分割しない。
-
-入力の確定はフォーカスが外れた時点で行う（単行入力と同じ理由）。
-</doc>
-
 <script setup lang="ts">
 import type { TextSetting } from "../types";
 
@@ -15,6 +9,7 @@ const model = defineModel<string>({ required: true });
 </script>
 
 <template>
+  <!-- 設定は変更のたびに保存されるため、打鍵ごと (v-model) ではなく確定 (change) で反映する -->
   <textarea
     :value="model"
     :placeholder="props.setting.placeholder"

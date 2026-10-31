@@ -122,7 +122,7 @@ export const usePreviewStore = defineStore("preview", () => {
     isOpen.value = false;
   }
 
-  /** UI 経路の close 要求。未保存 draft があれば確認を挟む (doc 参照) */
+  /** UI 経路の close 要求。未保存 draft があれば確認を挟む (docs/preview.md の「draft の生存境界」) */
   function requestClose() {
     withDraftGuard(close);
   }

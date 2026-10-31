@@ -1,27 +1,3 @@
-<doc lang="md">
-ファイル行の右クリックメニュー。項目 (Open in default app / Copy file / Copy path) は
-preview ヘッダの ⋮ メニューと共通の `FileActionMenuItems` (filer) を描画する。
-context の組み立てと snapshot semantics、defer / disconnect ガード等の内部仕様は
-`useFileContextMenu.ts` の docstring を SSOT として参照する。
-
-Open / Copy file は snapshot mode (context.isSnapshot) では出さない。可視判定の理由は
-FileActionMenuItems の doc を参照 (openable prop に反転して渡す)。
-
-## 実体向けの項目 (実体がツリー上のパスと違う行のみ)
-
-項目の一覧と可視条件は docs/filer.md の「実体を対象にする右クリック項目」が SSOT。
-本 component 固有の点だけ:
-
-- 共通の `FileActionMenuItems` には入れない。共有先の preview ヘッダ ⋮ メニューは実体情報を持たず、
-  これらは filer の symlink 経路に固有 (共有するのは「どの入口でも同じ意味を持つ項目」に限る)
-- file 実体は navigation 意味の経路なので `requestSelect` ではなく `forceSelect` を使う (同一 path でも
-  トグル close させない。docs/preview.md の決定表)
-- directory 実体は preview がディレクトリを表示できないため `worktreeStore.revealRelPath` で
-  **ツリーだけ**移動する (selection は動かさないので開いている preview は保たれる)
-- 実体向け項目は context の `dir` snapshot ではなく現在の store 基準で解決するため、dir 切替では
-  menu を閉じる (詳細は `watch` 直上のコメント)
-</doc>
-
 <script setup lang="ts">
 import { computed, watch, type CSSProperties } from "vue";
 import { writeClipboardText } from "../../shared/clipboard";

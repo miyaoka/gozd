@@ -1,18 +1,3 @@
-<doc lang="md">
-main transcript の Agent / SendMessage / Workflow 行に出す「subagent を右ペインで開く」ボタン。
-
-- `result` が `resolved` なら開くボタンを出す
-- `result` が `unresolved` なら、解決できなかったことを示す警告アイコンを出す (無表示だと
-  「そもそも subagent に結べない tool だった」のか「結べるはずが解決できなかった」のか見分けが
-  付かず、後者を握りつぶしてしまうため)
-- `result` が `undefined`（entry 自体が無い = Bash 等そもそも紐付け対象外の tool）では何も描画
-  しない
-
-「どの tool 名が紐付け対象か」の判定はすべて `buildSubagentLinks` 側に閉じており、このコンポーネント
-は tool 名を一切知らない。summary 上に置かれるため、click は details トグルへ伝播させず open だけを
-発火する。
-</doc>
-
 <script setup lang="ts">
 import type { SubagentLinkResult } from "./sessionLogView";
 import IconLucideGitFork from "~icons/lucide/git-fork";

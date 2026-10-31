@@ -1,7 +1,3 @@
-<doc lang="md">
-boolean 設定用トグルスイッチ。
-</doc>
-
 <script setup lang="ts">
 import type { BooleanSetting } from "../types";
 

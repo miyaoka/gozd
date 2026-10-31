@@ -1,17 +1,3 @@
-<doc lang="md">
-diff の base 端を選ぶセグメントコントロール。
-
-- **3 状態 (off / PR / Stack) を 1 個の群で表す**。独立したトグルを並べると Navigator の最小幅に
-  ラベル付きボタンが 2 個入らない
-- **mode ごとの分岐を持たない**。押せる mode は store が順序付きで返し、ここは mode をキーにした
-  静的テーブルから表示語彙を引くだけ
-- **セグメントが 1 個でも枠を出す**。stack の有無で枠が出入りすると同じ操作が別の見た目になる
-- **幅で落とすのはラベルだけ**。操作はどの幅でも残し、PR 番号と stack 位置は title に置く。閾値は
-  最近の container を見るため、ヘッダ側が `@container` を宣言している必要がある
-- 選択中の面は `primary-subtle` (keyboard focus を持たない常設面の選択)。`element-active` は
-  `primary-text` を載せると AA を割る
-</doc>
-
 <script setup lang="ts">
 import type { GitPullRequestBadge } from "@gozd/rpc";
 import type { FunctionalComponent, SVGAttributes } from "vue";

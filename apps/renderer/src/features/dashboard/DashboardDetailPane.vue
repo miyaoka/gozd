@@ -1,15 +1,3 @@
-<doc lang="md">
-選択中のセッションの概要を出す右ペイン。「依頼（最初の user メッセージ）」と
-「現況（最後の assistant メッセージ）」の 2 点だけを出し、切り替えずに文脈を思い出せる
-ようにする。全文が要るときは行を確定してセッション本体へ跳ぶ。
-
-## sessionId を debounce する理由
-
-矢印キーでの行送りのたびに RPC + fs watch の張り替えが走るのを防ぐ。選択が 150ms
-落ち着いてから読みに行くため、連続した行送りの間は取得が発生しない (1 行ずつ
-止まりながら送れば行ごとに取得される)。
-</doc>
-
 <script setup lang="ts">
 import { refDebounced } from "@vueuse/core";
 import { computed } from "vue";

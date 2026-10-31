@@ -1,10 +1,3 @@
-<doc lang="md">
-Issue picker の1行分。Issue 番号・タイトル・author・更新日時を色分け表示する。
-更新日時は `formatRelativeAge` の age-\* スケールで鮮度を塗る。
-`creating` (accept 実行中) は番号横にスピナーを出す。実行中判定は
-コマンド層所有の共有集合由来のため、picker を開き直しても実行中の間は表示が維持される。
-</doc>
-
 <script setup lang="ts">
 import type { GitIssue } from "@gozd/rpc";
 import { computed } from "vue";

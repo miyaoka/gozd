@@ -1,20 +1,3 @@
-<doc lang="md">
-未保存 draft を破棄する操作の確認 dialog (Save / Don't Save / Cancel)。
-
-`confirm` prop で渡された instance の pending が SSOT。instance は表示先ウィンドウ単位
-(main = shared singleton を MainLayout が渡す / undock child window = per-window instance を
-UndockedPreviewWindow が渡す)。この component が mount された document の top layer に
-showModal されるため、child window 内に mount すればその window に出る。
-ClosePaneConfirmDialog と同じく、ユーザー操作
-(backdrop / ESC) は native `dialog.close()` を起点にし `@close` → `cancel()` だけが pending を
-畳む。Save / Don't Save は各 choose が pending を先に消化するため、後続の close → cancel は
-no-op になり二重実行しない。
-
-Save 実行中は全ボタンを無効化し、ESC (native `cancel` event) も preventDefault で止める。
-保存の進行とダイアログの取り下げが競合すると「Cancel したのに保存後の proceed が走る」
-順序が観察されるため、save 中は取り下げ自体を受け付けない。
-</doc>
-
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import type { UnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
@@ -38,6 +21,9 @@ watch(pending, (next) => {
   if (!dialog.open) dialog.showModal();
 });
 
+// 保存中は取り下げ (Cancel ボタン・backdrop は requestDismiss、ESC は onNativeCancel) を受け付け
+// ない。dialog だけ閉じても chooseSave は進行中で、取り下げたように見えたあと保存完了で proceed
+// (close・ファイル切替) が走るため
 function requestDismiss() {
   if (saving.value) return;
   dialogRef.value?.close();

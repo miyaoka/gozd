@@ -1,12 +1,3 @@
-<doc lang="md">
-Claude が作業中 (working) の terminal pane を閉じる前の確認 dialog。
-
-`useClosePaneConfirm` の pendingAction が SSOT。ユーザー操作 (Cancel / backdrop / ESC) は
-すべて native `dialog.close()` を起点にし、`@close` → `cancel()` だけが pendingAction を
-undefined に同期する。OK は `confirm()` で pendingAction を消化し、watch 経由で同じ close
-経路に乗る（cancel は no-op になり二重実行しない）。
-</doc>
-
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { useClosePaneConfirm } from "./useClosePaneConfirm";

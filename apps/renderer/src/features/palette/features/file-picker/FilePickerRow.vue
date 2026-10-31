@@ -1,9 +1,3 @@
-<doc lang="md">
-File picker の 1 行。ファイル名を主、親ディレクトリを従（低コントラスト）で表示する。
-パス全体を等価に並べるより、ファイル名を視覚的な主キーにする方が候補の走査が速い
-（VS Code Quick Open と同じ表示構造）。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { getFileIconUrl } from "../../../filer";

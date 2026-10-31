@@ -1,45 +1,3 @@
-<doc lang="md">
-ファイルツリーのルートコンテナ。
-
-## 動作
-
-- worktree の dir が設定されると、worktree 自体を表す不可視ルート FileTreeItem を 1 個描画する
-- ツリー全体（ルート直下を含む）の管理は FileTreeItem 側に再帰委譲する
-- ルート FileTreeItem は `:key="dir"` で識別する。snapshot mode の切替は子側の `snapshotHash`
-  watch で children を invalidate する経路に倒し、再マウントで展開状態を捨てない
-- file クリックは `select` emit で親に委譲する（副作用は親側で扱う / ChangesPane と対称）
-
-## snapshot mode
-
-- git-graph で UNCOMMITTED_HASH 以外の commit が選択されているとき、filer は
-  「そのコミット時点の全 tree」を表示する snapshot mode に切り替わる
-- `snapshotHash` は子に props として流すだけ。git status / fsChange との連動抑止や
-  色分け / 削除仮想エントリ抑止は FileTreeItem 側で `snapshotHash` を見て 1 か所で分岐する
-- snapshot mode 中にファイルをクリックすると `selectedRelPath` が更新され、preview は
-  既存 CommitMode 経路 (`gitShowCommitFile`) で from/to を取得する
-- snapshot mode 切替時、選択中ファイルが snapshot tree に存在しないと Filer ハイライトが消え
-  Preview は CommitMode の `not_found` 規約で "File not found" を表示する（既存契約）
-- snapshot は不変（編集不可）であることを、ツリー背景の read-only surface への切替で伝える
-- working tree に戻る "Now" ボタンはヘッダーではなく tree 右上に float させる。フリーズした
-  過去（グレー面）の上に脱出口を重ねることで「ここは過去、押すと now」の対比が空間的に伝わる。
-  表示条件は `snapshotHash` 単独（commits ウィンドウ未ロードで日時が解決できなくても snapshot
-  mode 自体は継続しているため、日時表示の成否と独立して出し続ける）
-
-## selection リセット
-
-- `useGitGraphStore` は worktree 間 singleton。GitGraphPane が unmount される経路
-  (non-git project 表示中など) では worktree 切替時に `gitGraphStore.resetSelection()` が
-  発火しない。FilerPane 側で `dir` 変化を watch して reset を発火し、別 repo に切り替えた
-  瞬間に旧 hash が flying して `rpcGitLsTree` に渡るのを構造的に防ぐ
-- GitGraphPane 側の reset と二重発火しても `resetSelection()` は idempotent
-
-## gitStatus / fsChange の購読
-
-- `fsChange` push は `dir` フィルタを通して `filerEventStore.emitFsChange(relDir)` に流す
-- `gitStatuses` は `useGitStatusStore` の computed（`repoStore` 派生）で、初回 `loadGitStatus()` 完了 / `gitStatusChange` push の両経路で更新される。これを `watch` して `filerEventStore.emitGitStatusChange()` を発火することで、両経路を 1 本のトリガに揃える（初回マウント直後に削除仮想エントリが取りこぼされる race を解消）
-- snapshot mode 中はこれらの event を FileTreeItem が無視する（snapshot は不変）
-</doc>
-
 <script setup lang="ts">
 import type { FsChangePayload } from "@gozd/rpc";
 import { useEventListener } from "@vueuse/core";
@@ -177,7 +135,7 @@ onUnmounted(() => {
       />
     </div>
     <!-- snapshot 脱出ボタン。scroll 内に置くと tree と一緒に流れるため、scroll 外の
-         sibling として float させる（設計意図は doc ブロック参照） -->
+         sibling として float させる -->
     <button
       v-if="snapshotHash !== undefined"
       type="button"

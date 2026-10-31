@@ -1,16 +1,3 @@
-<doc lang="md">
-観測イベントログのパネル。`shared/debug` の ring buffer を時系列 (新しい順) に表示し、
-`channel:label` ごとの累計回数を要約する。PR poll 等の「どのくらい実行されているか」を
-**prod 込み**で観測する診断用途 (DEV 限定にしない)。
-
-## 設計判断
-
-- ServerListPanel と同じ右ドック popover 流儀。top layer のサーフェス 1 枚として `shared/surface` に載る (click-to-front / ESC・Cmd+W でフォーカスがあるものを閉じる)。
-  z-index 競争から構造的に離脱するため。開閉 SSOT は useEventLogStore、ログの SSOT は shared/debug
-- 時刻は ms まで出す。frequency 観測が主目的で、秒単位だと連続発火の間隔が潰れるため
-- label 別に色を振り、実行 (fire/trailing) / 抑止 (coalesced/skip) / 失敗 (error) を一目で区別する
-</doc>
-
 <script setup lang="ts">
 import { computed, useTemplateRef } from "vue";
 import { writeClipboardText } from "../../shared/clipboard";

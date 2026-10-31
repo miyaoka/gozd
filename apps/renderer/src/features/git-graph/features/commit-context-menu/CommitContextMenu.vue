@@ -1,10 +1,3 @@
-<doc lang="md">
-git-graph の commit 行の右クリックメニュー。「Copy commit hash」(full hash を clipboard へ) と
-「Reset (mixed) to here」(snapshot した dir / hash へ `git reset --mixed`) を描画する。
-context の snapshot・位置決めは `useCommitContextMenu.ts`、pointerup まで open を遅延させる
-light-dismiss 回避は `useCommitContextMenuTrigger.ts` を参照。
-</doc>
-
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { computed } from "vue";

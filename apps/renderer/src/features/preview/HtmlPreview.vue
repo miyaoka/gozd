@@ -1,76 +1,3 @@
-<doc lang="md">
-HTML ファイルのレンダリングプレビュー。main の配信 scheme (`gozd-preview://`) 経由で
-実 URL を `<iframe src>` に load し、ブラウザエンジンにネイティブ描画させる。
-
-## なぜ srcdoc ではなく実 URL か
-
-`srcdoc` に文字列を流し込むと document の base URL が親 (renderer) の URL になるため、
-previewed HTML の相対リンク・画像・CSS が解決しない。origin も opaque になるので、
-リンククリックを傍受する経路も無くなる。
-
-実 URL を load すると、これらが普通の HTTP と同じ理屈で成立する。VS Code の webview が
-`vscode-file://` を `registerFileProtocol` で配信し、iframe に実 URL を load させているのと
-同じ形 (`platform/protocol/electron-main/protocolMainService.ts`)。
-
-## 信頼境界
-
-previewed HTML はリポジトリ内の任意ファイルで untrusted。実 origin を与える代わりに、
-能力は main が配信時に付ける CSP で落とす (`previewProtocol.ts` の `PREVIEW_CSP`)。
-script / frame / form は無効で、参照できるのは同 origin の asset と data: URI だけ。
-
-配信範囲は `/preview/servingUrl` に渡した root 配下に限られる。main は登録の無い path を
-配信しない (VS Code の `localResourceRoots` と同型)。
-
-URL の host 部はこの instance の id で、**origin が preview ごとに分かれる**。同一 origin だと
-CSP の `'self'` が preview 間の壁にならず、別 preview の root 配下を参照できてしまう。許可も
-id に紐づき、unmount で `/preview/releaseServing` して手放す。
-
-origin が renderer と異なるため、iframe 内 JS から親の `__gozdElectronRpc` には到達できない
-(そもそも script を CSP で止めている)。
-
-`sandbox="allow-same-origin"` は **popup を封じるため**に付ける。`allow-popups` が無い sandbox
-では中クリックや `target="_blank"` の new-window 要求を Chromium がブロックするので、
-リンククリックを傍受できないこの frame から `window.open` 経路が生えない
-(VS Code の webview も `allow-popups` を付けずに同じ状態を作っている)。`allow-same-origin` 自体は
-sandbox による opaque 化を打ち消すだけで、origin は `gozd-preview://` のまま = renderer とは
-別 origin。
-
-## 更新の反映
-
-配信は working tree の実ファイルを読むため、iframe を再 load しない限り編集が反映されない。
-`epoch`（`usePreviewContent` の `contentEpoch`）を URL の query に載せ、content 更新のたびに
-URL を変えて再 load させる。表示中 rev がディスクの実体と一致しない状態（original / commit /
-PR diff / 実体なし）では consumer が target を渡さず source 表示に倒す（`canRenderHtmlNatively`）。
-
-## リンクの遷移
-
-左クリックは navigation になるため main の防壁が処理する。同 origin (= 配信 root 配下) への
-遷移は許可されるので相対リンクで前後のページに移動でき、外部 http(s) は `shell.openExternal` に
-送られる (`installExternalLinkPolicy`)。
-
-中クリックは popup 要求なので上記のとおりブロックされ、何も起きない (VS Code の webview も
-中クリックでリンクを開けない)。
-
-## 外側のポインタ操作を奪わない
-
-契約は docs/preview.md の HTML ビュー。ここには判定をこの面に置いた理由と、このコンポーネントの
-都合から来る制約だけを書く。
-
-cross-origin の frame を跨いでイベントが届くのは pointer capture を持つドラッグだけで、
-持たないドラッグは frame に吸われ、外側から傍受する経路も無い。
-
-判定を外側のドラッグではなくこの面に置くのは、**外側に規律を課しても届かない実装があるため**。
-xterm.js のテキスト選択は pointer capture を使わず、gozd から実装を変えられない。「全ての
-ドラッグが capture する」も「全てのドラッグがドラッグ中を宣言する」も到達できない前提であり、
-そこに依存する設計は成立しない。この面が自分で押下を観測するなら、外側が何であっても成立する。
-
-このコンポーネント固有の制約:
-
-- 押下が始まった時点でこの面がまだ現れていなければ、現れた直後は保護が効かないことがある
-- 押下の起点がこの面の中か外かを cross-origin では観測できないため、起点で分岐して
-  この面の中で始まったドラッグを保護の対象外にする実装は採れない
-</doc>
-
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
 import { ref, useTemplateRef, watch } from "vue";
@@ -100,7 +27,7 @@ const src = ref<string>();
 const rootRef = useTemplateRef<HTMLElement>("root");
 const rootDocument = () => rootRef.value?.ownerDocument;
 
-/** 外側でポインタが押されているか (doc の「外側のポインタ操作を奪わない」) */
+/** 外側でポインタが押されているか */
 const outerPointerHeld = ref(false);
 
 // - pointerup をイベント種別だけで解除に倒せない: `buttons` はそのイベント時点で押されて
@@ -128,7 +55,7 @@ useEventListener(
   { capture: true },
 );
 
-/** 固定 message + 詳細を cause に分離し、対象違いでトーストが累積しないようにする */
+/** 固定 message + 詳細を cause に分離し、可変の詳細は notification center (トーストの Details から開く) で読ませる */
 const URL_FAILED_MESSAGE = "Could not open HTML preview";
 
 const serving = usePreviewServing();

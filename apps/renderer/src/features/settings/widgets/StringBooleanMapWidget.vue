@@ -1,10 +1,3 @@
-<doc lang="md">
-glob → boolean マップ設定用の行リスト editor（VS Code の files.watcherExclude 相当）。
-
-value === false は「seed 済み default を無効化する」subtraction を表すため、行を削除せず
-トグルで無効化もできる。
-</doc>
-
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import type { StringBooleanMapSetting } from "../types";

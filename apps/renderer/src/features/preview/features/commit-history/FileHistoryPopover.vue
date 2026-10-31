@@ -1,12 +1,3 @@
-<doc lang="md">
-preview ヘッダのコミット日 (FileCommitDate) クリックで開く、ファイル単位の history popover。
-
-開閉・データ取得は `useFileHistoryPopover` (module singleton) が SSOT。popover の anchor 付け替えや
-light-dismiss は共通抽象 `usePopover` の `Popover` コンポーネントに委譲し、ここは `context` /
-`historyState` を購読して描画するだけ。行単位の BlamePopover と並列の別経路で、blame タブを
-持たず `git log -- <path>` 一覧だけを出す。MainLayout に 1 度だけ mount する。
-</doc>
-
 <script setup lang="ts">
 import { useGitGraphStore } from "../../../git-graph";
 import CommitHistoryList from "./CommitHistoryList.vue";

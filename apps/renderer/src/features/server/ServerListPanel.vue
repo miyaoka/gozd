@@ -1,23 +1,3 @@
-<doc lang="md">
-実行中サーバー (TCP LISTEN プロセス) の一覧パネル。
-
-TitleBar の renderer ボタン → `useServerStore.toggle()` で開閉する
-右ドック型オーバーレイ。port 競合調査が主目的なので、各サーバーを **port 単位の行**に展開して
-port 昇順で並べ、同一 port が複数プロセスに跨るときは衝突候補として警告色で示す。
-
-行クリックで該当サーバーの worktree を active にし、live なら端末ペインへフォーカスする。
-gozd 外 (external) と、帰属先 worktree が既に削除済みの orphaned はクリック不可
-(`findRepoOwning` で解決できる行だけ開ける)。
-
-ドック型 (背景を覆わない) にしているのは、ターミナルを見ながら port の主を調べる用途のため。
-ESC / Cmd+W か閉じるボタンで閉じる。
-
-他のドックパネル / undock パネルと並ぶ top layer のサーフェス 1 枚 (`shared/surface`)。開閉の
-SSOT は store の `isOpen` で、popover DOM へのミラーは要素を所有する本 component が担う
-(store は DOM を持たない)。`useSurface` で前面化と close の宛先も登録する。重ね順は
-click-to-front、ESC / Cmd+W はフォーカスがあるサーフェスを閉じる。
-</doc>
-
 <script setup lang="ts">
 import type { WorktreeEntry } from "@gozd/rpc";
 import { computed, useTemplateRef } from "vue";

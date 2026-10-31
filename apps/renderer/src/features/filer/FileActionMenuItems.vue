@@ -1,17 +1,3 @@
-<doc lang="md">
-ファイル操作メニューの共通項目 (Open in default app / Copy file / Copy path)。
-Filer / Changes の右クリックメニュー (navigator の FileContextMenu) と preview ヘッダの
-⋮ メニューが同じ項目セットを共有するための slot content。popover は持たず、呼び出し側の
-Popover 内に置き `@close` で親に閉じさせる (`usePopover` の「menu の種類ごとに独立した
-popover を作り 1 instance に統合しない」規律に従い、共有するのは項目とアクションだけにする)。
-
-Open / Copy file は `openable` (working tree に実体がある) のときだけ出す。snapshot 表示中の
-ファイルはディスク上に実体が無く、項目を出すと最新の worktree 内容が開かれる / paste される
-誤読を生むため。メニューは可視 UI なので「出さない」こと自体が説明になり、toast による
-拒否通知 (キーボード経路 `filer.copyFile` の担当) は不要。Copy path は実体の有無と無関係に
-成立するため常に出す。
-</doc>
-
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { writeClipboardText } from "../../shared/clipboard";

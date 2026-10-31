@@ -1,15 +1,3 @@
-<doc lang="md">
-undock されたセッションログメッセージ 1 件のウィンドウ。
-
-ウィンドウの実体 (in-app パネル / 昇格後の OS ウィンドウ、その切り替えと昇格の rect 換算) は
-汎用シェル UndockedWindow に委譲し、ここはヘッダ内容 (TerminalLeafTitle と同じ repo + session
-タイトルの 2 段構成) と話者別配色の本文だけを担う。
-
-内容は undock 時点の凍結スナップショットで dirty 状態を持たないため、close はガードなし
-(`blockClose` 常時 false で、closeRequested / closed のどちらも即 state 削除)。Cmd+S は保存
-対象が無いので配線しない。タイトルバー (document.title) は session タイトル。
-</doc>
-
 <script setup lang="ts">
 import { UndockedWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";

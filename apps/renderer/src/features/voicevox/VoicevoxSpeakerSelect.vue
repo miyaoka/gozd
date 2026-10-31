@@ -1,16 +1,3 @@
-<doc lang="md">
-VOICEVOX のキャラとスタイルを 2 段 select で選ぶコンポーネント。
-キャラを変更したら、そのキャラの先頭 style の id に切り替える。
-
-## stale speakerId
-
-保存された speakerId が現エンジンに存在しない場合、`effectiveSpeakerId` (再生用) はメモリ上 fallback
-されるが、ユーザー選択 (`speakerId`) は保持される。この時 inline 警告と Use default ボタンを出す。
-Use default は `setSpeakerId(effectiveSpeakerId)` を呼ぶ。effectiveSpeakerId は
-DEFAULT → speakers[0].styles[0].id の順で live fallback されるため、DEFAULT が engine に
-無い稀ケースでも常に有効な値が渡る。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { useVoicevoxStore } from "../voicevox";

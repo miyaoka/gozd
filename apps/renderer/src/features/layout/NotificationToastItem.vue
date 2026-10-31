@@ -1,17 +1,3 @@
-<doc lang="md">
-通知トーストの 1 アイテム。
-
-## 動作
-
-- toast は短文の at-a-glance 表示専用で、詳細のインライン展開は持たない
-  (toast は固定幅・短時間表示という業界慣習に従い、長文を toast 内で展開しない)
-- `cause` がある通知には Details ボタンを出し、notification center の該当項目を
-  展開表示させて toast は畳む (詳細閲覧の受け皿は center に一本化)
-- dismiss ボタンは toast を畳むだけで、通知自体は center に残る
-- hover / キーボードフォーカス中は自動消去を保留する (VS Code の purge ガードと同じ。
-  Details を押しに行く / エラー文を選択コピーする最中に toast が消えるのを防ぐ)
-</doc>
-
 <script setup lang="ts">
 import { useNotificationStore } from "../../shared/notification";
 import { useNotificationCenterStore } from "./useNotificationCenterStore";

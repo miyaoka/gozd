@@ -1,12 +1,3 @@
-<doc lang="md">
-サイドバーのツールバーの直下に固定する窓口の行（docs/concierge.md）。repo list の外に置き、list の
-切り替えや編集モードの影響を受けない。
-
-見た目は非 git project の RepoSection に揃える。ヘッダのクリックは窓口を選ぶだけで、Claude は起動しない。
-下に窓口のセッションを並べる。窓口のセッションは毎回新しく始めるもので、過去のものは
-必要なときだけ選んで再開するため、並びと畳み方は他の project のセッション行と同じにする。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRepoStore } from "../../../../shared/repo";

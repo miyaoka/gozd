@@ -5,7 +5,7 @@ import { useNotificationStore } from "../../../../shared/notification";
 import { onMessage, rpcFsExistsAbsolute } from "../../../../shared/rpc";
 import { rpcFsUnwatchFileAbsolute, rpcFsWatchFileAbsolute } from "../../../filer";
 
-/** 固定 message + 詳細を cause に分離し、画像違いでトーストが累積しないようにする */
+/** 固定 message + 詳細を cause に分離し、可変の詳細は notification center (トーストの Details から開く) で読ませる */
 const WATCH_FAILED_MESSAGE = "Could not watch images in markdown preview";
 const UNWATCH_FAILED_MESSAGE = "Could not release image watchers in markdown preview";
 

@@ -1,7 +1,3 @@
-<doc lang="md">
-session log dialog の発言 1 件の吹き出し行。発言イベントと質問ツールの質問 / 回答が共有する。
-</doc>
-
 <script setup lang="ts">
 import SessionLogMessageBody from "./SessionLogMessageBody.vue";
 import SessionLogSpeakerRow from "./SessionLogSpeakerRow.vue";

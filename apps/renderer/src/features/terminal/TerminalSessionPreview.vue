@@ -1,171 +1,3 @@
-<doc lang="md">
-ターミナル右上に常駐する Claude session の最新メッセージ preview。
-
-`leafId` から PTY → session_id を辿り、`useSessionLogLive` で session ログをライブ取得する
-(SessionLogDialog と同じ composable / 同じ debounce regimen)。
-
-## 表示
-
-main / sub を独立した 2 つの overlay に分け、terminal の右上に main、右下に sub を
-配置する。1 つの overlay に縦積みすると main と sub の境界が読み取りにくいため、
-物理的距離で分離する設計。
-
-各 overlay の内側は「応答 (run)」単位で表示する。連続する同じ話者の発言を 1 つの run と
-して束ね、session の全 run を並べる (件数に上限は無く、古い側はスクロールで遡る)。各 run は
-既定で畳み、最後の発言 1 件で代表させる。assistant が応答中 (ログ末尾の run が assistant で、
-ログがユーザーの中断で終わっていない) のときだけ、その run は畳んでも末尾 3 件を見せる (進行中の
-連続応答の流れを見せるため。user が最新、または中断で終わっていれば応答は完結しているので全 run を
-1 件に畳む)。
-
-畳むと隠れる発言がある run は、開閉トグルで全件を開閉できる。開閉状態は表示中のセッションログと
-run の組ごとに持ち、ログの追記や最新 run の入れ替わりでは変わらない。rewind で表示する枝が
-替わると、分岐点以降の run は畳んだ状態から始まる。run は分岐点をまたがず、分岐点の前後で同じ
-話者の発言が続いても別の run にする。
-
-押したトグルはポインタの下に留まり、同じ場所をもう一度押せば閉じられる。そのために開いた発言は
-overlay が伸びる側に出す。main (上端固定) はトグルの下、sub (下端固定) はトグルの上に出す。
-スクロール面が溢れているときに残るずれは `keepInPlace` が吸収する。
-
-トグルの下に出す main では、スクロール位置が末尾にあるときに開くと、末尾側 (最新の発言と
-進行中インジケータ) が可視域の下へ押し出される。スクロール位置が末尾から離れるため、以後の追記に
-追従しない。開いている間に追記が無ければ、閉じるとスクロール位置も末尾に戻る。
-
-吹き出しにするのは session-log の `speechesOf` が返す発言だけで (tool / image / branch は
-出さない)、どの kind を誰の発言として出すか・質問ツールの質問と回答の扱いもそれに従う。
-選択肢は吹き出しに出さない。回答未充填 (resume 中断) の question は質問だけ残る。吹き出しの
-左右は `TerminalSessionPreviewSpeakerRow` が session-log の `SPEAKER_SIDE` で寄せ、配色は
-`SPEAKER_SURFACE_CLASS` に従う。角丸は対称 (話者方向を示す尖り角は付けない)。
-
-run 単位で畳むため、assistant が連続応答するケースでも応答は 1 件に代表され、対話の流れが
-追える。表示順は events の出現順そのまま (上から下が時間の経過方向)。各 bubble は本文の抜粋で、
-話者によらず書式を解釈せず平文で出す (本文は全文 preview で markdown として読む)。2 行で省略する。bubble が 0 件の overlay は非表示にし、両 overlay とも空なら
-何も描画しない。
-
-## 進行中インジケータ
-
-各 overlay の bubble 列末尾に、「発言以外のアクション中」なら TerminalSessionPreviewProgressDots
-を置く。件数の数え方は `countInProgressActions` (`terminalSessionPreviewMessages.ts`)、見た目は
-component 側の `<doc>` が SSOT。
-
-この数え上げだけは吹き出し選別前の events 列 (`parsePreview` の中間結果) を渡す。選別後には
-tool が残っていない。
-
-main と sub で判定の確からしさが非対称になる。main は PTY を持ち、ClaudeStatus
-(`claudeStatus.ts`) が hooks + PTY 出力の interrupt パターンマッチで「本当に working か」を
-継続的に更新している。transcript は記録を経由した推定で、badge と食い違わないよう、
-`mainActionCount` は `ClaudeStatus` (`getClaudeState(leafId) === "working"`) が working でない
-限り 0 に倒し、より確からしい信号を優先する。sub は Task ツールで起動される仮想セッションで
-PTY / ClaudeStatus を持たないため、transcript ベースの推定のみで妥協する。
-
-## 折りたたみと高さ上限
-
-main / sub とも `<details><summary>` で bubble 群を折りたためる。summary は main が
-固定ラベル "Main"、sub が `subagentLabel` 由来の subagent ラベル (Task / workflow
-agent。空文字フォールバックは "Subagent")。開閉状態は Vue 側 ref
-(`mainOpen` / `subOpen`) が SSOT。`open` 属性そのものを SSOT にすると v-if / subagent
-切替の unmount → mount で静的 `open` に戻ってしまうため、`:open` バインド + `@toggle`
-同期にしている。
-
-スクロール面は summary の外に出さず、details 内の wrapper div に閉じる (summary は
-スクロールせず、bubble と被らない)。details 自体にはスタイルを当てず、native の
-open/close と summary 表示制御だけに使う。wrapper の高さ上限は `max-h-[calc(50cqh-2rem)]`。
-% は details (block / auto 高) を跨いで伝播しないため、TerminalLeaf の relative コンテナを
-`container-type: size` にして cqh で leaf 高さを直接参照する。50cqh から 2rem を引くのは
-summary 高 (約 1.5rem) + 上下 inset 分の予算で、各 overlay 全体 (summary + wrapper) が
-leaf の 50% に収まる。main + sub が両方最大高でも合算が leaf を超えず、重ならない。
-wrapper の `flex-col-reverse` は
-単一子 (bubble 列) の並びには影響せず、scroll の初期位置と anchor を末尾 (最新発言)
-側に倒すための指定。wrapper は `pointer-events-auto` の通常の scroll container として
-振る舞い、bubble の隙間でも wheel は overlay のスクロールになる (`pointer-events-none`
-でヒットテストだけ透過させると、wheel の標準動作「target から最も近い scrollable
-ancestor をスクロール」がターミナルに向いてしまう)。root の余白 (padding) だけは
-従来どおり `pointer-events-none` でターミナルへ透過する。
-
-## 全文 preview
-
-各 bubble クリックで HTML Popover API ベースの全文ポップオーバーを開く。popover ヘッダの
-undock ボタンクリック、またはヘッダのドラッグ (しきい値超過) で、表示中メッセージを
-スナップショットとして独立フローティングウィンドウ (session-log feature の
-`useUndockedLog` / UndockedLogLayer) へ切り離せる。ドラッグ経路は undock 元の rect と掴んだ
-pointer を `UndockDragHandoff` でウィンドウへ引き継ぎ、popover を掴んでそのまま引き剥がす
-操作感にする。popover 自体は light-dismiss で消える一時 UI なので、「残したい」要求は
-別レイヤーへ昇格させる設計。Popover は `shared/popover` の `usePopover` を per-instance で使う。
-
-anchor は被クリック bubble そのものではなく、クリック時点の bubble rect を overlay root
-相対で写した proxy 要素 (main / sub の各 overlay root 直下に absolute 配置)。bubble は表示内容の
-変化に追従して消えることがある。bubble を直接 anchor にすると、開いている popover が anchor
-喪失で UA fallback 位置 (`inset: 0` + 自前 `m-0` = 左上) へ飛ぶ。v-for の外で unmount されない proxy に寄生させることで、
-popover はログがいくら追記されても開いた位置に留まり続ける。proxy を viewport 固定
-(fixed) ではなく overlay root 内の absolute にするのは、pane / window リサイズで overlay が
-動いたとき proxy ごと動かし、CSS anchor positioning の live な追随で popover を付いて
-こさせるため。ログ追記 / wrapper のスクロールでは proxy は動かない (scroll content の外)
-ので「開いた場に留まる」は保たれる。CSS anchor positioning (`positionArea` +
-`positionTryFallbacks`) で画面端に押し出されたときは反対側へ flip する。同じ bubble を
-再クリックすると閉じる (トグル)。anchor が毎回同一 proxy になるため要素同一性では
-トグル判定できず、表示中と同じ overlay の同じ発言か (`isSameSpeech`) で判定する。
-
-proxy が守るのは v-for の作り替えまでで、overlay root 自体が v-if で消えるとき (session
-切替で sessions が一旦空になる等) は proxy ごと unmount され、anchor 喪失の左上飛びが
-再発する。この経路は表示中 origin 側の overlay 消失を watch して popover を閉じることで
-塞ぐ (popover の内容は開いた時点の session のスナップショットで、overlay 消失後は stale
-なので閉じるのが自然)。
-
-開く向きのデフォルトは由来 overlay によって反転させる。main 由来 (画面上側 bubble) は
-`block-end` で anchor の下に、sub 由来 (画面下側 bubble) は `block-start` で anchor の
-上に開く。下側 bubble の真下は画面端に近く即 flip 前提のレイアウトになるため、初期向きを
-上にしておくことで「open 直後に flip して位置が跳ねる」視覚的なちらつきを構造的に消す。
-flip 規則 (`positionTryFallbacks`) は両 origin で共通のため、開いた後の縁ぶつかり時の
-逆転挙動は維持される。
-
-popover はカスタムタイトルバー帯 (`-webkit-app-region: drag`) へ食い込ませない。
-Electron の drag region はペイント順 (top layer) と無関係に平面で効くため、重なった帯は
-window ドラッグ判定に取られて popover ヘッダの undock ドラッグが効かなくなり、視覚的にも
-タイトルバーを覆う (FloatingWindow が top を titlebar 高で clamp しているのと同じ問題)。
-制約は inset keep-out + max-height クランプの 2 点セットで入れる。position-area は選んだ
-region を containing block にするが**サイズの自動クランプはしない** (仕様上、要素は
-containing block を overflow できる) ため、keep-out inset (`top: var(--titlebar-height)`)
-だけでは高さが region を超えた瞬間に突き抜ける。% が region 高さ基準で解決されることを
-利用し `max-height: calc(100% - var(--titlebar-height))` で「region − keep-out」に高さを
-クランプする (外側 popover を flex-col、中間 box を min-h-0 にしてクランプを scroll 面まで
-伝播させる)。下向き基準の main は bottom に同値を置き、flip-block が block 軸 inset ごと
-flip する仕様で flip 後の top keep-out にする。クランプ導入後は高さ不足で flip しなくなる
-(縮んでスクロールする) が、min-content すら入らない極端ケースの flip は残る。その base
-配置 overflow 経路が仕様上残るため、TitleBar のボタン群と同じ `-webkit-app-region:
-no-drag` の切り抜きも敷く (Electron 公式の drag 帯プラクティス)。
-
-DOM 構造は三段:
-
-- 外側 popover element (`bg-transparent border-none overflow-visible p-0` +
-  `[&:popover-open]:flex flex-col`)
-  位置決めと max-height クランプの伝播を担う透明枠。flex-col は中間 box (min-h-0) を
-  クランプ内へ縮めてスクロール面に高さ制約を届けるための指定。display を
-  `:popover-open` で条件づけるのは、素の `flex` が author origin として UA の
-  `[popover]:not(:popover-open) { display: none }` に勝ち、閉じた popover を描画させて
-  しまうため。閉じても描画され続けると、hide が `showPopover` の暗黙 anchor を外した
-  時点で上と同じ左上 fallback へ落ちる (proxy は生きたままなので、anchor 要素の
-  unmount とは別経路で同じ結末に至る)。padding は持たない
-  (透明 padding があると keep-out clamp 時にタイトルバーとの間へスキマが出る。`p-0` は
-  UA default の `[popover]` padding の打ち消し)。
-  UA default の `[popover] { overflow: auto }` は
-  `overflow-visible` で明示的に打ち消す (打ち消さないと内側 box の `shadow-xl` が外側
-  border-box で clip され shadow がほぼ見えなくなる)
-- 中間 box (`max-h-[60vh] flex-col overflow-hidden rounded-md border border-border-strong
-shadow-xl`)
-  共通の「角丸 + border + shadow」を担う flex-col の二段構成。上段は undock ボタンを置く
-  ヘッダ、下段が `overflow-auto` のスクロール面。undock ボタンをスクロール領域の外に出すことで
-  縦スクロールバーとの被りを構造的に消す (スクロール container 内の absolute 配置は内容と
-  一緒にスクロールし、overlay 配置はスクロールバー上に重なる)。話者別の地と文字色
-  (`SPEAKER_SURFACE_CLASS`) はスクロール面にだけ当てる (ヘッダに継承させると、文字色の CSS
-  変数の上書きが undock ボタンにも効く)。`overflow-hidden` + `border-radius` は CSS Backgrounds
-  Module Level 3 §5.3 (Corner Clipping) で子の painting を clip するため、地 / ヘッダは角丸内に
-  収まる
-- 内側 box (`SessionLogMessageBody`。本文描画、地は持たない)。地はスクロール面から透ける構造
-
-「位置決め (外) / 見た目 + 配色 + スクロール (中間) / 本文 (内)」と責務を分けることで、外側に
-装飾が混入して bubble overlay と区別できなくなる二重背景や、scroll 面が外側に寄って内側
-box が伸び続ける挙動を構造的に排除する。
-</doc>
-
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { usePopover } from "../../shared/popover";
@@ -329,7 +161,7 @@ const subRuns = computed<PreviewRun[]>(() =>
   collectRuns(subEvents.value, newestSub.value?.interrupted ?? false),
 );
 
-// 開いた発言をトグルのどちら側に出すか (<doc> の「表示」)
+// 開いた発言をトグルのどちら側に出すか
 const REVEAL_SIDE: Record<"main" | "sub", RevealSide> = {
   main: "below",
   sub: "above",
@@ -378,8 +210,7 @@ const {
 } = usePopover<PreviewContext>();
 
 // popover の anchor に使う proxy。クリック時点の bubble rect を overlay root 相対で写し、
-// bubble の代わりに寄生先にする (なぜ bubble を直接 anchor にしないか・なぜ fixed でなく
-// overlay 内 absolute かは <doc> の「全文 preview」参照)。
+// bubble の代わりに寄生先にする。
 const mainAnchorProxyRef = useTemplateRef<HTMLElement>("mainAnchorProxy");
 const subAnchorProxyRef = useTemplateRef<HTMLElement>("subAnchorProxy");
 const anchorRect = ref<{
@@ -531,8 +362,12 @@ function onPreviewHeaderPointerUp(event: PointerEvent) {
   headerDrag = undefined;
 }
 
-// 全文 popover の配置スタイル。タイトルバー keep-out / max-height クランプ / flip の
-// 設計根拠は <doc> の「全文 preview」が SSOT。ここは編集時の防波堤のみ:
+// 全文 popover の配置スタイル。popover をタイトルバー帯に食い込ませない。Electron の drag
+// region は top layer でも平面で効くため、重なるとヘッダの undock ドラッグが window ドラッグに
+// 取られる。
+//   - position-area は region を containing block にするがサイズはクランプしないため、inset の
+//     keep-out だけでは高さが region を超えると突き抜ける。% は region 高さで解決されるので、
+//     max-height を「region − タイトルバー高」にする
 //   - main 側の `bottom: var(--titlebar-height)` は base 配置 (下開き・start 整列) では
 //     不活性に見えるが、flip-block が block 軸 inset を反転して top keep-out になるため消さない
 //   - `-webkit-app-region: no-drag` は keep-out で通常タイトルバーと重ならなくても消さない
@@ -600,8 +435,7 @@ watch([hasMain, hasSub], ([main, sub]) => {
   >
     <!-- popover の anchor proxy (main)。クリック時点の bubble rect を overlay 相対で写した
          不可視要素。v-for の外にあり unmount されないため、ログ追記で bubble が作り替え
-         られても popover は開いた位置に留まり、リサイズには overlay ごと追随する
-         (doc の「全文 preview」参照) -->
+         られても popover は開いた位置に留まり、リサイズには overlay ごと追随する -->
     <div
       ref="mainAnchorProxy"
       aria-hidden="true"
@@ -688,7 +522,10 @@ watch([hasMain, hasSub], ([main, sub]) => {
        スナップショット)、
        `positionTryFallbacks` で端に押し出されたら反対側へ flip。light-dismiss
        (popover 外 click / ESC) で閉じる。
-       本文描画は SessionLogMessageBody に委譲する。 -->
+       本文描画は SessionLogMessageBody に委譲する。
+       display は :popover-open のときだけ flex にする。素の flex は UA の
+       [popover]:not(:popover-open) { display: none } に勝ち、閉じた popover が描画されたまま
+       anchor を失って左上へ飛ぶ。 -->
   <PreviewPopover
     class="m-0 w-3xl max-w-[80vw] flex-col overflow-visible border-none bg-transparent p-0 text-base [&:popover-open]:flex"
     :style="previewPopoverStyle"

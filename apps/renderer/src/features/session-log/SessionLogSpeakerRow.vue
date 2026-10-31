@@ -1,9 +1,3 @@
-<doc lang="md">
-session log dialog で話者の側に寄せる行。話者の側 (`SPEAKER_SIDE`) に寄せ、時刻を中身の下端脇に
-添える。発言の吹き出し・貼り付け画像・質問ツールの未回答の表示が共有し、話者から左右への対応を
-各行が持たない。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import SessionLogTimestamp from "./SessionLogTimestamp.vue";

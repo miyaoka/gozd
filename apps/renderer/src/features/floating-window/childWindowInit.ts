@@ -26,7 +26,7 @@ export interface WindowScreenOrigin {
   chromeY: number;
 }
 
-/** main window 内の viewport rect を ChildWindowInit へ換算する (doc 参照)。 */
+/** main window 内の viewport rect を ChildWindowInit へ換算する。 */
 export function toChildWindowInit(
   rect: { left: number; top: number; width: number; height: number },
   origin: WindowScreenOrigin,

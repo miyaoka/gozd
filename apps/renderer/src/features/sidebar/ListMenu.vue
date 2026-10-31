@@ -1,15 +1,3 @@
-<doc lang="md">
-編集モードの list 行（ListRow）の ⋮ ボタンから開くポップオーバーメニュー。
-Rename / Delete list… を提供する。
-
-rename / delete を常時ボタンで露出させないのは、特に delete が気軽に押す操作ではないため。
-メニュー → （delete は）確認ダイアログの二段階で明示操作に限定する。実処理は SidebarPane が
-emit を受けて行い、state は `useListMenu`（module singleton）経由で共有する。
-
-Delete は最後の 1 個では無効化する（store 側 `removeRepoList` の拒否と二重だが、
-押せないことを見た目で伝える）。
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRepoStore } from "../../shared/repo";

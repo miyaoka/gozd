@@ -1,14 +1,3 @@
-<doc lang="md">
-変更ファイルツリーの再帰ノード。フォルダ行とファイル行を同じ形で描く。
-
-折りたたみ状態を自分で持たず、閉じているフォルダの集合を受け取って描画し、切り替えは要求として
-親へ返す。ノードは再帰的に増えるため、状態を各ノードに散らすとツリー全体の状態がどこにも
-存在しなくなる。
-
-変更の種別は色と記号の 2 軸で示す。色だけに載せると、色の区別が付かない環境で追加と削除が
-同じ行に見える。
-</doc>
-
 <script setup lang="ts">
 import type { GitFileChange } from "@gozd/rpc";
 import { computed } from "vue";
@@ -29,8 +18,7 @@ const emit = defineEmits<{
   select: [relPath: string];
   toggleFolder: [fullPath: string];
   /**
-   * 右クリック payload を NavigatorPane まで bubble する。file leaf のみ発火する
-   * (folder 行は OS 標準の右クリック menu に倒すため preventDefault せず no-op)。
+   * 右クリック payload を NavigatorPane まで bubble する。file 行と folder 行の両方で発火する。
    * hash 解決は navigator が `useGitGraphStore.contextMenuHash` SSOT で行う。
    */
   contextMenu: [payload: FileContextMenuPayload];

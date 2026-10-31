@@ -1,25 +1,3 @@
-<doc lang="md">
-分割ツリーのリーフノード。XtermTerminal をラップし、フォーカス管理を行う。
-
-## ヘッダバー
-
-- Claude セッションが attach された leaf だけ `TerminalLeafTitle` を出す（表示内容は同コンポーネント参照）。
-  素の PTY では何も出さない
-
-## フォーカス
-
-- xterm の onFocus → store.focusPane() でフォーカス状態を更新
-- 自身が focused になったタイミングで子の terminal.focus() を呼ぶ責務は XtermTerminal に委譲し、isFocused を props として渡す
-- focus 時に worktreeStore.setOpen() を呼んで選択を追従させる（viewMode は変更しない）
-- 既読消化（done → idle）は useSidebarData が selectionVersion を watch して処理するため、ここでは setOpen を呼ぶだけでよい
-
-## active 表示
-
-- 選択中 worktree（worktreeStore.dir）配下かつ layout.focusedLeafId と一致する leaf のみ opacity-100
-- それ以外は opacity-50 でフェード。claude タイルモードでは複数 worktree の leaf が同時表示されるが、active になるのは選択中 worktree の focused leaf 1 つだけ
-- 初期化前で worktreeStore.dir が未確定の場合や、claude モードで選択中 worktree に Claude-active leaf が存在しない場合は active が 0 になりうる
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { useContextKeys } from "../../shared/command";
@@ -57,7 +35,7 @@ const effectiveFitSuspended = computed(() => terminalStore.dragSuspendCount > 0)
 function handleTerminalFocus() {
   contextKeys.set("terminalFocus", true);
   terminalStore.focusPane(props.leafId);
-  // 同 dir でも setOpen を呼ぶことで selectionVersion が発火し、useTerminalStore の
+  // 同 dir でも setOpen を呼ぶことで selectionVersion が発火し、useSidebarData の
   // watch が done を消化する。viewMode="claude" でも選択 wt が追従する。
   worktreeStore.setOpen(props.dir);
 }
@@ -69,7 +47,7 @@ function handleTerminalBlur() {
 
 <template>
   <div class="min-h-0 min-w-0" :data-leaf-id="leafId">
-    <!-- container-type: size は TerminalSessionPreview のスクロール面 (max-h-[40cqh]) が
+    <!-- container-type: size は TerminalSessionPreview のスクロール面 (max-h-[calc(50cqh-2rem)]) が
          leaf 高さを参照するための query container 指定。size-full で寸法が親から確定して
          いるため size containment による高さ collapse は起きない -->
     <div

@@ -1,23 +1,3 @@
-<doc lang="md">
-Preview popover のヘッダ行。markdown 内部リンク履歴の back / forward、ファイル名 +
-コミット日 (FileCommitDate)、undock / ファイル操作の ⋮ メニュー / close ボタンを持つ。
-
-- back / forward は履歴の有無で header の幅が揺れないよう常時描画し、`canGoBack` /
-  `canGoForward` が false の側は `disabled` 属性 + `disabled:text-foreground-muted` で見た目だけ
-  落とす (Primer "NEVER use opacity for disabled" 規律に従い solid token を使う)
-- ⋮ ボタンは `openableAbsPath` (working tree に実体があるときだけ解決される実パス) を prop で
-  受け、`v-if` で描画自体を gate して silent dead button を作らない
-- undock ボタンは表示中コンテンツを独立フローティングウィンドウへ切り離す (実体は親の
-  ドラッグ undock と同じ経路。`undockable` prop で描画を gate し silent dead button を
-  作らない)
-- メニュー項目 (Open in default app / Copy file / Copy path) は Filer / Changes の
-  右クリックメニューと共通の `FileActionMenuItems` (filer)。popover instance は
-  `usePopover` の「menu の種類ごとに独立」規律に従い per-instance で持つ
-- メニュー context は ⋮ クリック時点の openableAbsPath を snapshot する。open 中に
-  表示ファイルが切り替わっても、そのクリックで参照した当時のファイルを一貫して操作する
-  (FileContextMenu の dir snapshot と同じ規律)
-</doc>
-
 <script setup lang="ts">
 import { computed } from "vue";
 import { usePopover } from "../../shared/popover";

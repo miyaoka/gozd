@@ -1,7 +1,3 @@
-<doc lang="md">
-number 設定用スライダー + 数値表示。
-</doc>
-
 <script setup lang="ts">
 import type { NumberSetting } from "../types";
 

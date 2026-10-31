@@ -1,20 +1,3 @@
-<doc lang="md">
-Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
-
-## 動作
-
-- Filer が flex-1 で残りスペースを取り、Changes が固定高さ
-- ResizeHandle で上下の比率をリサイズ可能
-- git リポジトリでない場合は Filer のみ表示
-- FilerPane の reveal は worktreeStore.revealRequest を内部で購読しているため props 経由不要
-- FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（docs/preview.md の決定表を参照）
-- Filer ヘッダーの状態表示は `headerStatus` 1 つの computed に集約する。snapshot mode（`gitGraphStore.selectedHash` が `UNCOMMITTED_HASH` 以外）では選択中コミットの日時（`formatCompactTime` の狭幅向け compact 表示、tooltip に `formatAbsoluteTime` の絶対時刻）、working tree mode では固定テキスト `"(now)"` を同じ span で描画する。working tree mode を時刻でなく固定ラベルにするのは、"Now" ボタン（FilerPane がツリー右上に float 表示。設計意図はそちらの doc 参照）を押した遷移先が何であるかを明示するため（変更ファイルの mtime を出すと「今」であることが伝わりにくい）
-
-## 右クリックメニュー
-
-FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event を受けて singleton popover (`useFileContextMenu`) に橋渡しする。子側は navigator への依存を持たない (payload 型は filer の `fileContextMenuPayload` が SSOT) ため、依存方向は navigator → 子の 1 方向で閉じる。pointerup once-capture による light-dismiss 回避 / dir / hash snapshot / disconnect ガード等の内部仕様は `useFileContextMenu.ts` の docstring を SSOT として参照する。
-</doc>
-
 <script setup lang="ts">
 import { useElementSize, useEventListener } from "@vueuse/core";
 import { computed, ref, useTemplateRef, watch } from "vue";

@@ -1,8 +1,3 @@
-<doc lang="md">
-git status の変更種別をアイコン + 件数で表示する。
-git graph の uncommitted 行、サイドバーの worktree 一覧で共通利用する。
-</doc>
-
 <script setup lang="ts">
 import type { StatusIconEntry } from "./gitStatusUtils";
 

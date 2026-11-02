@@ -31,7 +31,8 @@ const latest = computed(() => props.actions.at(-1));
       </div>
       <!-- コマンドやパターンは長く、折り返すと吹き出しが縦に伸びるため 1 行で切る -->
       <div class="flex min-w-0 gap-1">
-        <span class="shrink-0 font-semibold">{{ latest.name }}</span>
+        <!-- MCP の tool 名は吹き出しの幅を超えるため、名前も引数と同じく縮めて省略する -->
+        <span class="min-w-0 truncate font-semibold">{{ latest.name }}</span>
         <SessionLogToolArg :input="latest.input" />
       </div>
     </div>

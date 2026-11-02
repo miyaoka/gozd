@@ -18,6 +18,7 @@ export {
   type Speech,
   type SpeechSpeaker,
 } from "./sessionLogView";
+export { toolArgPreview } from "./sessionLogToolArg";
 export { useUndockedLog } from "./useUndockedLog";
 export { useSessionLogLive } from "./useSessionLogLive";
 export { useSessionLogViewer } from "./useSessionLogViewer";

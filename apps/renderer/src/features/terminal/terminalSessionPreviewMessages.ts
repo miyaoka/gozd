@@ -33,6 +33,22 @@ export function countInProgressActions(events: TranscriptEvent[]): number {
   return count;
 }
 
+/**
+ * 直近のターン境界以降で最後に呼ばれた tool。進行中インジケータに「今何をしているか」を添える。
+ * 境界の判定は `countInProgressActions` と同じで、件数が 0 のときは必ず undefined になる。
+ */
+export function latestInProgressAction(
+  events: TranscriptEvent[],
+): Extract<TranscriptEvent, { kind: "tool" }> | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev === undefined) continue;
+    if (isTurnBoundary(ev)) return undefined;
+    if (ev.kind === "tool") return ev;
+  }
+  return undefined;
+}
+
 /** 直近のターン境界が中断か。中断で終わったログは応答中ではない。 */
 export function endsWithInterrupt(events: TranscriptEvent[]): boolean {
   for (let i = events.length - 1; i >= 0; i--) {

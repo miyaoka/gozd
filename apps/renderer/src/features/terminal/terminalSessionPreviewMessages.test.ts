@@ -4,6 +4,7 @@ import {
   collectRuns,
   countInProgressActions,
   endsWithInterrupt,
+  latestInProgressAction,
   type PreviewSpeech,
   previewSpeeches,
   type RunRow,
@@ -317,6 +318,31 @@ describe("countInProgressActions", () => {
 
   test("中断より後の tool だけを数える", () => {
     expect(countInProgressActions([user, tool, interrupt, tool])).toBe(1);
+  });
+});
+
+describe("latestInProgressAction", () => {
+  function tool(name: string): Extract<TranscriptEvent, { kind: "tool" }> {
+    return { kind: "tool", name, input: {}, toolUseId: name, ts: TS, result: undefined };
+  }
+  const user: TranscriptEvent = { kind: "user", text: "hi", ts: TS };
+  const assistant: TranscriptEvent = { kind: "assistant", text: "done", ts: TS };
+  const system: TranscriptEvent = { kind: "system", label: "PreToolUse", text: "x", ts: TS };
+
+  test("直近の発言以降で最後の tool を返す", () => {
+    expect(latestInProgressAction([user, tool("Read"), tool("Grep")])).toEqual(tool("Grep"));
+  });
+
+  test("system を透過して手前の tool を返す", () => {
+    expect(latestInProgressAction([user, tool("Bash"), system])).toEqual(tool("Bash"));
+  });
+
+  test("発言で終わっていれば undefined", () => {
+    expect(latestInProgressAction([user, tool("Read"), assistant])).toBeUndefined();
+  });
+
+  test("tool が無ければ undefined", () => {
+    expect(latestInProgressAction([user])).toBeUndefined();
   });
 });
 

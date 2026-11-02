@@ -18,6 +18,7 @@ import {
   collectRuns,
   countInProgressActions,
   endsWithInterrupt,
+  latestInProgressAction,
   type PreviewRun,
   type PreviewSpeech,
   previewSpeeches,
@@ -60,9 +61,13 @@ interface ParsedPreview {
   speeches: PreviewSpeech[];
   /** 直近のターン境界以降のアクション件数。0 なら進行中でない */
   actionCount: number;
+  /** 直近のターン境界以降で最後に呼ばれた tool。進行中でなければ undefined */
+  latestAction: InProgressAction | undefined;
   /** ログが中断で終わったか。中断で終わったログの末尾 run は応答中として展開しない */
   interrupted: boolean;
 }
+
+type InProgressAction = ReturnType<typeof latestInProgressAction>;
 
 function parsePreview(log: { id: string; content: string }): ParsedPreview {
   const { events } = parseSessionLog(log.content);
@@ -70,6 +75,7 @@ function parsePreview(log: { id: string; content: string }): ParsedPreview {
     id: log.id,
     speeches: previewSpeeches(events),
     actionCount: countInProgressActions(events),
+    latestAction: latestInProgressAction(events),
     interrupted: endsWithInterrupt(events),
   };
 }
@@ -90,7 +96,7 @@ function lastConversationTs(items: PreviewSpeech[]): number {
 const mainParsed = computed<ParsedPreview>(() => {
   const main = sessions.value.find((s) => s.kind === "main");
   return main === undefined
-    ? { id: "", speeches: [], actionCount: 0, interrupted: false }
+    ? { id: "", speeches: [], actionCount: 0, latestAction: undefined, interrupted: false }
     : parsePreview(main);
 });
 // main は PTY を持つため `ClaudeStatus` (TerminalLeafTitle の badge と同じ `getClaudeState`) で
@@ -110,6 +116,7 @@ const newestSub = computed<
       label: string;
       events: PreviewSpeech[];
       actionCount: number;
+      latestAction: InProgressAction | undefined;
       interrupted: boolean;
     }
   | undefined
@@ -123,6 +130,7 @@ const newestSub = computed<
         label: s.label,
         events: parsed.speeches,
         actionCount: parsed.actionCount,
+        latestAction: parsed.latestAction,
         interrupted: parsed.interrupted,
       };
     })
@@ -469,7 +477,10 @@ watch([hasMain, hasSub], ([main, sub]) => {
             @toggle="toggleRun('main', run, $event)"
             @select="(anchor, msg) => togglePreview(anchor, msg, 'main')"
           />
-          <TerminalSessionPreviewProgressDots :count="mainActionCount" />
+          <TerminalSessionPreviewProgressDots
+            :count="mainActionCount"
+            :action="mainParsed.latestAction"
+          />
         </div>
       </div>
     </details>
@@ -512,7 +523,10 @@ watch([hasMain, hasSub], ([main, sub]) => {
             @toggle="toggleRun('sub', run, $event)"
             @select="(anchor, msg) => togglePreview(anchor, msg, 'sub')"
           />
-          <TerminalSessionPreviewProgressDots :count="subActionCount" />
+          <TerminalSessionPreviewProgressDots
+            :count="subActionCount"
+            :action="newestSub?.latestAction"
+          />
         </div>
       </div>
     </details>

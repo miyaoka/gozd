@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { TranscriptEvent } from "../session-log";
 import {
   collectRuns,
-  countInProgressActions,
   endsWithInterrupt,
+  inProgressActions,
   type PreviewSpeech,
   previewSpeeches,
   type RunRow,
@@ -207,7 +207,7 @@ describe("runRows", () => {
   });
 });
 
-describe("countInProgressActions", () => {
+describe("inProgressActions", () => {
   const tool: TranscriptEvent = {
     kind: "tool",
     name: "Bash",
@@ -225,28 +225,28 @@ describe("countInProgressActions", () => {
   const user: TranscriptEvent = { kind: "user", text: "hi", ts: "2026-06-12T00:00:00Z" };
 
   test("末尾が tool なら進行中 (1 件)", () => {
-    expect(countInProgressActions([user, tool])).toBe(1);
+    expect(inProgressActions([user, tool])).toHaveLength(1);
   });
 
   // thinking は assistant の発言として吹き出しに出るため、発言と同じくリセットする。
   test("末尾が thinking (発言) ならリセットされる", () => {
-    expect(countInProgressActions([user, tool, thinking])).toBe(0);
+    expect(inProgressActions([user, tool, thinking])).toHaveLength(0);
   });
 
   test("直近の発言以降の tool をすべて数え、thinking で打ち切る", () => {
-    expect(countInProgressActions([user, tool, thinking, tool, tool, tool])).toBe(3);
+    expect(inProgressActions([user, tool, thinking, tool, tool, tool])).toHaveLength(3);
   });
 
   test("発言をまたいだ手前のアクションは数えない", () => {
-    expect(countInProgressActions([user, tool, tool, assistant, tool])).toBe(1);
+    expect(inProgressActions([user, tool, tool, assistant, tool])).toHaveLength(1);
   });
 
   test("末尾が assistant (発言) ならリセットされる", () => {
-    expect(countInProgressActions([user, tool, assistant])).toBe(0);
+    expect(inProgressActions([user, tool, assistant])).toHaveLength(0);
   });
 
   test("末尾が user (発言) ならリセットされる", () => {
-    expect(countInProgressActions([assistant, tool, user])).toBe(0);
+    expect(inProgressActions([assistant, tool, user])).toHaveLength(0);
   });
 
   // 質問ツールは質問と回答の吹き出しになるため、発言と同じくリセットする。
@@ -259,11 +259,11 @@ describe("countInProgressActions", () => {
         { question: "Q", header: "", multiSelect: false, options: [], answer: undefined },
       ],
     };
-    expect(countInProgressActions([user, tool, ask])).toBe(0);
+    expect(inProgressActions([user, tool, ask])).toHaveLength(0);
   });
 
   test("空配列は進行中でない", () => {
-    expect(countInProgressActions([])).toBe(0);
+    expect(inProgressActions([])).toHaveLength(0);
   });
 
   const system: TranscriptEvent = {
@@ -276,15 +276,15 @@ describe("countInProgressActions", () => {
   // system (注入) はエージェントのアクションでも発言でもないため透過する (件数にも数えない)。
   // tool 実行中に hook 注入が末尾に来た瞬間 (tool_result 到着前) に進行中表示を消さない。
   test("system を透過して直近の tool を数える (system 自体は数えない)", () => {
-    expect(countInProgressActions([user, tool, system, tool, system])).toBe(2);
+    expect(inProgressActions([user, tool, system, tool, system])).toHaveLength(2);
   });
 
   test("末尾の system を透過して直近の assistant (発言) でリセットされる", () => {
-    expect(countInProgressActions([user, assistant, system])).toBe(0);
+    expect(inProgressActions([user, assistant, system])).toHaveLength(0);
   });
 
   test("system のみの列は進行中でない", () => {
-    expect(countInProgressActions([system])).toBe(0);
+    expect(inProgressActions([system])).toHaveLength(0);
   });
 
   const image: TranscriptEvent = { kind: "image", ts: "2026-06-12T00:00:00Z", source: undefined };
@@ -297,26 +297,35 @@ describe("countInProgressActions", () => {
   // image / 空文字発言は preview の bubble に出ない。打ち切ると画面に何も現れないまま
   // 点の数が巻き戻るため透過する。
   test("image を透過してアクションを数え続ける", () => {
-    expect(countInProgressActions([user, tool, image, tool])).toBe(2);
+    expect(inProgressActions([user, tool, image, tool])).toHaveLength(2);
   });
 
   test("空文字の assistant を透過してアクションを数え続ける", () => {
-    expect(countInProgressActions([user, tool, emptyAssistant, tool])).toBe(2);
+    expect(inProgressActions([user, tool, emptyAssistant, tool])).toHaveLength(2);
   });
 
   test("末尾が image でも直近のアクション件数を返す", () => {
-    expect(countInProgressActions([user, tool, tool, image])).toBe(2);
+    expect(inProgressActions([user, tool, tool, image])).toHaveLength(2);
   });
 
   const interrupt: TranscriptEvent = { kind: "interrupt", ts: "2026-06-12T00:00:00Z" };
 
   // 中断は吹き出しに出ないが、それより前の tool はユーザーが止めた作業で進行中ではない。
   test("末尾が中断ならリセットされる", () => {
-    expect(countInProgressActions([user, tool, tool, interrupt])).toBe(0);
+    expect(inProgressActions([user, tool, tool, interrupt])).toHaveLength(0);
   });
 
   test("中断より後の tool だけを数える", () => {
-    expect(countInProgressActions([user, tool, interrupt, tool])).toBe(1);
+    expect(inProgressActions([user, tool, interrupt, tool])).toHaveLength(1);
+  });
+
+  // 末尾の要素を「今何をしているか」として表示するため、呼ばれた順を保つ。
+  test("呼ばれた順に並ぶ", () => {
+    const read: TranscriptEvent = { ...tool, name: "Read", toolUseId: "t2" };
+    expect(inProgressActions([user, tool, system, read]).map((a) => a.name)).toEqual([
+      "Bash",
+      "Read",
+    ]);
   });
 });
 

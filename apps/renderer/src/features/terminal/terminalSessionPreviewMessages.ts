@@ -18,19 +18,22 @@ function isTurnBoundary(ev: TranscriptEvent): boolean {
   return ev.kind === "interrupt" || speechesOf(ev).length > 0;
 }
 
+export type ToolEvent = Extract<TranscriptEvent, { kind: "tool" }>;
+
 /**
- * 直近のターン境界以降に積まれた tool 呼び出しの件数を数える。0 なら進行中でない (末尾が
- * ターン境界、または境界も作業もない)。1 以上ならその件数がそのまま進行中インジケータの点の数になる。
+ * 直近のターン境界以降に積まれた tool 呼び出しを、呼ばれた順に返す。空なら進行中でない (末尾が
+ * ターン境界、または境界も作業もない)。件数が進行中インジケータの点の数、末尾の要素が「今何を
+ * しているか」の表示になる。
  */
-export function countInProgressActions(events: TranscriptEvent[]): number {
-  let count = 0;
+export function inProgressActions(events: TranscriptEvent[]): ToolEvent[] {
+  const actions: ToolEvent[] = [];
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
     if (ev === undefined) continue;
-    if (isTurnBoundary(ev)) return count;
-    if (ev.kind === "tool") count++;
+    if (isTurnBoundary(ev)) break;
+    if (ev.kind === "tool") actions.push(ev);
   }
-  return count;
+  return actions.reverse();
 }
 
 /** 直近のターン境界が中断か。中断で終わったログは応答中ではない。 */

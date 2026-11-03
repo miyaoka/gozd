@@ -16,14 +16,13 @@ import { stripClaudeTitlePrefix } from "./claudeStatus";
 import { keepInPlace } from "./keepInPlace";
 import {
   collectRuns,
+  countInProgressActions,
   endsWithInterrupt,
-  inProgressActions,
   type PreviewRun,
   type PreviewSpeech,
   previewSpeeches,
   type RevealSide,
   runKey,
-  type ToolEvent,
 } from "./terminalSessionPreviewMessages";
 import TerminalSessionPreviewProgressDots from "./TerminalSessionPreviewProgressDots.vue";
 import TerminalSessionPreviewRun from "./TerminalSessionPreviewRun.vue";
@@ -52,15 +51,15 @@ const { sessions } = useSessionLogLive(sessionId);
 // JSONL を都度 parse する。preview は最新の会話発話だけを run 単位で見せるため
 // branchSelection は不要 (parseSessionLog は未指定で最新枝にフォールバックする)。
 //
-// events 列のうち吹き出しにするのは `previewSpeeches` が返す発言だけ。進行中のアクションと中断は
-// 吹き出し選別前の events 列から決めるため、speeches と同じ 1 回の parse 結果を派生元にする。
-// id は run の開閉状態の key に使い、発言と同じセッションログから取る。
+// events 列のうち吹き出しにするのは `previewSpeeches` が返す発言だけ。actionCount と interrupted は
+// 吹き出し選別前の events 列 (末尾に積まれた tool の件数 / 直近のターン境界) から決めるため、speeches と
+// 同じ 1 回の parse 結果を派生元にする。id は run の開閉状態の key に使い、発言と同じセッションログから取る。
 interface ParsedPreview {
   /** セッションログ 1 本の id (main は session_id、sub は agent_id) */
   id: string;
   speeches: PreviewSpeech[];
-  /** 直近のターン境界以降に呼ばれた tool。空なら進行中でない */
-  actions: ToolEvent[];
+  /** 直近のターン境界以降のアクション件数。0 なら進行中でない */
+  actionCount: number;
   /** ログが中断で終わったか。中断で終わったログの末尾 run は応答中として展開しない */
   interrupted: boolean;
 }
@@ -70,7 +69,7 @@ function parsePreview(log: { id: string; content: string }): ParsedPreview {
   return {
     id: log.id,
     speeches: previewSpeeches(events),
-    actions: inProgressActions(events),
+    actionCount: countInProgressActions(events),
     interrupted: endsWithInterrupt(events),
   };
 }
@@ -86,30 +85,30 @@ function lastConversationTs(items: PreviewSpeech[]): number {
   return 0;
 }
 
-// main session の parse 結果。サブで二度評価されるのを避けるため computed に切る。
+// main session の parse 結果。サブで二度評価されるのを避けるため
+// computed に切る。
 const mainParsed = computed<ParsedPreview>(() => {
   const main = sessions.value.find((s) => s.kind === "main");
   return main === undefined
-    ? { id: "", speeches: [], actions: [], interrupted: false }
+    ? { id: "", speeches: [], actionCount: 0, interrupted: false }
     : parsePreview(main);
 });
 // main は PTY を持つため `ClaudeStatus` (TerminalLeafTitle の badge と同じ `getClaudeState`) で
 // 確定させ、transcript ベースの推定より優先する。transcript は記録を経由した推定で、badge と
 // 食い違わないよう、より確からしい信号に揃える。
-const mainActions = computed<ToolEvent[]>(() =>
-  terminalStore.getClaudeState(props.leafId) === "working" ? mainParsed.value.actions : [],
+const mainActionCount = computed<number>(() =>
+  terminalStore.getClaudeState(props.leafId) === "working" ? mainParsed.value.actionCount : 0,
 );
 
-// 最後に発言があった subagent 1 つ。表示ラベルは subagentLabel が組み立てた agent 名 / workflow
-// 見出し。発言の最終 ts で判定し、tool 単独走行の subagent はここでの最新性に寄与させない。
-// events と label を 1 つの computed にまとめておくと sub overlay の見出しと本文が同じ subagent から
-// 派生する不変条件を構造的に担保できる。
+// 最後に発言があった subagent 1 つ。発言の最終 ts で判定し、tool 単独走行の
+// subagent はここでの最新性に寄与させない。events と label を 1 つの computed にまとめておくと
+// sub overlay の見出しと本文が同じ subagent から派生する不変条件を構造的に担保できる。
 const newestSub = computed<
   | {
       id: string;
       label: string;
       events: PreviewSpeech[];
-      actions: ToolEvent[];
+      actionCount: number;
       interrupted: boolean;
     }
   | undefined
@@ -122,7 +121,7 @@ const newestSub = computed<
         id: parsed.id,
         label: s.label,
         events: parsed.speeches,
-        actions: parsed.actions,
+        actionCount: parsed.actionCount,
         interrupted: parsed.interrupted,
       };
     })
@@ -141,8 +140,8 @@ const newestSub = computed<
 });
 const subEvents = computed<PreviewSpeech[]>(() => newestSub.value?.events ?? []);
 // sub は Task ツールで起動される仮想セッションで PTY を持たず ClaudeStatus が存在しないため、
-// main と異なり transcript ベースの推定 (`parsePreview` の actions) だけで判定する。
-const subActions = computed<ToolEvent[]>(() => newestSub.value?.actions ?? []);
+// main と異なり transcript ベースの推定 (`parsePreview` の actionCount) だけで判定する。
+const subActionCount = computed<number>(() => newestSub.value?.actionCount ?? 0);
 // subLabel は <summary> の折り畳みハンドルを兼ねるため、subagentLabel が空文字
 // を返すケース (ロード途中 / meta.json 解析失敗) でも "Subagent" にフォールバック
 // して summary を必ず出す。summary を欠落させると UA デフォルト "Details" 表示に
@@ -469,7 +468,7 @@ watch([hasMain, hasSub], ([main, sub]) => {
             @toggle="toggleRun('main', run, $event)"
             @select="(anchor, msg) => togglePreview(anchor, msg, 'main')"
           />
-          <TerminalSessionPreviewProgressDots :actions="mainActions" />
+          <TerminalSessionPreviewProgressDots :count="mainActionCount" />
         </div>
       </div>
     </details>
@@ -512,7 +511,7 @@ watch([hasMain, hasSub], ([main, sub]) => {
             @toggle="toggleRun('sub', run, $event)"
             @select="(anchor, msg) => togglePreview(anchor, msg, 'sub')"
           />
-          <TerminalSessionPreviewProgressDots :actions="subActions" />
+          <TerminalSessionPreviewProgressDots :count="subActionCount" />
         </div>
       </div>
     </details>

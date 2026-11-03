@@ -10,7 +10,6 @@ export { default as UndockedLogLayer } from "./UndockedLogLayer.vue";
 export { default as SessionLogDialog } from "./SessionLogDialog.vue";
 export { default as SessionLogMessageBody } from "./SessionLogMessageBody.vue";
 export { default as SessionLogSpeechText } from "./SessionLogSpeechText.vue";
-export { toolArgPreview } from "./sessionLogToolArg";
 export {
   isSameSpeech,
   SPEAKER_SIDE,

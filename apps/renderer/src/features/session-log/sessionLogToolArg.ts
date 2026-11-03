@@ -1,4 +1,4 @@
-// session log の tool イベント見出しに出す主要引数プレビューの算出。
+// tool の input から代表引数を 1 つ選び、表示用に縮めた値と全文を返す。
 //
 // 代表キーを優先順で 1 つ拾い、最初に見つかった非空 string を採用する。パス系キー
 // (file_path / path) は絶対パスが行を占有するため basename だけを表示し、フルパスは
@@ -9,7 +9,7 @@ const TOOL_PRIMARY_KEYS = ["command", "file_path", "path", "pattern", "query", "
 const PATH_KEYS = new Set(["file_path", "path"]);
 
 export interface ToolArgPreview {
-  /** chip に表示する縮約後テキスト (パスなら basename) */
+  /** 表示用の縮約後テキスト (パスなら basename) */
   label: string;
   /** title (hover) 用のフル値 */
   full: string;

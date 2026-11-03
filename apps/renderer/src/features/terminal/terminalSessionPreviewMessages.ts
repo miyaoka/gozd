@@ -1,7 +1,13 @@
 // TerminalSessionPreview の bubble 選択ロジック。session ログの会話イベント列を「応答 (run)
 // 単位」に束ね、各 run の畳み方を決める純粋関数。SFC から分離して回帰テストを書けるようにしている。
 
-import { speechesOf, type Speech, type SpeechSpeaker, type TranscriptEvent } from "../session-log";
+import {
+  speechesOf,
+  toolArgPreview,
+  type Speech,
+  type SpeechSpeaker,
+  type TranscriptEvent,
+} from "../session-log";
 
 /**
  * ターン境界か。ターン境界はエージェントの作業の区切りで、吹き出しになる発言と、ユーザーの中断が
@@ -34,6 +40,22 @@ export function inProgressActions(events: TranscriptEvent[]): ToolEvent[] {
     if (ev.kind === "tool") actions.push(ev);
   }
   return actions.reverse();
+}
+
+/** 進行中インジケータの点の下に出す、tool 呼び出し 1 件の表示 */
+export interface ActionLabel {
+  text: string;
+  /** hover で見せる全文 */
+  title: string;
+  /** text が tool 名か (引数を読めなかった) */
+  isName: boolean;
+}
+
+/** 引数を読めるときは引数だけを、読めないときは tool 名を出す。title には tool 名を必ず含める。 */
+export function actionLabel(action: ToolEvent): ActionLabel {
+  const arg = toolArgPreview(action.input);
+  if (arg === undefined) return { text: action.name, title: action.name, isName: true };
+  return { text: arg.label, title: `${action.name}: ${arg.full}`, isName: false };
 }
 
 /** 直近のターン境界が中断か。中断で終わったログは応答中ではない。 */

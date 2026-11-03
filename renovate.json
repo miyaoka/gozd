@@ -2,6 +2,13 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:best-practices", ":pinDependencies", "github>miyaoka/renovate-config"],
   "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "Electron 45 (Chromium 156) drops the frame commit after a title-bar drag on macOS, so a window moved to another display reports its old position and its live resize oscillates (Chromium CL 8251341). Remove this cap once a release includes the fix, Chromium CL 8535166.",
+      "matchPackageNames": ["electron"],
+      "allowedVersions": "<45"
+    }
+  ],
   "assignees": ["miyaoka"],
   "reviewers": ["miyaoka"]
 }

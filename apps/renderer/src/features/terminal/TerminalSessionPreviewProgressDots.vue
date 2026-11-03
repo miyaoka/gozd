@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { SessionLogToolArg, SPEAKER_SURFACE_CLASS } from "../session-log";
+import { SPEAKER_SURFACE_CLASS, toolArgPreview } from "../session-log";
 import type { ToolEvent } from "./terminalSessionPreviewMessages";
 import TerminalSessionPreviewSpeakerRow from "./TerminalSessionPreviewSpeakerRow.vue";
 
@@ -14,11 +14,21 @@ const props = defineProps<Props>();
 // 末尾 1 点は blink 用に別要素へ切り出すため、先頭側はまとめて 1 つのテキストにする
 const leadingDots = computed(() => "・".repeat(Math.max(props.actions.length - 1, 0)));
 const latest = computed(() => props.actions.at(-1));
+
+// 吹き出しの幅では tool 名と引数を並べると名前が潰れるため、引数を読めるときは引数だけを出し、
+// 読めないときだけ tool 名を出す。tool 名は hover で見せる
+const latestLabel = computed(() => {
+  const action = latest.value;
+  if (action === undefined) return undefined;
+  const arg = toolArgPreview(action.input);
+  if (arg === undefined) return { text: action.name, title: action.name, isName: true };
+  return { text: arg.label, title: `${action.name}: ${arg.full}`, isName: false };
+});
 </script>
 
 <template>
   <!-- アクションしているのはこのセッションのエージェントなので、その発言と同じ側・同じ地の吹き出し -->
-  <TerminalSessionPreviewSpeakerRow v-if="latest" speaker="assistant">
+  <TerminalSessionPreviewSpeakerRow v-if="latestLabel" speaker="assistant">
     <div
       class="flex max-w-[85%] min-w-0 flex-col rounded-lg px-2 py-1"
       :class="SPEAKER_SURFACE_CLASS.assistant"
@@ -30,11 +40,12 @@ const latest = computed(() => props.actions.at(-1));
         ><span class="_fx-blink-dot">・</span>
       </div>
       <!-- コマンドやパターンは長く、折り返すと吹き出しが縦に伸びるため 1 行で切る -->
-      <div class="flex min-w-0 gap-1">
-        <!-- MCP の tool 名は吹き出しの幅を超えるため、名前も引数と同じく縮めて省略する -->
-        <span class="min-w-0 truncate font-semibold" :title="latest.name">{{ latest.name }}</span>
-        <SessionLogToolArg :input="latest.input" />
-      </div>
+      <span
+        class="min-w-0 truncate"
+        :class="latestLabel.isName ? 'font-semibold' : 'text-foreground-low'"
+        :title="latestLabel.title"
+        >{{ latestLabel.text }}</span
+      >
     </div>
   </TerminalSessionPreviewSpeakerRow>
 </template>

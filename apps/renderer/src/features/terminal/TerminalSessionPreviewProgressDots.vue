@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { SPEAKER_SURFACE_CLASS, toolArgPreview } from "../session-log";
-import type { ToolEvent } from "./terminalSessionPreviewMessages";
+import { SPEAKER_SURFACE_CLASS } from "../session-log";
+import { actionLabel, type ToolEvent } from "./terminalSessionPreviewMessages";
 import TerminalSessionPreviewSpeakerRow from "./TerminalSessionPreviewSpeakerRow.vue";
 
 interface Props {
@@ -13,16 +13,9 @@ const props = defineProps<Props>();
 
 // 末尾 1 点は blink 用に別要素へ切り出すため、先頭側はまとめて 1 つのテキストにする
 const leadingDots = computed(() => "・".repeat(Math.max(props.actions.length - 1, 0)));
-const latest = computed(() => props.actions.at(-1));
-
-// 吹き出しの幅では tool 名と引数を並べると名前が潰れるため、引数を読めるときは引数だけを出し、
-// 読めないときだけ tool 名を出す。tool 名は hover で見せる
 const latestLabel = computed(() => {
-  const action = latest.value;
-  if (action === undefined) return undefined;
-  const arg = toolArgPreview(action.input);
-  if (arg === undefined) return { text: action.name, title: action.name, isName: true };
-  return { text: arg.label, title: `${action.name}: ${arg.full}`, isName: false };
+  const latest = props.actions.at(-1);
+  return latest === undefined ? undefined : actionLabel(latest);
 });
 </script>
 

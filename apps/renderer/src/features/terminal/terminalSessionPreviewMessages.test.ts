@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { TranscriptEvent } from "../session-log";
 import {
+  actionLabel,
   collectRuns,
   endsWithInterrupt,
   inProgressActions,
@@ -357,5 +358,27 @@ describe("endsWithInterrupt", () => {
   test("中断が無ければ false", () => {
     expect(endsWithInterrupt([event("u1"), event("a1"), tool])).toBe(false);
     expect(endsWithInterrupt([])).toBe(false);
+  });
+});
+
+describe("actionLabel", () => {
+  function toolEvent(name: string, input: Record<string, unknown>) {
+    return { kind: "tool", name, input, toolUseId: "t", ts: TS, result: undefined } as const;
+  }
+
+  test("引数を読める tool は引数だけを出し、title に tool 名と全文を出す", () => {
+    expect(actionLabel(toolEvent("Read", { file_path: "/a/b/foo.ts" }))).toEqual({
+      text: "foo.ts",
+      title: "Read: /a/b/foo.ts",
+      isName: false,
+    });
+  });
+
+  test("引数を読めない tool は tool 名を出す", () => {
+    expect(actionLabel(toolEvent("TodoWrite", { todos: [] }))).toEqual({
+      text: "TodoWrite",
+      title: "TodoWrite",
+      isName: true,
+    });
   });
 });

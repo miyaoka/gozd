@@ -1,4 +1,4 @@
-// tool の input から代表引数を 1 つ選び、表示用に縮めた値と全文を返す。
+// session log の tool イベント見出しに出す主要引数プレビューの算出。
 //
 // 代表キーを優先順で 1 つ拾い、最初に見つかった非空 string を採用する。パス系キー
 // (file_path / path) は絶対パスが行を占有するため basename だけを表示し、フルパスは
@@ -9,7 +9,7 @@ const TOOL_PRIMARY_KEYS = ["command", "file_path", "path", "pattern", "query", "
 const PATH_KEYS = new Set(["file_path", "path"]);
 
 export interface ToolArgPreview {
-  /** 表示用の縮約後テキスト (パスなら basename) */
+  /** 表示する縮約後テキスト (パスなら basename) */
   label: string;
   /** title (hover) 用のフル値 */
   full: string;
@@ -19,7 +19,7 @@ export interface ToolArgPreview {
  * パス文字列の basename (末尾区切りを除いた最後のセグメント)。
  *
  * `split("/")` は常に string 要素を返すため、末尾区切りのみ ("/" / "//") のときは空文字
- * セグメントになる。空文字は表示できないので元値に倒す (chip が空になるのを防ぐ)。
+ * セグメントになる。空文字は表示できないので元値に倒す (表示が空になるのを防ぐ)。
  */
 function basename(path: string): string {
   const segments = path.replace(/\/+$/, "").split("/");

@@ -1,13 +1,7 @@
 // TerminalSessionPreview の bubble 選択ロジック。session ログの会話イベント列を「応答 (run)
 // 単位」に束ね、各 run の畳み方を決める純粋関数。SFC から分離して回帰テストを書けるようにしている。
 
-import {
-  speechesOf,
-  toolArgPreview,
-  type Speech,
-  type SpeechSpeaker,
-  type TranscriptEvent,
-} from "../session-log";
+import { speechesOf, type Speech, type SpeechSpeaker, type TranscriptEvent } from "../session-log";
 
 /**
  * ターン境界か。ターン境界はエージェントの作業の区切りで、吹き出しになる発言と、ユーザーの中断が
@@ -24,38 +18,19 @@ function isTurnBoundary(ev: TranscriptEvent): boolean {
   return ev.kind === "interrupt" || speechesOf(ev).length > 0;
 }
 
-export type ToolEvent = Extract<TranscriptEvent, { kind: "tool" }>;
-
 /**
- * 直近のターン境界以降に積まれた tool 呼び出しを、呼ばれた順に返す。空なら進行中でない (末尾が
- * ターン境界、または境界も作業もない)。件数が進行中インジケータの点の数、末尾の要素が「今何を
- * しているか」の表示になる。
+ * 直近のターン境界以降に積まれた tool 呼び出しの件数を数える。0 なら進行中でない (末尾が
+ * ターン境界、または境界も作業もない)。1 以上ならその件数がそのまま進行中インジケータの点の数になる。
  */
-export function inProgressActions(events: TranscriptEvent[]): ToolEvent[] {
-  const actions: ToolEvent[] = [];
+export function countInProgressActions(events: TranscriptEvent[]): number {
+  let count = 0;
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
     if (ev === undefined) continue;
-    if (isTurnBoundary(ev)) break;
-    if (ev.kind === "tool") actions.push(ev);
+    if (isTurnBoundary(ev)) return count;
+    if (ev.kind === "tool") count++;
   }
-  return actions.reverse();
-}
-
-/** 進行中インジケータの点の下に出す、tool 呼び出し 1 件の表示 */
-export interface ActionLabel {
-  text: string;
-  /** hover で見せる全文 */
-  title: string;
-  /** text が tool 名か (引数を読めなかった) */
-  isName: boolean;
-}
-
-/** 引数を読めるときは引数だけを、読めないときは tool 名を出す。title には tool 名を必ず含める。 */
-export function actionLabel(action: ToolEvent): ActionLabel {
-  const arg = toolArgPreview(action.input);
-  if (arg === undefined) return { text: action.name, title: action.name, isName: true };
-  return { text: arg.label, title: `${action.name}: ${arg.full}`, isName: false };
+  return count;
 }
 
 /** 直近のターン境界が中断か。中断で終わったログは応答中ではない。 */

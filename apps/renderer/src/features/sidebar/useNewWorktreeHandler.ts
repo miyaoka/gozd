@@ -22,7 +22,7 @@ export function useNewWorktreeHandler() {
   const notifications = useNotificationStore();
 
   async function handle(payload: NewWorktreePayload) {
-    const { prompt, repoName, ...created } = payload;
+    const { prompt, forkSessionId, repoName, ...created } = payload;
     // 別ウィンドウで開いていない repo に対しても `gozd worktree new --dir` は実行できる。
     // repo ごと未登録なら先に載せる（登録済みなら no-op）
     await ensureRepoRegistered({
@@ -32,7 +32,7 @@ export function useNewWorktreeHandler() {
       isGitRepo: true,
     });
     // 指示は引数で渡す。切り出した相手は起動と同時に走り出す
-    openCreatedWorktree(created, { prompt }, "background");
+    openCreatedWorktree(created, { prompt, forkSessionId }, "background");
   }
 
   let dispose: (() => void) | undefined;
@@ -42,7 +42,11 @@ export function useNewWorktreeHandler() {
       // ここで受けないと、worktree だけが残って指示文が黙って消える
       void handle(payload).catch((cause: unknown) => {
         notifications.error(`Could not open the created worktree at ${payload.dir}`, cause);
-        notifyLostPrompt(notifications, payload.prompt);
+        notifyLostPrompt(
+          notifications,
+          { prompt: payload.prompt, forkSessionId: payload.forkSessionId },
+          payload.dir,
+        );
       });
     });
   });

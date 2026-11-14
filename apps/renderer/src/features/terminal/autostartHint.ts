@@ -1,5 +1,5 @@
 /**
- * autostart で claude へ渡すテキストの型と、その消費。
+ * autostart で claude へ渡す起動のヒント（テキストと複製元）の型と、その消費。
  *
  * 型と消費を leaf module に置くのは、ヒントを積む側（store）と、渡せずに終わったときに
  * 通知する側（`lostPrompt.ts`）の両方がこれを見るため。store 側に置くと通知側から
@@ -8,7 +8,7 @@
  */
 
 /**
- * autostart 時に claude へ渡すテキスト。渡し方が 2 通りあり、**送信されるかどうかが違う**。
+ * autostart 時に claude へ渡すヒント。テキストの渡し方が 2 通りあり、**送信されるかどうかが違う**。
  *
  * - `prefill`: `claude --prefill <text>` で入力欄に挿入するだけ。送信は人が行う。
  *   PR/issue picker が worktree 作成時に PR/issue URL を渡す用途
@@ -16,8 +16,12 @@
  *   `gozd worktree new` が作業指示を渡す用途（切り出す側は相手が動き出すまでを指示している）
  *
  * 同時には片方しか意味を持たない。両方あるときは prompt を優先する。
+ *
+ * `forkSessionId` があれば、新しいセッションではなくそのセッションの複製を起動する
+ * （`claude --resume <id> --fork-session`）。`gozd worktree new --fork` が会話を引き継いだ
+ * まま作業を切り出す用途。
  */
-export type AutostartHint = { prefill?: string; prompt?: string };
+export type AutostartHint = { prefill?: string; prompt?: string; forkSessionId?: string };
 
 /**
  * leaf に積まれた起動ヒントを消費する。読み取りと削除を 1 か所に閉じ、

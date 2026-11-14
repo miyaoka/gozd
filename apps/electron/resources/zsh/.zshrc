@@ -98,7 +98,8 @@ _gozd_resume_claude() {
 }
 [[ -n "$GOZD_RESUME_CLAUDE_SESSION" ]] && _gozd_resume_claude
 
-# worktree 作成直後などに、resume せず素の claude を起動する。
+# worktree 作成直後などに claude を起動する。既定は新しいセッションで、複製の指定があれば
+# 指定したセッションの複製を起動する（下記）。
 #
 # 起動時のテキストは renderer が spawn env に入れる。渡し方が 2 つあり、送信されるかが違う:
 #
@@ -108,12 +109,22 @@ _gozd_resume_claude() {
 #   （PR/issue URL を渡す経路。--prefill は claude CLI の hidden option で --help に出ない）
 #
 # 両方あるときは PROMPT を優先する。
+#
+# GOZD_FORK_CLAUDE_SESSION があれば、新しいセッションではなくそのセッションの複製を起動する
+# （`gozd worktree new --fork`）。複製は元の会話を引き継ぎ、この端末の worktree に属する。
+# 指示文が無ければ入力を待つ。複製に失敗しても素の claude には倒さない。会話の無い claude に
+# 指示文だけ渡ると、前提を欠いたまま作業を始める
 _gozd_start_claude() {
   unset GOZD_AUTOSTART_CLAUDE
   local _prompt="$GOZD_CLAUDE_PROMPT"
   local _prefill="$GOZD_CLAUDE_PREFILL"
-  unset GOZD_CLAUDE_PROMPT GOZD_CLAUDE_PREFILL
-  if [[ -n "$_prompt" ]]; then
+  local _fork="$GOZD_FORK_CLAUDE_SESSION"
+  unset GOZD_CLAUDE_PROMPT GOZD_CLAUDE_PREFILL GOZD_FORK_CLAUDE_SESSION
+  if [[ -n "$_fork" && -n "$_prompt" ]]; then
+    claude --resume "$_fork" --fork-session -- "$_prompt"
+  elif [[ -n "$_fork" ]]; then
+    claude --resume "$_fork" --fork-session
+  elif [[ -n "$_prompt" ]]; then
     # `--` で option 解析を打ち切る。指示文は箇条書きで始まることがあり、`- ` や `--` で
     # 始まると claude が option として解釈して起動に失敗する
     claude -- "$_prompt"

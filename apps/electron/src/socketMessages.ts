@@ -16,6 +16,7 @@ import type {
   SessionOpenMessage,
   WorktreeRemoveMessage,
 } from "@gozd/rpc";
+import type { Result } from "@gozd/shared";
 import { tryCatch } from "@gozd/shared";
 import { basename } from "node:path";
 import { claudeSessionCwd } from "./claude/claudeSessionList";
@@ -105,6 +106,7 @@ function parseClientMessage(line: string): ClientMessage {
     msg.newWorktree = {
       dir: lenientString(newWorktree.dir, "newWorktree.dir"),
       prompt: lenientString(newWorktree.prompt, "newWorktree.prompt"),
+      forkSessionId: lenientString(newWorktree.forkSessionId, "newWorktree.forkSessionId"),
     };
   }
   if (dict.repoList !== undefined) msg.repoList = {};
@@ -134,6 +136,9 @@ const failure = (error: string): string => reply({ ok: false, dir: "", error });
  * renderer が居ない状態でも worktree は正しく作られる。 */
 async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise<string> {
   if (msg.dir === "") return failure("newWorktree: dir is required");
+  // 複製元は worktree を作る前に確かめる。作ってから失敗すると、空の worktree だけが残る
+  const fork = await verifyForkSource(msg.forkSessionId);
+  if (!fork.ok) return failure(fork.error);
   const created = await tryCatch(
     resolveAndCreateWorktree({ dir: msg.dir, branch: "", startPoint: "" }),
   );
@@ -150,9 +155,24 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
     dir: info.path,
     setupScript,
     prompt: msg.prompt,
+    forkSessionId: msg.forkSessionId,
     repoName: basename(rootDir),
   });
   return reply({ ok: true, dir: info.path, error: "" });
+}
+
+/** 複製元のセッションのログが実在するかを確かめる。複製しない（空）なら確かめずに通す */
+async function verifyForkSource(sessionId: string): Promise<Result<undefined, string>> {
+  if (sessionId === "") return { ok: true, value: undefined };
+  const cwd = await tryCatch(claudeSessionCwd(sessionId));
+  if (!cwd.ok) {
+    console.error(`[handleNewWorktree] session lookup failed: ${cwd.error} session=${sessionId}`);
+    return { ok: false, error: String(cwd.error) };
+  }
+  if (cwd.value === undefined) {
+    return { ok: false, error: `newWorktree: Claude session ${sessionId} not found` };
+  }
+  return { ok: true, value: undefined };
 }
 
 /** `gozd repo list`。gozd に登録された repo と worktree を返す */

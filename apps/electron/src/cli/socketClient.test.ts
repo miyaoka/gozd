@@ -55,9 +55,9 @@ describe("requestClientReply", () => {
       return JSON.stringify({ ok: true, dir: "", error: "" });
     });
     await requestClientReply(path, {
-      newWorktree: { dir: "/repo", prompt: "p" },
+      newWorktree: { dir: "/repo", prompt: "p", forkSessionId: "" },
     });
-    expect(received).toEqual(['{"newWorktree":{"dir":"/repo","prompt":"p"}}']);
+    expect(received).toEqual(['{"newWorktree":{"dir":"/repo","prompt":"p","forkSessionId":""}}']);
   });
 
   test("応答が無いまま閉じたら失敗にする（送れた ≠ 実行できた）", async () => {

@@ -131,7 +131,7 @@ const NEW_WORKTREE_FLAGS = ["--prompt", "--dir"] as const;
 type NewWorktreeFlag = (typeof NEW_WORKTREE_FLAGS)[number];
 
 /** 値を取らないオプション。 */
-const NEW_WORKTREE_SWITCHES = ["--prompt-stdin"] as const;
+const NEW_WORKTREE_SWITCHES = ["--prompt-stdin", "--fork"] as const;
 type NewWorktreeSwitch = (typeof NEW_WORKTREE_SWITCHES)[number];
 
 function isNewWorktreeFlag(name: string): name is NewWorktreeFlag {
@@ -149,13 +149,17 @@ export interface ParsedNewWorktree {
   promptFromStdin: boolean;
 }
 
-/** `gozd worktree new` の引数を NewWorktreeMessage に組み立てる。 */
+/** `gozd worktree new` の引数を NewWorktreeMessage に組み立てる。
+ * sessionId は実行した Claude のセッション（`CLAUDE_CODE_SESSION_ID`）で、`--fork` の複製元になる。
+ * 端末（`GOZD_PTY_ID`）から引かないのは、バックグラウンドジョブでは端末が実行した会話と
+ * 無関係なセッションを指すため。 */
 export function parseNewWorktreeArgs(
   argv: string[],
   cwd: string,
+  sessionId: string,
 ): Result<ParsedNewWorktree, string> {
   const flags: Partial<Record<NewWorktreeFlag, string>> = {};
-  let promptFromStdin = false;
+  const switches = new Set<NewWorktreeSwitch>();
   // オプション位置のトークンだけを解釈し、値は中身を見ずにそのまま取る。値まで走査すると
   // `--prompt "--dir=/tmp を直す"` のような「フラグに見える本文」が分解され、以降の対応が
   // ずれる。プロンプトはコマンド例を含みうるので現実に踏む
@@ -167,7 +171,7 @@ export function parseNewWorktreeArgs(
       // 値を取らないオプションに値が付いたら黙って捨てず弾く（`--prompt` の
       // 「値が要る」と対称に、「値を取らない」も誤りとして返す）
       if (eq !== -1) return { ok: false, error: `${name} takes no value` };
-      promptFromStdin = true;
+      switches.add(name);
       continue;
     }
     if (!isNewWorktreeFlag(name)) return { ok: false, error: `unknown option: ${name}` };
@@ -181,8 +185,13 @@ export function parseNewWorktreeArgs(
     i += 1;
   }
 
+  const promptFromStdin = switches.has("--prompt-stdin");
   if (promptFromStdin && flags["--prompt"] !== undefined) {
     return { ok: false, error: "--prompt and --prompt-stdin are mutually exclusive" };
+  }
+  const fork = switches.has("--fork");
+  if (fork && sessionId === "") {
+    return { ok: false, error: "--fork must run from inside a Claude Code session" };
   }
 
   return {
@@ -191,6 +200,7 @@ export function parseNewWorktreeArgs(
       message: {
         dir: resolve(cwd, flags["--dir"] ?? "."),
         prompt: flags["--prompt"] ?? "",
+        forkSessionId: fork ? sessionId : "",
       },
       promptFromStdin,
     },

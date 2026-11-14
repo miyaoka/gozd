@@ -92,6 +92,9 @@ export interface NewWorktreeMessage {
   /** 起動した claude に引数で渡すプロンプト（送信され、そのまま実行が始まる）。
    * 空なら素の claude を起動する */
   prompt: string;
+  /** 複製して起動する Claude セッションの ID。実行したエージェント自身のセッション
+   * （`CLAUDE_CODE_SESSION_ID`）。空なら新しいセッションを起動する */
+  forkSessionId: string;
 }
 
 /** `gozd repo list` から送られる、gozd に登録された repo の問い合わせ。 */

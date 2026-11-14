@@ -132,9 +132,9 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /**
    * leafId → 次回 spawn 時に GOZD_AUTOSTART_CLAUDE フラグを立てる印。
-   * 作成直後の worktree (PR/issue picker / `gozd worktree new`) で、resume ではなく
-   * 新しい `claude` を起動するために使う。spawnPty が env を組み立てるタイミングで
-   * 一度だけ消費する。
+   * 作成直後の worktree (PR/issue picker / `gozd worktree new`) で、既存セッションの再開
+   * ではなく `claude` を起動するために使う（新しいセッションか、`--fork` なら複製）。
+   * spawnPty が env を組み立てるタイミングで一度だけ消費する。
    */
   const pendingAutostartByLeafId = ref<Record<string, AutostartHint>>({});
 
@@ -181,6 +181,9 @@ export const useTerminalStore = defineStore("terminal", () => {
       const autostart = pendingAutostartByLeafId.value[leafId];
       if (autostart) {
         env.GOZD_AUTOSTART_CLAUDE = "1";
+        if (autostart.forkSessionId !== undefined && autostart.forkSessionId !== "") {
+          env.GOZD_FORK_CLAUDE_SESSION = autostart.forkSessionId;
+        }
         if (autostart.prompt !== undefined && autostart.prompt !== "") {
           env.GOZD_CLAUDE_PROMPT = autostart.prompt;
         } else if (autostart.prefill !== undefined && autostart.prefill !== "") {
@@ -233,16 +236,16 @@ export const useTerminalStore = defineStore("terminal", () => {
       // よう必ず通知に倒す。dir は外側 Error の message に載せ、元 error は cause に
       // 包んで stack / 詳細を残す (cause 展開で worktree も診断できる)。
       //
-      // 起動できなかった以上 claude は指示文を受け取っていない。ヒントに指示文があれば
+      // 起動できなかった以上 claude は指示文も複製も受け取っていない。ヒントにあれば
       // 別の通知として出し、手で渡し直せる形で残す。消費をここに置けるのは
       // requestPtySpawn の reject 直後に同期で呼ばれるためで、ヒントが他経路に漏れる窓は
       // 開かない。
-      const lostPrompt = consumeAutostartHint(pendingAutostartByLeafId.value, leafId)?.prompt;
+      const lostHint = consumeAutostartHint(pendingAutostartByLeafId.value, leafId);
       notify.error(
         "Failed to spawn terminal",
         new Error(`spawn failed; dir=${dir}`, { cause: error }),
       );
-      notifyLostPrompt(notify, lostPrompt);
+      notifyLostPrompt(notify, lostHint, dir);
     },
   });
 
@@ -549,7 +552,7 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /**
    * 作成直後の worktree で新しい claude を起動する (PR/issue picker / `gozd worktree new`)。
-   * - 未訪問: 次回の visit で初期 leaf を素の claude 起動として生成するヒントを残す。
+   * - 未訪問: 次回の visit で初期 leaf を claude の自動起動として生成するヒントを残す。
    * - 訪問済み: レイアウト先頭に新 leaf を追加して autostart フラグを仕込み、フォーカスを移す。
    *
    * hint で起動時のテキストを渡す (AutostartHint の定義を参照。prefill は挿入のみ、

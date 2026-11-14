@@ -19,6 +19,7 @@
     "test:browser:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run test:browser",
     "typecheck:all": "pnpm -r --include-workspace-root --if-present run typecheck",
     "knip": "knip",
+    "gate": "bun test gate",
     "prepare": "lefthook install"
   },
   "devDependencies": {

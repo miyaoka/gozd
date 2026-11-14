@@ -181,6 +181,9 @@ export const useTerminalStore = defineStore("terminal", () => {
       const autostart = pendingAutostartByLeafId.value[leafId];
       if (autostart) {
         env.GOZD_AUTOSTART_CLAUDE = "1";
+        if (autostart.forkSessionId !== undefined && autostart.forkSessionId !== "") {
+          env.GOZD_FORK_CLAUDE_SESSION = autostart.forkSessionId;
+        }
         if (autostart.prompt !== undefined && autostart.prompt !== "") {
           env.GOZD_CLAUDE_PROMPT = autostart.prompt;
         } else if (autostart.prefill !== undefined && autostart.prefill !== "") {

@@ -497,6 +497,8 @@ export interface CreateWorktreeResponse {
 export interface NewWorktreePayload extends CreateWorktreeResponse {
   /** 起動する claude に引数で渡すプロンプト。空なら素の claude を起動する */
   prompt: string;
+  /** 複製して起動する Claude セッションの ID。空なら新しいセッションを起動する */
+  forkSessionId: string;
   /** repo の表示名（main repo の basename）。この repo が window に未登録だったときだけ使う */
   repoName: string;
 }

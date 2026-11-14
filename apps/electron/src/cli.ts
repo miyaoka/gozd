@@ -111,6 +111,9 @@ Options for \`new\`:
   --prompt-stdin     Read the prompt from stdin (use a heredoc for long prompts)
   --prompt <text>    Prompt passed to claude on launch (runs immediately)
   --dir <path>       Repository to create the worktree in (default: cwd)
+  --fork             Start claude as a fork of the session running in this
+                     terminal, so it keeps the conversation so far. The prompt
+                     is optional; without one the fork waits for input
 
 Prints the created worktree path to stdout. Requires a running gozd window:
 the request goes to the socket at $GOZD_SOCKET_PATH.
@@ -147,7 +150,7 @@ async function worktreeCommand(argv: string[]): Promise<void> {
     process.stderr.write(WORKTREE_USAGE);
     process.exit(1);
   }
-  const parsed = parseNewWorktreeArgs(rest, process.cwd());
+  const parsed = parseNewWorktreeArgs(rest, process.cwd(), parsePtyId(process.env));
   if (!parsed.ok) {
     process.stderr.write(`gozd worktree new: ${parsed.error}\n\n`);
     process.stderr.write(WORKTREE_USAGE);

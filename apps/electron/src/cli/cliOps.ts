@@ -131,7 +131,7 @@ const NEW_WORKTREE_FLAGS = ["--prompt", "--dir"] as const;
 type NewWorktreeFlag = (typeof NEW_WORKTREE_FLAGS)[number];
 
 /** 値を取らないオプション。 */
-const NEW_WORKTREE_SWITCHES = ["--prompt-stdin"] as const;
+const NEW_WORKTREE_SWITCHES = ["--prompt-stdin", "--fork"] as const;
 type NewWorktreeSwitch = (typeof NEW_WORKTREE_SWITCHES)[number];
 
 function isNewWorktreeFlag(name: string): name is NewWorktreeFlag {
@@ -149,13 +149,15 @@ export interface ParsedNewWorktree {
   promptFromStdin: boolean;
 }
 
-/** `gozd worktree new` の引数を NewWorktreeMessage に組み立てる。 */
+/** `gozd worktree new` の引数を NewWorktreeMessage に組み立てる。
+ * ptyId は実行した端末（`parsePtyId`）で、`--fork` の複製元になる。 */
 export function parseNewWorktreeArgs(
   argv: string[],
   cwd: string,
+  ptyId: number,
 ): Result<ParsedNewWorktree, string> {
   const flags: Partial<Record<NewWorktreeFlag, string>> = {};
-  let promptFromStdin = false;
+  const switches = new Set<NewWorktreeSwitch>();
   // オプション位置のトークンだけを解釈し、値は中身を見ずにそのまま取る。値まで走査すると
   // `--prompt "--dir=/tmp を直す"` のような「フラグに見える本文」が分解され、以降の対応が
   // ずれる。プロンプトはコマンド例を含みうるので現実に踏む
@@ -167,7 +169,7 @@ export function parseNewWorktreeArgs(
       // 値を取らないオプションに値が付いたら黙って捨てず弾く（`--prompt` の
       // 「値が要る」と対称に、「値を取らない」も誤りとして返す）
       if (eq !== -1) return { ok: false, error: `${name} takes no value` };
-      promptFromStdin = true;
+      switches.add(name);
       continue;
     }
     if (!isNewWorktreeFlag(name)) return { ok: false, error: `unknown option: ${name}` };
@@ -181,8 +183,13 @@ export function parseNewWorktreeArgs(
     i += 1;
   }
 
+  const promptFromStdin = switches.has("--prompt-stdin");
   if (promptFromStdin && flags["--prompt"] !== undefined) {
     return { ok: false, error: "--prompt and --prompt-stdin are mutually exclusive" };
+  }
+  const fork = switches.has("--fork");
+  if (fork && ptyId === 0) {
+    return { ok: false, error: "--fork must run in a gozd terminal" };
   }
 
   return {
@@ -191,6 +198,7 @@ export function parseNewWorktreeArgs(
       message: {
         dir: resolve(cwd, flags["--dir"] ?? "."),
         prompt: flags["--prompt"] ?? "",
+        forkPtyId: fork ? ptyId : 0,
       },
       promptFromStdin,
     },

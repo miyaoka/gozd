@@ -92,6 +92,9 @@ export interface NewWorktreeMessage {
   /** 起動した claude に引数で渡すプロンプト（送信され、そのまま実行が始まる）。
    * 空なら素の claude を起動する */
   prompt: string;
+  /** 会話を複製する元の端末（`GOZD_PTY_ID`）。その端末で動いているセッションを複製して
+   * 起動する。0 なら複製しない */
+  forkPtyId: number;
 }
 
 /** `gozd repo list` から送られる、gozd に登録された repo の問い合わせ。 */

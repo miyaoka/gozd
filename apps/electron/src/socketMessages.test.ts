@@ -112,6 +112,26 @@ describe("socketMessages", () => {
     expect(pushed).toEqual([]);
   });
 
+  test("newWorktree の複製は、端末でセッションが動いていなければ worktree を作る前に失敗する", async () => {
+    // git 管理外の dir を渡す。作成まで進めば作成失敗の理由が返るので、複製元の理由が
+    // 返ったことが「作る前に止めた」証拠になる
+    const dir = mkdtempSync(join(tmpdir(), "gozd-socket-fork-"));
+    tempDirs.push(dir);
+    const ptyId = 910003;
+    registerSpawn(ptyId, "/repo/wt");
+    const pushed: unknown[] = [];
+    const handle = createSocketMessageHandler((type) => pushed.push(type));
+    const reply = await handle(
+      JSON.stringify({ newWorktree: { dir, prompt: "続きをやる", forkPtyId: ptyId } }),
+    );
+    expect(JSON.parse(reply ?? "")).toEqual({
+      ok: false,
+      dir: "",
+      error: `newWorktree: no Claude session is running in terminal ${ptyId}`,
+    });
+    expect(pushed).toEqual([]);
+  });
+
   test("JSON として壊れた行は push せずに落とす（観察ログのみ）", async () => {
     const pushed: unknown[] = [];
     const handle = createSocketMessageHandler((type) => pushed.push(type));

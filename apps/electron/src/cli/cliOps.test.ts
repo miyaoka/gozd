@@ -192,49 +192,53 @@ describe("findBackgroundJobId", () => {
 
 describe("parseNewWorktreeArgs", () => {
   test("引数無しで cwd 起点の message になる", () => {
-    const parsed = parseNewWorktreeArgs([], "/repo");
+    const parsed = parseNewWorktreeArgs([], "/repo", 0);
     expect(parsed).toEqual({
       ok: true,
       value: {
-        message: { dir: "/repo", prompt: "" },
+        message: { dir: "/repo", prompt: "", forkPtyId: 0 },
         promptFromStdin: false,
       },
     });
   });
 
   test("--flag=value 形式も受ける", () => {
-    const parsed = parseNewWorktreeArgs(["--prompt=do it"], "/repo");
+    const parsed = parseNewWorktreeArgs(["--prompt=do it"], "/repo", 0);
     expect(parsed.ok && parsed.value.message.prompt).toBe("do it");
   });
 
   test("--dir は cwd 基準で絶対パスに解決する", () => {
-    const parsed = parseNewWorktreeArgs(["--dir", "../other"], "/repo/sub");
+    const parsed = parseNewWorktreeArgs(["--dir", "../other"], "/repo/sub", 0);
     expect(parsed.ok && parsed.value.message.dir).toBe("/repo/other");
   });
 
   test("フラグに見える本文を値として渡しても分解されない", () => {
     // プロンプトはコマンド例を含みうる。値まで走査すると以降の対応がずれる
-    const parsed = parseNewWorktreeArgs(["--prompt", "--dir=/tmp を渡している箇所を直す"], "/repo");
+    const parsed = parseNewWorktreeArgs(
+      ["--prompt", "--dir=/tmp を渡している箇所を直す"],
+      "/repo",
+      0,
+    );
     expect(parsed.ok && parsed.value.message.prompt).toBe("--dir=/tmp を渡している箇所を直す");
     expect(parsed.ok && parsed.value.message.dir).toBe("/repo");
   });
 
   test("複数行の本文はそのまま 1 つの値として渡る", () => {
     const body = '1 行目\n2 行目 `cmd` $HOME "quoted"';
-    const parsed = parseNewWorktreeArgs(["--prompt", body], "/repo");
+    const parsed = parseNewWorktreeArgs(["--prompt", body], "/repo", 0);
     expect(parsed.ok && parsed.value.message.prompt).toBe(body);
   });
 
   test("未知のオプションと値の無いオプションは失敗する", () => {
-    expect(parseNewWorktreeArgs(["--nope", "x"], "/repo")).toEqual({
+    expect(parseNewWorktreeArgs(["--nope", "x"], "/repo", 0)).toEqual({
       ok: false,
       error: "unknown option: --nope",
     });
-    expect(parseNewWorktreeArgs(["--title", "t"], "/repo")).toEqual({
+    expect(parseNewWorktreeArgs(["--title", "t"], "/repo", 0)).toEqual({
       ok: false,
       error: "unknown option: --title",
     });
-    expect(parseNewWorktreeArgs(["--dir"], "/repo")).toEqual({
+    expect(parseNewWorktreeArgs(["--dir"], "/repo", 0)).toEqual({
       ok: false,
       error: "--dir requires a value",
     });
@@ -243,28 +247,52 @@ describe("parseNewWorktreeArgs", () => {
 
 describe("parseNewWorktreeArgs (--prompt-stdin)", () => {
   test("値を取らないスイッチとして立ち、prompt は呼び出し側が埋める", () => {
-    const parsed = parseNewWorktreeArgs(["--prompt-stdin"], "/repo");
+    const parsed = parseNewWorktreeArgs(["--prompt-stdin"], "/repo", 0);
     expect(parsed.ok && parsed.value.promptFromStdin).toBe(true);
     expect(parsed.ok && parsed.value.message.prompt).toBe("");
   });
 
   test("スイッチの後ろのオプションを値として食わない", () => {
-    const parsed = parseNewWorktreeArgs(["--prompt-stdin", "--dir", "/x"], "/repo");
+    const parsed = parseNewWorktreeArgs(["--prompt-stdin", "--dir", "/x"], "/repo", 0);
     expect(parsed.ok && parsed.value.message.dir).toBe("/x");
   });
 
   test("値を付けたら失敗する（黙って捨てない）", () => {
-    expect(parseNewWorktreeArgs(["--prompt-stdin=hello"], "/repo")).toEqual({
+    expect(parseNewWorktreeArgs(["--prompt-stdin=hello"], "/repo", 0)).toEqual({
       ok: false,
       error: "--prompt-stdin takes no value",
     });
   });
 
   test("--prompt との併用は失敗する", () => {
-    const parsed = parseNewWorktreeArgs(["--prompt", "x", "--prompt-stdin"], "/repo");
+    const parsed = parseNewWorktreeArgs(["--prompt", "x", "--prompt-stdin"], "/repo", 0);
     expect(parsed).toEqual({
       ok: false,
       error: "--prompt and --prompt-stdin are mutually exclusive",
     });
+  });
+});
+
+describe("parseNewWorktreeArgs (--fork)", () => {
+  test("実行した端末を複製元として載せる", () => {
+    const parsed = parseNewWorktreeArgs(["--fork", "--prompt-stdin"], "/repo", 7);
+    expect(parsed.ok && parsed.value.message.forkPtyId).toBe(7);
+  });
+
+  test("付けなければ端末の中でも複製しない", () => {
+    const parsed = parseNewWorktreeArgs(["--prompt", "x"], "/repo", 7);
+    expect(parsed.ok && parsed.value.message.forkPtyId).toBe(0);
+  });
+
+  test("gozd の端末の外では失敗する", () => {
+    expect(parseNewWorktreeArgs(["--fork", "--prompt", "x"], "/repo", 0)).toEqual({
+      ok: false,
+      error: "--fork must run in a gozd terminal",
+    });
+  });
+
+  test("指示文が無くても複製できる（セッションを分けるだけ）", () => {
+    const parsed = parseNewWorktreeArgs(["--fork"], "/repo", 7);
+    expect(parsed.ok && parsed.value.message).toEqual({ dir: "/repo", prompt: "", forkPtyId: 7 });
   });
 });

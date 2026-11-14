@@ -16,8 +16,12 @@
  *   `gozd worktree new` が作業指示を渡す用途（切り出す側は相手が動き出すまでを指示している）
  *
  * 同時には片方しか意味を持たない。両方あるときは prompt を優先する。
+ *
+ * `forkSessionId` があれば、新しいセッションではなくそのセッションの複製を起動する
+ * （`claude --resume <id> --fork-session`）。`gozd worktree new --fork` が会話を引き継いだ
+ * まま作業を切り出す用途。
  */
-export type AutostartHint = { prefill?: string; prompt?: string };
+export type AutostartHint = { prefill?: string; prompt?: string; forkSessionId?: string };
 
 /**
  * leaf に積まれた起動ヒントを消費する。読み取りと削除を 1 か所に閉じ、

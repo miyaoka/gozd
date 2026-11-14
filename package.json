@@ -10,7 +10,7 @@
     "build:all": "pnpm -r --include-workspace-root --if-present run build",
     "build:app": "pnpm --filter @gozd/electron build:app",
     "open:app": "open \"apps/electron/out/mac-arm64/Gozd Local.app\"",
-    "lint": "bun lint --type-aware --ignore-pattern 'apps/**' --ignore-pattern 'packages/**'",
+    "lint:repo": "bun lint --no-script",
     "fix": "bun fmt '!apps/**' '!packages/**'",
     "lint:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run lint",
     "fix:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run fix",
@@ -19,7 +19,6 @@
     "test:browser:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run test:browser",
     "typecheck:all": "pnpm -r --include-workspace-root --if-present run typecheck",
     "knip": "knip",
-    "gate": "bun test gate",
     "prepare": "lefthook install"
   },
   "devDependencies": {

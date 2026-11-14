@@ -30,12 +30,6 @@ catalogs:
     lefthook:
       specifier: 2.2.2
       version: 2.2.2
-    oxlint:
-      specifier: 1.90.0
-      version: 1.90.0
-    oxlint-tsgolint:
-      specifier: 7.0.2005
-      version: 7.0.2005
     tailwindcss:
       specifier: 4.3.5
       version: 4.3.5
@@ -232,12 +226,6 @@ importers:
       eslint-plugin-vue:
         specifier: 10.12.1
         version: 10.12.1(@typescript-eslint/parser@8.71.2(@typescript/typescript6@6.0.2)(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2))(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(vue-eslint-parser@10.4.2(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2))
-      oxlint:
-        specifier: 'catalog:'
-        version: 1.90.0(oxlint-tsgolint@7.0.2005)
-      oxlint-tsgolint:
-        specifier: 'catalog:'
-        version: 7.0.2005
       playwright:
         specifier: 1.64.1
         version: 1.64.1
@@ -8652,6 +8640,7 @@ snapshots:
       '@oxlint-tsgolint/linux-x64': 7.0.2005
       '@oxlint-tsgolint/win32-arm64': 7.0.2005
       '@oxlint-tsgolint/win32-x64': 7.0.2005
+    optional: true
 
   oxlint@1.90.0(oxlint-tsgolint@7.0.2005):
     optionalDependencies:
@@ -8675,6 +8664,7 @@ snapshots:
       '@oxlint/binding-win32-ia32-msvc': 1.90.0
       '@oxlint/binding-win32-x64-msvc': 1.90.0
       oxlint-tsgolint: 7.0.2005
+    optional: true
 
   p-cancelable@2.1.1: {}
 

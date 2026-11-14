@@ -69,7 +69,7 @@ repo root 直下に固定でファイル名も機能名と一致するため、�
 | CSS                | Tailwind CSS v4                                                             |
 | アイコン           | unplugin-icons（per-icon component import）                                 |
 | フォーマッタ       | bun fmt（`.oxfmtrc.json` があると oxfmt 互換、無いと Prettier 互換で整形）  |
-| リンター           | bun lint（TypeScript）/ oxlint（renderer の `.ts`）/ ESLint（Vue）          |
+| リンター           | bun lint（repo 全体の `.ts`）/ ESLint（renderer）                           |
 | 型チェック         | bun check（TypeScript）/ vue-tsc（renderer）                                |
 | ターミナル         | xterm.js                                                                    |
 | PTY                | node-pty                                                                    |
@@ -168,11 +168,11 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 - `pnpm --filter @gozd/electron build:app` — `.app` バンドルを生成（無指定は local channel の
   `apps/electron/out/mac-arm64/Gozd Local.app`。stable identity は release CI のみ。docs/release.md）
 
-全チェックはルートの `pnpm run typecheck:all` / `pnpm run lint:all` / `pnpm run test:all` / `pnpm run test:browser:all` / `pnpm run build:all` / `pnpm run knip` / `pnpm run gate` で行う（CI の `code_validation.yml` matrix 7 本と同一）。`test:browser:all` は実ブラウザ (Chromium) で走るテストで、browser 未取得のときと playwright を更新したときに `pnpm --filter @gozd/renderer run test:browser:setup` が要る。`fix` は commit 時の hook が担うため手動実行は不要で、PR の gate にも入れない。取りこぼした整形差分は `daily-fix.yml` が日次で `fix:all` を全件実行し、bot PR + auto merge で返済する。pnpm 11 は `pnpm run` 実行時に node_modules を自動インストールするため、事前の手動 install は不要。
+全チェックはルートの `pnpm run typecheck:all` / `pnpm run lint:all` / `pnpm run lint:repo` / `pnpm run test:all` / `pnpm run test:browser:all` / `pnpm run build:all` / `pnpm run knip` で行う（CI の `code_validation.yml` matrix 7 本と同一）。`test:browser:all` は実ブラウザ (Chromium) で走るテストで、browser 未取得のときと playwright を更新したときに `pnpm --filter @gozd/renderer run test:browser:setup` が要る。`fix` は commit 時の hook が担うため手動実行は不要で、PR の gate にも入れない。取りこぼした整形差分は `daily-fix.yml` が日次で `fix:all` を全件実行し、bot PR + auto merge で返済する。pnpm 11 は `pnpm run` 実行時に node_modules を自動インストールするため、事前の手動 install は不要。
 
 - **検出された違反は severity を問わず exit code に出る。** 出力に載っていても判定に入らない警告を作らない。判定の SSOT は exit code であり、読み手の注意力に依存する検出は無いのと同じ
-- **ある規則を実行する runner は、その規則が見るファイルを持つ workspace に置く。** CI の差分フィルタは変更のあった package とその依存元しか選ばないため、規則の唯一の実行者が別の package にあると、そのファイルを触った PR では誰もその規則を実行しない。違反は後続の無関係な PR で初めて落ち、触っていない人が原因を追うことになる。同じファイルを複数の runner が見ること自体は禁じない（renderer の `.ts` は eslint と oxlint の両方が見る）
-- **gate を新設・変更するときは、CI と pre-commit の走査範囲を揃える。** 片方にしか無い範囲は「ローカルで通って CI で落ちる」を作り、その範囲のファイルを触った人は落ちる理由を手元で再現できない
+- **規則の runner は、その規則が見るファイルを変えた PR で必ず選ばれる位置に置く。** CI の差分フィルタは変更のあった package とその依存元しか選ばないため、規則の唯一の実行者が別の package にあると、そのファイルを触った PR では誰もその規則を実行しない。違反は後続の無関係な PR で初めて落ち、触っていない人が原因を追うことになる。1 つの workspace に閉じる規則はその workspace に、repo 全体を見る規則は差分フィルタを持たないレーンに置く。同じファイルを複数の runner が見ること自体は禁じない
+- **CI と pre-commit は同じ選び方で走らせ、走査範囲の写しを作らない。** 片方にしか無い範囲は「ローカルで通って CI で落ちる」を作り、その範囲のファイルを触った人は落ちる理由を手元で再現できない。workspace ごとのジョブや除外の列挙のような写しは、置き場の増減とずれても検査に掛からない。pre-commit は CI の差分モードと同じ規則で package を選び、repo 全体を見る規則は CI と同じく 1 回で走らせる
 - import の整理（未使用 import の削除、並び替え）は commit 時に lint が自動実行する。手動で整理しない
 - テストをどちらの runner に置くかの判断基準は project-local skill [`.claude/skills/test/SKILL.md`](.claude/skills/test/SKILL.md)（Claude Code 自動適用）
 

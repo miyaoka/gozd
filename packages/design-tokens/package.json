@@ -11,7 +11,7 @@
     "prepare": "bun src/generateTokens.ts",
     "typecheck": "bun check",
     "lint": "bun lint --type-aware",
-    "fix": "bun lint --no-script --type-aware --fix && bun fmt ."
+    "fix": "bun lint --fix && bun fmt ."
   },
   "devDependencies": {
     "@adobe/leonardo-contrast-colors": "1.1.0",

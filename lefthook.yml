@@ -60,22 +60,22 @@ pre-commit:
             exclude:
               - "apps/**"
               - "packages/**"
-            run: bun lint --no-script --type-aware --fix {staged_files} && bun fmt {staged_files}
+            run: bun lint --fix {staged_files} && bun fmt {staged_files}
             stage_fixed: true
           - name: lint-shared
             root: "packages/shared/"
             glob: "**/*.ts"
-            run: bun lint --no-script --type-aware --fix {staged_files} && bun fmt {staged_files}
+            run: bun lint --fix {staged_files} && bun fmt {staged_files}
             stage_fixed: true
           - name: lint-claude-session-log
             root: "packages/claude-session-log/"
             glob: "**/*.ts"
-            run: bun lint --no-script --type-aware --fix {staged_files} && bun fmt {staged_files}
+            run: bun lint --fix {staged_files} && bun fmt {staged_files}
             stage_fixed: true
           - name: lint-electron
             root: "apps/electron/"
             glob: "**/*.ts"
-            run: bun lint --no-script --type-aware --fix {staged_files} && bun fmt {staged_files}
+            run: bun lint --fix {staged_files} && bun fmt {staged_files}
             stage_fixed: true
           - name: typecheck-themes
             root: "packages/themes/"
@@ -84,7 +84,7 @@ pre-commit:
           - name: lint-themes
             root: "packages/themes/"
             glob: "{src,scripts}/**/*.ts"
-            run: bun lint --no-script --type-aware --fix {staged_files} && bun fmt {staged_files}
+            run: bun lint --fix {staged_files} && bun fmt {staged_files}
             stage_fixed: true
 
           # apps/renderer: eslint が .ts / .vue の全ファイルを見る。ここから .ts を外して oxlint

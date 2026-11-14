@@ -77,15 +77,13 @@ pre-commit:
             glob: "**/*.ts"
             run: bun lint --fix {staged_files} && bun fmt {staged_files}
             stage_fixed: true
-          # glob は root に関係なく repo root から評価される。root 配下の一部に絞るときは
-          # root のパスから書く（`{src,scripts}/**` では repo root の scripts/ にしか当たらない）
           - name: typecheck-themes
             root: "packages/themes/"
-            glob: "packages/themes/{src,scripts}/**/*.ts"
+            glob: "**/*.ts"
             run: pnpm run typecheck
           - name: lint-themes
             root: "packages/themes/"
-            glob: "packages/themes/{src,scripts}/**/*.ts"
+            glob: "**/*.ts"
             run: bun lint --fix {staged_files} && bun fmt {staged_files}
             stage_fixed: true
 

@@ -31,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ルートの集約スクリプトは 7 種あるが、matrix は fix を除いた 6 本。自動修正できる
+          # ルートの集約スクリプトは 8 種あるが、matrix は fix を除いた 7 本。自動修正できる
           # 違反で PR を止めず、daily-fix workflow が日次の全件実行で返済する
           # （.github/workflows/daily-fix.yml）
           #
@@ -78,6 +78,11 @@ jobs:
           # （CI 側は --fix なしで検査のみ）
           - name: knip
             full_script: knip
+
+          # gate（gate/）は lefthook.yml・各 package.json・追跡ファイルを 1 単位で検査する。
+          # workspace だけを触った PR でも走らせるため、knip と同じく差分フィルタを持たない
+          - name: gate
+            full_script: gate
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

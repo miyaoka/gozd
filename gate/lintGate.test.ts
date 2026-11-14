@@ -155,8 +155,9 @@ describe("lint gate", () => {
   });
 });
 
-// root runner の除外は pnpm-workspace.yaml の写し。書き漏らすと root runner が workspace を拾い、
-// 同じ違反が root と workspace の 2 レーンから出る
+// root runner の除外は pnpm-workspace.yaml の写しで、CI（package.json）と pre-commit
+// （lefthook.yml）の 2 箇所にある。どちらも glob が repo 全体に届く形なので、置き場が増えたときに
+// 書き漏らすと root runner が workspace を拾い、同じ違反が root と workspace の 2 レーンから出る
 describe("lint の走査範囲", () => {
   // 下の 2 つは workspaceParents() が空を返しても「除外漏れなし」として通る。置き場の取り出しが
   // 空振りしている状態と、本当に漏れが無い状態を撃ち分けるため、土台を先に固定する
@@ -171,8 +172,6 @@ describe("lint の走査範囲", () => {
     }
   });
 
-  // root runner の除外は CI（package.json）と pre-commit（lefthook.yml）の 2 箇所に写しがあり、
-  // どちらも glob が repo 全体に届く形なので、置き場が増えたときに書き漏らすと拾ってしまう
   test("CI の root runner は workspace を走査しない", () => {
     const rootLint = rootLintScript();
     const uncovered = workspaceParents().filter(

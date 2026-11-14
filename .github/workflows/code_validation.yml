@@ -50,9 +50,17 @@ jobs:
             script: typecheck
             full_script: typecheck:all
 
+          # workspace 固有の linter（renderer の eslint と feature 循環）。.ts 全体の bun lint は
+          # lint:repo が担う
           - name: lint
             script: lint
             full_script: lint:all
+
+          # bun lint は repo 全体の .ts を 1 回で走査する。workspace ごとに分けると root の実行から
+          # workspace を除外する指定が要り、その写しが置き場の増減とずれる。repo 全体を見るので
+          # knip と同じく差分フィルタを持たない
+          - name: lint:repo
+            full_script: lint:repo
 
           - name: test
             script: test
@@ -78,11 +86,6 @@ jobs:
           # （CI 側は --fix なしで検査のみ）
           - name: knip
             full_script: knip
-
-          # gate（gate/）は lefthook.yml・各 package.json・追跡ファイルを 1 単位で検査する。
-          # workspace だけを触った PR でも走らせるため、knip と同じく差分フィルタを持たない
-          - name: gate
-            full_script: gate
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

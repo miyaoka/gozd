@@ -30,8 +30,6 @@ catalog:
   eslint-plugin-import-x: 4.18.1
   eslint-plugin-unused-imports: 4.4.1
   lefthook: 2.2.2
-  oxlint: 1.90.0
-  oxlint-tsgolint: 7.0.2005
   tailwindcss: 4.3.5
   # TS7 (native) は programmatic API を持たない（7.1 で新 API 予定）ため、compiler API を
   # 埋め込む tooling（vue-tsc / typescript-eslint）は TS6 に据え置く。`typescript` の import 名は

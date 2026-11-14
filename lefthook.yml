@@ -7,146 +7,27 @@ output:
 pre-commit:
   piped: true
   jobs:
-    # typecheck / test / lint+fix を並列実行
+    # 検査と、互いに同じファイルを書き換えない修正を並列実行
     - name: checks-and-fixes
       group:
         parallel: true
         jobs:
-          - name: typecheck-shared
-            root: "packages/shared/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
-          - name: typecheck-claude-session-log
-            root: "packages/claude-session-log/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
-          - name: typecheck-renderer
-            root: "apps/renderer/"
-            glob: "**/*.{ts,vue}"
-            run: pnpm run typecheck
-          - name: typecheck-electron
-            root: "apps/electron/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
-          - name: typecheck-rpc
-            root: "packages/rpc/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
-          - name: typecheck-design-tokens
-            root: "packages/design-tokens/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
-          - name: typecheck-eslint-plugin
-            root: "packages/eslint-plugin/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
-          - name: typecheck-shiki-lang-map
-            root: "packages/shiki-lang-map/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
-          - name: test-root
-            glob: "scripts/**/*.ts"
-            run: pnpm run test
-          # gate は repo 全体の設定（lefthook.yml・各 package.json・追跡ファイル）を 1 単位で
-          # 検査するため glob を持たず、CI でも差分フィルタの無いレーンで走る
-          - name: gate
-            run: pnpm run gate
-          - name: test-shared
-            root: "packages/shared/"
-            glob: "**/*.ts"
-            run: pnpm run test
-          - name: test-claude-session-log
-            root: "packages/claude-session-log/"
-            glob: "**/*.ts"
-            run: pnpm run test
-          - name: test-renderer
-            root: "apps/renderer/"
-            glob: "**/*.ts"
-            run: pnpm run test
-          - name: test-electron
-            root: "apps/electron/"
-            glob: "**/*.ts"
-            run: pnpm run test
-          - name: test-eslint-plugin
-            root: "packages/eslint-plugin/"
-            glob: "**/*.ts"
-            run: pnpm run test
-          - name: test-shiki-lang-map
-            root: "packages/shiki-lang-map/"
-            glob: "**/*.ts"
-            run: pnpm run test
+          # 対象の package は CI の差分モードと同じ選び方（変更した package とその依存元）で
+          # 選ぶ。基準を HEAD にするので、commit に入る変更を持つ package が必ず選ばれる。
+          # workspace ごとにジョブを並べないため、package を足しても書き足す箇所が無い
+          - name: typecheck
+            run: pnpm --filter "...[HEAD]" --if-present --no-bail --aggregate-output --reporter=append-only typecheck
+          - name: test
+            run: pnpm --filter "...[HEAD]" --if-present --no-bail --aggregate-output --reporter=append-only test
 
-          # Formatter（ts/vue 以外。ts/vue は各 linter ジョブで bun fmt を実行）
+          # Formatter（css / md。.ts は lint ジョブ、.vue は renderer の group が整形する）
           - name: fmt
             glob: "**/*.{css,md}"
             run: bun fmt {staged_files}
             stage_fixed: true
 
-          # Linter + Formatter
-          #
-          # root runner が担うのは workspace の外にある .ts。範囲は root の package.json の
-          # lint と揃える（片方にしか無い範囲は「ローカルで通って CI で落ちる」を作る）
-          - name: lint-root
-            glob: "**/*.ts"
-            exclude:
-              - "apps/**"
-              - "packages/**"
-            run: bun lint --fix {staged_files} && bun fmt {staged_files}
-            stage_fixed: true
-          - name: lint-shared
-            root: "packages/shared/"
-            glob: "**/*.ts"
-            run: bun lint --fix {staged_files} && bun fmt {staged_files}
-            stage_fixed: true
-          - name: lint-claude-session-log
-            root: "packages/claude-session-log/"
-            glob: "**/*.ts"
-            run: bun lint --fix {staged_files} && bun fmt {staged_files}
-            stage_fixed: true
-          - name: lint-electron
-            root: "apps/electron/"
-            glob: "**/*.ts"
-            run: bun lint --fix {staged_files} && bun fmt {staged_files}
-            stage_fixed: true
-          - name: typecheck-themes
-            root: "packages/themes/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
-          - name: lint-themes
-            root: "packages/themes/"
-            glob: "**/*.ts"
-            run: bun lint --fix {staged_files} && bun fmt {staged_files}
-            stage_fixed: true
-          - name: lint-rpc
-            root: "packages/rpc/"
-            glob: "**/*.ts"
-            run: bun lint --fix {staged_files} && bun fmt {staged_files}
-            stage_fixed: true
-          - name: lint-design-tokens
-            root: "packages/design-tokens/"
-            glob: "**/*.ts"
-            run: bun lint --fix {staged_files} && bun fmt {staged_files}
-            stage_fixed: true
-          - name: lint-eslint-plugin
-            root: "packages/eslint-plugin/"
-            glob: "**/*.ts"
-            run: bun lint --fix {staged_files} && bun fmt {staged_files}
-            stage_fixed: true
-          - name: lint-shiki-lang-map
-            root: "packages/shiki-lang-map/"
-            glob: "**/*.ts"
-            run: bun lint --fix {staged_files} && bun fmt {staged_files}
-            stage_fixed: true
-
-          # apps/renderer: eslint が .ts / .vue の全ファイルを見る。ここから .ts を外して oxlint
-          # だけに回すと eslint 専用ルール (import-x/order 等) が .ts で抜け、CI の fix:all
-          # (eslint 全ファイル) でのみ差分が出て「ローカルは通るが CI が落ちる」ギャップになる。
-          # oxlint は .ts の type-aware ルールを見る担当として eslint に重ねる (eslint の
-          # recommended は型情報を使わないため)。規則集合は一部重なるが、重なる側 (未使用変数
-          # 等) の fix は oxlint 側で suggestion 扱いなので `--fix` は適用せず、eslint が直した
-          # ものを書き戻さない。`--fix-suggestions` / `--fix-dangerously` を足すとこれが崩れる。
-          # ジョブの並びは renderer の fix スクリプトと同じにして、pre-commit と fix:all が
-          # 同じ結果へ収束するようにする。
+          # apps/renderer: eslint が .ts / .vue を見る（Vue・Tailwind・バレル・import 順など
+          # renderer 固有の規則）。.ts の型を見る規則は後段の lint ジョブが担う。
           # 同一ファイルへの競合を避けるため piped で直列実行。
           # 親 group には glob を置かない: lefthook の group は親 glob と子 glob を
           # OR（和集合）で連結するため、親 glob は子を絞り込めず追加にしかならない。
@@ -165,17 +46,8 @@ pre-commit:
                   # 解決しないため、binary 直呼びの参照は repo root 帰属になり未宣言扱いになる
                   run: pnpm run fix:staged {staged_files}
                   stage_fixed: true
-                # .ts の type-aware 検査と自動修正。renderer の fix スクリプトと同じ順序で
-                # 並べ、pre-commit と fix:all が同じ結果に収束するようにする。
-                # .vue は oxlint の ignorePatterns で除外済み。eslint と同じ理由で script 経由にする
-                - name: oxlint
-                  glob: "**/*.ts"
-                  run: pnpm run fix:staged:oxlint {staged_files}
-                  stage_fixed: true
-                # formatter は対象拡張子を明示し、{ts,vue,css,md} に限定する。
-                # 整形が最後に走ることで 1 パスで固定点に達する
                 - name: fmt
-                  glob: "**/*.{ts,vue,css,md}"
+                  glob: "**/*.vue"
                   run: bun fmt {staged_files}
                   stage_fixed: true
                 # feature 間循環は増分で判定できない（グラフ全体の性質）ため全体走査で
@@ -183,6 +55,15 @@ pre-commit:
                 - name: feature-cycles
                   glob: "**/*.{ts,vue}"
                   run: bun scripts/checkFeatureCycles.ts
+
+    # repo の全 .ts を 1 回の bun lint で検査・修正し、整形する。CI の lint:repo と同じく
+    # workspace で分けないので、除外の指定が要らない。renderer の eslint が同じ .ts を
+    # 書き換えるため、その後に直列で走らせる（renderer の fix スクリプトと同じ
+    # eslint → bun lint → bun fmt の順で、pre-commit と fix:all が同じ結果に収束する）
+    - name: lint
+      glob: "**/*.ts"
+      run: bun lint --no-script --type-aware --fix {staged_files} && bun fmt {staged_files}
+      stage_fixed: true
 
     # fix 系ジョブ完了後に実行（stage_fixed によるファイル書き換え後の状態で解析）
     # --fix で未使用 export を自動削除して stage に乗せる。

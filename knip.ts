@@ -1,6 +1,9 @@
 import type { KnipConfig } from "knip";
 
 const config: KnipConfig = {
+  // `bun lint` は bun の組み込みコマンドだが、knip の bun resolver の組み込み一覧（`fmt` / `check`
+  // は載っている）に無く、`lint` というバイナリとして扱われる。一覧に載ったら外す
+  ignoreBinaries: ["lint"],
   workspaces: {
     ".": {},
     "apps/electron": {

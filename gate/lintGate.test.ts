@@ -40,11 +40,19 @@ function rootLintScript(): string {
 type LefthookJob = {
   name?: string;
   root?: string;
-  glob?: string;
-  exclude?: string[];
+  glob?: string | string[];
+  exclude?: string | string[];
   run?: string;
   group?: { jobs?: LefthookJob[] };
 };
+
+type PreCommitHook = { exclude?: string | string[]; jobs?: LefthookJob[] };
+
+/** lefthook の設定値は 1 件なら文字列、複数なら配列で書ける */
+function toList(value: string | string[] | undefined): string[] {
+  if (value === undefined) return [];
+  return typeof value === "string" ? [value] : value;
+}
 
 /** 入れ子の深さに依存せず job を名前で引く。group の階層は lefthook 側の都合で動く */
 function findJob(jobs: LefthookJob[], name: string): LefthookJob | undefined {
@@ -56,25 +64,35 @@ function findJob(jobs: LefthookJob[], name: string): LefthookJob | undefined {
   return undefined;
 }
 
-function preCommitJobs(): LefthookJob[] {
-  const lefthook = YAML.parse(read("lefthook.yml")) as {
-    "pre-commit"?: { jobs?: LefthookJob[] };
-  };
-  return lefthook["pre-commit"]?.jobs ?? [];
+function preCommitHook(): PreCommitHook {
+  const lefthook = YAML.parse(read("lefthook.yml")) as { "pre-commit"?: PreCommitHook };
+  return lefthook["pre-commit"] ?? {};
 }
 
 /** pre-commit で root runner を担うジョブ */
 function rootJob(): LefthookJob | undefined {
-  return findJob(preCommitJobs(), "lint-root");
+  return findJob(preCommitHook().jobs ?? [], "lint-root");
 }
 
-/** group を展開した、コマンドを持つジョブの一覧。group の root は子のジョブに引き継ぐ */
-function flattenJobs(jobs: LefthookJob[], parentRoot?: string): LefthookJob[] {
-  return jobs.flatMap((job) => {
-    const root = job.root ?? parentRoot;
-    if (job.group) return flattenJobs(job.group.jobs ?? [], root);
-    return [{ ...job, root }];
-  });
+/** コマンドを持つジョブと、lefthook がそのジョブのファイルを絞るのに使う条件 */
+type ResolvedJob = { run: string; root: string | undefined; globs: string[]; excludes: string[] };
+
+/**
+ * group を展開する。子のジョブは lefthook と同じく、親の root を自分の root が無いときに使い、
+ * 親の glob と exclude に自分のものを足す。hook 直下の exclude は全ジョブに掛かる
+ */
+function resolveJobs(hook: PreCommitHook): ResolvedJob[] {
+  const walk = (jobs: LefthookJob[], parent: Omit<ResolvedJob, "run">): ResolvedJob[] =>
+    jobs.flatMap((job) => {
+      const scope = {
+        root: job.root ?? parent.root,
+        globs: [...parent.globs, ...toList(job.glob)],
+        excludes: [...parent.excludes, ...toList(job.exclude)],
+      };
+      if (job.group) return walk(job.group.jobs ?? [], scope);
+      return [{ ...scope, run: job.run ?? "" }];
+    });
+  return walk(hook.jobs ?? [], { root: undefined, globs: [], excludes: toList(hook.exclude) });
 }
 
 /** repo root と pnpm-workspace.yaml が列挙する workspace。`dir` は repo root からの相対（root は "."） */
@@ -99,32 +117,36 @@ function trackedFiles(): string[] {
   return result.stdout.toString().split("\n").filter(Boolean);
 }
 
-/** lefthook のジョブ定義から repo root の `.`（root 指定なし）か workspace のパスを取り出す */
-function jobDir(job: LefthookJob): string {
+/** ジョブの root から repo root の `.`（root 指定なし）か workspace のパスを取り出す */
+function jobDir(job: ResolvedJob): string {
   return job.root ? job.root.replace(/\/$/, "") : ".";
 }
 
 /**
  * ジョブが受け取る追跡済みファイル。lefthook は root でファイルを root 配下に絞り、glob と
- * exclude は root に関係なく repo root からのパスに当てる
+ * exclude は root に関係なく repo root からのパスに当てる。glob が複数あればどれかに当たればよい
  */
-function filesForJob(job: LefthookJob, files: string[]): string[] {
+function filesForJob(job: ResolvedJob, files: string[]): string[] {
   const dir = jobDir(job);
-  const glob = new Bun.Glob(job.glob ?? "**/*");
-  const excludes = (job.exclude ?? []).map((pattern) => new Bun.Glob(pattern));
+  const globs = job.globs.map((pattern) => new Bun.Glob(pattern));
+  const excludes = job.excludes.map((pattern) => new Bun.Glob(pattern));
   return files.filter(
     (file) =>
       (dir === "." || file.startsWith(`${dir}/`)) &&
-      glob.match(file) &&
+      (globs.length === 0 || globs.some((glob) => glob.match(file))) &&
       !excludes.some((exclude) => exclude.match(file)),
   );
 }
 
-/** pre-commit が実行すべき検査と、それを実行するジョブの run の見分け方 */
+/**
+ * pre-commit が実行すべき package.json のスクリプトと、それを実行するジョブの run。
+ * renderer の lint は eslint（fix:staged）と oxlint（fix:staged:oxlint）の 2 ジョブで分けて担う。
+ * 判定は担い手が 1 つあれば足りるとみなすので、片方が欠けても落ちない
+ */
 const CHECKS: { script: string; runs: RegExp }[] = [
-  { script: "typecheck", runs: /\btypecheck\b/ },
-  { script: "lint", runs: /\b(lint|oxlint|eslint)\b|\bfix:staged\b/ },
-  { script: "test", runs: /\btest\b/ },
+  { script: "typecheck", runs: /\bpnpm run typecheck(\s|$)/ },
+  { script: "lint", runs: /\bbun lint(\s|$)|\bpnpm run fix:staged(:oxlint)?(\s|$)/ },
+  { script: "test", runs: /\bpnpm run test(\s|$)/ },
 ];
 
 describe("lint gate", () => {
@@ -177,17 +199,19 @@ describe("lint の走査範囲", () => {
 // ジョブが無いか、ジョブの glob が何にも当たらないと、その workspace の違反は CI で初めて見つかる。
 // glob が当たらないジョブは lefthook が黙ってスキップするので、走らないことに誰も気づけない
 describe("pre-commit の workspace 網羅", () => {
-  // 下の検査は workspaces() が空でも「欠けが無い」として通る。取り出しの空振りを撃ち分ける
+  // 下の検査は workspace や追跡ファイルの取り出しが空でも「欠けが無い」として通る。取り出しの
+  // 空振りを撃ち分けるため、pnpm-workspace.yaml の置き場ごとに workspace が取れることを先に固定する
   test("workspace と追跡ファイルを取り出せる", () => {
     const dirs = workspaces().map((workspace) => workspace.dir);
     expect(dirs).toContain(".");
-    expect(dirs).toContain("apps/electron");
-    expect(dirs).toContain("packages/shared");
+    for (const parent of workspaceParents()) {
+      expect(dirs.some((dir) => dir.startsWith(`${parent}/`))).toBe(true);
+    }
     expect(trackedFiles()).toContain("lefthook.yml");
   });
 
-  test("CI が実行する検査ごとに、ファイルに当たる pre-commit のジョブがある", () => {
-    const jobs = flattenJobs(preCommitJobs());
+  test("typecheck / lint / test ごとに、ファイルに当たる pre-commit のジョブがある", () => {
+    const jobs = resolveJobs(preCommitHook());
     const files = trackedFiles();
     const missing = workspaces().flatMap(({ dir, scripts }) =>
       CHECKS.filter(({ script }) => script in scripts)
@@ -195,9 +219,7 @@ describe("pre-commit の workspace 網羅", () => {
           ({ runs }) =>
             !jobs.some(
               (job) =>
-                jobDir(job) === dir &&
-                runs.test(job.run ?? "") &&
-                filesForJob(job, files).length > 0,
+                jobDir(job) === dir && runs.test(job.run) && filesForJob(job, files).length > 0,
             ),
         )
         .map(({ script }) => `${dir}: ${script}`),

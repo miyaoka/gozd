@@ -44,10 +44,13 @@ pre-commit:
             root: "packages/shiki-lang-map/"
             glob: "**/*.ts"
             run: pnpm run typecheck
-          # root の test は lint gate の宣言（lefthook.yml・package.json 等）も検査する
           - name: test-root
-            glob: "{scripts/**/*.ts,lefthook.yml,**/package.json,pnpm-workspace.yaml,.oxlintrc.json}"
+            glob: "scripts/**/*.ts"
             run: pnpm run test
+          # gate は repo 全体の設定（lefthook.yml・各 package.json・追跡ファイル）を 1 単位で
+          # 検査するため glob を持たず、CI でも差分フィルタの無いレーンで走る
+          - name: gate
+            run: pnpm run gate
           - name: test-shared
             root: "packages/shared/"
             glob: "**/*.ts"

@@ -476,6 +476,17 @@ export interface CreateWorktreeRequest {
   branch: string;
   startPoint: string;
 }
+
+// forkWorktree: Claude セッションを複製して起動するための worktree を 1 つ作成する。
+//
+// 複製元のセッションを確かめてから作る。見つからなければ worktree を作らずに失敗する。
+// 起点 ref と名前は branch / startPoint を空にした createWorktree と同じ。複製の起動は呼び出し元が担う。
+export interface ForkWorktreeRequest {
+  /** repo 内の任意の dir。main 側で main repo root に解決する */
+  dir: string;
+  /** 複製元の Claude セッションの ID */
+  sessionId: string;
+}
 export interface CreateWorktreeResponse {
   /** 解決済みの main repo root。renderer は自身で解決せずこの値を worktree の帰属先に使う */
   rootDir: string;

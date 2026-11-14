@@ -11,6 +11,7 @@ export type { PathTarget } from "./pathUtils";
 export { ensureRepoRegistered } from "./ensureRepoRegistered";
 export {
   rpcCreateWorktree,
+  rpcForkWorktree,
   rpcGitGithubIdentity,
   rpcGitPrList,
   rpcGitWorktreeList,

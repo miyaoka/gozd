@@ -21,6 +21,7 @@ import type {
   ClipboardCopyFilesResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
+  ForkWorktreeRequest,
   EchoRequest,
   EchoResponse,
   FsReadDirRequest,
@@ -183,7 +184,7 @@ import {
   type FileChangeInfo,
 } from "./git/gitTree";
 import { validateRev } from "./git/gitValidate";
-import { resolveAndCreateWorktree } from "./git/worktreeCreate";
+import { createForkWorktree, resolveAndCreateWorktree } from "./git/worktreeCreate";
 import {
   createWorktree,
   pruneWorktrees,
@@ -856,15 +857,22 @@ async function handleGitViewer(body: unknown): Promise<unknown> {
   } satisfies GitViewerResponse;
 }
 
+function toCreateWorktreeResponse({
+  rootDir,
+  info,
+  setupScript,
+}: Awaited<ReturnType<typeof resolveAndCreateWorktree>>): CreateWorktreeResponse {
+  return { rootDir, worktree: toWorktreeEntry(info), dir: info.path, setupScript };
+}
+
 async function handleCreateWorktree(body: unknown): Promise<unknown> {
   const req = body as CreateWorktreeRequest;
-  const { rootDir, info, setupScript } = await resolveAndCreateWorktree(req);
-  return {
-    rootDir,
-    worktree: toWorktreeEntry(info),
-    dir: info.path,
-    setupScript,
-  } satisfies CreateWorktreeResponse;
+  return toCreateWorktreeResponse(await resolveAndCreateWorktree(req));
+}
+
+async function handleForkWorktree(body: unknown): Promise<unknown> {
+  const req = body as ForkWorktreeRequest;
+  return toCreateWorktreeResponse(await createForkWorktree(req.dir, req.sessionId));
 }
 
 async function handleWorktreeRemove(body: unknown): Promise<unknown> {
@@ -1141,6 +1149,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/revReachable", handleGitRevReachable],
   ["/git/resetMixed", handleGitResetMixed],
   ["/git/createWorktree", handleCreateWorktree],
+  ["/git/forkWorktree", handleForkWorktree],
   ["/git/worktreeRemove", handleWorktreeRemove],
   ["/git/prList", handleGitPrList],
   ["/git/prsForBranches", handleGitPrsForBranches],

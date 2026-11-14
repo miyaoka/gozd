@@ -1,8 +1,8 @@
 /**
  * 作成直後の worktree を UI に載せ、初期 leaf で claude を起動する。
  *
- * PR / issue picker（RPC で作る経路）と `gozd worktree new`（main が作って push する経路）が
- * 共有する後段。作成手段が違っても「開いた後どうなるか」は同じでなければならない。
+ * RPC で作る経路と、main が作って push する経路（`gozd worktree new`）が共有する後段。
+ * 作成手段が違っても「開いた後どうなるか」は同じでなければならない。
  * 違うのは選択を動かすかどうかだけで、それは呼び出し元が reveal で宣言する。
  */
 import type { CreateWorktreeResponse } from "@gozd/rpc";

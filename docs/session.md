@@ -129,7 +129,10 @@ Inactive
 
 ### 行のメニュー
 
-「Show session log」だけを持つ（下記）。
+- **Show session log**: セッションログを開く（「セッションログの表示」）
+- **Fork into new worktree**: その行のセッションの会話を複製し、新しい worktree で起動する。
+  複製の契約は「会話を複製して切り出す」に従い、指示は渡さない。人の操作が起点なので、作った
+  worktree へ切り替える。worktree を作れない project（窓口、git 管理外）の行には出さない
 
 ## PR / issue から worktree を作る
 

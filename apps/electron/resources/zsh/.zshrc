@@ -110,8 +110,8 @@ _gozd_resume_claude() {
 #
 # 両方あるときは PROMPT を優先する。
 #
-# GOZD_FORK_CLAUDE_SESSION があれば、新しいセッションではなくそのセッションの複製を起動する
-# （`gozd worktree new --fork`）。複製は元の会話を引き継ぎ、この端末の worktree に属する。
+# GOZD_FORK_CLAUDE_SESSION があれば、新しいセッションではなくそのセッションの複製を起動する。
+# 複製は元の会話を引き継ぎ、この端末の worktree に属する。
 # 指示文が無ければ入力を待つ。複製に失敗しても素の claude には倒さない。会話の無い claude に
 # 指示文だけ渡ると、前提を欠いたまま作業を始める
 _gozd_start_claude() {

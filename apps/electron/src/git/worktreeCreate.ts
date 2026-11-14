@@ -5,17 +5,20 @@
 
 import type { CreateWorktreeRequest } from "@gozd/rpc";
 import { generateTimestamp } from "@gozd/shared";
+import { claudeSessionCwd } from "../claude/claudeSessionList";
 import { loadProjectConfig } from "../projectConfigStore";
 import { resolveMainRepoRoot } from "../projectKey";
 import { resolveStartPoint } from "./gitBranch";
 import type { WorktreeInfo } from "./porcelain";
 import { createWorktree } from "./worktreeOps";
 
+type CreatedWorktree = { rootDir: string; info: WorktreeInfo; setupScript: string };
+
 /** 起点 ref と leaf 名を解決して worktree を 1 つ作る。空文字の扱いは
  * `CreateWorktreeRequest` の契約を参照。 */
 export async function resolveAndCreateWorktree(
   req: CreateWorktreeRequest,
-): Promise<{ rootDir: string; info: WorktreeInfo; setupScript: string }> {
+): Promise<CreatedWorktree> {
   // dir は repo 内のどこでもよい契約なので、worktree の配置先と projectKey が揃うよう
   // 先に main repo root へ解決する。
   const rootDir = await resolveMainRepoRoot(req.dir);
@@ -36,4 +39,13 @@ export async function resolveAndCreateWorktree(
     symlinks: projectConfig.worktreeSymlinks,
   });
   return { rootDir, info, setupScript: projectConfig.setupScript };
+}
+
+/** セッションを複製するための worktree を作る。契約は `ForkWorktreeRequest` を参照 */
+export async function createForkWorktree(dir: string, sessionId: string): Promise<CreatedWorktree> {
+  // 作ってから失敗すると、空の worktree だけが残る
+  if ((await claudeSessionCwd(sessionId)) === undefined) {
+    throw new Error(`Claude session ${sessionId} not found`);
+  }
+  return resolveAndCreateWorktree({ dir, branch: "", startPoint: "" });
 }

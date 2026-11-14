@@ -16,7 +16,6 @@ import type {
   SessionOpenMessage,
   WorktreeRemoveMessage,
 } from "@gozd/rpc";
-import type { Result } from "@gozd/shared";
 import { tryCatch } from "@gozd/shared";
 import { basename } from "node:path";
 import { claudeSessionCwd } from "./claude/claudeSessionList";
@@ -29,7 +28,7 @@ import {
   resolveSessionOpenDir,
 } from "./concierge";
 import { toWorktreeEntry } from "./git/gitOps";
-import { resolveAndCreateWorktree } from "./git/worktreeCreate";
+import { createForkWorktree, resolveAndCreateWorktree } from "./git/worktreeCreate";
 import { buildGozdOpenPayload } from "./openTarget";
 import { asDict, lenientBoolean, lenientDict, lenientNumber, lenientString } from "./rawJson";
 import type { SocketMessageHandler } from "./socketServer";
@@ -136,17 +135,15 @@ const failure = (error: string): string => reply({ ok: false, dir: "", error });
  * renderer が居ない状態でも worktree は正しく作られる。 */
 async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise<string> {
   if (msg.dir === "") return failure("newWorktree: dir is required");
-  // 複製元は worktree を作る前に確かめる。作ってから失敗すると、空の worktree だけが残る
-  const fork = await verifyForkSource(msg.forkSessionId);
-  if (!fork.ok) return failure(fork.error);
   const created = await tryCatch(
-    resolveAndCreateWorktree({ dir: msg.dir, branch: "", startPoint: "" }),
+    msg.forkSessionId === ""
+      ? resolveAndCreateWorktree({ dir: msg.dir, branch: "", startPoint: "" })
+      : createForkWorktree(msg.dir, msg.forkSessionId),
   );
   if (!created.ok) {
-    console.error(
-      `[handleNewWorktree] resolveAndCreateWorktree failed: ${created.error} dir=${msg.dir}`,
-    );
-    return failure(String(created.error));
+    console.error(`[handleNewWorktree] worktree creation failed: ${created.error} dir=${msg.dir}`);
+    const { error } = created;
+    return failure(`newWorktree: ${error instanceof Error ? error.message : String(error)}`);
   }
   const { rootDir, info, setupScript } = created.value;
   push("newWorktree", {
@@ -159,20 +156,6 @@ async function handleNewWorktree(msg: NewWorktreeMessage, push: PushFn): Promise
     repoName: basename(rootDir),
   });
   return reply({ ok: true, dir: info.path, error: "" });
-}
-
-/** 複製元のセッションのログが実在するかを確かめる。複製しない（空）なら確かめずに通す */
-async function verifyForkSource(sessionId: string): Promise<Result<undefined, string>> {
-  if (sessionId === "") return { ok: true, value: undefined };
-  const cwd = await tryCatch(claudeSessionCwd(sessionId));
-  if (!cwd.ok) {
-    console.error(`[handleNewWorktree] session lookup failed: ${cwd.error} session=${sessionId}`);
-    return { ok: false, error: String(cwd.error) };
-  }
-  if (cwd.value === undefined) {
-    return { ok: false, error: `newWorktree: Claude session ${sessionId} not found` };
-  }
-  return { ok: true, value: undefined };
 }
 
 /** `gozd repo list`。gozd に登録された repo と worktree を返す */

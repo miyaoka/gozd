@@ -1,6 +1,7 @@
 import {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
+  ForkWorktreeRequest,
   FsSetFocusDirRequest,
   FsSetFocusDirResponse,
   GitFetchRemotesRequest,
@@ -36,6 +37,9 @@ export const rpcGitPrList = (req: GitPrListRequest) => rpc<GitPrListResponse>("/
 
 export const rpcCreateWorktree = (req: CreateWorktreeRequest) =>
   rpc<CreateWorktreeResponse>("/git/createWorktree", req);
+
+export const rpcForkWorktree = (req: ForkWorktreeRequest) =>
+  rpc<CreateWorktreeResponse>("/git/forkWorktree", req);
 
 export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
   rpc<GitWorktreeRemoveResponse>("/git/worktreeRemove", req);

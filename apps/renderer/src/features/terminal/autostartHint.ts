@@ -18,8 +18,7 @@
  * 同時には片方しか意味を持たない。両方あるときは prompt を優先する。
  *
  * `forkSessionId` があれば、新しいセッションではなくそのセッションの複製を起動する
- * （`claude --resume <id> --fork-session`）。`gozd worktree new --fork` が会話を引き継いだ
- * まま作業を切り出す用途。
+ * （`claude --resume <id> --fork-session`）。会話を引き継いだまま別の worktree に切り出す用途。
  */
 export type AutostartHint = { prefill?: string; prompt?: string; forkSessionId?: string };
 

@@ -39,7 +39,10 @@ function rootLintScript(): string {
 
 type LefthookJob = {
   name?: string;
+  root?: string;
+  glob?: string;
   exclude?: string[];
+  run?: string;
   group?: { jobs?: LefthookJob[] };
 };
 
@@ -53,13 +56,76 @@ function findJob(jobs: LefthookJob[], name: string): LefthookJob | undefined {
   return undefined;
 }
 
-/** pre-commit で root runner を担うジョブ */
-function rootJob(): LefthookJob | undefined {
+function preCommitJobs(): LefthookJob[] {
   const lefthook = YAML.parse(read("lefthook.yml")) as {
     "pre-commit"?: { jobs?: LefthookJob[] };
   };
-  return findJob(lefthook["pre-commit"]?.jobs ?? [], "lint-root");
+  return lefthook["pre-commit"]?.jobs ?? [];
 }
+
+/** pre-commit で root runner を担うジョブ */
+function rootJob(): LefthookJob | undefined {
+  return findJob(preCommitJobs(), "lint-root");
+}
+
+/** group を展開した、コマンドを持つジョブの一覧。group の root は子のジョブに引き継ぐ */
+function flattenJobs(jobs: LefthookJob[], parentRoot?: string): LefthookJob[] {
+  return jobs.flatMap((job) => {
+    const root = job.root ?? parentRoot;
+    if (job.group) return flattenJobs(job.group.jobs ?? [], root);
+    return [{ ...job, root }];
+  });
+}
+
+/** repo root と pnpm-workspace.yaml が列挙する workspace。`dir` は repo root からの相対（root は "."） */
+function workspaces(): { dir: string; scripts: Record<string, string> }[] {
+  const dirs = [
+    ".",
+    ...workspaceGlobs().flatMap((glob) =>
+      [...new Bun.Glob(`${glob}/package.json`).scanSync({ cwd: repoRoot })].map((path) =>
+        path.replace(/\/package\.json$/, ""),
+      ),
+    ),
+  ];
+  return dirs.map((dir) => {
+    const pkg = JSON.parse(read(dir, "package.json")) as { scripts?: Record<string, string> };
+    return { dir, scripts: pkg.scripts ?? {} };
+  });
+}
+
+function trackedFiles(): string[] {
+  const result = Bun.spawnSync(["git", "ls-files"], { cwd: repoRoot });
+  if (result.exitCode !== 0) throw new Error(`git ls-files failed: ${result.stderr.toString()}`);
+  return result.stdout.toString().split("\n").filter(Boolean);
+}
+
+/** lefthook のジョブ定義から repo root の `.`（root 指定なし）か workspace のパスを取り出す */
+function jobDir(job: LefthookJob): string {
+  return job.root ? job.root.replace(/\/$/, "") : ".";
+}
+
+/**
+ * ジョブが受け取る追跡済みファイル。lefthook は root でファイルを root 配下に絞り、glob と
+ * exclude は root に関係なく repo root からのパスに当てる
+ */
+function filesForJob(job: LefthookJob, files: string[]): string[] {
+  const dir = jobDir(job);
+  const glob = new Bun.Glob(job.glob ?? "**/*");
+  const excludes = (job.exclude ?? []).map((pattern) => new Bun.Glob(pattern));
+  return files.filter(
+    (file) =>
+      (dir === "." || file.startsWith(`${dir}/`)) &&
+      glob.match(file) &&
+      !excludes.some((exclude) => exclude.match(file)),
+  );
+}
+
+/** pre-commit が実行すべき検査と、それを実行するジョブの run の見分け方 */
+const CHECKS: { script: string; runs: RegExp }[] = [
+  { script: "typecheck", runs: /\btypecheck\b/ },
+  { script: "lint", runs: /\b(lint|oxlint|eslint)\b|\bfix:staged\b/ },
+  { script: "test", runs: /\btest\b/ },
+];
 
 describe("lint gate", () => {
   test("違反は exit code に出る", () => {
@@ -104,5 +170,38 @@ describe("lint の走査範囲", () => {
     const excludes = rootJob()?.exclude ?? [];
     const uncovered = workspaceParents().filter((parent) => !excludes.includes(`${parent}/**`));
     expect(uncovered).toEqual([]);
+  });
+});
+
+// CI は各 workspace の typecheck / lint / test スクリプトを実行する。pre-commit に対応する
+// ジョブが無いか、ジョブの glob が何にも当たらないと、その workspace の違反は CI で初めて見つかる。
+// glob が当たらないジョブは lefthook が黙ってスキップするので、走らないことに誰も気づけない
+describe("pre-commit の workspace 網羅", () => {
+  // 下の検査は workspaces() が空でも「欠けが無い」として通る。取り出しの空振りを撃ち分ける
+  test("workspace と追跡ファイルを取り出せる", () => {
+    const dirs = workspaces().map((workspace) => workspace.dir);
+    expect(dirs).toContain(".");
+    expect(dirs).toContain("apps/electron");
+    expect(dirs).toContain("packages/shared");
+    expect(trackedFiles()).toContain("lefthook.yml");
+  });
+
+  test("CI が実行する検査ごとに、ファイルに当たる pre-commit のジョブがある", () => {
+    const jobs = flattenJobs(preCommitJobs());
+    const files = trackedFiles();
+    const missing = workspaces().flatMap(({ dir, scripts }) =>
+      CHECKS.filter(({ script }) => script in scripts)
+        .filter(
+          ({ runs }) =>
+            !jobs.some(
+              (job) =>
+                jobDir(job) === dir &&
+                runs.test(job.run ?? "") &&
+                filesForJob(job, files).length > 0,
+            ),
+        )
+        .map(({ script }) => `${dir}: ${script}`),
+    );
+    expect(missing).toEqual([]);
   });
 });

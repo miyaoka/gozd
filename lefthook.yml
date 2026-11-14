@@ -28,22 +28,50 @@ pre-commit:
             root: "apps/electron/"
             glob: "**/*.ts"
             run: pnpm run typecheck
+          - name: typecheck-rpc
+            root: "packages/rpc/"
+            glob: "**/*.ts"
+            run: pnpm run typecheck
+          - name: typecheck-design-tokens
+            root: "packages/design-tokens/"
+            glob: "**/*.ts"
+            run: pnpm run typecheck
+          - name: typecheck-eslint-plugin
+            root: "packages/eslint-plugin/"
+            glob: "**/*.ts"
+            run: pnpm run typecheck
+          - name: typecheck-shiki-lang-map
+            root: "packages/shiki-lang-map/"
+            glob: "**/*.ts"
+            run: pnpm run typecheck
+          # root の test は lint gate の宣言（lefthook.yml・package.json 等）も検査する
+          - name: test-root
+            glob: "{scripts/**/*.ts,lefthook.yml,**/package.json,pnpm-workspace.yaml,.oxlintrc.json}"
+            run: pnpm run test
           - name: test-shared
             root: "packages/shared/"
             glob: "**/*.ts"
-            run: bun test
+            run: pnpm run test
           - name: test-claude-session-log
             root: "packages/claude-session-log/"
             glob: "**/*.ts"
-            run: bun test
+            run: pnpm run test
           - name: test-renderer
             root: "apps/renderer/"
             glob: "**/*.ts"
-            run: bun test
+            run: pnpm run test
           - name: test-electron
             root: "apps/electron/"
             glob: "**/*.ts"
-            run: bun test
+            run: pnpm run test
+          - name: test-eslint-plugin
+            root: "packages/eslint-plugin/"
+            glob: "**/*.ts"
+            run: pnpm run test
+          - name: test-shiki-lang-map
+            root: "packages/shiki-lang-map/"
+            glob: "**/*.ts"
+            run: pnpm run test
 
           # Formatter（ts/vue 以外。ts/vue は各 linter ジョブで bun fmt を実行）
           - name: fmt
@@ -83,6 +111,26 @@ pre-commit:
             run: pnpm run typecheck
           - name: lint-themes
             root: "packages/themes/"
+            glob: "**/*.ts"
+            run: bun lint --fix {staged_files} && bun fmt {staged_files}
+            stage_fixed: true
+          - name: lint-rpc
+            root: "packages/rpc/"
+            glob: "**/*.ts"
+            run: bun lint --fix {staged_files} && bun fmt {staged_files}
+            stage_fixed: true
+          - name: lint-design-tokens
+            root: "packages/design-tokens/"
+            glob: "**/*.ts"
+            run: bun lint --fix {staged_files} && bun fmt {staged_files}
+            stage_fixed: true
+          - name: lint-eslint-plugin
+            root: "packages/eslint-plugin/"
+            glob: "**/*.ts"
+            run: bun lint --fix {staged_files} && bun fmt {staged_files}
+            stage_fixed: true
+          - name: lint-shiki-lang-map
+            root: "packages/shiki-lang-map/"
             glob: "**/*.ts"
             run: bun lint --fix {staged_files} && bun fmt {staged_files}
             stage_fixed: true

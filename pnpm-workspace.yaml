@@ -22,7 +22,7 @@ allowBuilds:
   unrs-resolver: true
 
 catalog:
-  '@tailwindcss/vite': 4.3.3
+  '@tailwindcss/vite': 4.3.5
   '@types/bun': 1.4.4
   '@types/node': 24.19.2
   '@typescript-eslint/parser': 8.72.2
@@ -38,7 +38,7 @@ catalog:
   oxfmt: 0.74.0
   oxlint: 1.90.0
   oxlint-tsgolint: 7.0.2005
-  tailwindcss: 4.3.3
+  tailwindcss: 4.3.5
   typescript: npm:@typescript/typescript6@6.0.2
   vite: 8.3.5
 

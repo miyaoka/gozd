@@ -9,19 +9,15 @@
   "scripts": {
     "build": "bun src/generateTokens.ts",
     "prepare": "bun src/generateTokens.ts",
-    "typecheck": "tsc --noEmit",
-    "lint": "oxlint --type-aware",
-    "fix": "oxlint --type-aware --fix && oxfmt ."
+    "typecheck": "bun check",
+    "lint": "bun lint --type-aware",
+    "fix": "bun lint --no-script --type-aware --fix && bun fmt ."
   },
   "devDependencies": {
     "@adobe/leonardo-contrast-colors": "1.1.0",
     "@types/bun": "catalog:",
     "@types/chroma-js": "3.1.3",
     "@types/node": "catalog:",
-    "@typescript/native": "catalog:",
-    "chroma-js": "3.3.0",
-    "oxfmt": "catalog:",
-    "oxlint": "catalog:",
-    "oxlint-tsgolint": "catalog:"
+    "chroma-js": "3.3.0"
   }
 }

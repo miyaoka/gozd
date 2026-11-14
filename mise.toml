@@ -1,4 +1,11 @@
+# bun は `bun lint` を含む canary を npm から入れている。`bun lint` を含む正式版が出たら
+# `bun = "<版>"`（core の bun）に戻し、この [settings] も消す
+[settings]
+# canary の bun は optionalDependencies をビルドメタデータ付きの版（`+<sha>`）で指す。
+# 既定の aube はこれを解決できず postinstall が失敗するため、npm で入れる
+npm.package_manager = "npm"
+
 [tools]
 node = "24.22.3"
-bun = "1.4.4"
+"npm:bun" = { version = "1.4.4-canary.20261113.1", allow_builds = ["bun"] }
 pnpm = "12.15.0"

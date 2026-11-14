@@ -36,12 +36,12 @@ jobs:
 
       - uses: $/.github/actions/setup-environment
 
-      # 各 package の fix は lint --fix → oxfmt の順で formatter が最後に走るため 1 パスで
+      # 各 package の fix は lint --fix → bun fmt の順で formatter が最後に走るため 1 パスで
       # 固定点に達する。収束を待つループは不要
       - name: Run fix:all
         run: pnpm run fix:all
 
-      # workflows は oxfmt の対象に .github/workflows/*.yml が含まれるため必須。無いと yml が
+      # workflows は bun fmt の対象に .github/workflows/*.yml が含まれるため必須。無いと yml が
       # ドリフトした日に create-a-tree が 403 になり bot が恒久停止する。
       # owner / repositories は指定しない（両方未指定なら action が現 repo 1 個に scope する）
       - name: Generate GitHub App token

@@ -7,17 +7,13 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "oxlint --type-aware",
-    "fix": "oxlint --type-aware --fix && oxfmt .",
+    "typecheck": "bun check",
+    "lint": "bun lint --type-aware",
+    "fix": "bun lint --no-script --type-aware --fix && bun fmt .",
     "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
-    "@types/node": "catalog:",
-    "@typescript/native": "catalog:",
-    "oxfmt": "catalog:",
-    "oxlint": "catalog:",
-    "oxlint-tsgolint": "catalog:"
+    "@types/node": "catalog:"
   }
 }

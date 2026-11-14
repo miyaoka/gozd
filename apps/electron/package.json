@@ -13,9 +13,9 @@
     "start": "electron .",
     "spike": "pnpm build && GOZD_SPIKE_TEST=1 electron .",
     "test": "bun test",
-    "typecheck": "tsc --noEmit",
-    "lint": "oxlint --type-aware",
-    "fix": "oxlint --type-aware --fix && oxfmt ."
+    "typecheck": "bun check",
+    "lint": "bun lint --type-aware",
+    "fix": "bun lint --no-script --type-aware --fix && bun fmt ."
   },
   "dependencies": {
     "@parcel/watcher": "2.6.0",
@@ -28,7 +28,6 @@
     "@gozd/shared": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
-    "@typescript/native": "catalog:",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "electron": "44.10.2",

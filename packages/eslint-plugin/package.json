@@ -22,7 +22,7 @@
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
-    "vue-eslint-parser": "10.4.1"
+    "vue-eslint-parser": "10.4.2"
   },
   "peerDependencies": {
     "eslint": ">=9"

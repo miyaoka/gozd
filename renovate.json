@@ -7,6 +7,12 @@
       "description": "Electron 45 (Chromium 156) drops the frame commit after a title-bar drag on macOS, so a window moved to another display reports its old position and its live resize oscillates (Chromium CL 8251341). Remove this cap once a release includes the fix, Chromium CL 8535166. Electron 44.11.0-44.11.3 make canvas ignore a font string with leading whitespace, so xterm's WebGL renderer draws terminal text in 10px sans-serif (electron/electron#55616); the fix, electron/electron#55776, ships after 44.11.3.",
       "matchPackageNames": ["electron"],
       "allowedVersions": "<44.11.0 || >=44.11.4 <45"
+    },
+    {
+      "description": "mise.toml pins bun to an npm canary because stable releases up to 1.4.4 lack `bun lint`. Semver ranks a canary X.Y.Z-canary.* below the stable X.Y.Z, so without this rule an older stable without `bun lint` looks like an upgrade. Allow only stable releases from 1.4.5, the first to ship `bun lint` (oven-sh/bun#46439). Its PR is the signal to switch mise.toml back to core bun and remove this rule.",
+      "matchManagers": ["mise"],
+      "matchDepNames": ["npm:bun"],
+      "allowedVersions": ">=1.4.5"
     }
   ],
   "assignees": ["miyaoka"],

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "bun check",
-    "fix": "bun lint --no-script --type-aware --fix && bun fmt ."
+    "fix": "bun lint --no-script --fix && bun fmt ."
   },
   "devDependencies": {
     "@types/node": "catalog:"

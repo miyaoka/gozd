@@ -14,7 +14,7 @@
     "spike": "pnpm build && GOZD_SPIKE_TEST=1 electron .",
     "test": "bun test",
     "typecheck": "bun check",
-    "fix": "bun lint --no-script --type-aware --fix && bun fmt ."
+    "fix": "bun lint --no-script --fix && bun fmt ."
   },
   "dependencies": {
     "@parcel/watcher": "2.6.0",

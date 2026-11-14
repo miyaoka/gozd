@@ -7,63 +7,61 @@ output:
 pre-commit:
   piped: true
   jobs:
-    # 検査と、互いに同じファイルを書き換えない修正を並列実行
     - name: checks-and-fixes
       group:
         parallel: true
         jobs:
           # 対象の package は CI の差分モードと同じ選び方（変更した package とその依存元）で
-          # 選ぶ。基準を HEAD にするので、commit に入る変更を持つ package が必ず選ばれる。
-          # workspace ごとにジョブを並べないため、package を足しても書き足す箇所が無い
+          # 選ぶ。基準を HEAD にするので、commit に入る変更を持つ package が必ず選ばれる
           - name: typecheck
             run: pnpm --filter "...[HEAD]" --if-present --no-bail --aggregate-output --reporter=append-only typecheck
           - name: test
             run: pnpm --filter "...[HEAD]" --if-present --no-bail --aggregate-output --reporter=append-only test
 
-          # Formatter（css / md。.ts は lint ジョブ、.vue は renderer の group が整形する）
           - name: fmt
             glob: "**/*.{css,md}"
             run: bun fmt {staged_files}
             stage_fixed: true
 
-          # apps/renderer: eslint が .ts / .vue を見る（Vue・Tailwind・バレル・import 順など
-          # renderer 固有の規則）。.ts の型を見る規則は後段の lint ジョブが担う。
-          # 同一ファイルへの競合を避けるため piped で直列実行。
-          # 親 group には glob を置かない: lefthook の group は親 glob と子 glob を
-          # OR（和集合）で連結するため、親 glob は子を絞り込めず追加にしかならない。
-          # 親 glob があると .md/.css 単独 commit でも eslint(.ts/.vue) が
-          # 対象外ファイルを受け取り「No files found to lint」で落ちる。
-          # 子ごとに glob を持たせて振り分けを完結させる。
-          - name: renderer
-            root: apps/renderer/
+          # renderer の eslint と bun lint は同じ .ts を書き換えるため、renderer の fix
+          # スクリプトと同じ eslint → bun lint → bun fmt の順で直列に走らせる
+          - name: linters
             group:
               piped: true
               jobs:
-                - name: eslint
-                  glob: "**/*.{ts,vue}"
-                  # binary を直に呼ばず renderer の script 経由にする: eslint の宣言は
-                  # renderer にあるが、knip の lefthook plugin は job の root を絶対パスに
-                  # 解決しないため、binary 直呼びの参照は repo root 帰属になり未宣言扱いになる
-                  run: pnpm run fix:staged {staged_files}
-                  stage_fixed: true
-                - name: fmt
-                  glob: "**/*.vue"
-                  run: bun fmt {staged_files}
-                  stage_fixed: true
-                # feature 間循環は増分で判定できない（グラフ全体の性質）ため全体走査で
-                # 実行する。staged に .ts/.vue が無い commit では走らせない
-                - name: feature-cycles
-                  glob: "**/*.{ts,vue}"
-                  run: bun scripts/checkFeatureCycles.ts
+                # 同一ファイルへの競合を避けるため piped で直列実行。
+                # 親 group には glob を置かない: lefthook の group は親 glob と子 glob を
+                # OR（和集合）で連結するため、親 glob は子を絞り込めず追加にしかならない。
+                # 親 glob があると .md/.css 単独 commit でも eslint(.ts/.vue) が
+                # 対象外ファイルを受け取り「No files found to lint」で落ちる。
+                # 子ごとに glob を持たせて振り分けを完結させる。
+                - name: renderer
+                  root: apps/renderer/
+                  group:
+                    piped: true
+                    jobs:
+                      - name: eslint
+                        glob: "**/*.{ts,vue}"
+                        # binary を直に呼ばず renderer の script 経由にする: eslint の宣言は
+                        # renderer にあるが、knip の lefthook plugin は job の root を絶対パスに
+                        # 解決しないため、binary 直呼びの参照は repo root 帰属になり未宣言扱いになる
+                        run: pnpm run fix:staged {staged_files}
+                        stage_fixed: true
+                      - name: fmt
+                        glob: "**/*.vue"
+                        run: bun fmt {staged_files}
+                        stage_fixed: true
+                      # feature 間循環は増分で判定できない（グラフ全体の性質）ため全体走査で
+                      # 実行する。staged に .ts/.vue が無い commit では走らせない
+                      - name: feature-cycles
+                        glob: "**/*.{ts,vue}"
+                        run: bun scripts/checkFeatureCycles.ts
 
-    # repo の全 .ts を 1 回の bun lint で検査・修正し、整形する。CI の lint:repo と同じく
-    # workspace で分けないので、除外の指定が要らない。renderer の eslint が同じ .ts を
-    # 書き換えるため、その後に直列で走らせる（renderer の fix スクリプトと同じ
-    # eslint → bun lint → bun fmt の順で、pre-commit と fix:all が同じ結果に収束する）
-    - name: lint
-      glob: "**/*.ts"
-      run: bun lint --no-script --type-aware --fix {staged_files} && bun fmt {staged_files}
-      stage_fixed: true
+                # repo の全 .ts を 1 回の bun lint で検査・修正し、整形する
+                - name: lint
+                  glob: "**/*.ts"
+                  run: bun lint --no-script --fix {staged_files} && bun fmt {staged_files}
+                  stage_fixed: true
 
     # fix 系ジョブ完了後に実行（stage_fixed によるファイル書き換え後の状態で解析）
     # --fix で未使用 export を自動削除して stage に乗せる。

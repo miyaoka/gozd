@@ -1,6 +1,7 @@
 {
   "ignorePatterns": [".gozd/", "**/*.vue"],
   "options": {
-    "denyWarnings": true
+    "denyWarnings": true,
+    "typeAware": true
   }
 }

@@ -8,7 +8,7 @@
     "build": "vite build",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint . --max-warnings 0 && bun scripts/checkFeatureCycles.ts",
-    "fix": "eslint . --fix -c eslint.config.fix.ts && bun lint --no-script --type-aware --fix && bun fmt .",
+    "fix": "eslint . --fix -c eslint.config.fix.ts && bun lint --no-script --fix && bun fmt .",
     "fix:staged": "eslint --fix -c eslint.config.fix.ts --no-warn-ignored --cache --max-warnings 0",
     "test": "bun test",
     "test:browser": "vitest run",

@@ -1,5 +1,5 @@
 # 日次で fix:all を全件実行し、ドリフトがあれば bot PR を作って auto merge する。
-# 差分ゼロなら何もしない（空振り＝その日に整形ドリフトが無いことの証明）。
+# 差分ゼロなら何もしない（空振り＝その日に lint と整形のドリフトが無いことの証明）。
 #
 # - main push を trigger にしない。fix PR のマージ自体が main push であり自己再帰する
 # - App token を使う。GITHUB_TOKEN で作った PR は pull_request が発火せず code_validation が
@@ -36,8 +36,7 @@ jobs:
 
       - uses: $/.github/actions/setup-environment
 
-      # 各 package の fix は lint --fix → bun fmt の順で formatter が最後に走るため 1 パスで
-      # 固定点に達する。収束を待つループは不要
+      # fix:all は formatter が最後に走るため 1 パスで固定点に達する。収束を待つループは不要
       - name: Run fix:all
         run: pnpm run fix:all
 

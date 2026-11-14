@@ -12,7 +12,7 @@
     "open:app": "open \"apps/electron/out/mac-arm64/Gozd Local.app\"",
     "lint:repo": "bun lint --no-script",
     "lint:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run lint",
-    "fix:all": "pnpm -r --if-present --no-bail --aggregate-output --reporter=append-only run fix && bun lint --no-script --fix && bun fmt .",
+    "fix:all": "pnpm -r --if-present --no-bail --aggregate-output --reporter=append-only run fix && bun fmt .",
     "test": "bun test scripts",
     "test:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run test",
     "test:browser:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run test:browser",

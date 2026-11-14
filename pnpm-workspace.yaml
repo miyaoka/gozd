@@ -37,7 +37,7 @@ catalog:
   # 埋め込む tooling（vue-tsc / typescript-eslint）は TS6 に据え置く。`typescript` の import 名は
   # TS6 API を再エクスポートする互換 package へ向ける
   typescript: npm:@typescript/typescript6@6.0.2
-  vite: 8.3.5
+  vite: 8.3.8
 
 # Claude Agent SDK は Claude Code 本体のバイナリを platform 別の optionalDependencies で持つ。
 # gozd が使うのはセッション一覧を読み取る関数だけで、esbuild が main に bundle するため

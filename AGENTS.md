@@ -68,7 +68,7 @@ repo root 直下に固定でファイル名も機能名と一致するため、�
 | パッケージ管理     | pnpm（モノレポ + catalog、nodeLinker: hoisted）                             |
 | CSS                | Tailwind CSS v4                                                             |
 | アイコン           | unplugin-icons（per-icon component import）                                 |
-| フォーマッタ       | bun fmt（`.oxfmtrc.json` を読み oxfmt と同じ出力）                          |
+| フォーマッタ       | bun fmt（`.oxfmtrc.json` があると oxfmt 互換、無いと Prettier 互換で整形）  |
 | リンター           | bun lint（TypeScript）/ oxlint（renderer の `.ts`）/ ESLint（Vue）          |
 | 型チェック         | bun check（TypeScript）/ vue-tsc（renderer）                                |
 | ターミナル         | xterm.js                                                                    |

@@ -309,8 +309,8 @@ importers:
         specifier: 'catalog:'
         version: 1.4.4
       '@types/chroma-js':
-        specifier: 3.1.2
-        version: 3.1.2
+        specifier: 3.1.3
+        version: 3.1.3
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -318,8 +318,8 @@ importers:
         specifier: 'catalog:'
         version: typescript@7.0.2
       chroma-js:
-        specifier: 3.2.0
-        version: 3.2.0
+        specifier: 3.3.0
+        version: 3.3.0
       oxfmt:
         specifier: 'catalog:'
         version: 0.74.0
@@ -1794,8 +1794,8 @@ packages:
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
-  '@types/chroma-js@3.1.2':
-    resolution: {integrity: sha512-YBTQqArPN8A0niHXCwrO1z5x++a+6l0mLBykncUpr23oIPW7L4h39s6gokdK/bDrPmSh8+TjMmrhBPnyiaWPmQ==}
+  '@types/chroma-js@3.1.3':
+    resolution: {integrity: sha512-r4kI3HTbLdayBkY1f2Xv7/1TJaHTS//8f6Etv036NQMIj2jVPngUV11NczKiLFKyy01o6hGYVDypP7tJVoFPew==}
 
   '@types/d3-array@3.2.2':
     resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
@@ -2704,8 +2704,8 @@ packages:
     resolution: {integrity: sha512-+IxzY9BZOQd/XuYPRmrvEVjF/nqj5kgT4kEq7VofrDoM1MxoRjEWkrCC3EtLi59TVawxTAn+orJwFQcrqEN1+g==}
     engines: {node: '>=18'}
 
-  chroma-js@3.2.0:
-    resolution: {integrity: sha512-os/OippSlX1RlWWr+QDPcGUZs0uoqr32urfxESG9U93lhUfbnlyckte84Q8P1UQY/qth983AS1JONKmLS4T0nw==}
+  chroma-js@3.3.0:
+    resolution: {integrity: sha512-afEEP0zHO4dxwrqTllKSFWs83+u+htEsmyvSe8IPjKjrfy3qmNk+vpWAdpbA2fJa14LTgkGyemC74J6v3HSUZA==}
 
   chromium-pickle-js@0.2.0:
     resolution: {integrity: sha512-1R5Fho+jBq0DDydt+/vHWj5KJNJCKdARKOCwZUen84I5BreWoLqRLANH1U87eJy1tiASPtMnGqJJq0ZsLoRPOw==}
@@ -5366,7 +5366,7 @@ snapshots:
   '@adobe/leonardo-contrast-colors@1.1.0':
     dependencies:
       apca-w3: 0.1.9
-      chroma-js: 3.2.0
+      chroma-js: 3.3.0
       ciebase: 0.1.1
       ciecam02: 0.4.6
       hsluv: 1.0.2
@@ -6395,7 +6395,7 @@ snapshots:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
 
-  '@types/chroma-js@3.1.2': {}
+  '@types/chroma-js@3.1.3': {}
 
   '@types/d3-array@3.2.2': {}
 
@@ -7342,7 +7342,7 @@ snapshots:
 
   chownr@3.0.0: {}
 
-  chroma-js@3.2.0: {}
+  chroma-js@3.3.0: {}
 
   chromium-pickle-js@0.2.0: {}
 
@@ -8780,7 +8780,7 @@ snapshots:
 
   material-icon-theme@5.39.0:
     dependencies:
-      chroma-js: 3.2.0
+      chroma-js: 3.3.0
 
   math-intrinsics@1.1.0: {}
 

@@ -42,7 +42,10 @@ export function useNewWorktreeHandler() {
       // ここで受けないと、worktree だけが残って指示文が黙って消える
       void handle(payload).catch((cause: unknown) => {
         notifications.error(`Could not open the created worktree at ${payload.dir}`, cause);
-        notifyLostPrompt(notifications, payload.prompt);
+        notifyLostPrompt(notifications, {
+          prompt: payload.prompt,
+          forkSessionId: payload.forkSessionId,
+        });
       });
     });
   });

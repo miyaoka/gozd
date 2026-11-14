@@ -98,7 +98,8 @@ _gozd_resume_claude() {
 }
 [[ -n "$GOZD_RESUME_CLAUDE_SESSION" ]] && _gozd_resume_claude
 
-# worktree 作成直後などに、resume せず素の claude を起動する。
+# worktree 作成直後などに claude を起動する。既定は新しいセッションで、複製の指定があれば
+# 指定したセッションの複製を起動する（下記）。
 #
 # 起動時のテキストは renderer が spawn env に入れる。渡し方が 2 つあり、送信されるかが違う:
 #

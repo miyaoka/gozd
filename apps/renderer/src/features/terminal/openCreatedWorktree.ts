@@ -40,8 +40,8 @@ export function openCreatedWorktree(
   const owning = repoStore.findRepoOwning(created.rootDir);
   if (owning === undefined) {
     notify.error("Worktree created but sidebar could not be updated");
-    // ここで返ると claude は起動しない。指示文はこの引数にしか無いので別途出す
-    notifyLostPrompt(notify, autostart.prompt);
+    // ここで返ると claude は起動しない。指示文と複製元はこの引数にしか無いので別途出す
+    notifyLostPrompt(notify, autostart);
     return;
   }
   repoStore.appendWorktree(owning.rootDir, created.worktree);

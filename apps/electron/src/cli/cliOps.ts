@@ -150,11 +150,13 @@ export interface ParsedNewWorktree {
 }
 
 /** `gozd worktree new` の引数を NewWorktreeMessage に組み立てる。
- * ptyId は実行した端末（`parsePtyId`）で、`--fork` の複製元になる。 */
+ * sessionId は実行した Claude のセッション（`CLAUDE_CODE_SESSION_ID`）で、`--fork` の複製元になる。
+ * 端末（`GOZD_PTY_ID`）から引かないのは、バックグラウンドジョブや teammate では端末が
+ * 実行した会話と無関係なセッションを指すため。 */
 export function parseNewWorktreeArgs(
   argv: string[],
   cwd: string,
-  ptyId: number,
+  sessionId: string,
 ): Result<ParsedNewWorktree, string> {
   const flags: Partial<Record<NewWorktreeFlag, string>> = {};
   const switches = new Set<NewWorktreeSwitch>();
@@ -188,8 +190,8 @@ export function parseNewWorktreeArgs(
     return { ok: false, error: "--prompt and --prompt-stdin are mutually exclusive" };
   }
   const fork = switches.has("--fork");
-  if (fork && ptyId === 0) {
-    return { ok: false, error: "--fork must run in a gozd terminal" };
+  if (fork && sessionId === "") {
+    return { ok: false, error: "--fork must run from inside a Claude Code session" };
   }
 
   return {
@@ -198,7 +200,7 @@ export function parseNewWorktreeArgs(
       message: {
         dir: resolve(cwd, flags["--dir"] ?? "."),
         prompt: flags["--prompt"] ?? "",
-        forkPtyId: fork ? ptyId : 0,
+        forkSessionId: fork ? sessionId : "",
       },
       promptFromStdin,
     },

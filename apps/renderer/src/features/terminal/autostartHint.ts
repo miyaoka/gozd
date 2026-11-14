@@ -1,5 +1,5 @@
 /**
- * autostart で claude へ渡すテキストの型と、その消費。
+ * autostart で claude へ渡す起動のヒント（テキストと複製元）の型と、その消費。
  *
  * 型と消費を leaf module に置くのは、ヒントを積む側（store）と、渡せずに終わったときに
  * 通知する側（`lostPrompt.ts`）の両方がこれを見るため。store 側に置くと通知側から
@@ -8,7 +8,7 @@
  */
 
 /**
- * autostart 時に claude へ渡すテキスト。渡し方が 2 通りあり、**送信されるかどうかが違う**。
+ * autostart 時に claude へ渡すヒント。テキストの渡し方が 2 通りあり、**送信されるかどうかが違う**。
  *
  * - `prefill`: `claude --prefill <text>` で入力欄に挿入するだけ。送信は人が行う。
  *   PR/issue picker が worktree 作成時に PR/issue URL を渡す用途

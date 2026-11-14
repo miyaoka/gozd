@@ -4,9 +4,9 @@
   "labels": ["dependencies"],
   "packageRules": [
     {
-      "description": "Electron 45 (Chromium 156) drops the frame commit after a title-bar drag on macOS, so a window moved to another display reports its old position and its live resize oscillates (Chromium CL 8251341). Remove this cap once a release includes the fix, Chromium CL 8535166.",
+      "description": "Electron 45 (Chromium 156) drops the frame commit after a title-bar drag on macOS, so a window moved to another display reports its old position and its live resize oscillates (Chromium CL 8251341). Remove this cap once a release includes the fix, Chromium CL 8535166. Electron 44.11.0-44.11.3 make canvas ignore a font string with leading whitespace, so xterm's WebGL renderer draws terminal text in 10px sans-serif (electron/electron#55616); the fix, electron/electron#55776, ships after 44.11.3.",
       "matchPackageNames": ["electron"],
-      "allowedVersions": "<45"
+      "allowedVersions": "<44.11.0 || >=44.11.4 <45"
     }
   ],
   "assignees": ["miyaoka"],

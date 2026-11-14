@@ -15,7 +15,7 @@
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "linguist-languages": "9.5.0",
-    "shiki": "4.5.0"
+    "shiki": "4.6.0"
   },
   "peerDependencies": {
     "shiki": "^4.0.0"

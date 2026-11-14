@@ -10,8 +10,8 @@
     "build:all": "pnpm -r --include-workspace-root --if-present run build",
     "build:app": "pnpm --filter @gozd/electron build:app",
     "open:app": "open \"apps/electron/out/mac-arm64/Gozd Local.app\"",
-    "lint": "oxlint --type-aware --ignore-pattern 'apps/**' --ignore-pattern 'packages/**'",
-    "fix": "oxfmt '!apps/**' '!packages/**'",
+    "lint": "bun lint --type-aware --ignore-pattern 'apps/**' --ignore-pattern 'packages/**'",
+    "fix": "bun fmt '!apps/**' '!packages/**'",
     "lint:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run lint",
     "fix:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run fix",
     "test": "bun test scripts",
@@ -25,9 +25,6 @@
     "@types/node": "catalog:",
     "concurrently": "10.0.7",
     "knip": "6.43.0",
-    "lefthook": "catalog:",
-    "oxfmt": "catalog:",
-    "oxlint": "catalog:",
-    "oxlint-tsgolint": "catalog:"
+    "lefthook": "catalog:"
   }
 }

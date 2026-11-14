@@ -8,16 +8,12 @@
   },
   "scripts": {
     "prepare": "bun scripts/generateThemeLoaders.ts",
-    "typecheck": "tsc --noEmit",
-    "lint": "oxlint --type-aware",
-    "fix": "oxlint --type-aware --fix && oxfmt '!vendor/**'"
+    "typecheck": "bun check",
+    "lint": "bun lint --type-aware",
+    "fix": "bun lint --fix && bun fmt '!vendor/**'"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
-    "@types/node": "catalog:",
-    "@typescript/native": "catalog:",
-    "oxfmt": "catalog:",
-    "oxlint": "catalog:",
-    "oxlint-tsgolint": "catalog:"
+    "@types/node": "catalog:"
   }
 }

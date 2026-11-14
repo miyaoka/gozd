@@ -3,7 +3,7 @@
 // ここで見る 2 種類の宣言は、壊れても他のどの検査にも掛からない。lint は走り、出力も出て、
 // exit code は 0 のままになる。壊れたこと自体を落とせるのはこのテストだけ。
 //
-// - 違反を exit code に載せる宣言: 消えると repo 全体の oxlint gate が無音で開く
+// - 違反を exit code に載せる宣言: 消えると repo 全体の lint gate が無音で開く
 // - root runner の除外: CI と pre-commit の 2 箇所にある pnpm-workspace.yaml の写し。どちらも
 //   glob は repo 全体に届く形なので、置き場が増えたときに書き漏らすと workspace を拾い、
 //   同じ違反が root と workspace の 2 レーンから出る
@@ -58,7 +58,7 @@ function rootJob(): LefthookJob | undefined {
   const lefthook = YAML.parse(read("lefthook.yml")) as {
     "pre-commit"?: { jobs?: LefthookJob[] };
   };
-  return findJob(lefthook["pre-commit"]?.jobs ?? [], "oxlint-root");
+  return findJob(lefthook["pre-commit"]?.jobs ?? [], "lint-root");
 }
 
 describe("lint gate", () => {

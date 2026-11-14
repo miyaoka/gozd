@@ -33,8 +33,8 @@ const handoff = takeHandoff(props.log.id);
     @close-requested="close(log.id)"
     @closed="close(log.id)"
   >
-    <!-- TerminalLeafTitle と同じ 2 段構成 (上段: repo アイコン + repo 名 / 下段: session
-         タイトル)。repo 未解決 (空文字) は上段ごと省く。 -->
+    <!-- 2 段構成 (上段: repo アイコン + repo 名 / 下段: session タイトル)。
+         repo 未解決 (空文字) は上段ごと省く。 -->
     <template #header>
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <div v-if="log.repoName !== ''" class="flex items-center gap-2">

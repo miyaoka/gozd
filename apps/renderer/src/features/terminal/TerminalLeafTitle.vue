@@ -42,14 +42,17 @@ const title = computed<string>(() => {
     class="relative flex shrink-0 flex-col gap-1 border-b border-border-subtle px-2 py-1"
   >
     <!-- 上段: repo アイコン + repo 名 + branch 名（repo 未登録時は省く）。狭いときは repo 名から切る -->
-    <div v-if="repoName !== ''" class="flex min-w-0 items-center gap-2 overflow-hidden">
+    <div v-if="repoName !== ''" class="flex min-w-0 items-center gap-2">
       <RepoIcon :name="repoName" :owner="repoOwner" />
-      <span class="min-w-0 truncate text-sm font-semibold tracking-wide">
-        {{ repoName }}
-      </span>
-      <span v-if="worktree" class="max-w-full shrink-0 text-sm text-foreground-low">
-        <WorktreeLabel :wt="worktree" />
-      </span>
+      <!-- branch の max-w-full がアイコンを除いた幅を基準にするよう、repo 名と branch を内側に包む -->
+      <div class="flex min-w-0 flex-1 items-center overflow-hidden">
+        <span class="min-w-0 truncate text-sm font-semibold tracking-wide">
+          {{ repoName }}
+        </span>
+        <span v-if="worktree" class="max-w-full shrink-0 pl-2 text-sm text-foreground-low">
+          <WorktreeLabel :wt="worktree" />
+        </span>
+      </div>
     </div>
     <!-- 下段: status アイコン + セッションタイトル -->
     <div class="flex items-center gap-2">

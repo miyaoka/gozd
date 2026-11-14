@@ -17,7 +17,7 @@ import type { SpeechSpeaker } from "./sessionLogView";
 
 interface UndockedLogData {
   speaker: SpeechSpeaker;
-  /** ヘッダ上段: repo 名 (TerminalLeafTitle と同構成)。未解決は空文字で上段ごと省く。 */
+  /** ヘッダ上段: repo 名。未解決は空文字で上段ごと省く。 */
   repoName: string;
   /** RepoIcon 用の GitHub owner。空文字は identicon フォールバック。 */
   repoOwner: string;

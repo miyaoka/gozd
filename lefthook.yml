@@ -23,7 +23,7 @@ pre-commit:
             run: bun fmt {staged_files}
             stage_fixed: true
 
-          # renderer の eslint と bun lint は同じ .ts を書き換えるため、fix:all と同じ
+          # renderer の eslint と bun lint は同じ .ts を書き換えるため、
           # eslint → bun lint → bun fmt の順で直列に走らせる。
           # この group と renderer の group には glob を置かない: lefthook の group は親 glob と
           # 子 glob を OR（和集合）で連結するため、親 glob は子を絞り込めず追加にしかならない。

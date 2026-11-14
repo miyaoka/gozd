@@ -31,8 +31,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ルートの集約スクリプトは 8 種あるが、matrix は fix を除いた 7 本。自動修正できる
-          # 違反で PR を止めず、daily-fix workflow が日次の全件実行で返済する
+          # ルートの集約スクリプトは 8 種あるが、matrix は fix を除いた 7 本。CI が検査しない
+          # ずれ（整形など）で PR を止めず、daily-fix workflow が日次の全件実行で返済する
           # （.github/workflows/daily-fix.yml）
           #
           # matrix はスクリプト名だけを持ち、コマンド行は step 側に固定する。matrix にコマンド

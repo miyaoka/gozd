@@ -60,6 +60,9 @@ Environment:
   GOZD_PTY_ID       Used by \`hook\` and \`worktree remove\` to identify the
                     terminal the request comes from
   GOZD_COLD_START   If set, \`open\` writes a launch request file instead of socket send
+  CLAUDE_CODE_SESSION_ID
+                    Used by \`worktree new --fork\` to identify the Claude Code
+                    session to fork (set by Claude Code)
 `;
 
 async function sendOrExit(message: ClientMessage): Promise<void> {

@@ -26,15 +26,28 @@ export interface ErrorNotifier {
 
 const LOST_PROMPT_MESSAGE = "The instruction was not delivered. Open details to copy it.";
 const LOST_FORK_MESSAGE =
+  "The forked session was not started. Open details to copy the command to start it.";
+const LOST_FORK_WITH_PROMPT_MESSAGE =
   "The forked session was not started. Open details to copy the command and the instruction.";
 
-/** 起動時に渡すはずだった指示文と複製が届かなかったことを通知する。どちらも無い経路では何もしない */
-export function notifyLostPrompt(notify: ErrorNotifier, hint: AutostartHint | undefined): void {
+/**
+ * 起動時に渡すはずだった指示文と複製が届かなかったことを通知する。どちらも無い経路では何もしない。
+ * dir は起動するはずだった worktree。複製は実行したディレクトリに属するため、コマンドに添える。
+ */
+export function notifyLostPrompt(
+  notify: ErrorNotifier,
+  hint: AutostartHint | undefined,
+  dir: string,
+): void {
   const prompt = hint?.prompt ?? "";
   const forkSessionId = hint?.forkSessionId ?? "";
   if (forkSessionId !== "") {
-    const command = `claude --resume ${forkSessionId} --fork-session`;
-    notify.error(LOST_FORK_MESSAGE, prompt === "" ? command : `${command}\n\n${prompt}`);
+    const command = `cd "${dir}"\nclaude --resume ${forkSessionId} --fork-session`;
+    if (prompt === "") {
+      notify.error(LOST_FORK_MESSAGE, command);
+    } else {
+      notify.error(LOST_FORK_WITH_PROMPT_MESSAGE, `${command}\n\n${prompt}`);
+    }
     return;
   }
   if (prompt === "") return;

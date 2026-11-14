@@ -245,7 +245,7 @@ export const useTerminalStore = defineStore("terminal", () => {
         "Failed to spawn terminal",
         new Error(`spawn failed; dir=${dir}`, { cause: error }),
       );
-      notifyLostPrompt(notify, lostHint);
+      notifyLostPrompt(notify, lostHint, dir);
     },
   });
 

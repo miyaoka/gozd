@@ -151,8 +151,8 @@ export interface ParsedNewWorktree {
 
 /** `gozd worktree new` の引数を NewWorktreeMessage に組み立てる。
  * sessionId は実行した Claude のセッション（`CLAUDE_CODE_SESSION_ID`）で、`--fork` の複製元になる。
- * 端末（`GOZD_PTY_ID`）から引かないのは、バックグラウンドジョブや teammate では端末が
- * 実行した会話と無関係なセッションを指すため。 */
+ * 端末（`GOZD_PTY_ID`）から引かないのは、バックグラウンドジョブでは端末が実行した会話と
+ * 無関係なセッションを指すため。 */
 export function parseNewWorktreeArgs(
   argv: string[],
   cwd: string,

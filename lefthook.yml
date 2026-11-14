@@ -24,17 +24,16 @@ pre-commit:
             stage_fixed: true
 
           # renderer の eslint と bun lint は同じ .ts を書き換えるため、renderer の fix
-          # スクリプトと同じ eslint → bun lint → bun fmt の順で直列に走らせる
+          # スクリプトと同じ eslint → bun lint → bun fmt の順で直列に走らせる。
+          # この group と renderer の group には glob を置かない: lefthook の group は親 glob と
+          # 子 glob を OR（和集合）で連結するため、親 glob は子を絞り込めず追加にしかならない。
+          # 親 glob があると .md/.css 単独 commit でも eslint(.ts/.vue) が
+          # 対象外ファイルを受け取り「No files found to lint」で落ちる。
+          # 子ごとに glob を持たせて振り分けを完結させる。
           - name: linters
             group:
               piped: true
               jobs:
-                # 同一ファイルへの競合を避けるため piped で直列実行。
-                # 親 group には glob を置かない: lefthook の group は親 glob と子 glob を
-                # OR（和集合）で連結するため、親 glob は子を絞り込めず追加にしかならない。
-                # 親 glob があると .md/.css 単独 commit でも eslint(.ts/.vue) が
-                # 対象外ファイルを受け取り「No files found to lint」で落ちる。
-                # 子ごとに glob を持たせて振り分けを完結させる。
                 - name: renderer
                   root: apps/renderer/
                   group:
@@ -57,7 +56,7 @@ pre-commit:
                         glob: "**/*.{ts,vue}"
                         run: bun scripts/checkFeatureCycles.ts
 
-                # repo の全 .ts を 1 回の bun lint で検査・修正し、整形する
+                # stage した .ts を workspace で分けずに 1 回の bun lint で検査・修正し、整形する
                 - name: lint
                   glob: "**/*.ts"
                   run: bun lint --no-script --fix {staged_files} && bun fmt {staged_files}

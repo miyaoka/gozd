@@ -112,6 +112,7 @@ export type {
 export type {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
+  ForkWorktreeRequest,
   DiffExpandedLine,
   DiffHunk,
   DiffLineKind,

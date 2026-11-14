@@ -12,8 +12,15 @@
  * そちらの doc 参照)。undock 直後は in-app パネルで、promote で別 OS ウィンドウへ昇格する
  * (presentation の切り替えは UndockedWindow が担う)。
  */
+import type { RepoWorktree } from "../../shared/repo";
 import { createFloatingWindows, type FloatingWindowState } from "../floating-window";
 import type { SpeechSpeaker } from "./sessionLogView";
+
+/** undock 時点の worktree の写し。表示に要るフィールドだけを持ち、以後の変化に追従しない */
+type UndockedLogWorktree = Pick<
+  RepoWorktree,
+  "branch" | "path" | "head" | "detached" | "listUnavailable"
+>;
 
 interface UndockedLogData {
   speaker: SpeechSpeaker;
@@ -21,6 +28,8 @@ interface UndockedLogData {
   repoName: string;
   /** RepoIcon 用の GitHub owner。空文字は identicon フォールバック。 */
   repoOwner: string;
+  /** ヘッダ上段で repo 名の横に出す worktree。未解決は undefined で省く。 */
+  worktree: UndockedLogWorktree | undefined;
   /** ヘッダ下段: session タイトル (+ sub 由来は subagent ラベル)。 */
   title: string;
   text: string;

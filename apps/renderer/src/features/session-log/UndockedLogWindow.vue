@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { UndockedWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
+import { WorktreeLabel } from "../worktree";
 import SessionLogMessageBody from "./SessionLogMessageBody.vue";
 import { SPEAKER_SURFACE_CLASS } from "./sessionLogView";
 import { useUndockedLog, type UndockedLog } from "./useUndockedLog";
@@ -33,15 +34,18 @@ const handoff = takeHandoff(props.log.id);
     @close-requested="close(log.id)"
     @closed="close(log.id)"
   >
-    <!-- TerminalLeafTitle と同じ 2 段構成 (上段: repo アイコン + repo 名 / 下段: session
-         タイトル)。repo 未解決 (空文字) は上段ごと省く。 -->
     <template #header>
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div v-if="log.repoName !== ''" class="flex items-center gap-2">
+        <div v-if="log.repoName !== ''" class="flex min-w-0 items-center gap-2">
           <RepoIcon :name="log.repoName" :owner="log.repoOwner" />
-          <span class="min-w-0 flex-1 truncate text-xs font-semibold tracking-wide">
-            {{ log.repoName }}
-          </span>
+          <div class="flex min-w-0 flex-1 items-center overflow-hidden">
+            <span class="min-w-0 truncate text-xs font-semibold tracking-wide">
+              {{ log.repoName }}
+            </span>
+            <span v-if="log.worktree" class="max-w-full shrink-0 pl-2 text-xs text-foreground-low">
+              <WorktreeLabel :wt="log.worktree" />
+            </span>
+          </div>
         </div>
         <h2 class="truncate text-xs text-foreground-low" :title="log.title">
           {{ log.title }}

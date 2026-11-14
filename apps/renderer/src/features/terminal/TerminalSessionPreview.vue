@@ -291,6 +291,7 @@ function undockPreview(handoff?: UndockDragHandoff) {
   // 足す (main は自明なので略)。repo 未登録 (起動直後等) は解決できた部分だけで出す。
   const dir = terminalStore.getPaneDir(props.leafId);
   const repo = dir === undefined ? undefined : repoStore.findRepoOwning(dir);
+  const wt = repo?.worktrees.find((entry) => entry.path === dir);
   const sid = sessionId.value;
   const listTitle = sid === undefined ? undefined : repoStore.findSession(sid)?.title;
   const terminalTitle = stripClaudeTitlePrefix(terminalStore.titleByLeafId[props.leafId] ?? "");
@@ -306,6 +307,16 @@ function undockPreview(handoff?: UndockDragHandoff) {
       // 解決中 (undefined) は identicon ("") に倒す。live 消費者と違い `?? ""` を
       // 外してはいけない (外すと解決中に undock した window が恒久的に空白になる)
       repoOwner: repo?.githubIdentity?.owner ?? "",
+      worktree:
+        wt === undefined
+          ? undefined
+          : {
+              branch: wt.branch,
+              path: wt.path,
+              head: wt.head,
+              detached: wt.detached,
+              listUnavailable: wt.listUnavailable,
+            },
       title: title === "" ? "Session log" : title,
       text: ctx.msg.text,
       mark: ctx.msg.mark,

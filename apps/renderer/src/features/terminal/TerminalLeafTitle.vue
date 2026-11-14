@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { sessionDisplayTitle, useRepoStore } from "../../shared/repo";
 import { RepoIcon } from "../repo-icon";
+import { WorktreeLabel } from "../worktree";
 import { CLAUDE_STATE_VISUAL, stripClaudeTitlePrefix } from "./claudeStatus";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -22,6 +23,8 @@ const repo = computed(() => repoStore.findRepoOwning(props.dir));
 const repoName = computed(() => repo.value?.repoName ?? "");
 /** GitHub owner。undefined は解決中（RepoIcon が空プレースホルダーを出す） */
 const repoOwner = computed(() => repo.value?.githubIdentity?.owner);
+/** dir に対応する worktree。一覧の取得前は undefined（branch 名を省く） */
+const worktree = computed(() => repo.value?.worktrees.find((wt) => wt.path === props.dir));
 
 /** 端末タイトル → セッション一覧のタイトル の順で解決した表示タイトル */
 const title = computed<string>(() => {
@@ -38,12 +41,18 @@ const title = computed<string>(() => {
     v-if="visual"
     class="relative flex shrink-0 flex-col gap-1 border-b border-border-subtle px-2 py-1"
   >
-    <!-- 上段: repo アイコン + repo 名（repo 未登録時は省く） -->
-    <div v-if="repoName !== ''" class="flex items-center gap-2">
+    <!-- 上段: repo アイコン + repo 名 + branch 名（repo 未登録時は省く）。狭いときは repo 名から切る -->
+    <div v-if="repoName !== ''" class="flex min-w-0 items-center gap-2">
       <RepoIcon :name="repoName" :owner="repoOwner" />
-      <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
-        {{ repoName }}
-      </span>
+      <!-- branch の max-w-full がアイコンを除いた幅を基準にするよう、repo 名と branch を内側に包む -->
+      <div class="flex min-w-0 flex-1 items-center overflow-hidden">
+        <span class="min-w-0 truncate text-sm font-semibold tracking-wide">
+          {{ repoName }}
+        </span>
+        <span v-if="worktree" class="max-w-full shrink-0 pl-2 text-sm text-foreground-low">
+          <WorktreeLabel :wt="worktree" />
+        </span>
+      </div>
     </div>
     <!-- 下段: status アイコン + セッションタイトル -->
     <div class="flex items-center gap-2">

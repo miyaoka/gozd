@@ -1,6 +1,5 @@
 # 日次で fix:all を全件実行し、ドリフトがあれば bot PR を作って auto merge する。
-# 直すのは CI が検査しない自動修正（整形と、renderer の eslint の修正用設定だけが有効にする規則）。
-# lint の違反は CI が PR で止めるので、ここでは直さない。
+# 直すのは CI が検査しないずれ。
 # 差分ゼロなら何もしない（空振り＝その日にドリフトが無いことの証明）。
 #
 # - main push を trigger にしない。fix PR のマージ自体が main push であり自己再帰する
@@ -69,7 +68,7 @@ jobs:
           # style は release workflow の発火判定（feat / fix）に掛からない
           commit-message: "style: repay drift found by fix:all"
           title: "style: repay drift found by fix:all"
-          body: Automated PR from the daily `daily-fix` workflow. It runs `fix:all` across the whole repo and repays the drift that CI does not check (formatting and the fix-only renderer eslint rules).
+          body: Automated PR from the daily `daily-fix` workflow. It runs `fix:all` across the whole repo and repays the drift that CI does not check.
 
       # --delete-branch は付けない: gh の deleteRemoteBranch は autoMerge 経路で早期 return する
       # no-op であり、削除は repo 設定の delete_branch_on_merge が担う

@@ -36,8 +36,7 @@ jobs:
 
       - uses: $/.github/actions/setup-environment
 
-      # 各 package の fix は lint --fix → bun fmt の順で formatter が最後に走るため 1 パスで
-      # 固定点に達する。収束を待つループは不要
+      # fix:all は formatter が最後に走るため 1 パスで固定点に達する。収束を待つループは不要
       - name: Run fix:all
         run: pnpm run fix:all
 

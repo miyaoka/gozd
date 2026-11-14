@@ -1,12 +1,8 @@
-// lint gate の宣言を機械検査する。
+// gate（lint と pre-commit の検査が走る条件）の宣言を機械検査する。
 //
-// ここで見る 2 種類の宣言は、壊れても他のどの検査にも掛からない。lint は走り、出力も出て、
-// exit code は 0 のままになる。壊れたこと自体を落とせるのはこのテストだけ。
-//
-// - 違反を exit code に載せる宣言: 消えると repo 全体の lint gate が無音で開く
-// - root runner の除外: CI と pre-commit の 2 箇所にある pnpm-workspace.yaml の写し。どちらも
-//   glob は repo 全体に届く形なので、置き場が増えたときに書き漏らすと workspace を拾い、
-//   同じ違反が root と workspace の 2 レーンから出る
+// ここで見る宣言は、壊れても他のどの検査にも掛からない。検査は走らないか、走っても exit code が
+// 0 のままになる。壊れたこと自体を落とせるのはこのテストだけ。個々の宣言が壊れたときに何が
+// 起きるかは、各 describe の直前に書く。
 
 import { YAML } from "bun";
 import { describe, expect, test } from "bun:test";
@@ -149,6 +145,7 @@ const CHECKS: { script: string; runs: RegExp }[] = [
   { script: "test", runs: /\bpnpm run test(\s|$)/ },
 ];
 
+// 違反を exit code に載せる宣言。消えると repo 全体の lint gate が無音で開く
 describe("lint gate", () => {
   test("違反は exit code に出る", () => {
     const config = JSON.parse(read(".oxlintrc.json")) as {
@@ -158,6 +155,8 @@ describe("lint gate", () => {
   });
 });
 
+// root runner の除外は pnpm-workspace.yaml の写し。書き漏らすと root runner が workspace を拾い、
+// 同じ違反が root と workspace の 2 レーンから出る
 describe("lint の走査範囲", () => {
   // 下の 2 つは workspaceParents() が空を返しても「除外漏れなし」として通る。置き場の取り出しが
   // 空振りしている状態と、本当に漏れが無い状態を撃ち分けるため、土台を先に固定する

@@ -1,5 +1,5 @@
 # 日次で fix:all を全件実行し、ドリフトがあれば bot PR を作って auto merge する。
-# 差分ゼロなら何もしない（空振り＝その日に整形ドリフトが無いことの証明）。
+# 差分ゼロなら何もしない（空振り＝その日に lint と整形のドリフトが無いことの証明）。
 #
 # - main push を trigger にしない。fix PR のマージ自体が main push であり自己再帰する
 # - App token を使う。GITHUB_TOKEN で作った PR は pull_request が発火せず code_validation が

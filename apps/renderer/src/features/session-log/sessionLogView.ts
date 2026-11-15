@@ -161,9 +161,8 @@ export function isSameSpeech(a: Speech, b: Speech): boolean {
 
 /**
  * SessionLogTranscript の `select-branch` emit payload (SessionLogDialog との契約)。
- * sessionKey で発火元のセッションを自己記述する。親側ハンドラでセッションを特定し直す形にすると
- * v-if で narrowing した値の参照が必要になり、vue-tsc 3.3.6 以降インラインハンドラは
- * 関数スコープに包まれて narrowing が届かないため、payload 側で完結させる。
+ * sessionKey で発火元のセッションを自己記述し、親は同じハンドラを main / subagent の
+ * 両ペインに渡すだけで済む。
  */
 export interface BranchSelectPayload {
   sessionKey: string;

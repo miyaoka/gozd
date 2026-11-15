@@ -91,8 +91,6 @@ export default defineConfigWithVueTs(
   },
   {
     rules: {
-      // 各ルールは独立したワーカーで Tailwind Design System をロードするため、
-      // 有効なルール数に比例して初期化コストが増加する（1ルールあたり約1秒）
       "better-tailwindcss/no-unknown-classes": [
         "error",
         {

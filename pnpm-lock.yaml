@@ -96,9 +96,6 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
-      typescript:
-        specifier: 'catalog:'
-        version: '@typescript/typescript6@6.0.2'
 
   apps/renderer:
     dependencies:

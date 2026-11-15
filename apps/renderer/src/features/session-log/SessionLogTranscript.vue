@@ -49,8 +49,7 @@ const emit = defineEmits<{
   // topmost に見えている会話イベントの ts。親 (SessionLogDialog) が横断タイムラインの
   // playhead 位置に使う。スクロールに追従して発火する。
   (e: "current-ts", ts: string): void;
-  // rewind 分岐セレクタのクリック。親が payload.sessionKey のセッションの branch 選択を更新して
-  // transcript を該当バージョンへ再構築する。ts は選択枝先頭の時刻で、切替後にその分岐点へ寄せるのに使う。
+  // rewind 分岐セレクタのクリック。ts は選択枝先頭の時刻。
   (e: "select-branch", payload: BranchSelectPayload): void;
   // ヘッダの「生ログを開く」ボタン。親 (dialog) が dialog を閉じて preview に filePath を出す。
   (e: "open-file", path: string): void;
@@ -451,7 +450,7 @@ onBeforeUnmount(teardownObserver);
         <SessionLogBranchSelector
           v-if="ev.kind === 'branch'"
           :data-ev="i"
-          :event="ev"
+          :branch="ev"
           @select="emit('select-branch', { sessionKey, ...$event })"
         />
 

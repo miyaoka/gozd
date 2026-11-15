@@ -99,9 +99,7 @@ export default defineConfigWithVueTs(
           ignore: ["^_.*"],
         },
       ],
-      // 初回呼び出しで全クラスのシグネチャを計算するため重い
-      // eslint.config.fix.ts で有効化
-      "better-tailwindcss/enforce-canonical-classes": "off",
+      "better-tailwindcss/enforce-canonical-classes": "error",
       // フォーマッタと競合するため off
       "better-tailwindcss/enforce-consistent-line-wrapping": "off",
       // フォーマッタと競合するため off

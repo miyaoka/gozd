@@ -8,8 +8,8 @@
     "build": "vite build",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint . --max-warnings 0 && bun scripts/checkFeatureCycles.ts",
-    "fix": "eslint . --fix -c eslint.config.fix.ts",
-    "fix:staged": "eslint --fix -c eslint.config.fix.ts --no-warn-ignored --cache --max-warnings 0",
+    "fix": "eslint . --fix",
+    "fix:staged": "eslint --fix --no-warn-ignored --cache --max-warnings 0",
     "test": "bun test",
     "test:browser": "vitest run",
     "test:browser:setup": "playwright install --only-shell chromium"

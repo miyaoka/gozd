@@ -7,9 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --runExternalCode --noEmit",
-    "lint": "eslint . --max-warnings 0 && bun scripts/checkFeatureCycles.ts",
-    "fix": "eslint . --fix",
-    "fix:staged": "eslint --fix --no-warn-ignored --cache --max-warnings 0",
+    "lint": "bun lint --no-script --config eslint.config.ts --max-warnings 0 . && bun scripts/checkFeatureCycles.ts",
+    "fix": "bun lint --no-script --config eslint.config.ts --fix .",
+    "fix:staged": "bun lint --no-script --config eslint.config.ts --fix --no-warn-ignored --max-warnings 0",
     "test": "bun test",
     "test:browser": "vitest run",
     "test:browser:setup": "playwright install --only-shell chromium"

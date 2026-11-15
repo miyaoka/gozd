@@ -69,7 +69,7 @@ repo root 直下に固定でファイル名も機能名と一致するため、�
 | CSS                | Tailwind CSS v4                                                             |
 | アイコン           | unplugin-icons（per-icon component import）                                 |
 | フォーマッタ       | bun fmt（`.oxfmtrc.json` があると oxfmt 互換、無いと Prettier 互換で整形）  |
-| リンター           | bun lint（repo 全体の `.ts`）/ ESLint（renderer）                           |
+| リンター           | bun lint（repo 全体の `.ts`）/ bun lint + ESLint 設定（renderer）           |
 | 型チェック         | bun check（TypeScript）/ tsc 7.1 + vize content mapper（renderer）          |
 | ターミナル         | xterm.js                                                                    |
 | PTY                | node-pty                                                                    |

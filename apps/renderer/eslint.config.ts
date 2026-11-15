@@ -2,9 +2,7 @@ import pluginGozd from "@gozd/eslint-plugin";
 import pluginBarrelImport from "@miyaoka/eslint-plugin-barrel-import";
 import skipFormatting from "@vue/eslint-config-prettier/skip-formatting";
 import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescript";
-import type { ESLint } from "eslint";
 import pluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
-import pluginImportX from "eslint-plugin-import-x";
 import pluginUnusedImports from "eslint-plugin-unused-imports";
 import pluginVue from "eslint-plugin-vue";
 
@@ -20,9 +18,6 @@ export default defineConfigWithVueTs(
   // プラグイン + ルール
   {
     plugins: {
-      // eslint-plugin-import-x の型が @typescript-eslint/utils の型を使用しており、
-      // ESLint の defineConfig 型と互換性がない (typescript-eslint/typescript-eslint#11543)
-      "import-x": pluginImportX as unknown as ESLint.Plugin,
       "unused-imports": pluginUnusedImports,
     },
     rules: {
@@ -65,19 +60,6 @@ export default defineConfigWithVueTs(
           ],
         },
       ],
-
-      // import-x
-      "import-x/no-duplicates": "error",
-      // 保存時の自動 lint で並び替えが発生すると編集中に邪魔なので off
-      // 修正時は eslint.config.fix.ts で有効化
-      "import-x/order": [
-        "off",
-        {
-          groups: ["builtin", "external", "internal", "parent", "sibling", "index", "object"],
-          pathGroupsExcludedImportTypes: ["builtin", "external", "type"],
-          alphabetize: { order: "asc", caseInsensitive: true },
-        },
-      ],
     },
   },
 
@@ -109,17 +91,13 @@ export default defineConfigWithVueTs(
   },
   {
     rules: {
-      // 各ルールは独立したワーカーで Tailwind Design System をロードするため、
-      // 有効なルール数に比例して初期化コストが増加する（1ルールあたり約1秒）
       "better-tailwindcss/no-unknown-classes": [
         "error",
         {
           ignore: ["^_.*"],
         },
       ],
-      // 初回呼び出しで全クラスのシグネチャを計算するため重い
-      // eslint.config.fix.ts で有効化
-      "better-tailwindcss/enforce-canonical-classes": "off",
+      "better-tailwindcss/enforce-canonical-classes": "error",
       // フォーマッタと競合するため off
       "better-tailwindcss/enforce-consistent-line-wrapping": "off",
       // フォーマッタと競合するため off

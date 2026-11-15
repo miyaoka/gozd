@@ -40,13 +40,13 @@ semantic alias / element default は `@theme inline` / `@layer base` 内。不�
 
 以下は AI / 人間どちらが書いても build error。SKILL 規律ではなく機械強制 (constraint over determinism)。
 
-| 違反                                            | ルール                                                    |
-| ----------------------------------------------- | --------------------------------------------------------- |
-| 生 Tailwind palette (`bg-zinc-800` 等)          | `gozd/no-raw-tailwind-palette` (utility 形)               |
-| 生 palette CSS var (`var(--color-zinc-800)`)    | `gozd/no-raw-tailwind-palette` (CSS var 形)               |
-| primitive 直参照 (`var(--gray-3)` 等)           | `gozd/no-raw-tailwind-palette` (primitive var 形)         |
-| 未定義 class (typo)                             | `better-tailwindcss/no-unknown-classes`                   |
-| `w-N h-N` / `space-y-*` / `truncate` 等の正規化 | `better-tailwindcss/enforce-canonical-classes` (fix mode) |
+| 違反                                            | ルール                                            |
+| ----------------------------------------------- | ------------------------------------------------- |
+| 生 Tailwind palette (`bg-zinc-800` 等)          | `gozd/no-raw-tailwind-palette` (utility 形)       |
+| 生 palette CSS var (`var(--color-zinc-800)`)    | `gozd/no-raw-tailwind-palette` (CSS var 形)       |
+| primitive 直参照 (`var(--gray-3)` 等)           | `gozd/no-raw-tailwind-palette` (primitive var 形) |
+| 未定義 class (typo)                             | `better-tailwindcss/no-unknown-classes`           |
+| `w-N h-N` / `space-y-*` / `truncate` 等の正規化 | `better-tailwindcss/enforce-canonical-classes`    |
 
 primitive utility (`bg-gray-3` 等) は Tailwind が utility 化していない (primitive は `:root` で `@theme` 経由していない) ため、自動的に `no-unknown-classes` で弾かれる。
 

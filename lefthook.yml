@@ -23,11 +23,11 @@ pre-commit:
             run: bun fmt {staged_files}
             stage_fixed: true
 
-          # renderer の eslint と bun lint は同じ .ts を書き換えるため、
-          # eslint → bun lint → bun fmt の順で直列に走らせる。
+          # renderer の lint（ESLint 設定）と repo 全体の lint（oxlint 設定）は同じ .ts を書き換えるため、
+          # renderer → repo 全体 → bun fmt の順で直列に走らせる。
           # この group と renderer の group には glob を置かない: lefthook の group は親 glob と
           # 子 glob を OR（和集合）で連結するため、親 glob は子を絞り込めず追加にしかならない。
-          # 親 glob があると .md/.css 単独 commit でも eslint(.ts/.vue) が
+          # 親 glob があると .md/.css 単独 commit でも renderer の lint(.ts/.vue) が
           # 対象外ファイルを受け取り「No files found to lint」で落ちる。
           # 子ごとに glob を持たせて振り分けを完結させる。
           - name: linters
@@ -39,11 +39,11 @@ pre-commit:
                   group:
                     piped: true
                     jobs:
-                      - name: eslint
+                      - name: lint
                         glob: "**/*.{ts,vue}"
-                        # binary を直に呼ばず renderer の script 経由にする: eslint の宣言は
-                        # renderer にあるが、knip の lefthook plugin は job の root を絶対パスに
-                        # 解決しないため、binary 直呼びの参照は repo root 帰属になり未宣言扱いになる
+                        # renderer の script 経由にする: ESLint 設定を選ぶ flag の正本を script の
+                        # 1 か所に置く。knip の lefthook plugin は job の root を絶対パスに解決しない
+                        # ため、binary 直呼びの参照は repo root 帰属になり未宣言扱いにもなる
                         run: pnpm run fix:staged {staged_files}
                         stage_fixed: true
                       - name: fmt

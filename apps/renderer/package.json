@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "vue-tsc --noEmit",
-    "lint": "eslint . --max-warnings 0 && bun scripts/checkFeatureCycles.ts",
-    "fix": "eslint . --fix -c eslint.config.fix.ts",
-    "fix:staged": "eslint --fix -c eslint.config.fix.ts --no-warn-ignored --cache --max-warnings 0",
+    "typecheck": "tsc --runExternalCode --noEmit",
+    "lint": "bun lint --no-script --config eslint.config.ts --max-warnings 0 . && bun scripts/checkFeatureCycles.ts",
+    "fix": "bun lint --no-script --config eslint.config.ts --fix .",
+    "fix:staged": "bun lint --no-script --config eslint.config.ts --fix --no-warn-ignored --max-warnings 0",
     "test": "bun test",
     "test:browser": "vitest run",
     "test:browser:setup": "playwright install --only-shell chromium"
@@ -54,16 +54,16 @@
     "dependency-cruiser": "18.7.2",
     "eslint": "catalog:",
     "eslint-plugin-better-tailwindcss": "4.11.0",
-    "eslint-plugin-import-x": "catalog:",
     "eslint-plugin-unused-imports": "catalog:",
     "eslint-plugin-vue": "10.12.1",
     "playwright": "1.65.0",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
+    "typescript-native": "npm:typescript@7.1.0-beta",
     "unplugin-icons": "24.0.0",
     "vite": "catalog:",
     "vitest": "5.1.0",
     "vitest-browser-vue": "3.1.0",
-    "vue-tsc": "3.3.14"
+    "vize": "0.751.0"
   }
 }

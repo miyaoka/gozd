@@ -9,7 +9,7 @@ import type { FunctionalComponent, SVGAttributes } from "vue";
  * テスト時は空の functional component に倒す (icon は表示専用でロジックに関与しない)。
  *
  * 型は実物 (unplugin-icons/types/vue) と同じ `FunctionalComponent<SVGAttributes>` を
- * 公開するため、vue-tsc が paths 経由でここへ解決しても型検査は等価。
+ * 公開するため、型チェックが paths 経由でここへ解決しても型検査は等価。
  * Vite は tsconfig paths を読まないので build には影響しない。
  */
 const iconStub: FunctionalComponent<SVGAttributes> = () => null;

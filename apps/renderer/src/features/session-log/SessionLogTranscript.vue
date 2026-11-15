@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import {
-  type ImageSource,
-  type ParsedSessionLog,
-  type TranscriptEvent,
-} from "@gozd/claude-session-log";
+import { type ImageSource, type ParsedSessionLog } from "@gozd/claude-session-log";
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import SessionLogBranchSelector from "./SessionLogBranchSelector.vue";
 import SessionLogSpeakerRow from "./SessionLogSpeakerRow.vue";
 import SessionLogSpeechBubble from "./SessionLogSpeechBubble.vue";
 import SessionLogSubagentButton from "./SessionLogSubagentButton.vue";
@@ -25,7 +22,6 @@ import {
 } from "./sessionLogView";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideFileJson from "~icons/lucide/file-json";
-import IconLucideGitBranch from "~icons/lucide/git-branch";
 
 const props = defineProps<{
   parsed: ParsedSessionLog;
@@ -53,8 +49,7 @@ const emit = defineEmits<{
   // topmost に見えている会話イベントの ts。親 (SessionLogDialog) が横断タイムラインの
   // playhead 位置に使う。スクロールに追従して発火する。
   (e: "current-ts", ts: string): void;
-  // rewind 分岐セレクタのクリック。親が payload.sessionKey のセッションの branch 選択を更新して
-  // transcript を該当バージョンへ再構築する。ts は選択枝先頭の時刻で、切替後にその分岐点へ寄せるのに使う。
+  // rewind 分岐セレクタのクリック。ts は選択枝先頭の時刻。
   (e: "select-branch", payload: BranchSelectPayload): void;
   // ヘッダの「生ログを開く」ボタン。親 (dialog) が dialog を閉じて preview に filePath を出す。
   (e: "open-file", path: string): void;
@@ -64,19 +59,6 @@ const notify = useNotificationStore();
 
 function subagentLinkFor(toolUseId: string): SubagentLinkResult | undefined {
   return props.subagentLinks?.get(toolUseId);
-}
-
-// rewind 分岐セレクタの選択肢クリック。vue-tsc 3.3.6 以降、複数行のインラインハンドラは
-// 関数スコープに包まれ v-if による ev の narrowing がハンドラ式内へ届かないため、
-// union のまま受けて script 側で絞り直す。
-function selectBranchOption(ev: TranscriptEvent, opt: { childUuid: string; ts: string }) {
-  if (ev.kind !== "branch") return;
-  emit("select-branch", {
-    sessionKey: props.sessionKey,
-    branchKey: ev.branchKey,
-    childUuid: opt.childUuid,
-    ts: opt.ts,
-  });
 }
 
 // tool input の整形済み JSON (event index → 文字列)。テンプレートで毎回 JSON.stringify すると
@@ -465,32 +447,12 @@ onBeforeUnmount(teardownObserver);
       class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 select-text"
     >
       <template v-for="(ev, i) in parsed.events" :key="`${sessionKey}:${i}`">
-        <!-- rewind 分岐セレクタ: ここで会話が枝分かれした。番号は古い順 (最新が最大)。
-               選択中の枝をハイライトし、他をクリックでその枝へ切り替える。捨て枝が
-               存在することの可視化と、過去バージョンの閲覧を兼ねる。 -->
-        <div
+        <SessionLogBranchSelector
           v-if="ev.kind === 'branch'"
           :data-ev="i"
-          class="mx-auto flex w-fit max-w-[85%] scroll-mt-2 flex-wrap items-center justify-center gap-1.5 py-1 text-[11px] text-foreground-low"
-        >
-          <IconLucideGitBranch class="size-3.5 shrink-0" />
-          <button
-            v-for="opt in ev.options"
-            :key="opt.childUuid"
-            type="button"
-            class="flex max-w-[200px] items-center gap-1 rounded-full border px-2 py-0.5"
-            :class="
-              opt.childUuid === ev.selectedChildUuid
-                ? 'border-success bg-success-subtle text-success-text'
-                : 'border-border text-foreground-low hover:bg-element-hover hover:text-foreground'
-            "
-            :title="opt.lead"
-            @click="selectBranchOption(ev, opt)"
-          >
-            <span class="shrink-0 tabular-nums">#{{ opt.index }}</span>
-            <span v-if="opt.lead !== ''" class="min-w-0 truncate">{{ opt.lead }}</span>
-          </button>
-        </div>
+          :branch="ev"
+          @select="emit('select-branch', { sessionKey, ...$event })"
+        />
 
         <!-- ask (AskUserQuestion): 1 問ずつ (質問の発言 + 選択肢 chip 列 + 回答の発言) の
                セットで縦に並べる。質問と回答を発言にする規則は askTurns が持つ。回答未充填

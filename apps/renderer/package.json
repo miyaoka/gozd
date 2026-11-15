@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "vue-tsc --noEmit",
+    "typecheck": "tsc --runExternalCode --noEmit",
     "lint": "eslint . --max-warnings 0 && bun scripts/checkFeatureCycles.ts",
     "fix": "eslint . --fix",
     "fix:staged": "eslint --fix --no-warn-ignored --cache --max-warnings 0",
@@ -59,10 +59,11 @@
     "playwright": "1.65.0",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
+    "typescript-native": "npm:typescript@7.1.0-beta",
     "unplugin-icons": "24.0.0",
     "vite": "catalog:",
     "vitest": "5.1.0",
     "vitest-browser-vue": "3.1.0",
-    "vue-tsc": "3.3.14"
+    "vize": "0.751.0"
   }
 }

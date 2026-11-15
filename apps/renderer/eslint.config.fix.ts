@@ -5,7 +5,6 @@ export default [
   ...baseConfig,
   {
     rules: {
-      "import-x/order": "error",
       "better-tailwindcss/enforce-canonical-classes": "error",
     },
   },

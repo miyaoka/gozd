@@ -5,7 +5,6 @@ apps/desktop/build
 apps/desktop/artifacts
 .DS_Store
 *.log*
-.eslintcache
 
 # vitest の出力
 .vitest

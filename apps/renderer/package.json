@@ -47,7 +47,7 @@
     "@miyaoka/eslint-plugin-barrel-import": "0.1.0",
     "@tailwindcss/vite": "catalog:",
     "@types/bun": "catalog:",
-    "@vitejs/plugin-vue": "6.0.10",
+    "@vitejs/plugin-vue": "6.0.11",
     "@vitest/browser-playwright": "5.1.0",
     "@vue/eslint-config-prettier": "10.2.0",
     "@vue/eslint-config-typescript": "14.9.0",

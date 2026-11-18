@@ -16,15 +16,17 @@ const RELOAD_EVENTS: ReadonlySet<string> = new Set(["tool-done", "done", "sessio
 /** 1 ターンで続けて届く tool-done を、セッションごとに 1 回の読み直しにまとめる */
 const RELOAD_DEBOUNCE_MS = 150;
 
-// HMR 再実行で hook の購読を二重に登録しないための disposer。module スコープに置き、
-// 再実行をまたいで前回の購読を解除する
-let disposeHook: (() => void) | undefined;
+// store が張った購読・watch・タイマーをまとめて止める。HMR で setup が再実行されたときは
+// 先頭で前回分を止め、module ごと評価し直すときは下の import.meta.hot.dispose で止める
+// （評価し直した module ではこの変数も undefined から始まるため、setup の先頭では届かない）
+let stopStore: (() => void) | undefined;
 
 /**
  * 端末で動いている全 Claude セッションのタスク一覧。生きているセッションが現れたら読み、
  * そのセッションの hook が届いたら読み直し、セッションが終わったら捨てる。
  */
 export const useClaudeTasksStore = defineStore("claudeTasks", () => {
+  stopStore?.();
   const terminalStore = useTerminalStore();
   const worktreeStore = useWorktreeStore();
   const notify = useNotificationStore();
@@ -64,7 +66,7 @@ export const useClaudeTasksStore = defineStore("claudeTasks", () => {
     () => new Set(terminalStore.liveSessions.map((session) => session.sessionId)),
   );
 
-  watch(
+  const stopWatch = watch(
     liveSessionIds,
     (current, previous) => {
       for (const sessionId of current) {
@@ -77,8 +79,7 @@ export const useClaudeTasksStore = defineStore("claudeTasks", () => {
     { immediate: true },
   );
 
-  disposeHook?.();
-  disposeHook = onMessage<HookPayload>("hook", (payload) => {
+  const disposeHook = onMessage<HookPayload>("hook", (payload) => {
     if (!RELOAD_EVENTS.has(payload.event)) return;
     const sessionId = terminalStore.getSessionIdByPtyId(payload.ptyId);
     if (sessionId === undefined) return;
@@ -91,6 +92,15 @@ export const useClaudeTasksStore = defineStore("claudeTasks", () => {
       }, RELOAD_DEBOUNCE_MS),
     );
   });
+
+  stopStore = () => {
+    stopWatch();
+    disposeHook();
+    for (const timer of reloadTimers.values()) clearTimeout(timer);
+    reloadTimers.clear();
+    // 世代を消すと、読んでいる途中の応答は照合で落ちる
+    loadTokens.clear();
+  };
 
   /** 選択中の worktree でフォーカスが当たっている端末の Claude セッション */
   const focusedSessionId = computed(() => {
@@ -108,5 +118,6 @@ export const useClaudeTasksStore = defineStore("claudeTasks", () => {
 });
 
 if (import.meta.hot) {
+  import.meta.hot.dispose(() => stopStore?.());
   import.meta.hot.accept(acceptHMRUpdate(useClaudeTasksStore, import.meta.hot));
 }

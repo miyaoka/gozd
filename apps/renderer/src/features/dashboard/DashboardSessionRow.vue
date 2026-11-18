@@ -1,43 +1,16 @@
 <script setup lang="ts">
-import { computed, type FunctionalComponent, type SVGAttributes } from "vue";
+import { computed } from "vue";
 import { formatRelativeAge } from "../../shared/time";
 import { RepoIcon } from "../repo-icon";
 import type { PoolSessionRow } from "../session";
-import { CLAUDE_STATE_VISUAL, displayClaudeState } from "../terminal";
+import { claudeStateGlyph } from "../terminal";
 import { WorktreeLabel } from "../worktree";
-import IconLucideCircle from "~icons/lucide/circle";
 
 const props = defineProps<{
   row: PoolSessionRow;
 }>();
 
-/** Claude が動いていないセッションの low-attention glyph */
-const IDLE_VISUAL = { icon: IconLucideCircle, ariaLabel: "Idle" };
-
-interface StateGlyph {
-  icon: FunctionalComponent<SVGAttributes>;
-  class: string[];
-  ariaLabel: string;
-}
-
-const visual = computed((): StateGlyph => {
-  const state = displayClaudeState(props.row.status);
-  if (state !== undefined) {
-    const live = CLAUDE_STATE_VISUAL[state];
-    return {
-      icon: live.icon,
-      class: [live.color, live.animate ?? ""],
-      ariaLabel: live.ariaLabel,
-    };
-  }
-  // muted (gray-9) は選択行の bg-selection 上で contrast 約 3.0:1 まで落ちるため、
-  // 選択行にも載るセルは foreground-low (約 5.3:1) を下限にする
-  return {
-    icon: IDLE_VISUAL.icon,
-    class: ["text-foreground-low"],
-    ariaLabel: IDLE_VISUAL.ariaLabel,
-  };
-});
+const visual = computed(() => claudeStateGlyph(props.row.status));
 
 const age = computed(() => {
   const lastActivity = props.row.lastActivity;

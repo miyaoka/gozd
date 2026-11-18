@@ -13,6 +13,8 @@ import type {
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
+  ClaudeTaskListRequest,
+  ClaudeTaskListResponse,
   ReviveSessionListRequest,
   ReviveSessionListResponse,
   ReviveSessionRequest,
@@ -155,6 +157,7 @@ import { addPreviewRoot, isWithinRoot, releasePreviewRoots } from "./previewProt
 import { isValidPreviewId, pathToPreviewUrl } from "./previewUrl";
 import { listClaudeSessions } from "./claude/claudeSessionList";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
+import { readClaudeTasks } from "./claude/claudeTasks";
 import { writeFilesToClipboard } from "./clipboardOps";
 import { conciergeDir } from "./concierge";
 import {
@@ -1029,6 +1032,11 @@ function handleClaudeSessionReadLog(body: unknown): unknown {
   } satisfies ClaudeSessionLogResponse;
 }
 
+function handleClaudeTaskList(body: unknown): unknown {
+  const req = body as ClaudeTaskListRequest;
+  return readClaudeTasks(req.sessionId) satisfies ClaudeTaskListResponse;
+}
+
 async function handleReviveSessionList(body: unknown): Promise<unknown> {
   const req = body as ReviveSessionListRequest;
   return { sessions: await listReviveSessions(req.dir) } satisfies ReviveSessionListResponse;
@@ -1180,6 +1188,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/concierge/info", handleConciergeInfo],
   ["/claudeSession/removeByPty", handleClaudeSessionRemoveByPty],
   ["/claudeSession/readLog", handleClaudeSessionReadLog],
+  ["/claudeSession/listTasks", handleClaudeTaskList],
   ["/claudeSession/reviveList", handleReviveSessionList],
   ["/claudeSession/revive", handleReviveSession],
   ["/clipboard/copyFiles", handleClipboardCopyFiles],

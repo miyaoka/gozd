@@ -70,7 +70,7 @@ function defaultWorktreesRoot(): string {
 
 /** session_id を path 結合に渡す前の入力ゲート。UUID 構成文字 ([0-9a-fA-F-]) のみ許可し、
  * `/` や `..` 経由の path traversal を構造的に塞ぐ */
-function isSafeSessionId(sessionId: string): boolean {
+export function isSafeSessionId(sessionId: string): boolean {
   if (sessionId === "") return false;
   return /^[0-9a-fA-F-]+$/.test(sessionId);
 }

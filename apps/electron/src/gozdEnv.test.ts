@@ -10,6 +10,7 @@ import {
   buildPtyEnv,
   claudePluginDir,
   claudeSettingsPath,
+  claudeTaskPromptPath,
   cliPath,
   launchRequestDir,
   resolvePackagedChannel,
@@ -99,6 +100,18 @@ describe("buildPtyEnv", () => {
     expect(env.FORCE_HYPERLINK).toBe(process.env.FORCE_HYPERLINK ?? "1");
   });
 
+  test("Claude Code のタスク管理ツールは、利用者が値を決めていなければ有効にする", () => {
+    const env = buildPtyEnv({}, 1);
+    expect(env.CLAUDE_CODE_ENABLE_TODO_TOOLS).toBe(
+      process.env.CLAUDE_CODE_ENABLE_TODO_TOOLS ?? "1",
+    );
+  });
+
+  test("Claude Code のタスク管理ツールを利用者が無効にしていれば、その値を残す", () => {
+    setParentEnv("CLAUDE_CODE_ENABLE_TODO_TOOLS", "0");
+    expect(buildPtyEnv({}, 1).CLAUDE_CODE_ENABLE_TODO_TOOLS).toBe("0");
+  });
+
   test("親プロセスの env が base として継承される", () => {
     setParentEnv("GOZD_TEST_INHERIT_KEY", "inherited");
     const env = buildPtyEnv({}, 1);
@@ -127,5 +140,13 @@ describe("claudePluginDir", () => {
     // されないため、参照が外れると gozd 内の claude から skill が消える
     expect(existsSync(join(claudePluginDir, ".claude-plugin", "plugin.json"))).toBe(true);
     expect(existsSync(join(claudePluginDir, "skills", "worktree", "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("claudeTaskPromptPath", () => {
+  test("同梱リソースの実体を指し、端末の環境で zsh init に渡る", () => {
+    // 参照が外れると、端末の claude にタスクの書き方の指示が付かず、Tasks タブの目的が揃わない
+    expect(existsSync(claudeTaskPromptPath)).toBe(true);
+    expect(buildPtyEnv({}, 1).GOZD_CLAUDE_TASK_PROMPT).toBe(claudeTaskPromptPath);
   });
 });

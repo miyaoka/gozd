@@ -680,19 +680,26 @@ export const useTerminalStore = defineStore("terminal", () => {
   /**
    * dir の focus が当たっている PTY が、その session のものかどうか。
    * サイドバーの「fill (青 capsule) はカード内 1 行だけ」という不変条件の判定 SSOT。
-   * 判定には layoutsByDir の focusedLeafId と pty 解決の両方が要るので、利用側で
-   * 組み立てず store 側に置く。
    *
-   * session / focus / pty のいずれかが欠けたら false。undefined 同士の一致で true に
-   * 倒れる形（pty を持たない leaf が focus 中なら全行が focus 扱い）を構造的に排除する。
+   * 空の sessionId は false。focus 中のセッションが無いとき（undefined）と一致させないため
    */
   function isSessionFocused(dir: string, sessionId: string): boolean {
     if (sessionId === "") return false;
+    return focusedSessionIdOf(dir) === sessionId;
+  }
+
+  /**
+   * dir で focus が当たっている端末の Claude セッション。focus / pty / セッションのいずれかが
+   * 欠けたら undefined。
+   * 解決には layoutsByDir の focusedLeafId と pty 解決の両方が要るので、利用側で組み立てず
+   * store 側に置く。
+   */
+  function focusedSessionIdOf(dir: string): string | undefined {
     const focusedLeafId = layoutsByDir.value[dir]?.focusedLeafId;
-    if (focusedLeafId === undefined) return false;
+    if (focusedLeafId === undefined) return undefined;
     const focusedPtyId = getPtyId(focusedLeafId);
-    if (focusedPtyId === undefined) return false;
-    return focusedPtyId === claude.getPtyIdBySessionId(sessionId);
+    if (focusedPtyId === undefined) return undefined;
+    return claude.getSessionIdByPtyId(focusedPtyId);
   }
 
   /** OSC 0/2 で通知されたタイトルを保存する */
@@ -770,6 +777,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     getPtyId,
     getLeafIdByPtyId,
     isSessionFocused,
+    focusedSessionIdOf,
     // title
     setTitle,
     // screen（画面本文から asking 離脱を検知）

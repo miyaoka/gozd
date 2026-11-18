@@ -1,5 +1,6 @@
 import { tryCatch } from "@gozd/shared";
 import { h, ref, type FunctionalComponent, type Ref, type SVGAttributes } from "vue";
+import IconLucideCircle from "~icons/lucide/circle";
 import IconLucideCircleCheck from "~icons/lucide/circle-check";
 import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 
@@ -123,6 +124,30 @@ export function displayClaudeState(status: ClaudeStatus | undefined): ClaudeStat
     return "working";
   }
   return status.state;
+}
+
+export interface ClaudeStateGlyph {
+  icon: FunctionalComponent<SVGAttributes>;
+  class: string[];
+  ariaLabel: string;
+}
+
+/**
+ * セッションの一覧の行に出す状態の印。Claude が動いていないセッションも空白にせず淡色の丸を
+ * 出す（空白は「状態なし」ではなく情報の欠落に見えるため）。淡色は foreground-low を下限にする。
+ * muted は選択行の bg-selection の上でコントラストが約 3.0:1 まで落ちる
+ */
+export function claudeStateGlyph(status: ClaudeStatus | undefined): ClaudeStateGlyph {
+  const state = displayClaudeState(status);
+  if (state === undefined) {
+    return { icon: IconLucideCircle, class: ["text-foreground-low"], ariaLabel: "Idle" };
+  }
+  const visual = CLAUDE_STATE_VISUAL[state];
+  return {
+    icon: visual.icon,
+    class: [visual.color, visual.animate ?? ""],
+    ariaLabel: visual.ariaLabel,
+  };
 }
 
 /**

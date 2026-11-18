@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { useElementSize, useEventListener } from "@vueuse/core";
-import { computed, ref, useTemplateRef, watch } from "vue";
+import { computed, ref, type ShallowRef, useId, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { formatAbsoluteTime, formatCompactTime } from "../../shared/time";
 import { ResizeHandle } from "../../shared/ui";
 import { ChangesPane } from "../changes";
+import { ClaudeTasksPane, completedCount, useClaudeTasksStore } from "../claude-tasks";
 import { FilerPane } from "../filer";
 import type { FileContextMenuPayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
@@ -14,6 +15,9 @@ import { useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
 import IconLucideFolderTree from "~icons/lucide/folder-tree";
+import IconLucideListChecks from "~icons/lucide/list-checks";
+
+type NavigatorTab = "files" | "tasks";
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -26,6 +30,53 @@ const containerRef = useTemplateRef<HTMLElement>("container");
 const { height: containerHeight } = useElementSize(containerRef);
 
 const changesHeight = ref(360);
+
+const activeTab = ref<NavigatorTab>("files");
+const idPrefix = useId();
+const tabIds: Record<NavigatorTab, string> = {
+  files: `${idPrefix}-tab-files`,
+  tasks: `${idPrefix}-tab-tasks`,
+};
+const panelIds: Record<NavigatorTab, string> = {
+  files: `${idPrefix}-panel-files`,
+  tasks: `${idPrefix}-panel-tasks`,
+};
+const TAB_ORDER: readonly NavigatorTab[] = ["files", "tasks"];
+const tabButtons: Record<NavigatorTab, Readonly<ShallowRef<HTMLButtonElement | null>>> = {
+  files: useTemplateRef<HTMLButtonElement>("filesTab"),
+  tasks: useTemplateRef<HTMLButtonElement>("tasksTab"),
+};
+
+/**
+ * WAI-ARIA の Tabs パターンのキーボード操作。左右の矢印で隣のタブへ移って選択し、両端では
+ * 反対側へ折り返す。Home / End で先頭 / 末尾へ移る。選択中のタブだけを Tab 順に入れる
+ * （tabindex）ので、Tab キーはタブ列を 1 回で抜ける
+ */
+function onTabKeydown(event: KeyboardEvent) {
+  const current = TAB_ORDER.indexOf(activeTab.value);
+  const last = TAB_ORDER.length - 1;
+  const nextIndex: Record<string, number> = {
+    ArrowRight: current === last ? 0 : current + 1,
+    ArrowLeft: current === 0 ? last : current - 1,
+    Home: 0,
+    End: last,
+  };
+  const index = nextIndex[event.key];
+  if (index === undefined) return;
+  event.preventDefault();
+  const next = TAB_ORDER[index];
+  if (next === undefined) return;
+  activeTab.value = next;
+  tabButtons[next].value?.focus();
+}
+
+// フォーカス中のセッションの進み具合。タブを閉じている間もタブに出す
+const claudeTasksStore = useClaudeTasksStore();
+const taskProgress = computed(() => {
+  const list = claudeTasksStore.focusedList;
+  if (list.tasks.length === 0) return undefined;
+  return `${completedCount(list)}/${list.tasks.length}`;
+});
 
 // コンテナ縮小時に changesHeight をクランプ（Filer が潰れるのを防ぐ）
 // useElementSize は mount 直後 0 を返すため、計測前は clamp をスキップする。
@@ -207,50 +258,114 @@ function onFileContextMenu(req: FileContextMenuPayload) {
 
 <template>
   <div
-    ref="container"
     class="flex size-full flex-col overflow-hidden border-l border-border bg-background text-foreground"
   >
-    <!-- Filer -->
-    <div ref="filerWrapper" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-border px-3">
-        <span class="flex shrink-0 items-center gap-1 text-xs font-semibold text-foreground">
+    <div class="flex h-8 shrink-0 items-center gap-3 border-b border-border px-3">
+      <div
+        class="flex shrink-0 items-center gap-3"
+        role="tablist"
+        aria-label="Navigator"
+        @keydown="onTabKeydown"
+      >
+        <button
+          :id="tabIds.files"
+          ref="filesTab"
+          type="button"
+          role="tab"
+          :tabindex="activeTab === 'files' ? 0 : -1"
+          class="flex shrink-0 items-center gap-1 text-xs transition-colors"
+          :class="
+            activeTab === 'files'
+              ? 'font-semibold text-foreground'
+              : 'text-foreground-low hover:text-foreground'
+          "
+          :aria-selected="activeTab === 'files'"
+          :aria-controls="panelIds.files"
+          @click="activeTab = 'files'"
+        >
           <IconLucideFolderTree class="size-3.5" />
           Files
-        </span>
-        <span
-          v-if="headerStatus"
-          class="min-w-0 flex-1 truncate text-xs text-foreground-low"
-          :title="headerStatus.title"
+        </button>
+        <button
+          :id="tabIds.tasks"
+          ref="tasksTab"
+          type="button"
+          role="tab"
+          :tabindex="activeTab === 'tasks' ? 0 : -1"
+          class="flex shrink-0 items-center gap-1 text-xs transition-colors"
+          :class="
+            activeTab === 'tasks'
+              ? 'font-semibold text-foreground'
+              : 'text-foreground-low hover:text-foreground'
+          "
+          :aria-selected="activeTab === 'tasks'"
+          :aria-controls="panelIds.tasks"
+          @click="activeTab = 'tasks'"
         >
-          {{ headerStatus.text }}
-        </span>
+          <IconLucideListChecks class="size-3.5" />
+          Tasks
+          <span v-if="taskProgress" class="font-normal text-foreground-low">{{
+            taskProgress
+          }}</span>
+        </button>
       </div>
-      <div class="min-h-0 flex-1 overflow-hidden">
+      <span
+        v-if="activeTab === 'files' && headerStatus"
+        class="min-w-0 flex-1 truncate text-xs text-foreground-low"
+        :title="headerStatus.title"
+      >
+        {{ headerStatus.text }}
+      </span>
+    </div>
+
+    <!-- Files タブ。ツリーの開閉やスクロールを保つため、隠すだけで破棄しない -->
+    <div
+      v-show="activeTab === 'files'"
+      :id="panelIds.files"
+      ref="container"
+      role="tabpanel"
+      tabindex="0"
+      :aria-labelledby="tabIds.files"
+      class="flex min-h-0 flex-1 flex-col overflow-hidden"
+    >
+      <!-- Filer -->
+      <div ref="filerWrapper" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <FilerPane
           :menu-target-rel-path="menuTargetRelPath"
           @select="onFileSelect"
           @context-menu="onFileContextMenu"
         />
       </div>
+
+      <!-- Changes（git リポジトリのみ） -->
+      <template v-if="repoStore.selectedIsGitRepo">
+        <ResizeHandle
+          v-model:after-size="changesHeight"
+          direction="vertical"
+          :before-min-size="FILER_MIN_HEIGHT"
+          :after-min-size="CHANGES_MIN_HEIGHT"
+          :get-before-size="getFilerHeight"
+        />
+        <div class="shrink-0 overflow-hidden" :style="{ height: `${changesHeight}px` }">
+          <ChangesPane
+            @select="onFileSelect"
+            @context-menu="onFileContextMenu"
+            @view-all="previewStore.toggleSummary()"
+          />
+        </div>
+      </template>
     </div>
 
-    <!-- Changes（git リポジトリのみ） -->
-    <template v-if="repoStore.selectedIsGitRepo">
-      <ResizeHandle
-        v-model:after-size="changesHeight"
-        direction="vertical"
-        :before-min-size="FILER_MIN_HEIGHT"
-        :after-min-size="CHANGES_MIN_HEIGHT"
-        :get-before-size="getFilerHeight"
-      />
-      <div class="shrink-0 overflow-hidden" :style="{ height: `${changesHeight}px` }">
-        <ChangesPane
-          @select="onFileSelect"
-          @context-menu="onFileContextMenu"
-          @view-all="previewStore.toggleSummary()"
-        />
-      </div>
-    </template>
+    <div
+      v-show="activeTab === 'tasks'"
+      :id="panelIds.tasks"
+      role="tabpanel"
+      tabindex="0"
+      :aria-labelledby="tabIds.tasks"
+      class="min-h-0 flex-1 overflow-hidden"
+    >
+      <ClaudeTasksPane />
+    </div>
 
     <!-- ファイル行の右クリックメニュー (Filer / Changes 共用) -->
     <FileContextMenu />

@@ -630,6 +630,7 @@ export const useTerminalStore = defineStore("terminal", () => {
    * サイドバー / ダッシュボードの「端末が開いているセッション」の母集団。
    * terminalTitle は端末タイトルから状態プレフィックスを落とした値で、表示タイトルの
    * 第一候補になる（`sessionDisplayTitle`）。
+   * 並びは端末を作った古い順（`paneRegistry` の挿入順。キーが UUID なので保たれる）。
    */
   const liveSessions = computed<LiveSession[]>(() => {
     const sessions: LiveSession[] = [];

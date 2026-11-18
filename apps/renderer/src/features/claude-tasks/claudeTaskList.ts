@@ -32,15 +32,12 @@ export function taskListHeadline(list: ClaudeTaskList): string {
   return current.activeForm === "" ? current.subject : current.activeForm;
 }
 
-/** 並べたときの順位。人間の対応が要るもの、タスクが残るもの、すべて完了したものの順 */
-export function attentionRank(list: ClaudeTaskList, asking: boolean): number {
-  if (asking) return 0;
-  if (!isAllCompleted(list)) return 1;
-  return 2;
+/** 未完了のタスクの ID。一覧ごとに 1 回作り、各タスクの isBlocked に渡す */
+export function openTaskIds(tasks: readonly ClaudeTask[]): ReadonlySet<string> {
+  return new Set(tasks.filter((task) => task.status !== "completed").map((task) => task.id));
 }
 
 /** 未完了の依存先が残っているか。完了した依存先が blockedBy に残っていても待ちではない */
-export function isBlocked(task: ClaudeTask, tasks: readonly ClaudeTask[]): boolean {
-  const openIds = new Set(tasks.filter((entry) => entry.status !== "completed").map((t) => t.id));
+export function isBlocked(task: ClaudeTask, openIds: ReadonlySet<string>): boolean {
   return task.blockedBy.some((id) => openIds.has(id));
 }

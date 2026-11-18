@@ -20,12 +20,12 @@ import IconLucideListChecks from "~icons/lucide/list-checks";
 type NavigatorTab = "files" | "tasks";
 
 const HANDLE_HEIGHT = 8;
-const FILER_MIN_HEIGHT = 100;
+const TAB_SURFACE_MIN_HEIGHT = 100;
 const CHANGES_MIN_HEIGHT = 60;
 
 const repoStore = useRepoStore();
 const previewStore = usePreviewStore();
-const filerWrapperRef = useTemplateRef<HTMLElement>("filerWrapper");
+const tabSurfaceRef = useTemplateRef<HTMLElement>("tabSurface");
 const containerRef = useTemplateRef<HTMLElement>("container");
 const { height: containerHeight } = useElementSize(containerRef);
 
@@ -78,7 +78,7 @@ const taskProgress = computed(() => {
   return `${completedCount(list)}/${list.tasks.length}`;
 });
 
-// コンテナ縮小時に changesHeight をクランプ（Filer が潰れるのを防ぐ）
+// コンテナ縮小時に changesHeight をクランプ（タブの面が潰れるのを防ぐ）
 // useElementSize は mount 直後 0 を返すため、計測前は clamp をスキップする。
 // watch source は外因（containerHeight）だけにする。changesHeight は書き換え対象なので
 // source に含めると再帰発火経路が混入する（user resize は別ロジックでクランプ済み）。
@@ -86,7 +86,7 @@ watch(
   containerHeight,
   (h) => {
     if (h <= 0) return;
-    const maxChanges = h - FILER_MIN_HEIGHT - HANDLE_HEIGHT;
+    const maxChanges = h - TAB_SURFACE_MIN_HEIGHT - HANDLE_HEIGHT;
     if (changesHeight.value > maxChanges) {
       changesHeight.value = Math.max(CHANGES_MIN_HEIGHT, maxChanges);
     }
@@ -94,9 +94,9 @@ watch(
   { immediate: true },
 );
 
-/** Filer ペインの DOM 実測高さ（flex-1 のため v-model 不可） */
-function getFilerHeight(): number {
-  return filerWrapperRef.value?.offsetHeight ?? FILER_MIN_HEIGHT;
+/** タブの面（Files / Tasks）の DOM 実測高さ（flex-1 のため v-model 不可） */
+function getTabSurfaceHeight(): number {
+  return tabSurfaceRef.value?.offsetHeight ?? TAB_SURFACE_MIN_HEIGHT;
 }
 
 function onFileSelect(relPath: string) {
@@ -318,23 +318,35 @@ function onFileContextMenu(req: FileContextMenuPayload) {
       </span>
     </div>
 
-    <!-- Files タブ。ツリーの開閉やスクロールを保つため、隠すだけで破棄しない -->
-    <div
-      v-show="activeTab === 'files'"
-      :id="panelIds.files"
-      ref="container"
-      role="tabpanel"
-      tabindex="0"
-      :aria-labelledby="tabIds.files"
-      class="flex min-h-0 flex-1 flex-col overflow-hidden"
-    >
-      <!-- Filer -->
-      <div ref="filerWrapper" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <FilerPane
-          :menu-target-rel-path="menuTargetRelPath"
-          @select="onFileSelect"
-          @context-menu="onFileContextMenu"
-        />
+    <div ref="container" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <!-- タブの面。Changes はタブに属さず、どちらのタブでも下に残す -->
+      <div ref="tabSurface" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <!-- Files タブ。ツリーの開閉やスクロールを保つため、隠すだけで破棄しない -->
+        <div
+          v-show="activeTab === 'files'"
+          :id="panelIds.files"
+          role="tabpanel"
+          tabindex="0"
+          :aria-labelledby="tabIds.files"
+          class="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <FilerPane
+            :menu-target-rel-path="menuTargetRelPath"
+            @select="onFileSelect"
+            @context-menu="onFileContextMenu"
+          />
+        </div>
+
+        <div
+          v-show="activeTab === 'tasks'"
+          :id="panelIds.tasks"
+          role="tabpanel"
+          tabindex="0"
+          :aria-labelledby="tabIds.tasks"
+          class="min-h-0 flex-1 overflow-hidden"
+        >
+          <ClaudeTasksPane />
+        </div>
       </div>
 
       <!-- Changes（git リポジトリのみ） -->
@@ -342,9 +354,9 @@ function onFileContextMenu(req: FileContextMenuPayload) {
         <ResizeHandle
           v-model:after-size="changesHeight"
           direction="vertical"
-          :before-min-size="FILER_MIN_HEIGHT"
+          :before-min-size="TAB_SURFACE_MIN_HEIGHT"
           :after-min-size="CHANGES_MIN_HEIGHT"
-          :get-before-size="getFilerHeight"
+          :get-before-size="getTabSurfaceHeight"
         />
         <div class="shrink-0 overflow-hidden" :style="{ height: `${changesHeight}px` }">
           <ChangesPane
@@ -354,17 +366,6 @@ function onFileContextMenu(req: FileContextMenuPayload) {
           />
         </div>
       </template>
-    </div>
-
-    <div
-      v-show="activeTab === 'tasks'"
-      :id="panelIds.tasks"
-      role="tabpanel"
-      tabindex="0"
-      :aria-labelledby="tabIds.tasks"
-      class="min-h-0 flex-1 overflow-hidden"
-    >
-      <ClaudeTasksPane />
     </div>
 
     <!-- ファイル行の右クリックメニュー (Filer / Changes 共用) -->

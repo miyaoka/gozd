@@ -1,10 +1,10 @@
 import type { ClaudeTask } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import {
-  attentionRank,
   EMPTY_TASK_LIST,
   isBlocked,
   mergeTaskList,
+  openTaskIds,
   taskListHeadline,
 } from "./claudeTaskList";
 
@@ -50,20 +50,10 @@ describe("taskListHeadline", () => {
   });
 });
 
-describe("attentionRank", () => {
-  test("質問待ち、未完了あり、全件完了の順に並ぶ", () => {
-    const open = { goal: "", tasks: [task("1", "pending")] };
-    const done = { goal: "", tasks: [task("1", "completed")] };
-    expect(attentionRank(done, true)).toBe(0);
-    expect(attentionRank(open, false)).toBe(1);
-    expect(attentionRank(done, false)).toBe(2);
-  });
-});
-
 describe("isBlocked", () => {
   test("未完了の依存先が残るときだけ待ちにする", () => {
     const waiting = task("2", "pending", { blockedBy: ["1"] });
-    expect(isBlocked(waiting, [task("1", "pending"), waiting])).toBe(true);
-    expect(isBlocked(waiting, [task("1", "completed"), waiting])).toBe(false);
+    expect(isBlocked(waiting, openTaskIds([task("1", "pending"), waiting]))).toBe(true);
+    expect(isBlocked(waiting, openTaskIds([task("1", "completed"), waiting]))).toBe(false);
   });
 });

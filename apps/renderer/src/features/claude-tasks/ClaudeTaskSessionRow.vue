@@ -27,17 +27,17 @@ const completed = computed(() => completedCount(props.list));
 </script>
 
 <template>
-  <!-- 行のどこを押しても選ぶ。ボタンはフォーカスとキー操作の受け口で、その click も
-       ここへ伝わって 1 回だけ選ぶ（button の中に手順の ol は置けない） -->
+  <!-- 行のどこを押しても選ぶ。手順の ol は button の中に置けないので外に置き、button の
+       ::after を行全体に広げて手順の上の押下も button で受ける -->
   <section
-    class="flex cursor-pointer flex-col rounded-sm border transition-colors hover:bg-element-hover"
+    class="relative flex flex-col rounded-sm border transition-colors hover:bg-element-hover"
     :class="focused ? 'border-border-subtle bg-panel' : 'border-transparent'"
-    @click="emit('select')"
   >
     <button
       type="button"
-      class="flex w-full flex-col gap-1 rounded-sm px-2 py-1.5 text-left text-xs"
+      class="flex w-full flex-col gap-1 rounded-sm px-2 py-1.5 text-left text-xs after:absolute after:inset-0"
       :aria-current="focused ? 'true' : undefined"
+      @click="emit('select')"
     >
       <span class="flex w-full items-start gap-1.5">
         <component

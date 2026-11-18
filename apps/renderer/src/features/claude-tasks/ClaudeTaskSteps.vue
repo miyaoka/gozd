@@ -51,22 +51,14 @@ const steps = computed(() => {
     const visual = STEP_VISUAL[kind];
     const text =
       task.status === "in_progress" && task.activeForm !== "" ? task.activeForm : task.subject;
-    const title = [`${visual.label}: ${task.subject}`, task.description]
-      .filter((line) => line !== "")
-      .join("\n");
-    return { id: task.id, text, title, ...visual };
+    return { id: task.id, text, ...visual };
   });
 });
 </script>
 
 <template>
   <ol class="flex flex-col gap-0.5">
-    <li
-      v-for="step in steps"
-      :key="step.id"
-      class="flex items-start gap-1.5 px-1 py-0.5 text-xs"
-      :title="step.title"
-    >
+    <li v-for="step in steps" :key="step.id" class="flex items-start gap-1.5 px-1 py-0.5 text-xs">
       <component
         :is="step.icon"
         class="mt-px size-3.5 shrink-0"

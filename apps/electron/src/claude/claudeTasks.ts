@@ -94,8 +94,14 @@ export function selectCurrentGoal(tasks: readonly ClaudeTask[]): ClaudeTaskListR
 }
 
 function readTaskDir(dir: string): ClaudeTask[] {
+  const listed = tryCatch(() => readdirSync(dir));
+  if (!listed.ok) {
+    // 置き場所を確かめた後に消えた一覧は、タスクが無いのと同じ
+    if ((listed.error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw listed.error;
+  }
   const tasks: ClaudeTask[] = [];
-  for (const name of readdirSync(dir)) {
+  for (const name of listed.value) {
     if (!name.endsWith(".json")) continue;
     const path = join(dir, name);
     const read = tryCatch(() => readFileSync(path, "utf8"));

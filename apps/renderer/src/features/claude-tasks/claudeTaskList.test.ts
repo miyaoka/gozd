@@ -1,12 +1,6 @@
 import type { ClaudeTask } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
-import {
-  attentionRank,
-  EMPTY_TASK_LIST,
-  isBlocked,
-  mergeTaskList,
-  taskListHeadline,
-} from "./claudeTaskList";
+import { EMPTY_TASK_LIST, isBlocked, mergeTaskList, taskListHeadline } from "./claudeTaskList";
 
 function task(id: string, status: ClaudeTask["status"], extra: Partial<ClaudeTask> = {}) {
   return {
@@ -47,16 +41,6 @@ describe("taskListHeadline", () => {
   test("目的が無ければ実行中の手順の文言で代える", () => {
     const list = { goal: "", tasks: [task("1", "in_progress", { activeForm: "shipping" })] };
     expect(taskListHeadline(list)).toBe("shipping");
-  });
-});
-
-describe("attentionRank", () => {
-  test("質問待ち、未完了あり、全件完了の順に並ぶ", () => {
-    const open = { goal: "", tasks: [task("1", "pending")] };
-    const done = { goal: "", tasks: [task("1", "completed")] };
-    expect(attentionRank(done, true)).toBe(0);
-    expect(attentionRank(open, false)).toBe(1);
-    expect(attentionRank(done, false)).toBe(2);
   });
 });
 

@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import type { FunctionalComponent, SVGAttributes } from "vue";
 import { computed } from "vue";
-import ClaudeTaskProgressBar from "./ClaudeTaskProgressBar.vue";
-import { type ClaudeTaskList, completedCount, isBlocked, taskListHeadline } from "./claudeTaskList";
+import { type ClaudeTaskList, isBlocked } from "./claudeTaskList";
 import IconLucideCircle from "~icons/lucide/circle";
 import IconLucideCircleCheck from "~icons/lucide/circle-check";
 import IconLucideCircleDashed from "~icons/lucide/circle-dashed";
@@ -44,12 +43,6 @@ const props = defineProps<{
   list: ClaudeTaskList;
 }>();
 
-const completed = computed(() => completedCount(props.list));
-const progressLabel = computed(() => {
-  const headline = taskListHeadline(props.list);
-  return headline === "" ? "Task progress" : `Progress: ${headline}`;
-});
-
 const steps = computed(() =>
   props.list.tasks.map((task) => {
     const kind: StepKind =
@@ -66,28 +59,21 @@ const steps = computed(() =>
 </script>
 
 <template>
-  <section class="flex flex-col gap-2 rounded-sm border border-border-subtle bg-panel p-2">
-    <h3 v-if="list.goal" class="text-xs font-semibold wrap-break-word text-foreground">
-      {{ list.goal }}
-    </h3>
-    <div class="flex items-center gap-2 text-xs text-foreground-low">
-      <ClaudeTaskProgressBar
-        :completed="completed"
-        :total="list.tasks.length"
-        :label="progressLabel"
+  <ol class="flex flex-col gap-0.5">
+    <li
+      v-for="step in steps"
+      :key="step.id"
+      class="flex items-start gap-1.5 px-1 py-0.5 text-xs"
+      :title="step.title"
+    >
+      <component
+        :is="step.icon"
+        class="mt-px size-3.5 shrink-0"
+        :class="step.iconClass"
+        role="img"
+        :aria-label="step.label"
       />
-      <span class="shrink-0 tabular-nums">{{ completed }}/{{ list.tasks.length }}</span>
-    </div>
-    <ol class="flex flex-col gap-0.5">
-      <li
-        v-for="step in steps"
-        :key="step.id"
-        class="flex items-start gap-1.5 px-1 py-0.5 text-xs"
-        :title="step.title"
-      >
-        <component :is="step.icon" class="size-3.5 shrink-0" :class="step.iconClass" />
-        <span class="min-w-0 wrap-break-word" :class="step.textClass">{{ step.text }}</span>
-      </li>
-    </ol>
-  </section>
+      <span class="min-w-0 wrap-break-word" :class="step.textClass">{{ step.text }}</span>
+    </li>
+  </ol>
 </template>

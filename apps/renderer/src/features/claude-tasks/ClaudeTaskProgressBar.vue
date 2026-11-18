@@ -13,29 +13,23 @@ const width = computed(() =>
   props.total === 0 ? "0%" : `${Math.round((props.completed / props.total) * 100)}%`,
 );
 const done = computed(() => props.total > 0 && props.completed === props.total);
+
+/** 名前があるときだけ progressbar として読ませる。Vue は undefined の属性を描かない */
+const a11y = computed(() =>
+  props.label === undefined
+    ? { "aria-hidden": "true" as const }
+    : {
+        role: "progressbar",
+        "aria-label": props.label,
+        "aria-valuemin": 0,
+        "aria-valuenow": props.completed,
+        "aria-valuemax": props.total,
+      },
+);
 </script>
 
 <template>
-  <div
-    v-if="label === undefined"
-    class="h-1 w-full overflow-hidden rounded-full bg-element"
-    aria-hidden="true"
-  >
-    <div
-      class="h-full rounded-full transition-[width]"
-      :class="done ? 'bg-success' : 'bg-primary'"
-      :style="{ width }"
-    />
-  </div>
-  <div
-    v-else
-    class="h-1 w-full overflow-hidden rounded-full bg-element"
-    role="progressbar"
-    :aria-label="label"
-    aria-valuemin="0"
-    :aria-valuenow="completed"
-    :aria-valuemax="total"
-  >
+  <div class="h-1 w-full overflow-hidden rounded-full bg-element" v-bind="a11y">
     <div
       class="h-full rounded-full transition-[width]"
       :class="done ? 'bg-success' : 'bg-primary'"

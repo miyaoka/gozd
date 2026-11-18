@@ -29,14 +29,15 @@ const completed = computed(() => completedCount(props.list));
 <template>
   <!-- 行のどこを押しても選ぶ。手順の ol は button の中に置けないので外に置き、button の
        ::after を行全体に広げて手順の上の押下も button で受ける。押下中の scale は button を
-       ::after の配置の基準に変えて面を button の箱へ縮めるので、この button では止める -->
+       ::after の配置の基準に変えて面を button の箱へ縮めるので、この button では止める。
+       scale と対で当たり判定を据え置く押下中の ::before も、前提が無くなるので一緒に止める -->
   <section
     class="relative flex flex-col rounded-sm border transition-colors hover:bg-element-hover"
     :class="focused ? 'border-border-subtle bg-panel' : 'border-transparent'"
   >
     <button
       type="button"
-      class="flex w-full flex-col gap-1 rounded-sm px-2 py-1.5 text-left text-xs after:absolute after:inset-0 active:scale-none"
+      class="flex w-full flex-col gap-1 rounded-sm px-2 py-1.5 text-left text-xs after:absolute after:inset-0 active:scale-none active:before:content-none"
       :aria-current="focused ? 'true' : undefined"
       @click="emit('select')"
     >

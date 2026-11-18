@@ -16,11 +16,13 @@
     "test": "bun test scripts",
     "test:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run test",
     "test:browser:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run test:browser",
+    "typecheck": "bun check --no-script --timing",
     "typecheck:all": "pnpm -r --include-workspace-root --if-present run typecheck",
     "knip": "knip",
     "prepare": "lefthook install"
   },
   "devDependencies": {
+    "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "concurrently": "10.0.7",
     "knip": "6.45.1",

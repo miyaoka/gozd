@@ -40,7 +40,7 @@ const port = await pickVitePort();
 
 // bun は起動時の env snapshot を子プロセスのデフォルト継承に使うため、`process.env` への
 // 代入 / delete は spawnSync の子に反映されない。必ず明示の env オブジェクトで渡す
-const childEnv = { ...process.env, GOZD_DEV_VITE_PORT: String(port) };
+const childEnv: NodeJS.ProcessEnv = { ...process.env, GOZD_DEV_VITE_PORT: String(port) };
 // Electron ベースのホスト（Claude Code / VS Code 等）はターミナル環境に ELECTRON_RUN_AS_NODE=1
 // を設定することがある。子の `electron .` に漏れると Electron が素の Node として起動し
 // require("electron") が npm stub を返すため、spawn 前に必ず剥がす

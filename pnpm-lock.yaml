@@ -41,6 +41,9 @@ importers:
 
   .:
     devDependencies:
+      '@types/bun':
+        specifier: 'catalog:'
+        version: 1.4.4
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2

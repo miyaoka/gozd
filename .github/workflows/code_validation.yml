@@ -108,8 +108,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends zsh
 
-      # package.json: 集約スクリプト（*:all）の定義元。root には build / typecheck の script が
-      # 無く差分モードでは --if-present で素通りするため、ここを触った PR は全体モードに
+      # package.json: 集約スクリプト（*:all）の定義元。差分モードは選んだ workspace の
+      # script を実行し、*:all 自体は実行しないため、ここを触った PR は全体モードに
       # 切り替えないと集約スクリプト自身の破損を検出できない（glob に ** を付けないので
       # apps/*/package.json は対象外。そちらは差分フィルタが当該パッケージを選ぶ）
       - uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6

@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "bun check"
+    "typecheck": "bun check --no-script --timing"
   },
   "devDependencies": {
     "@types/node": "catalog:"

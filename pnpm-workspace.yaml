@@ -32,7 +32,6 @@ catalog:
   tailwindcss: 4.3.5
   # typescript-eslint は compiler API を埋め込み、TS7 (native) を読めないため TS6 に据え置く。
   # `typescript` の import 名は TS6 API を再エクスポートする互換 package へ向ける。
-  # renderer の型チェックが使う TS 7.1 は、この名前を奪わないよう別名（typescript-native）で入れる
   typescript: npm:@typescript/typescript6@6.0.2
   vite: 8.3.8
 

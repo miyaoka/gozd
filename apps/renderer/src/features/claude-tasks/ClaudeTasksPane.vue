@@ -9,10 +9,7 @@ import { useClaudeTasksStore } from "./useClaudeTasksStore";
 const terminalStore = useTerminalStore();
 const tasksStore = useClaudeTasksStore();
 
-/**
- * タスクを持つ生きたセッション。端末を作った新しい順に出し、選択や状態の変化で並べ替えない。
- * 並びが動くと、押そうとした行が押す前に別の位置へ逃げる
- */
+/** タスクを持つ生きたセッション。並びの契約は docs/session.md の「タスク」 */
 const rows = computed(() => {
   const result: { session: LiveSession; list: ClaudeTaskList }[] = [];
   for (const session of terminalStore.liveSessions) {
@@ -20,7 +17,6 @@ const rows = computed(() => {
     if (list === undefined || list.tasks.length === 0) continue;
     result.push({ session, list });
   }
-  // liveSessions は端末を作った古い順
   return result.toReversed();
 });
 </script>

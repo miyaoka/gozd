@@ -32,17 +32,27 @@ function makeFixture(): {
   const home = join(root, "home");
   for (const dir of [concierge, other, bin, home]) mkdirSync(dir);
   const stub = join(bin, "claude");
-  writeFileSync(stub, `#!/bin/sh\nprintf '${ARGS_MARKER}%s\\n' "$*"\n`);
+  // 引数の境界を残すため、1 引数ずつ NUL で区切って出す
+  writeFileSync(stub, `#!/bin/sh\nprintf '${ARGS_MARKER}'\nprintf '%s\\0' "$@"\n`);
   chmodSync(stub, 0o755);
   return { root, concierge, other, bin, home };
 }
 
-/** cwd で `claude` を実行し、スタブが受け取った引数を返す（改行を含む引数もそのまま） */
+/** cwd で `claude` を実行し、スタブが受け取った引数を空白でつないで返す */
 function claudeArgs(
   cwd: string,
   fixture: ReturnType<typeof makeFixture>,
   extraEnv: Record<string, string> = {},
 ): string {
+  return claudeArgv(cwd, fixture, extraEnv).join(" ");
+}
+
+/** cwd で `claude` を実行し、スタブが受け取った引数を 1 引数ずつ返す */
+function claudeArgv(
+  cwd: string,
+  fixture: ReturnType<typeof makeFixture>,
+  extraEnv: Record<string, string> = {},
+): string[] {
   const output = execFileSync(
     "zsh",
     ["-f", "-c", `source ${JSON.stringify(ZSHRC)}; cd ${JSON.stringify(cwd)}; claude hello`],
@@ -61,7 +71,10 @@ function claudeArgs(
   );
   const start = output.indexOf(ARGS_MARKER);
   if (start === -1) throw new Error(`stub claude was not called: ${output}`);
-  return output.slice(start + ARGS_MARKER.length).trimEnd();
+  return output
+    .slice(start + ARGS_MARKER.length)
+    .split("\0")
+    .slice(0, -1);
 }
 
 /** タスクの指示と窓口の指示を、中身の分かる実ファイルとして置く */
@@ -110,10 +123,12 @@ describe("zsh claude wrapper", () => {
 
   test("窓口ではタスクの指示と窓口の指示をつないで 1 つの追記にする", () => {
     const fixture = makeFixture();
-    const args = claudeArgs(fixture.concierge, fixture, writePrompts(fixture));
-    expect(args.split("--append-system-prompt").length - 1).toBe(1);
-    expect(args).not.toContain("--append-system-prompt-file");
-    expect(args).toContain("TASK RULES");
-    expect(args).toContain("CONCIERGE RULES");
+    const argv = claudeArgv(fixture.concierge, fixture, writePrompts(fixture));
+    expect(argv.filter((arg) => arg.startsWith("--append-system-prompt"))).toEqual([
+      "--append-system-prompt",
+    ]);
+    const prompt = argv[argv.indexOf("--append-system-prompt") + 1];
+    expect(prompt).toContain("TASK RULES");
+    expect(prompt).toContain("CONCIERGE RULES");
   });
 });

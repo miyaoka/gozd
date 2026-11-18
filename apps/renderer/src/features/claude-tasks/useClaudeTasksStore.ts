@@ -30,12 +30,14 @@ export const useClaudeTasksStore = defineStore("claudeTasks", () => {
   const notify = useNotificationStore();
 
   const listsBySessionId = ref<Record<string, ClaudeTaskList>>({});
-  /** 古い応答で新しい一覧を上書きしないための、セッションごとの世代 */
+  /** 古い応答で新しい一覧を上書きしないための、セッションごとの最新の世代 */
   const loadTokens = new Map<string, number>();
+  /** 世代の通し番号。セッションを捨てて同じ ID が再び現れても、捨てる前の世代と一致させない */
+  let loadSeq = 0;
   const reloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   async function load(sessionId: string) {
-    const token = (loadTokens.get(sessionId) ?? 0) + 1;
+    const token = ++loadSeq;
     loadTokens.set(sessionId, token);
     const result = await tryCatch(rpcClaudeTaskList({ sessionId }));
     if (loadTokens.get(sessionId) !== token) return;

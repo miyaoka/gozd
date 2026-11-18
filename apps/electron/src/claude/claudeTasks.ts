@@ -100,9 +100,12 @@ function readTaskDir(dir: string): ClaudeTask[] {
     const path = join(dir, name);
     const read = tryCatch(() => readFileSync(path, "utf8"));
     if (!read.ok) {
-      // 一覧を取った後に削除されたファイル（status: deleted、全件完了での片付け）はここに来る
-      if ((read.error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      throw read.error;
+      // 一覧を取った後に削除されたファイル（status: deleted、全件完了での片付け）は ENOENT で
+      // 来るので黙って外す。それ以外も壊れたファイルと同じく、そのファイルだけを外して残りを返す
+      if ((read.error as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.error(`[claudeTasks] unreadable, skipped: ${path}: ${String(read.error)}`);
+      }
+      continue;
     }
     const task = parseClaudeTask(read.value, path);
     if (task !== undefined) tasks.push(task);

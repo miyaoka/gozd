@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useElementSize, useEventListener } from "@vueuse/core";
-import { computed, ref, useId, useTemplateRef, watch } from "vue";
+import { computed, ref, type ShallowRef, useId, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { formatAbsoluteTime, formatCompactTime } from "../../shared/time";
@@ -41,6 +41,34 @@ const panelIds: Record<NavigatorTab, string> = {
   files: `${idPrefix}-panel-files`,
   tasks: `${idPrefix}-panel-tasks`,
 };
+const TAB_ORDER: readonly NavigatorTab[] = ["files", "tasks"];
+const tabButtons: Record<NavigatorTab, Readonly<ShallowRef<HTMLButtonElement | null>>> = {
+  files: useTemplateRef<HTMLButtonElement>("filesTab"),
+  tasks: useTemplateRef<HTMLButtonElement>("tasksTab"),
+};
+
+/**
+ * WAI-ARIA の Tabs パターンのキーボード操作。左右の矢印で隣のタブへ移って選択し、両端では
+ * 反対側へ折り返す。Home / End で先頭 / 末尾へ移る。選択中のタブだけを Tab 順に入れる
+ * （tabindex）ので、Tab キーはタブ列を 1 回で抜ける
+ */
+function onTabKeydown(event: KeyboardEvent) {
+  const current = TAB_ORDER.indexOf(activeTab.value);
+  const last = TAB_ORDER.length - 1;
+  const nextIndex: Record<string, number> = {
+    ArrowRight: current === last ? 0 : current + 1,
+    ArrowLeft: current === 0 ? last : current - 1,
+    Home: 0,
+    End: last,
+  };
+  const index = nextIndex[event.key];
+  if (index === undefined) return;
+  event.preventDefault();
+  const next = TAB_ORDER[index];
+  if (next === undefined) return;
+  activeTab.value = next;
+  tabButtons[next].value?.focus();
+}
 
 // フォーカス中のセッションの進み具合。タブを閉じている間もタブに出す
 const claudeTasksStore = useClaudeTasksStore();
@@ -233,11 +261,13 @@ function onFileContextMenu(req: FileContextMenuPayload) {
     class="flex size-full flex-col overflow-hidden border-l border-border bg-background text-foreground"
   >
     <div class="flex h-8 shrink-0 items-center gap-3 border-b border-border px-3">
-      <div class="flex shrink-0 items-center gap-3" role="tablist">
+      <div class="flex shrink-0 items-center gap-3" role="tablist" @keydown="onTabKeydown">
         <button
           :id="tabIds.files"
+          ref="filesTab"
           type="button"
           role="tab"
+          :tabindex="activeTab === 'files' ? 0 : -1"
           class="flex shrink-0 items-center gap-1 text-xs transition-colors"
           :class="
             activeTab === 'files'
@@ -253,8 +283,10 @@ function onFileContextMenu(req: FileContextMenuPayload) {
         </button>
         <button
           :id="tabIds.tasks"
+          ref="tasksTab"
           type="button"
           role="tab"
+          :tabindex="activeTab === 'tasks' ? 0 : -1"
           class="flex shrink-0 items-center gap-1 text-xs transition-colors"
           :class="
             activeTab === 'tasks'

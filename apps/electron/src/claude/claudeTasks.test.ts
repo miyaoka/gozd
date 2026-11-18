@@ -83,6 +83,14 @@ describe("readClaudeTasks", () => {
     expect(readClaudeTasks(SID, tasksDir).tasks.map((entry) => entry.id)).toEqual(["1"]);
   });
 
+  test("読めないファイルは一覧から外し、残りは返す", () => {
+    const tasksDir = makeTasksDir();
+    writeTask(tasksDir, "1.json", { id: "1", subject: "ok", status: "pending" });
+    // ディレクトリは .json で終わっていても読めない（EISDIR）
+    mkdirSync(join(tasksDir, SID, "2.json"));
+    expect(readClaudeTasks(SID, tasksDir).tasks.map((entry) => entry.id)).toEqual(["1"]);
+  });
+
   test("Agent Teams を率いるセッションは、チーム名の一覧を読む", () => {
     const tasksDir = makeTasksDir();
     writeTask(tasksDir, "1.json", { id: "1", subject: "lead", status: "pending" }, TEAM_LIST);

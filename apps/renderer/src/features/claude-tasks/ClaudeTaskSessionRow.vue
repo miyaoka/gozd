@@ -44,6 +44,10 @@ const completed = computed(() => completedCount(props.list));
       >
     </span>
     <span v-if="subtitle" class="w-full truncate text-foreground-low">{{ subtitle }}</span>
-    <ClaudeTaskProgressBar :completed="completed" :total="list.tasks.length" />
+    <ClaudeTaskProgressBar
+      :completed="completed"
+      :total="list.tasks.length"
+      :label="`Progress: ${headline}`"
+    />
   </button>
 </template>

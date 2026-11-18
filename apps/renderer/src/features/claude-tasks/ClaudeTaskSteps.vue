@@ -2,7 +2,7 @@
 import type { FunctionalComponent, SVGAttributes } from "vue";
 import { computed } from "vue";
 import ClaudeTaskProgressBar from "./ClaudeTaskProgressBar.vue";
-import { type ClaudeTaskList, completedCount, isBlocked } from "./claudeTaskList";
+import { type ClaudeTaskList, completedCount, isBlocked, taskListHeadline } from "./claudeTaskList";
 import IconLucideCircle from "~icons/lucide/circle";
 import IconLucideCircleCheck from "~icons/lucide/circle-check";
 import IconLucideCircleDashed from "~icons/lucide/circle-dashed";
@@ -45,6 +45,10 @@ const props = defineProps<{
 }>();
 
 const completed = computed(() => completedCount(props.list));
+const progressLabel = computed(() => {
+  const headline = taskListHeadline(props.list);
+  return headline === "" ? "Task progress" : `Progress: ${headline}`;
+});
 
 const steps = computed(() =>
   props.list.tasks.map((task) => {
@@ -67,7 +71,11 @@ const steps = computed(() =>
       {{ list.goal }}
     </h3>
     <div class="flex items-center gap-2 text-xs text-foreground-low">
-      <ClaudeTaskProgressBar :completed="completed" :total="list.tasks.length" />
+      <ClaudeTaskProgressBar
+        :completed="completed"
+        :total="list.tasks.length"
+        :label="progressLabel"
+      />
       <span class="shrink-0 tabular-nums">{{ completed }}/{{ list.tasks.length }}</span>
     </div>
     <ol class="flex flex-col gap-0.5">

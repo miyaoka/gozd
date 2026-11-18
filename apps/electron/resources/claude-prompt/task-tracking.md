@@ -6,7 +6,7 @@ Give every task metadata {"goal": "<goal>"}. The goal is one line of about 40 ch
 
 When you start a step, mark it in_progress with TaskUpdate, and mark it completed as soon as it is done. Keep only one task in_progress at a time.
 
-If steps are added or change within the same request, add or update tasks with the same goal, and mark tasks no longer needed as deleted. If the request only becomes sharper, for example a discussion settles on one approach, update the goal of the open tasks with TaskUpdate metadata instead of starting over.
+If steps are added or change within the same request, add or update tasks with the same goal, and mark tasks no longer needed as deleted. If the request only becomes sharper, for example a discussion settles on one approach, update the goal of every task of the request, completed ones included, with TaskUpdate metadata instead of starting over. The panel hides tasks whose goal differs from the newest one.
 
 When the request turns to a different aim, first mark every open task of the old goal completed or deleted so none stay pending or in_progress, then create new tasks with the new goal. The panel shows only the newest goal.
 

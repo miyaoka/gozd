@@ -13,7 +13,7 @@
     "start": "electron .",
     "spike": "pnpm build && GOZD_SPIKE_TEST=1 electron .",
     "test": "bun test",
-    "typecheck": "bun check"
+    "typecheck": "bun check --no-script --timing"
   },
   "dependencies": {
     "@parcel/watcher": "2.6.0",

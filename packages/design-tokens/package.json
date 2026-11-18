@@ -9,7 +9,7 @@
   "scripts": {
     "build": "bun src/generateTokens.ts",
     "prepare": "bun src/generateTokens.ts",
-    "typecheck": "bun check"
+    "typecheck": "bun check --no-script --timing"
   },
   "devDependencies": {
     "@adobe/leonardo-contrast-colors": "1.1.0",

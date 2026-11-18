@@ -20,7 +20,7 @@ pre-commit:
 
           - name: fmt
             glob: "**/*.{css,md}"
-            run: bun fmt {staged_files}
+            run: bun fmt --no-script {staged_files}
             stage_fixed: true
 
           # renderer の lint（ESLint 設定）と repo 全体の lint（oxlint 設定）は同じ .ts を書き換えるため、
@@ -48,7 +48,7 @@ pre-commit:
                         stage_fixed: true
                       - name: fmt
                         glob: "**/*.vue"
-                        run: bun fmt {staged_files}
+                        run: bun fmt --no-script {staged_files}
                         stage_fixed: true
                       # feature 間循環は増分で判定できない（グラフ全体の性質）ため全体走査で
                       # 実行する。staged に .ts/.vue が無い commit では走らせない
@@ -59,7 +59,7 @@ pre-commit:
                 # stage した .ts を workspace で分けずに 1 回の bun lint で検査・修正し、整形する
                 - name: lint
                   glob: "**/*.ts"
-                  run: bun lint --no-script --fix {staged_files} && bun fmt {staged_files}
+                  run: bun lint --no-script --fix {staged_files} && bun fmt --no-script {staged_files}
                   stage_fixed: true
 
     # fix 系ジョブ完了後に実行（stage_fixed によるファイル書き換え後の状態で解析）

@@ -45,11 +45,7 @@ const completed = computed(() => completedCount(props.list));
           role="img"
           :aria-label="state.ariaLabel"
         />
-        <span
-          class="min-w-0 flex-1 wrap-break-word text-foreground"
-          :class="{ 'font-semibold': focused }"
-          >{{ headline }}</span
-        >
+        <span class="min-w-0 flex-1 wrap-break-word text-foreground">{{ headline }}</span>
         <span class="shrink-0 text-foreground-low tabular-nums"
           >{{ completed }}/{{ list.tasks.length }}</span
         >

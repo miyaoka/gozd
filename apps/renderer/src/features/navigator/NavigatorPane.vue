@@ -261,7 +261,12 @@ function onFileContextMenu(req: FileContextMenuPayload) {
     class="flex size-full flex-col overflow-hidden border-l border-border bg-background text-foreground"
   >
     <div class="flex h-8 shrink-0 items-center gap-3 border-b border-border px-3">
-      <div class="flex shrink-0 items-center gap-3" role="tablist" @keydown="onTabKeydown">
+      <div
+        class="flex shrink-0 items-center gap-3"
+        role="tablist"
+        aria-label="Navigator"
+        @keydown="onTabKeydown"
+      >
         <button
           :id="tabIds.files"
           ref="filesTab"
@@ -319,6 +324,7 @@ function onFileContextMenu(req: FileContextMenuPayload) {
       :id="panelIds.files"
       ref="container"
       role="tabpanel"
+      tabindex="0"
       :aria-labelledby="tabIds.files"
       class="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
@@ -354,6 +360,7 @@ function onFileContextMenu(req: FileContextMenuPayload) {
       v-show="activeTab === 'tasks'"
       :id="panelIds.tasks"
       role="tabpanel"
+      tabindex="0"
       :aria-labelledby="tabIds.tasks"
       class="min-h-0 flex-1 overflow-hidden"
     >

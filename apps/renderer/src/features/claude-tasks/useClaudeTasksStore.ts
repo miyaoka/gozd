@@ -16,7 +16,8 @@ const RELOAD_EVENTS: ReadonlySet<string> = new Set(["tool-done", "done", "sessio
 /** 1 ターンで続けて届く tool-done を、セッションごとに 1 回の読み直しにまとめる */
 const RELOAD_DEBOUNCE_MS = 150;
 
-// HMR 再実行で hook の購読を二重に登録しないための disposer（useServerStore と同じ流儀）
+// HMR 再実行で hook の購読を二重に登録しないための disposer。module スコープに置き、
+// 再実行をまたいで前回の購読を解除する
 let disposeHook: (() => void) | undefined;
 
 /**
@@ -92,12 +93,7 @@ export const useClaudeTasksStore = defineStore("claudeTasks", () => {
   /** 選択中の worktree でフォーカスが当たっている端末の Claude セッション */
   const focusedSessionId = computed(() => {
     const dir = worktreeStore.dir;
-    if (dir === undefined) return undefined;
-    const leafId = terminalStore.layoutsByDir[dir]?.focusedLeafId;
-    if (leafId === undefined) return undefined;
-    const ptyId = terminalStore.getPtyId(leafId);
-    if (ptyId === undefined) return undefined;
-    return terminalStore.getSessionIdByPtyId(ptyId);
+    return dir === undefined ? undefined : terminalStore.focusedSessionIdOf(dir);
   });
 
   const focusedList = computed(() => {

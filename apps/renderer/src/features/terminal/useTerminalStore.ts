@@ -688,11 +688,17 @@ export const useTerminalStore = defineStore("terminal", () => {
    */
   function isSessionFocused(dir: string, sessionId: string): boolean {
     if (sessionId === "") return false;
+    return focusedSessionIdOf(dir) === sessionId;
+  }
+
+  /** dir で focus が当たっている端末の Claude セッション。focus / pty / セッションの
+   * いずれかが欠けたら undefined */
+  function focusedSessionIdOf(dir: string): string | undefined {
     const focusedLeafId = layoutsByDir.value[dir]?.focusedLeafId;
-    if (focusedLeafId === undefined) return false;
+    if (focusedLeafId === undefined) return undefined;
     const focusedPtyId = getPtyId(focusedLeafId);
-    if (focusedPtyId === undefined) return false;
-    return focusedPtyId === claude.getPtyIdBySessionId(sessionId);
+    if (focusedPtyId === undefined) return undefined;
+    return claude.getSessionIdByPtyId(focusedPtyId);
   }
 
   /** OSC 0/2 で通知されたタイトルを保存する */
@@ -770,6 +776,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     getPtyId,
     getLeafIdByPtyId,
     isSessionFocused,
+    focusedSessionIdOf,
     // title
     setTitle,
     // screen（画面本文から asking 離脱を検知）

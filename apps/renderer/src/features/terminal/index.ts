@@ -7,5 +7,5 @@ export { useTerminalStore } from "./useTerminalStore";
 export type { LiveSession } from "./useTerminalStore";
 export { applyTerminalTheme, registerThemeCommand } from "./registerThemeCommand";
 export { currentThemeName, terminalFontFamily, terminalFontSize } from "./terminalConfig";
-export { CLAUDE_STATE_VISUAL, displayClaudeState } from "./claudeStatus";
+export { CLAUDE_STATE_VISUAL, claudeStateGlyph, displayClaudeState } from "./claudeStatus";
 export type { ClaudeState, ClaudeStatus, ClaudeFxEvent, HookEvent } from "./claudeStatus";

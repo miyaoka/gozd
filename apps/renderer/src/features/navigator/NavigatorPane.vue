@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useElementSize, useEventListener } from "@vueuse/core";
-import { computed, ref, useTemplateRef, watch } from "vue";
+import { computed, ref, useId, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { formatAbsoluteTime, formatCompactTime } from "../../shared/time";
@@ -32,6 +32,15 @@ const { height: containerHeight } = useElementSize(containerRef);
 const changesHeight = ref(360);
 
 const activeTab = ref<NavigatorTab>("files");
+const idPrefix = useId();
+const tabIds: Record<NavigatorTab, string> = {
+  files: `${idPrefix}-tab-files`,
+  tasks: `${idPrefix}-tab-tasks`,
+};
+const panelIds: Record<NavigatorTab, string> = {
+  files: `${idPrefix}-panel-files`,
+  tasks: `${idPrefix}-panel-tasks`,
+};
 
 // フォーカス中のセッションの進み具合。タブを閉じている間もタブに出す
 const claudeTasksStore = useClaudeTasksStore();
@@ -223,38 +232,46 @@ function onFileContextMenu(req: FileContextMenuPayload) {
   <div
     class="flex size-full flex-col overflow-hidden border-l border-border bg-background text-foreground"
   >
-    <div class="flex h-8 shrink-0 items-center gap-3 border-b border-border px-3" role="tablist">
-      <button
-        type="button"
-        role="tab"
-        class="flex shrink-0 items-center gap-1 text-xs transition-colors"
-        :class="
-          activeTab === 'files'
-            ? 'font-semibold text-foreground'
-            : 'text-foreground-low hover:text-foreground'
-        "
-        :aria-selected="activeTab === 'files'"
-        @click="activeTab = 'files'"
-      >
-        <IconLucideFolderTree class="size-3.5" />
-        Files
-      </button>
-      <button
-        type="button"
-        role="tab"
-        class="flex shrink-0 items-center gap-1 text-xs transition-colors"
-        :class="
-          activeTab === 'tasks'
-            ? 'font-semibold text-foreground'
-            : 'text-foreground-low hover:text-foreground'
-        "
-        :aria-selected="activeTab === 'tasks'"
-        @click="activeTab = 'tasks'"
-      >
-        <IconLucideListChecks class="size-3.5" />
-        Tasks
-        <span v-if="taskProgress" class="font-normal text-foreground-low">{{ taskProgress }}</span>
-      </button>
+    <div class="flex h-8 shrink-0 items-center gap-3 border-b border-border px-3">
+      <div class="flex shrink-0 items-center gap-3" role="tablist">
+        <button
+          :id="tabIds.files"
+          type="button"
+          role="tab"
+          class="flex shrink-0 items-center gap-1 text-xs transition-colors"
+          :class="
+            activeTab === 'files'
+              ? 'font-semibold text-foreground'
+              : 'text-foreground-low hover:text-foreground'
+          "
+          :aria-selected="activeTab === 'files'"
+          :aria-controls="panelIds.files"
+          @click="activeTab = 'files'"
+        >
+          <IconLucideFolderTree class="size-3.5" />
+          Files
+        </button>
+        <button
+          :id="tabIds.tasks"
+          type="button"
+          role="tab"
+          class="flex shrink-0 items-center gap-1 text-xs transition-colors"
+          :class="
+            activeTab === 'tasks'
+              ? 'font-semibold text-foreground'
+              : 'text-foreground-low hover:text-foreground'
+          "
+          :aria-selected="activeTab === 'tasks'"
+          :aria-controls="panelIds.tasks"
+          @click="activeTab = 'tasks'"
+        >
+          <IconLucideListChecks class="size-3.5" />
+          Tasks
+          <span v-if="taskProgress" class="font-normal text-foreground-low">{{
+            taskProgress
+          }}</span>
+        </button>
+      </div>
       <span
         v-if="activeTab === 'files' && headerStatus"
         class="min-w-0 flex-1 truncate text-xs text-foreground-low"
@@ -267,7 +284,10 @@ function onFileContextMenu(req: FileContextMenuPayload) {
     <!-- Files タブ。ツリーの開閉やスクロールを保つため、隠すだけで破棄しない -->
     <div
       v-show="activeTab === 'files'"
+      :id="panelIds.files"
       ref="container"
+      role="tabpanel"
+      :aria-labelledby="tabIds.files"
       class="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
       <!-- Filer -->
@@ -298,7 +318,13 @@ function onFileContextMenu(req: FileContextMenuPayload) {
       </template>
     </div>
 
-    <div v-if="activeTab === 'tasks'" class="min-h-0 flex-1 overflow-hidden">
+    <div
+      v-show="activeTab === 'tasks'"
+      :id="panelIds.tasks"
+      role="tabpanel"
+      :aria-labelledby="tabIds.tasks"
+      class="min-h-0 flex-1 overflow-hidden"
+    >
       <ClaudeTasksPane />
     </div>
 

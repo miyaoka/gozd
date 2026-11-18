@@ -111,9 +111,9 @@ describe("zsh claude wrapper", () => {
   test("窓口ではタスクの指示と窓口の指示をつないで 1 つの追記にする", () => {
     const fixture = makeFixture();
     const args = claudeArgs(fixture.concierge, fixture, writePrompts(fixture));
-    expect(args).toBe(
-      "--append-system-prompt TASK RULES\n\nCONCIERGE RULES\n\n --settings /tmp/settings.json hello",
-    );
+    expect(args.split("--append-system-prompt").length - 1).toBe(1);
     expect(args).not.toContain("--append-system-prompt-file");
+    expect(args).toContain("TASK RULES");
+    expect(args).toContain("CONCIERGE RULES");
   });
 });

@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { CLAUDE_STATE_VISUAL, displayClaudeState, type LiveSession } from "../terminal";
+import { claudeStateGlyph, type LiveSession } from "../terminal";
 import ClaudeTaskProgressBar from "./ClaudeTaskProgressBar.vue";
 import { type ClaudeTaskList, completedCount, taskListHeadline } from "./claudeTaskList";
-import IconLucideCircle from "~icons/lucide/circle";
 
 const props = defineProps<{
   session: LiveSession;
@@ -14,18 +13,7 @@ const emit = defineEmits<{
   select: [];
 }>();
 
-const state = computed(() => {
-  const claudeState = displayClaudeState(props.session.status);
-  if (claudeState === undefined) {
-    return { icon: IconLucideCircle, class: "text-foreground-low", label: "Idle" };
-  }
-  const visual = CLAUDE_STATE_VISUAL[claudeState];
-  return {
-    icon: visual.icon,
-    class: [visual.color, visual.animate ?? ""].join(" "),
-    label: visual.ariaLabel,
-  };
-});
+const state = computed(() => claudeStateGlyph(props.session.status));
 
 const headline = computed(() => taskListHeadline(props.list) || props.session.terminalTitle);
 /** 見出しが目的や手順のときだけ、どのセッションかをセッションのタイトルで添える */
@@ -48,7 +36,7 @@ const completed = computed(() => completedCount(props.list));
         class="size-3.5 shrink-0"
         :class="state.class"
         role="img"
-        :aria-label="state.label"
+        :aria-label="state.ariaLabel"
       />
       <span class="min-w-0 flex-1 truncate text-foreground">{{ headline }}</span>
       <span class="shrink-0 text-foreground-low tabular-nums"

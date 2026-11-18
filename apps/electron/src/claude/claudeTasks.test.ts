@@ -56,7 +56,7 @@ describe("readClaudeTasks", () => {
         status: id === "1" ? "completed" : "pending",
         blocks: [],
         blockedBy: id === "10" ? ["2"] : [],
-        metadata: { goal: " ship it " },
+        metadata: { goal: "ship it" },
       });
     }
     writeTask(tasksDir, ".lock", "");

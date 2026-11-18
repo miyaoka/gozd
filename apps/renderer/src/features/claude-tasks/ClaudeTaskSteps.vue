@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { FunctionalComponent, SVGAttributes } from "vue";
 import { computed } from "vue";
-import { type ClaudeTaskList, isBlocked } from "./claudeTaskList";
+import { type ClaudeTaskList, isBlocked, openTaskIds } from "./claudeTaskList";
 import IconLucideCircle from "~icons/lucide/circle";
 import IconLucideCircleCheck from "~icons/lucide/circle-check";
 import IconLucideCircleDashed from "~icons/lucide/circle-dashed";
@@ -43,10 +43,11 @@ const props = defineProps<{
   list: ClaudeTaskList;
 }>();
 
-const steps = computed(() =>
-  props.list.tasks.map((task) => {
+const steps = computed(() => {
+  const openIds = openTaskIds(props.list.tasks);
+  return props.list.tasks.map((task) => {
     const kind: StepKind =
-      task.status === "pending" && isBlocked(task, props.list.tasks) ? "blocked" : task.status;
+      task.status === "pending" && isBlocked(task, openIds) ? "blocked" : task.status;
     const visual = STEP_VISUAL[kind];
     const text =
       task.status === "in_progress" && task.activeForm !== "" ? task.activeForm : task.subject;
@@ -54,8 +55,8 @@ const steps = computed(() =>
       .filter((line) => line !== "")
       .join("\n");
     return { id: task.id, text, title, ...visual };
-  }),
-);
+  });
+});
 </script>
 
 <template>

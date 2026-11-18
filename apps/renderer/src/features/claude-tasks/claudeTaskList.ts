@@ -32,8 +32,12 @@ export function taskListHeadline(list: ClaudeTaskList): string {
   return current.activeForm === "" ? current.subject : current.activeForm;
 }
 
+/** 未完了のタスクの ID。一覧ごとに 1 回作り、各タスクの isBlocked に渡す */
+export function openTaskIds(tasks: readonly ClaudeTask[]): ReadonlySet<string> {
+  return new Set(tasks.filter((task) => task.status !== "completed").map((task) => task.id));
+}
+
 /** 未完了の依存先が残っているか。完了した依存先が blockedBy に残っていても待ちではない */
-export function isBlocked(task: ClaudeTask, tasks: readonly ClaudeTask[]): boolean {
-  const openIds = new Set(tasks.filter((entry) => entry.status !== "completed").map((t) => t.id));
+export function isBlocked(task: ClaudeTask, openIds: ReadonlySet<string>): boolean {
   return task.blockedBy.some((id) => openIds.has(id));
 }

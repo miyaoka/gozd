@@ -1,6 +1,12 @@
 import type { ClaudeTask } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
-import { EMPTY_TASK_LIST, isBlocked, mergeTaskList, taskListHeadline } from "./claudeTaskList";
+import {
+  EMPTY_TASK_LIST,
+  isBlocked,
+  mergeTaskList,
+  openTaskIds,
+  taskListHeadline,
+} from "./claudeTaskList";
 
 function task(id: string, status: ClaudeTask["status"], extra: Partial<ClaudeTask> = {}) {
   return {
@@ -47,7 +53,7 @@ describe("taskListHeadline", () => {
 describe("isBlocked", () => {
   test("未完了の依存先が残るときだけ待ちにする", () => {
     const waiting = task("2", "pending", { blockedBy: ["1"] });
-    expect(isBlocked(waiting, [task("1", "pending"), waiting])).toBe(true);
-    expect(isBlocked(waiting, [task("1", "completed"), waiting])).toBe(false);
+    expect(isBlocked(waiting, openTaskIds([task("1", "pending"), waiting]))).toBe(true);
+    expect(isBlocked(waiting, openTaskIds([task("1", "completed"), waiting]))).toBe(false);
   });
 });

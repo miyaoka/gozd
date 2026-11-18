@@ -81,6 +81,11 @@ export const claudePluginDir = isPackaged
 const conciergePromptPath = isPackaged
   ? join(bundledAppRoot, "concierge", "prompt.md")
   : join(electronRoot, "resources", "concierge", "prompt.md");
+// 全端末の claude に付ける、タスクの記録の仕方の指示。Tasks タブが目的と手順を読めるようにする
+// （docs/session.md の「タスク」）。窓口の指示と同じく同梱リソースに置く
+export const claudeTaskPromptPath = isPackaged
+  ? join(bundledAppRoot, "claude-prompt", "task-tracking.md")
+  : join(electronRoot, "resources", "claude-prompt", "task-tracking.md");
 // packaged 時に loadFile する renderer（Vite build は base "./" なので file:// で成立する）
 export const bundledRendererIndex = join(bundledAppRoot, "views", "main", "index.html");
 
@@ -130,6 +135,7 @@ export function buildPtyEnv(
   result.GOZD_CLAUDE_PLUGIN_DIR = claudePluginDir;
   result.GOZD_CONCIERGE_DIR = conciergeDir();
   result.GOZD_CONCIERGE_PROMPT = conciergePromptPath;
+  result.GOZD_CLAUDE_TASK_PROMPT = claudeTaskPromptPath;
 
   // ZDOTDIR チェーン: 元値（親 or renderer 指定）を退避してから gozd 側に切替
   const originalZdotdir = rendererEnv.ZDOTDIR ?? process.env.ZDOTDIR ?? userHome;
@@ -140,6 +146,11 @@ export function buildPtyEnv(
   // 親 / renderer に値があればそちら優先、無ければ gozd デフォルト
   if (result.TERM_PROGRAM === undefined) result.TERM_PROGRAM = "gozd";
   if (result.FORCE_HYPERLINK === undefined) result.FORCE_HYPERLINK = "1";
+  // Claude Code のタスク管理ツールは既定で一部のモデルにしか渡されない。Tasks タブが読む
+  // タスク一覧をモデルによらず書かせるため有効にする（docs/session.md の「タスク」）
+  if (result.CLAUDE_CODE_ENABLE_TODO_TOOLS === undefined) {
+    result.CLAUDE_CODE_ENABLE_TODO_TOOLS = "1";
+  }
   if (result.HOME === undefined) result.HOME = userHome;
 
   return result;

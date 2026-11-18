@@ -6,6 +6,7 @@ import { useRepoStore } from "../../shared/repo";
 import { formatAbsoluteTime, formatCompactTime } from "../../shared/time";
 import { ResizeHandle } from "../../shared/ui";
 import { ChangesPane } from "../changes";
+import { ClaudeTasksPane, completedCount, useClaudeTasksStore } from "../claude-tasks";
 import { FilerPane } from "../filer";
 import type { FileContextMenuPayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
@@ -14,6 +15,9 @@ import { useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
 import IconLucideFolderTree from "~icons/lucide/folder-tree";
+import IconLucideListChecks from "~icons/lucide/list-checks";
+
+type NavigatorTab = "files" | "tasks";
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -26,6 +30,16 @@ const containerRef = useTemplateRef<HTMLElement>("container");
 const { height: containerHeight } = useElementSize(containerRef);
 
 const changesHeight = ref(360);
+
+const activeTab = ref<NavigatorTab>("files");
+
+// フォーカス中のセッションの進み具合。タブを閉じている間もタブに出す
+const claudeTasksStore = useClaudeTasksStore();
+const taskProgress = computed(() => {
+  const list = claudeTasksStore.focusedList;
+  if (list.tasks.length === 0) return undefined;
+  return `${completedCount(list)}/${list.tasks.length}`;
+});
 
 // コンテナ縮小時に changesHeight をクランプ（Filer が潰れるのを防ぐ）
 // useElementSize は mount 直後 0 を返すため、計測前は clamp をスキップする。
@@ -207,50 +221,86 @@ function onFileContextMenu(req: FileContextMenuPayload) {
 
 <template>
   <div
-    ref="container"
     class="flex size-full flex-col overflow-hidden border-l border-border bg-background text-foreground"
   >
-    <!-- Filer -->
-    <div ref="filerWrapper" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-border px-3">
-        <span class="flex shrink-0 items-center gap-1 text-xs font-semibold text-foreground">
-          <IconLucideFolderTree class="size-3.5" />
-          Files
-        </span>
-        <span
-          v-if="headerStatus"
-          class="min-w-0 flex-1 truncate text-xs text-foreground-low"
-          :title="headerStatus.title"
-        >
-          {{ headerStatus.text }}
-        </span>
-      </div>
-      <div class="min-h-0 flex-1 overflow-hidden">
+    <div class="flex h-8 shrink-0 items-center gap-3 border-b border-border px-3" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        class="flex shrink-0 items-center gap-1 text-xs transition-colors"
+        :class="
+          activeTab === 'files'
+            ? 'font-semibold text-foreground'
+            : 'text-foreground-low hover:text-foreground'
+        "
+        :aria-selected="activeTab === 'files'"
+        @click="activeTab = 'files'"
+      >
+        <IconLucideFolderTree class="size-3.5" />
+        Files
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="flex shrink-0 items-center gap-1 text-xs transition-colors"
+        :class="
+          activeTab === 'tasks'
+            ? 'font-semibold text-foreground'
+            : 'text-foreground-low hover:text-foreground'
+        "
+        :aria-selected="activeTab === 'tasks'"
+        @click="activeTab = 'tasks'"
+      >
+        <IconLucideListChecks class="size-3.5" />
+        Tasks
+        <span v-if="taskProgress" class="font-normal text-foreground-low">{{ taskProgress }}</span>
+      </button>
+      <span
+        v-if="activeTab === 'files' && headerStatus"
+        class="min-w-0 flex-1 truncate text-xs text-foreground-low"
+        :title="headerStatus.title"
+      >
+        {{ headerStatus.text }}
+      </span>
+    </div>
+
+    <!-- Files タブ。ツリーの開閉やスクロールを保つため、隠すだけで破棄しない -->
+    <div
+      v-show="activeTab === 'files'"
+      ref="container"
+      class="flex min-h-0 flex-1 flex-col overflow-hidden"
+    >
+      <!-- Filer -->
+      <div ref="filerWrapper" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <FilerPane
           :menu-target-rel-path="menuTargetRelPath"
           @select="onFileSelect"
           @context-menu="onFileContextMenu"
         />
       </div>
+
+      <!-- Changes（git リポジトリのみ） -->
+      <template v-if="repoStore.selectedIsGitRepo">
+        <ResizeHandle
+          v-model:after-size="changesHeight"
+          direction="vertical"
+          :before-min-size="FILER_MIN_HEIGHT"
+          :after-min-size="CHANGES_MIN_HEIGHT"
+          :get-before-size="getFilerHeight"
+        />
+        <div class="shrink-0 overflow-hidden" :style="{ height: `${changesHeight}px` }">
+          <ChangesPane
+            @select="onFileSelect"
+            @context-menu="onFileContextMenu"
+            @view-all="previewStore.toggleSummary()"
+          />
+        </div>
+      </template>
     </div>
 
-    <!-- Changes（git リポジトリのみ） -->
-    <template v-if="repoStore.selectedIsGitRepo">
-      <ResizeHandle
-        v-model:after-size="changesHeight"
-        direction="vertical"
-        :before-min-size="FILER_MIN_HEIGHT"
-        :after-min-size="CHANGES_MIN_HEIGHT"
-        :get-before-size="getFilerHeight"
-      />
-      <div class="shrink-0 overflow-hidden" :style="{ height: `${changesHeight}px` }">
-        <ChangesPane
-          @select="onFileSelect"
-          @context-menu="onFileContextMenu"
-          @view-all="previewStore.toggleSummary()"
-        />
-      </div>
-    </template>
+    <div v-if="activeTab === 'tasks'" class="min-h-0 flex-1 overflow-hidden">
+      <ClaudeTasksPane />
+    </div>
 
     <!-- ファイル行の右クリックメニュー (Filer / Changes 共用) -->
     <FileContextMenu />

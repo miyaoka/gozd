@@ -26,14 +26,26 @@ _gozd_osc7_cwd
 # - --plugin-dir: gozd の skill を運ぶ plugin。繰り返し指定できる追加専用のフラグなので、
 #   ユーザー指定の有無に関わらず常に足す。gozd の中でしか使えないコマンドを扱う skill なので、
 #   ユーザーの ~/.claude には置かずこの経路だけで供給する
-# - --append-system-prompt-file: 窓口の指示。窓口のディレクトリで起動したときだけ付ける
-#   （docs/concierge.md）。`:A` でシンボリックリンクを解決してから比べる
+# - system prompt への追記: タスクの記録の仕方の指示（docs/session.md の「タスク」）は常に、
+#   窓口の指示（docs/concierge.md）は窓口のディレクトリで起動したときだけ付ける。窓口の判定は
+#   `:A` でシンボリックリンクを解決してから比べる。追記の指定は後に渡したものだけが効くため、
+#   2 つあるときは本文をつないで 1 つの指定にする。ユーザーが自分で追記を指定したら、後に
+#   渡るユーザーの指定が効く
 claude() {
-  local arg
-  local -a gozd_args=()
+  local arg prompt_file prompt_text=""
+  local -a gozd_args=() prompt_files=()
   [[ -n "$GOZD_CLAUDE_PLUGIN_DIR" ]] && gozd_args+=(--plugin-dir "$GOZD_CLAUDE_PLUGIN_DIR")
+  [[ -n "$GOZD_CLAUDE_TASK_PROMPT" ]] && prompt_files+=("$GOZD_CLAUDE_TASK_PROMPT")
   if [[ -n "$GOZD_CONCIERGE_DIR" && -n "$GOZD_CONCIERGE_PROMPT" && "${PWD:A}" == "${GOZD_CONCIERGE_DIR:A}" ]]; then
-    gozd_args+=(--append-system-prompt-file "$GOZD_CONCIERGE_PROMPT")
+    prompt_files+=("$GOZD_CONCIERGE_PROMPT")
+  fi
+  if (( ${#prompt_files} == 1 )); then
+    gozd_args+=(--append-system-prompt-file "${prompt_files[1]}")
+  elif (( ${#prompt_files} > 1 )); then
+    for prompt_file in "${prompt_files[@]}"; do
+      prompt_text+="$(<"$prompt_file")"$'\n\n'
+    done
+    gozd_args+=(--append-system-prompt "$prompt_text")
   fi
   for arg in "$@"; do
     # `--` 以降は option ではなくプロンプト本文。走査を打ち切らないと、本文が

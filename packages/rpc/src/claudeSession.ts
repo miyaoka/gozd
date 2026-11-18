@@ -175,3 +175,32 @@ export interface ClaudeSessionLogResponse {
    * cross-session ノイズは debounce で coalesce する (refresh の per-call cost は constant)。 */
   watchDir: string;
 }
+
+/** Claude Code のタスク管理ツール（TaskCreate / TaskUpdate）が作るタスクの状態。 */
+export type ClaudeTaskStatus = "pending" | "in_progress" | "completed";
+
+/** Claude Code のタスク 1 件。Claude Code が書き出したファイルから読んだ値だけを持つ。 */
+export interface ClaudeTask {
+  id: string;
+  subject: string;
+  /** 未設定なら空文字 */
+  description: string;
+  /** 作業中に表示する文言。未設定なら空文字 */
+  activeForm: string;
+  status: ClaudeTaskStatus;
+  /** このタスクより先に終わるべきタスクの id */
+  blockedBy: string[];
+  /** タスクに書かれた目的（metadata.goal）。無ければ空文字 */
+  goal: string;
+}
+
+/** セッションのタスク一覧を読む。 */
+export interface ClaudeTaskListRequest {
+  sessionId: string;
+}
+export interface ClaudeTaskListResponse {
+  /** 今の目的。目的を持つタスクのうち最も新しいものの値。無ければ空文字 */
+  goal: string;
+  /** 今の目的のタスク。id の数値の昇順。タスクが 1 件も作られていなければ空配列 */
+  tasks: ClaudeTask[];
+}

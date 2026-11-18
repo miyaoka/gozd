@@ -23,6 +23,7 @@
 #       zsh/                             ← zsh init チェーン
 #       claude-plugin/                   ← gozd の skill を運ぶ Claude Code plugin（--plugin-dir で渡す）
 #       concierge/                       ← 窓口の Claude に付ける指示（--append-system-prompt-file で渡す）
+#       claude-prompt/                   ← 全端末の Claude に付ける指示（同上）
 #       views/main/                      ← renderer の Vite ビルド成果物
 appId: io.github.miyaoka.gozd.electron
 productName: Gozd
@@ -67,6 +68,8 @@ extraResources:
     to: app/claude-plugin
   - from: resources/concierge
     to: app/concierge
+  - from: resources/claude-prompt
+    to: app/claude-prompt
   - from: ../renderer/dist
     to: app/views/main
 mac:

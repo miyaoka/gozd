@@ -14,7 +14,7 @@ const width = computed(() =>
 );
 const done = computed(() => props.total > 0 && props.completed === props.total);
 
-/** 名前があるときだけ progressbar として読ませる。Vue は undefined の属性を描かない */
+/** 名前があるときだけ progressbar として読ませる */
 const a11y = computed(() =>
   props.label === undefined
     ? { "aria-hidden": "true" as const }

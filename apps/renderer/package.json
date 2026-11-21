@@ -48,7 +48,7 @@
     "@tailwindcss/vite": "catalog:",
     "@types/bun": "catalog:",
     "@vitejs/plugin-vue": "6.0.11",
-    "@vitest/browser-playwright": "5.1.0",
+    "@vitest/browser-playwright": "5.1.1",
     "@vue/eslint-config-prettier": "10.2.0",
     "@vue/eslint-config-typescript": "14.9.0",
     "dependency-cruiser": "18.8.0",
@@ -62,7 +62,7 @@
     "typescript": "catalog:",
     "unplugin-icons": "24.0.0",
     "vite": "catalog:",
-    "vitest": "5.1.0",
+    "vitest": "5.1.1",
     "vitest-browser-vue": "3.1.0",
     "vize": "0.778.0"
   }

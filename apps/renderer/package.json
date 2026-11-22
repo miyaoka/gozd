@@ -64,6 +64,6 @@
     "vite": "catalog:",
     "vitest": "5.1.0",
     "vitest-browser-vue": "3.1.0",
-    "vize": "0.781.0"
+    "vize": "0.784.0"
   }
 }

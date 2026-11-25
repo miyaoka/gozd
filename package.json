@@ -25,7 +25,7 @@
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "concurrently": "10.0.7",
-    "knip": "6.46.1",
+    "knip": "6.48.0",
     "lefthook": "catalog:"
   }
 }

@@ -51,7 +51,7 @@
     "@vitest/browser-playwright": "5.1.1",
     "@vue/eslint-config-prettier": "10.2.0",
     "@vue/eslint-config-typescript": "14.9.0",
-    "dependency-cruiser": "18.8.0",
+    "dependency-cruiser": "18.9.0",
     "eslint": "catalog:",
     "eslint-plugin-better-tailwindcss": "4.11.0",
     "eslint-plugin-unused-imports": "catalog:",

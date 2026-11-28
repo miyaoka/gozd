@@ -24,7 +24,7 @@ allowBuilds:
 catalog:
   '@tailwindcss/vite': 4.3.5
   '@types/bun': 1.4.5
-  '@types/node': 26.6.6
+  '@types/node': 26.6.10
   '@typescript-eslint/parser': 8.73.0
   eslint: 10.15.0
   eslint-plugin-unused-imports: 4.4.1
